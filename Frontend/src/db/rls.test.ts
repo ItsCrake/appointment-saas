@@ -6,10 +6,16 @@ const TABLES = [
   "appointments",
   "businesses",
   "notifications",
+  // No owner policy: rate_limits is infrastructure with no business_id, so
+  // RLS is on with no policy at all — nothing but the app connection reads it.
+  "rate_limits",
   "services",
   "time_off",
   "working_hours",
 ];
+
+/** Tables that carry tenant data and therefore need an owner policy. */
+const TENANT_TABLES = TABLES.filter((t) => t !== "rate_limits");
 
 let harness: Awaited<ReturnType<typeof createTestDb>>;
 
@@ -43,7 +49,7 @@ describe("row level security", () => {
       `SELECT tablename, roles::text FROM pg_policies WHERE schemaname = 'public'`,
     );
 
-    expect(res.rows.map((r) => r.tablename).sort()).toEqual(TABLES);
+    expect(res.rows.map((r) => r.tablename).sort()).toEqual(TENANT_TABLES);
     for (const row of res.rows) {
       expect(row.roles).toContain("authenticated");
     }

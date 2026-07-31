@@ -226,6 +226,29 @@ export const notifications = pgTable(
   ],
 );
 
+/**
+ * Fixed-window counters. Postgres rather than Redis: no extra infrastructure,
+ * and it works across serverless instances — an in-memory map would reset on
+ * every cold start and give only the appearance of protection.
+ *
+ * The window bucket is baked into `key`, so each window is its own row and a
+ * single upsert both increments and reports the current count.
+ */
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    /** "<scope>:<identifier>:<windowStartEpochMs>" */
+    key: text("key").primaryKey(),
+    count: integer("count").notNull().default(0),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    /** Pruned by the notifications cron; nothing here is worth keeping. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("rate_limits_expires_idx").on(t.expiresAt)],
+);
+
+export type RateLimitRow = typeof rateLimits.$inferSelect;
+
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   business: one(businesses, {
     fields: [notifications.businessId],

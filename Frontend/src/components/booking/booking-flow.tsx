@@ -39,6 +39,7 @@ export function BookingFlow({ slug, business, services }: Props) {
   const [service, setService] = useState<BookingService>();
   const [date, setDate] = useState(today);
   const [slot, setSlot] = useState<Slot>();
+  const [startedAt, setStartedAt] = useState<number | null>(null);
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -96,6 +97,10 @@ export function BookingFlow({ slug, business, services }: Props) {
     setSlot(next);
     setSubmitError(undefined);
     setStep(3);
+    // Event handler, so Date.now() is legitimate here. Measuring from slot
+    // choice rather than form mount also matches what we actually care about:
+    // how long a person spent on the final step.
+    setStartedAt(Date.now());
   }
 
   function back() {
@@ -198,6 +203,7 @@ export function BookingFlow({ slug, business, services }: Props) {
             timezone={business.timezone}
             submitting={submitting}
             serverError={submitError}
+            startedAt={startedAt}
             onSubmit={submit}
           />
         ) : null}

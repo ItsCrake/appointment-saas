@@ -202,7 +202,8 @@ appointments
 
 ### Phase 6 — Ship
 - [ ] Playwright E2E: full booking flow + cancel flow + admin CRUD.
-- [ ] Sentry, rate limiting on booking endpoint, honeypot/anti-spam on the public form.
+- [x] Rate limiting on booking endpoint, honeypot/anti-spam on the public form. *(Postgres fixed-window counters, `0007`; IP + phone-per-business layers; honeypot returns fabricated success. **Sentry still outstanding.**)*
+- [x] **Added:** security headers moved from `vercel.json` to `next.config.ts`, so they apply in dev and on any host — and are testable locally.
 - [ ] Production deploy to Vercel, custom domain, DB backups verified.
 - [ ] Pilot with 1–2 real businesses; collect feedback before building payments/staff/WhatsApp.
 

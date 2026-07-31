@@ -11,12 +11,23 @@ import { clientDetailsSchema, type ClientDetails } from "@/lib/validation";
 
 import type { BookingService } from "./types";
 
+/**
+ * Module scope on purpose: the React compiler flags any impure call written
+ * lexically inside a component, even one that only ever runs from an event
+ * handler.
+ */
+function elapsedSince(start: number | null) {
+  return start === null ? undefined : Date.now() - start;
+}
+
 type Props = {
   service: BookingService;
   slot: Slot;
   timezone: string;
   submitting: boolean;
   serverError?: string;
+  /** Epoch ms when the slot was picked; the clock for the human-pace check. */
+  startedAt: number | null;
   onSubmit: (details: ClientDetails) => void;
 };
 
@@ -26,6 +37,7 @@ export function DetailsStep({
   timezone,
   submitting,
   serverError,
+  startedAt,
   onSubmit,
 }: Props) {
   const {
@@ -42,6 +54,10 @@ export function DetailsStep({
       notes: "",
     },
   });
+
+  function submitWithTiming(values: ClientDetails) {
+    onSubmit({ ...values, elapsedMs: elapsedSince(startedAt) });
+  }
 
   const when = formatFullDateTime(slot.startsAt, timezone);
 
@@ -79,7 +95,11 @@ export function DetailsStep({
         </dl>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+      <form
+        onSubmit={handleSubmit(submitWithTiming)}
+        noValidate
+        className="relative space-y-4"
+      >
         <Field
           label="שם מלא"
           error={errors.clientName?.message}
@@ -163,6 +183,27 @@ export function DetailsStep({
             {...register("notes")}
           />
         </Field>
+
+        {/*
+          Honeypot. Positioned off-screen rather than display:none, which is
+          the pattern scrapers most commonly detect and skip. aria-hidden and
+          tabIndex={-1} keep it away from screen readers and the tab order;
+          the unusual name plus autoComplete="off" keeps password managers off
+          it.
+        */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-[9999px] h-0 w-0 overflow-hidden"
+        >
+          <label htmlFor="contact_reference">אל תמלאו שדה זה</label>
+          <input
+            id="contact_reference"
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            {...register("contactReference")}
+          />
+        </div>
 
         {serverError ? (
           <p

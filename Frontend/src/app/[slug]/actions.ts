@@ -14,7 +14,14 @@ import {
 } from "@/db/queries";
 import { getAvailableSlots, type Slot } from "@/lib/availability";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
-import { bookingInputSchema, normalizePhone } from "@/lib/validation";
+import { BOOKING_RULES, rateLimitMessage, SLOTS_RULE } from "@/lib/rate-limit";
+import { enforceRateLimits } from "@/lib/rate-limit-guard";
+import { getClientIp } from "@/lib/request-context";
+import {
+  bookingInputSchema,
+  looksAutomated,
+  normalizePhone,
+} from "@/lib/validation";
 
 export type SlotsResult =
   { ok: true; slots: Slot[] } | { ok: false; error: string };
@@ -28,6 +35,14 @@ export async function fetchSlotsAction(
   serviceId: string,
   date: string,
 ): Promise<SlotsResult> {
+  // Cheap per call, but an unauthenticated endpoint worth capping anyway.
+  const limited = await enforceRateLimits(db, [
+    { rule: SLOTS_RULE, identifier: await getClientIp() },
+  ]);
+  if (!limited.allowed) {
+    return { ok: false, error: rateLimitMessage(limited.decision) };
+  }
+
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) return { ok: false, error: "העסק לא נמצא" };
 
@@ -60,7 +75,35 @@ export type BookingConfirmation = {
 
 export type BookingResult =
   | { ok: true; appointment: BookingConfirmation }
-  | { ok: false; error: string; code?: "SLOT_TAKEN" | "VALIDATION" };
+  | {
+      ok: false;
+      error: string;
+      code?: "SLOT_TAKEN" | "VALIDATION" | "RATE_LIMITED";
+    };
+
+/**
+ * A confirmation shaped exactly like a real one, backed by nothing. Only ever
+ * returned to a submission that tripped the honeypot.
+ */
+function fabricateConfirmation(input: {
+  clientName: string;
+  clientPhone: string;
+  startsAt: string;
+}): BookingConfirmation {
+  return {
+    id: randomUUID(),
+    cancelToken: randomUUID(),
+    serviceName: "",
+    priceCents: 0,
+    currency: "ILS",
+    startsAt: input.startsAt,
+    endsAt: input.startsAt,
+    businessName: "",
+    businessTimezone: "Asia/Jerusalem",
+    clientName: input.clientName,
+    clientPhone: input.clientPhone,
+  };
+}
 
 /**
  * Creates the appointment. Everything the client sent is re-derived or
@@ -93,6 +136,41 @@ export async function createBookingAction(
     clientEmail,
     notes,
   } = parsed.data;
+
+  const clientIp = await getClientIp();
+  const normalisedPhone = normalizePhone(clientPhone);
+
+  // Rate limits are consumed *before* the honeypot check on purpose. If the
+  // honeypot short-circuited first, a script that fills it would get an
+  // unlimited supply of free requests; this way its traffic still burns the
+  // IP budget and gets throttled like anything else.
+  const limited = await enforceRateLimits(db, [
+    { rule: BOOKING_RULES.ipHourly, identifier: clientIp },
+    { rule: BOOKING_RULES.ipDaily, identifier: clientIp },
+    {
+      rule: BOOKING_RULES.phoneDaily,
+      identifier: `${businessId}:${normalisedPhone}`,
+    },
+  ]);
+
+  if (!limited.allowed) {
+    return {
+      ok: false,
+      code: "RATE_LIMITED",
+      error: rateLimitMessage(limited.decision),
+    };
+  }
+
+  // Honeypot / timing check. Returns a fabricated success so a script gets no
+  // signal to tune against — nothing is written. Logged so we can audit every
+  // trip and spot a false positive if one ever occurs.
+  const automated = looksAutomated(parsed.data);
+  if (automated.automated) {
+    console.warn(
+      `[antispam] discarded booking for business ${businessId}: ${automated.reason}`,
+    );
+    return { ok: true, appointment: fabricateConfirmation(parsed.data) };
+  }
 
   const [businessRow, service] = await Promise.all([
     getBusinessById(db, businessId),
@@ -135,7 +213,7 @@ export async function createBookingAction(
       endsAt: end,
       status: "confirmed",
       clientName,
-      clientPhone: normalizePhone(clientPhone),
+      clientPhone: normalisedPhone,
       clientEmail: clientEmail || null,
       notes: notes || null,
       serviceName: service.name,

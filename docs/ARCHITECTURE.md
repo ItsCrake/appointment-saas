@@ -46,6 +46,8 @@ Six tables, all tenant-scoped by `business_id`.
 - **appointments** — UTC instants, status enum, snapshots `service_name` and
   `price_cents`, `cancel_token` for the self-service link
 - **notifications** — transactional outbox (see below)
+- **rate_limits** — fixed-window counters; the only table with no
+  `business_id`, so RLS is on with **no policy at all**
 
 Migrations `0000`–`0006` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
@@ -113,6 +115,15 @@ convention. It only redirects; the real authorization boundary is
 `requireBusiness()` in `src/lib/dashboard-session.ts`, which resolves the
 business **from the session** and is called by every dashboard page and action.
 No action takes a business id from its request body.
+
+**Abuse defence is layered, and fails open.** The public booking action is
+unauthenticated by design, so it carries a honeypot (a visually hidden field
+that returns a *fabricated* success, writing nothing, so a script gets no
+signal) plus Postgres-backed rate limits on IP and on phone-per-business. Rate
+limits are consumed **before** the honeypot check, or a bot filling the
+honeypot would get unlimited free requests. If the counter table is
+unreachable, requests are allowed through: refusing every booking because a
+counter is down is worse than the spam.
 
 **Onboarding state is explicit.** `onboarding_completed_at` rather than
 inferring from service count, which would drag an owner back into setup after

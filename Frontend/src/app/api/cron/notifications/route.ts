@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/db";
+import { pruneExpiredRateLimits } from "@/db/queries/rate-limits";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { describeProviders } from "@/lib/notifications/providers";
 
@@ -35,9 +36,18 @@ async function handle(request: NextRequest) {
   try {
     const summary = await dispatchDueNotifications(db, { limit: 100 });
 
+    // Housekeeping rides along rather than needing a second cron entry.
+    let prunedRateLimits = 0;
+    try {
+      prunedRateLimits = await pruneExpiredRateLimits(db, new Date());
+    } catch (error) {
+      console.error("rate-limit prune failed", error);
+    }
+
     return NextResponse.json({
       ok: true,
       ...summary,
+      prunedRateLimits,
       providers: describeProviders(),
       durationMs: Date.now() - started,
     });

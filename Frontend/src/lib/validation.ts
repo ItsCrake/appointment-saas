@@ -34,7 +34,41 @@ export const clientDetailsSchema = z.object({
     .union([z.email("כתובת אימייל לא תקינה"), z.literal("")])
     .optional(),
   notes: z.string().trim().max(500, "ההערה ארוכה מדי").optional(),
+  /**
+   * Honeypot. Visually hidden and excluded from the tab order, so a human
+   * cannot fill it — anything here means a script. Deliberately permissive:
+   * the value is inspected by the server, never rejected by validation, so
+   * the bot sees a normal success.
+   */
+  contactReference: z.string().max(200).optional(),
+  /** Milliseconds between form mount and submit. Client-supplied, so weak. */
+  elapsedMs: z.number().int().nonnegative().optional(),
 });
+
+/** A human takes longer than this to read a summary and type name + phone. */
+export const MIN_HUMAN_FILL_MS = 2500;
+
+/**
+ * True when a submission looks automated. The honeypot is the reliable signal;
+ * the timing check is defence-in-depth only, since the client supplies it.
+ */
+export function looksAutomated(input: {
+  contactReference?: string;
+  elapsedMs?: number;
+}): { automated: boolean; reason?: string } {
+  if (input.contactReference && input.contactReference.trim().length > 0) {
+    return { automated: true, reason: "honeypot filled" };
+  }
+
+  if (
+    typeof input.elapsedMs === "number" &&
+    input.elapsedMs < MIN_HUMAN_FILL_MS
+  ) {
+    return { automated: true, reason: `submitted in ${input.elapsedMs}ms` };
+  }
+
+  return { automated: false };
+}
 
 export type ClientDetails = z.infer<typeof clientDetailsSchema>;
 
