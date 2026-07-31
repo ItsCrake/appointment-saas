@@ -1,10 +1,17 @@
-import { CalendarDays, CalendarRange, UserX, XCircle } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarDays,
+  CalendarRange,
+  UserX,
+  XCircle,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 export type StatsCardsProps = {
   todayCount: number;
   weekCount: number;
+  upcomingCount: number;
   pastCount: number;
   cancelledCount: number;
   noShowCount: number;
@@ -16,6 +23,7 @@ export type StatsCardsProps = {
 export function StatsCards({
   todayCount,
   weekCount,
+  upcomingCount,
   pastCount,
   cancelledCount,
   noShowCount,
@@ -27,7 +35,7 @@ export function StatsCards({
   const ratesAreMeaningful = pastCount >= 5;
 
   return (
-    <dl className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <dl className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
       <Card
         icon={<CalendarDays className="size-4" aria-hidden />}
         label="היום"
@@ -39,6 +47,12 @@ export function StatsCards({
         label="השבוע"
         value={String(weekCount)}
         hint="מיום ראשון"
+      />
+      <Card
+        icon={<CalendarClock className="size-4" aria-hidden />}
+        label="תורים קרובים"
+        value={String(upcomingCount)}
+        hint="מכאן והלאה"
       />
       <Card
         icon={<XCircle className="size-4" aria-hidden />}

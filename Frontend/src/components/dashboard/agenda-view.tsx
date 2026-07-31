@@ -4,7 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
-import { CalendarOff, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarClock,
+  CalendarOff,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+} from "lucide-react";
 
 import { AgendaList, type AgendaAppointment } from "./agenda-list";
 import { ManualBookingDialog } from "./manual-booking-dialog";
@@ -12,6 +19,12 @@ import { dayOfMonth, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type ServiceOption = { id: string; name: string; durationMin: number };
+
+export type NextUpcoming = {
+  date: string;
+  time: string;
+  clientName: string;
+};
 
 export function AgendaView({
   today,
@@ -21,6 +34,8 @@ export function AgendaView({
   timezone,
   services,
   appointments,
+  upcomingCount,
+  nextUpcoming,
 }: {
   today: string;
   selectedDate: string;
@@ -29,6 +44,9 @@ export function AgendaView({
   timezone: string;
   services: ServiceOption[];
   appointments: AgendaAppointment[];
+  /** Everything still ahead, across all days. */
+  upcomingCount: number;
+  nextUpcoming: NextUpcoming | null;
 }) {
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const router = useRouter();
@@ -132,6 +150,28 @@ export function AgendaView({
                     aria-hidden
                   />
                   <p className="text-xs text-neutral-500">אין תורים ביום זה</p>
+
+                  {/*
+                    Without this an owner whose bookings are all days away sees
+                    an empty today and assumes the booking was lost.
+                  */}
+                  {nextUpcoming && nextUpcoming.date !== day ? (
+                    <Link
+                      href={`/dashboard?view=day&date=${nextUpcoming.date}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200"
+                    >
+                      <CalendarClock className="size-3.5" aria-hidden />
+                      {upcomingCount === 1
+                        ? "יש תור אחד קרוב"
+                        : `יש ${upcomingCount} תורים קרובים`}
+                      <span className="opacity-70">
+                        · הבא {formatDayLabel(nextUpcoming.date)} בשעה{" "}
+                        {nextUpcoming.time}
+                      </span>
+                      <ArrowLeft className="size-3.5" aria-hidden />
+                    </Link>
+                  ) : null}
+
                   <button
                     type="button"
                     onClick={() => setDialogDate(day)}
@@ -193,4 +233,9 @@ function shift(date: string, days: number) {
 
 function month(date: string) {
   return new Date(`${date}T00:00:00Z`).getUTCMonth() + 1;
+}
+
+/** "יום ראשון 2/8" — enough for an owner to orient without opening the day. */
+function formatDayLabel(date: string) {
+  return `יום ${weekdayLabel(date)} ${dayOfMonth(date)}/${month(date)}`;
 }

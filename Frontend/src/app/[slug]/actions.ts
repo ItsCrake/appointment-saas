@@ -8,7 +8,6 @@ import { db } from "@/db";
 import {
   createAppointment,
   getActiveBusinessBySlug,
-  getBusinessById,
   getService,
   SlotTakenError,
 } from "@/db/queries";
@@ -128,7 +127,7 @@ export async function createBookingAction(
   }
 
   const {
-    businessId,
+    slug,
     serviceId,
     startsAt,
     clientName,
@@ -136,6 +135,14 @@ export async function createBookingAction(
     clientEmail,
     notes,
   } = parsed.data;
+
+  // Resolved from the slug, never taken from the payload: the browser must not
+  // be able to nominate which tenant a booking is written against.
+  const businessRow = await getActiveBusinessBySlug(db, slug);
+  if (!businessRow) {
+    return { ok: false, error: "העסק אינו זמין לקביעת תורים" };
+  }
+  const businessId = businessRow.id;
 
   const clientIp = await getClientIp();
   const normalisedPhone = normalizePhone(clientPhone);
@@ -172,14 +179,9 @@ export async function createBookingAction(
     return { ok: true, appointment: fabricateConfirmation(parsed.data) };
   }
 
-  const [businessRow, service] = await Promise.all([
-    getBusinessById(db, businessId),
-    getService(db, businessId, serviceId),
-  ]);
-
-  if (!businessRow || !businessRow.isActive) {
-    return { ok: false, error: "העסק אינו זמין לקביעת תורים" };
-  }
+  // Scoped by the resolved businessId, so a service id from another tenant
+  // simply does not resolve.
+  const service = await getService(db, businessId, serviceId);
   if (!service || !service.isActive) {
     return { ok: false, error: "השירות שנבחר אינו זמין" };
   }

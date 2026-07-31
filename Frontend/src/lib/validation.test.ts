@@ -68,7 +68,8 @@ describe("clientDetailsSchema", () => {
 
 describe("bookingInputSchema", () => {
   const valid = {
-    businessId: "3f1a6c2e-9b4d-4f2a-8c1e-2d5b7a9e0f31",
+    // A slug, not a business id: the server resolves the tenant itself.
+    slug: "dana-cosmetics",
     serviceId: "8a2b4c6d-1e3f-4a5b-9c7d-0e2f4a6b8c1d",
     startsAt: "2026-08-03T06:00:00.000Z",
     clientName: "דני כהן",
@@ -79,9 +80,26 @@ describe("bookingInputSchema", () => {
     expect(bookingInputSchema.safeParse(valid).success).toBe(true);
   });
 
-  it("rejects a non-uuid business id", () => {
-    const result = bookingInputSchema.safeParse({ ...valid, businessId: "1" });
-    expect(result.success).toBe(false);
+  it("rejects a payload with no slug", () => {
+    const withoutSlug: Record<string, unknown> = { ...valid };
+    delete withoutSlug.slug;
+    expect(bookingInputSchema.safeParse(withoutSlug).success).toBe(false);
+  });
+
+  it("rejects a slug with illegal characters", () => {
+    for (const slug of ["Dana Cosmetics", "dana/../admin", "דנה"]) {
+      expect(bookingInputSchema.safeParse({ ...valid, slug }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it("lower-cases the slug so lookups match the stored value", () => {
+    const parsed = bookingInputSchema.parse({
+      ...valid,
+      slug: "Dana-Cosmetics",
+    });
+    expect(parsed.slug).toBe("dana-cosmetics");
   });
 
   it("rejects an unparseable timestamp", () => {

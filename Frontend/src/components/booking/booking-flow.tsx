@@ -116,7 +116,7 @@ export function BookingFlow({ slug, business, services }: Props) {
 
     const result = await createBookingAction({
       ...details,
-      businessId: business.id,
+      slug,
       serviceId: service.id,
       startsAt: slot.startsAt,
     });

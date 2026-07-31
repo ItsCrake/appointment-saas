@@ -74,7 +74,18 @@ export type ClientDetails = z.infer<typeof clientDetailsSchema>;
 
 /** Full payload the booking server action accepts. Never trust any of it. */
 export const bookingInputSchema = clientDetailsSchema.extend({
-  businessId: z.uuid("מזהה עסק לא תקין"),
+  /**
+   * The public page slug, not a business id. The server resolves the business
+   * from this itself, so the browser never gets to nominate which tenant a
+   * booking lands in — matching how the slot lookup already works.
+   */
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1, "כתובת העסק חסרה")
+    .max(40)
+    .regex(/^[a-z0-9-]+$/, "כתובת עסק לא תקינה"),
   serviceId: z.uuid("מזהה שירות לא תקין"),
   startsAt: z
     .string()

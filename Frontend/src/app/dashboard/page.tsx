@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
@@ -8,6 +8,7 @@ import { StatsCards } from "@/components/dashboard/stats-cards";
 import { db } from "@/db";
 import {
   getDashboardStats,
+  getNextUpcomingAppointment,
   listAppointmentsInRange,
   listServices,
 } from "@/db/queries";
@@ -50,7 +51,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
 
   const windows = getStatsWindows(business.timezone);
 
-  const [appointments, services, stats] = await Promise.all([
+  const [appointments, services, stats, nextUpcoming] = await Promise.all([
     listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
       "pending",
       "confirmed",
@@ -59,6 +60,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
     ]),
     listServices(db, business.id),
     getDashboardStats(db, business.id, windows),
+    getNextUpcomingAppointment(db, business.id, windows.now),
   ]);
 
   return (
@@ -84,6 +86,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
       <StatsCards
         todayCount={stats.todayCount}
         weekCount={stats.weekCount}
+        upcomingCount={stats.upcomingCount}
         pastCount={stats.pastCount}
         cancelledCount={stats.cancelledCount}
         noShowCount={stats.noShowCount}
@@ -93,6 +96,24 @@ export default async function AgendaPage({ searchParams }: PageProps) {
       />
 
       <AgendaView
+        upcomingCount={stats.upcomingCount}
+        nextUpcoming={
+          nextUpcoming
+            ? {
+                date: formatInTimeZone(
+                  nextUpcoming.startsAt,
+                  business.timezone,
+                  "yyyy-MM-dd",
+                ),
+                time: formatInTimeZone(
+                  nextUpcoming.startsAt,
+                  business.timezone,
+                  "HH:mm",
+                ),
+                clientName: nextUpcoming.clientName,
+              }
+            : null
+        }
         today={today}
         selectedDate={day}
         view={view}

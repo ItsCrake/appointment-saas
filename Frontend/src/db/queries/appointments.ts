@@ -88,6 +88,32 @@ export async function createAppointment(
   }
 }
 
+/**
+ * The soonest appointment still ahead. The agenda opens on today, so without
+ * this an owner whose only bookings are days away sees an empty day and
+ * reasonably concludes the booking was lost.
+ */
+export async function getNextUpcomingAppointment(
+  db: Database,
+  businessId: string,
+  now: Date,
+) {
+  const [row] = await db
+    .select()
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        gt(appointments.startsAt, now),
+        inArray(appointments.status, [...BLOCKING_STATUSES]),
+      ),
+    )
+    .orderBy(asc(appointments.startsAt))
+    .limit(1);
+
+  return row ?? null;
+}
+
 export type DashboardStats = {
   /** Excludes cancelled — the owner cares about what is actually happening. */
   todayCount: number;
