@@ -153,10 +153,10 @@ shop at a real auth user), `check:env`.
   hours and offers, robots, sitemap
 - Deployment: `vercel.json` with cron + security headers, env validation CLI
 
+- Marketing landing page at `/` — static RSC, no DB, prerendered
+
 **Not built**
 
-- Marketing landing page at `/` — still the Phase 0 placeholder, and it is
-  `priority 1.0` in the sitemap (Phase 5C, next)
 - Payments/deposits, multi-staff resources, Google Calendar sync, recurring
   appointments, reviews, custom domains
 - Service image upload (needs Supabase Storage), appointment status filters,

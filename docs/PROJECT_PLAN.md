@@ -194,7 +194,7 @@ appointments
 - [x] Sign-up flow: create business → pick slug → services → working hours → live link. *(4 steps at `/dashboard/setup`; business created at step 1 so an abandoned signup still leaves a usable account; `onboarding_completed_at` gates re-entry.)*
 - [x] Enable RLS policies on all tables; verify cross-tenant isolation with tests. *(Pulled forward to Phase 1; migrations `0002` + `0005`, 6/6 tables, 0 anon policies.)*
 - [x] Dashboard stats cards (today / week / cancellations / no-shows). *(Business-local day/week boundaries; rates measured only against appointments that have already started.)*
-- [ ] Basic marketing landing page at `/`. — **Phase 5C, next.**
+- [x] Basic marketing landing page at `/`. *(Static RSC, zero DB access: hero, live-demo banner, how-it-works, feature grid, footer. Hebrew OG/canonical metadata.)*
 
 > Note: the deploy-readiness work (env checks, security headers, `vercel.json`)
 > was done ahead of schedule and belongs to Phase 6, not here. SEO belonged to
