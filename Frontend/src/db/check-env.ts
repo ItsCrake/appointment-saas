@@ -1,0 +1,62 @@
+import dotenv from "dotenv";
+
+import { checkEnv, ENV_VARS } from "@/lib/env";
+
+dotenv.config({ path: ".env.local", quiet: true });
+
+/**
+ * `npm run check:env` — verifies local config.
+ * `npm run check:env -- --production` — applies the stricter production rules
+ * without needing NODE_ENV set, for checking a deployment's variables.
+ */
+const production = process.argv.includes("--production");
+const report = checkEnv(process.env, { production });
+
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const YELLOW = "\x1b[33m";
+const DIM = "\x1b[2m";
+const RESET = "\x1b[0m";
+
+console.log(
+  `\nEnvironment check ${DIM}(${production ? "production" : "development"} rules)${RESET}\n`,
+);
+
+const groups = [...new Set(ENV_VARS.map((v) => v.group))];
+
+for (const group of groups) {
+  console.log(`${DIM}${group}${RESET}`);
+
+  for (const spec of ENV_VARS.filter((v) => v.group === group)) {
+    const issue = report.issues.find((i) => i.name === spec.name);
+    const mark = !issue
+      ? `${GREEN}✓${RESET}`
+      : issue.level === "error"
+        ? `${RED}✗${RESET}`
+        : `${YELLOW}!${RESET}`;
+
+    const note = issue
+      ? ` ${issue.level === "error" ? RED : YELLOW}${issue.reason}${RESET}`
+      : "";
+
+    console.log(`  ${mark} ${spec.name}${note}`);
+    if (issue) console.log(`      ${DIM}${issue.howTo}${RESET}`);
+  }
+  console.log("");
+}
+
+const errors = report.issues.filter((i) => i.level === "error");
+const warnings = report.issues.filter((i) => i.level === "warning");
+
+if (report.ok) {
+  console.log(
+    `${GREEN}✓ Ready${RESET} — ${report.present.length} variables set` +
+      (warnings.length ? `, ${warnings.length} optional not configured` : "") +
+      "\n",
+  );
+} else {
+  console.log(
+    `${RED}✗ ${errors.length} problem${errors.length === 1 ? "" : "s"} must be fixed before deploying${RESET}\n`,
+  );
+  process.exitCode = 1;
+}

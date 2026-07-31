@@ -24,6 +24,14 @@ export async function getActiveBusinessBySlug(db: Database, slug: string) {
   return row ?? null;
 }
 
+/** Public booking pages, for the sitemap. */
+export async function listActiveBusinessSlugs(db: Database) {
+  return db
+    .select({ slug: businesses.slug, createdAt: businesses.createdAt })
+    .from(businesses)
+    .where(eq(businesses.isActive, true));
+}
+
 /** The dashboard's entry point: one business per authenticated owner. */
 export async function getBusinessByOwner(db: Database, ownerUserId: string) {
   const [row] = await db

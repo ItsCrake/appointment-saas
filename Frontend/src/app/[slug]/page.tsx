@@ -4,7 +4,11 @@ import { MapPin, Phone } from "lucide-react";
 
 import { BookingFlow } from "@/components/booking/booking-flow";
 import { db } from "@/db";
-import { getActiveBusinessBySlug, listServices } from "@/db/queries";
+import {
+  getActiveBusinessBySlug,
+  listServices,
+  listWorkingHours,
+} from "@/db/queries";
 
 // Availability changes by the minute — never serve this from a static cache.
 export const dynamic = "force-dynamic";
@@ -17,16 +21,89 @@ export async function generateMetadata({
   const { slug } = await params;
   const business = await getActiveBusinessBySlug(db, slug);
 
-  if (!business) return { title: "העסק לא נמצא" };
+  if (!business) {
+    return { title: "העסק לא נמצא", robots: { index: false, follow: false } };
+  }
 
+  // Absolute title: a business page should not carry the platform's suffix.
   const title = `${business.name} — קביעת תור אונליין`;
   const description =
-    business.description ?? `קביעת תור אונליין אצל ${business.name}`;
+    business.description ??
+    `קביעת תור אונליין אצל ${business.name}. בחרו שירות, יום ושעה — בלי טלפונים ובלי הרשמה.`;
+  const url = `/${slug}`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
-    openGraph: { title, description, type: "website" },
+    alternates: { canonical: url },
+    keywords: [business.name, "קביעת תור", "תורים אונליין", "יומן תורים"],
+    openGraph: {
+      title,
+      description,
+      url,
+      type: "website",
+      locale: "he_IL",
+      siteName: business.name,
+    },
+    twitter: { card: "summary", title, description },
+  };
+}
+
+/**
+ * schema.org LocalBusiness. Gives search engines the opening hours and contact
+ * details directly, which is what surfaces a small business in local results.
+ */
+function buildStructuredData(
+  business: {
+    name: string;
+    slug: string;
+    description: string | null;
+    phone: string | null;
+    address: string | null;
+    logoUrl: string | null;
+  },
+  services: { name: string; priceCents: number; currency: string }[],
+  hours: { weekday: number; startTime: string; endTime: string }[],
+  appUrl: string,
+) {
+  const DAYS = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: business.name,
+    url: `${appUrl}/${business.slug}`,
+    ...(business.description ? { description: business.description } : {}),
+    ...(business.phone ? { telephone: business.phone } : {}),
+    ...(business.logoUrl ? { image: business.logoUrl } : {}),
+    ...(business.address
+      ? {
+          address: {
+            "@type": "PostalAddress",
+            streetAddress: business.address,
+          },
+        }
+      : {}),
+    openingHoursSpecification: hours.map((shift) => ({
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: DAYS[shift.weekday],
+      opens: shift.startTime.slice(0, 5),
+      closes: shift.endTime.slice(0, 5),
+    })),
+    makesOffer: services.map((service) => ({
+      "@type": "Offer",
+      itemOffered: { "@type": "Service", name: service.name },
+      price: (service.priceCents / 100).toFixed(2),
+      priceCurrency: service.currency,
+    })),
   };
 }
 
@@ -36,10 +113,25 @@ export default async function BusinessPage({ params }: PageProps) {
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) notFound();
 
-  const services = await listServices(db, business.id);
+  const [services, hours] = await Promise.all([
+    listServices(db, business.id),
+    listWorkingHours(db, business.id),
+  ]);
+
+  const structuredData = buildStructuredData(
+    business,
+    services,
+    hours.filter((h) => !h.isClosed),
+    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col">
+      <script
+        type="application/ld+json"
+        // Serialised from our own database, not user-controlled markup.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       <header className="px-5 pt-8 pb-6 text-center">
         {business.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- remote host is per-tenant and not known at build time
