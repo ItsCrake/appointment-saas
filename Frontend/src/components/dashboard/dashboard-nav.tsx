@@ -31,6 +31,24 @@ export function DashboardNav() {
   const isActive = (href: string) =>
     href === "/dashboard" ? pathname === href : pathname.startsWith(href);
 
+  // During onboarding every other section redirects back here, so a full nav
+  // would be a set of dead ends. Offer only a way out.
+  if (pathname.startsWith("/dashboard/setup")) {
+    return (
+      <div className="flex items-center justify-end border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+        <form action={signOutAction}>
+          <button
+            type="submit"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 transition-colors hover:text-red-600"
+          >
+            <LogOut className="size-4" aria-hidden />
+            התנתקות
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Desktop: persistent sidebar. */}

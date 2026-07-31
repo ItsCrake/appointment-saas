@@ -1,31 +1,70 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { SetupForm } from "@/components/dashboard/setup-form";
+import { SetupFlow } from "@/components/dashboard/setup-flow";
 import { db } from "@/db";
-import { getBusinessByOwner } from "@/db/queries";
-import { requireUser } from "@/lib/dashboard-session";
+import { listServices, listWorkingHours } from "@/db/queries";
+import { requireBusinessForSetup } from "@/lib/dashboard-session";
 
 export const metadata: Metadata = { title: "הקמת העסק" };
+export const dynamic = "force-dynamic";
 
-export default async function SetupPage() {
-  const user = await requireUser();
+const STEPS = ["details", "services", "hours", "done"] as const;
+type Step = (typeof STEPS)[number];
 
-  const existing = await getBusinessByOwner(db, user.id);
-  if (existing) redirect("/dashboard");
+type PageProps = { searchParams: Promise<{ step?: string }> };
+
+export default async function SetupPage({ searchParams }: PageProps) {
+  const { business } = await requireBusinessForSetup();
+
+  // Finished owners have no business here; the dashboard is theirs now.
+  if (business?.onboardingCompletedAt) redirect("/dashboard");
+
+  const { step: rawStep } = await searchParams;
+  const requested = STEPS.includes(rawStep as Step) ? (rawStep as Step) : null;
+
+  // Steps beyond the first need a business row, so a deep link without one
+  // falls back to step 1 rather than erroring.
+  const step: Step = !business ? "details" : (requested ?? "details");
+
+  const [services, hours] = business
+    ? await Promise.all([
+        listServices(db, business.id, { activeOnly: false }),
+        listWorkingHours(db, business.id),
+      ])
+    : [[], []];
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   return (
-    <div className="mx-auto max-w-md">
-      <header className="mb-6 text-center">
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
-          הקמת העסק שלכם
-        </h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          פרטים בסיסיים כדי להתחיל. אפשר לשנות הכול אחר כך.
-        </p>
-      </header>
-
-      <SetupForm />
+    <div className="mx-auto max-w-xl">
+      <SetupFlow
+        step={step}
+        business={
+          business
+            ? {
+                name: business.name,
+                slug: business.slug,
+                phone: business.phone ?? "",
+                timezone: business.timezone,
+              }
+            : null
+        }
+        services={services.map((s) => ({
+          id: s.id,
+          name: s.name,
+          durationMin: s.durationMin,
+          priceCents: s.priceCents,
+        }))}
+        shifts={hours
+          .filter((h) => !h.isClosed)
+          .map((h) => ({
+            weekday: h.weekday,
+            startTime: h.startTime.slice(0, 5),
+            endTime: h.endTime.slice(0, 5),
+          }))}
+        appUrl={appUrl}
+      />
     </div>
   );
 }

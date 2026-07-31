@@ -1,20 +1,25 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { db } from "@/db";
 import {
+  completeOnboarding,
   createBusiness,
+  createService,
   getBusinessByOwner,
   isSlugTaken,
+  listServices,
   replaceWorkingHours,
+  updateBusiness,
 } from "@/db/queries";
-import { requireUser } from "@/lib/dashboard-session";
+import { requireBusinessForSetup, requireUser } from "@/lib/dashboard-session";
 
-export type SetupResult = { ok: false; error: string };
+export type SetupResult =
+  { ok: true; next: string } | { ok: false; error: string };
 
-const setupSchema = z.object({
+const detailsSchema = z.object({
   name: z.string().trim().min(2, "יש להזין שם עסק").max(80),
   slug: z
     .string()
@@ -26,7 +31,8 @@ const setupSchema = z.object({
   phone: z.string().trim().max(30).optional().or(z.literal("")),
 });
 
-/** Sensible Israeli defaults so a new business is bookable immediately. */
+// Sensible Israeli defaults, shown for confirmation in step 3. Not exported:
+// a "use server" module may only export async functions.
 const DEFAULT_SHIFTS = [0, 1, 2, 3, 4].map((weekday) => ({
   weekday,
   startTime: "09:00:00",
@@ -34,34 +40,175 @@ const DEFAULT_SHIFTS = [0, 1, 2, 3, 4].map((weekday) => ({
   isClosed: false,
 }));
 
-export async function createBusinessAction(
+/**
+ * Step 1. Creates the business immediately — an owner who abandons the flow
+ * here still has a working account rather than nothing. Re-submitting updates
+ * the existing row instead of failing on the unique slug.
+ */
+export async function saveBusinessDetailsAction(
   input: unknown,
 ): Promise<SetupResult> {
-  const parsed = setupSchema.safeParse(input);
+  const parsed = detailsSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0].message };
   }
 
   const user = await requireUser();
-
-  // One business per owner for now; re-running setup must not create a second.
   const existing = await getBusinessByOwner(db, user.id);
-  if (existing) redirect("/dashboard");
+  const { name, slug, phone } = parsed.data;
 
-  if (await isSlugTaken(db, parsed.data.slug)) {
+  if (await isSlugTaken(db, slug, existing?.id)) {
     return { ok: false, error: "הכתובת הזו כבר תפוסה. בחרו אחרת." };
   }
 
-  const business = await createBusiness(db, {
-    ownerUserId: user.id,
-    name: parsed.data.name,
-    slug: parsed.data.slug,
-    phone: parsed.data.phone || null,
-    timezone: "Asia/Jerusalem",
-    locale: "he",
-  });
+  if (existing) {
+    await updateBusiness(db, existing.id, {
+      name,
+      slug,
+      phone: phone || null,
+    });
+  } else {
+    const business = await createBusiness(db, {
+      ownerUserId: user.id,
+      name,
+      slug,
+      phone: phone || null,
+      timezone: "Asia/Jerusalem",
+      locale: "he",
+    });
+    // Seed the default week so step 3 has something to confirm.
+    await replaceWorkingHours(db, business.id, DEFAULT_SHIFTS);
+  }
 
-  await replaceWorkingHours(db, business.id, DEFAULT_SHIFTS);
+  revalidatePath("/dashboard/setup");
+  return { ok: true, next: "services" };
+}
 
-  redirect("/dashboard");
+const starterSchema = z.object({
+  services: z
+    .array(
+      z.object({
+        name: z.string().trim().min(2, "יש להזין שם שירות").max(80),
+        durationMin: z.number().int().min(5).max(600),
+        priceCents: z.number().int().min(0).max(10_000_00),
+      }),
+    )
+    .min(1, "יש להוסיף לפחות שירות אחד")
+    .max(20),
+});
+
+/**
+ * Step 2. Only inserts services the business does not already have, so going
+ * back and forward through the flow cannot create duplicates.
+ */
+export async function saveStarterServicesAction(
+  input: unknown,
+): Promise<SetupResult> {
+  const parsed = starterSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  const { business } = await requireBusinessForSetup();
+  if (!business) return { ok: false, error: "יש להשלים קודם את פרטי העסק" };
+
+  const existing = await listServices(db, business.id, { activeOnly: false });
+  const existingNames = new Set(existing.map((s) => s.name.trim()));
+
+  let sortOrder = existing.length;
+  for (const service of parsed.data.services) {
+    if (existingNames.has(service.name.trim())) continue;
+
+    await createService(db, {
+      businessId: business.id,
+      name: service.name,
+      durationMin: service.durationMin,
+      priceCents: service.priceCents,
+      sortOrder: ++sortOrder,
+    });
+  }
+
+  revalidatePath("/dashboard/setup");
+  revalidatePath(`/${business.slug}`);
+  return { ok: true, next: "hours" };
+}
+
+const TIME = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+
+const hoursSchema = z
+  .array(
+    z.object({
+      weekday: z.number().int().min(0).max(6),
+      startTime: z.string().regex(TIME, "שעה לא תקינה"),
+      endTime: z.string().regex(TIME, "שעה לא תקינה"),
+    }),
+  )
+  .max(28);
+
+const withSeconds = (value: string) =>
+  value.length === 5 ? `${value}:00` : value;
+
+/** Step 3. Same validation as the settings editor, then straight to finish. */
+export async function saveSetupHoursAction(
+  input: unknown,
+): Promise<SetupResult> {
+  const parsed = hoursSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  for (const shift of parsed.data) {
+    if (withSeconds(shift.endTime) <= withSeconds(shift.startTime)) {
+      return {
+        ok: false,
+        error: "שעת הסיום חייבת להיות אחרי שעת ההתחלה בכל משמרת",
+      };
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const shift of parsed.data) {
+    const key = `${shift.weekday}-${withSeconds(shift.startTime)}`;
+    if (seen.has(key)) {
+      return { ok: false, error: "יש שתי משמרות שמתחילות באותה שעה באותו יום" };
+    }
+    seen.add(key);
+  }
+
+  const { business } = await requireBusinessForSetup();
+  if (!business) return { ok: false, error: "יש להשלים קודם את פרטי העסק" };
+
+  await replaceWorkingHours(
+    db,
+    business.id,
+    parsed.data.map((shift) => ({
+      weekday: shift.weekday,
+      startTime: withSeconds(shift.startTime),
+      endTime: withSeconds(shift.endTime),
+      isClosed: false,
+    })),
+  );
+
+  revalidatePath("/dashboard/setup");
+  revalidatePath(`/${business.slug}`);
+  return { ok: true, next: "done" };
+}
+
+/**
+ * Step 4. Marks onboarding complete, which is what stops requireBusiness()
+ * from routing the owner back here.
+ */
+export async function completeOnboardingAction(): Promise<SetupResult> {
+  const { business } = await requireBusinessForSetup();
+  if (!business) return { ok: false, error: "יש להשלים קודם את פרטי העסק" };
+
+  const services = await listServices(db, business.id);
+  if (services.length === 0) {
+    return { ok: false, error: "יש להגדיר לפחות שירות אחד לפני הסיום" };
+  }
+
+  await completeOnboarding(db, business.id);
+
+  revalidatePath("/dashboard");
+  return { ok: true, next: "/dashboard" };
 }

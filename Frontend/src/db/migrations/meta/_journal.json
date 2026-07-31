@@ -43,6 +43,13 @@
       "when": 1785485155380,
       "tag": "0005_notifications_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785500786991,
+      "tag": "0006_onboarding_state",
+      "breakpoints": true
     }
   ]
 }

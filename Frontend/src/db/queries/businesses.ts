@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { businesses } from "../schema";
 import type { Database } from "../types";
@@ -67,6 +67,26 @@ export async function createBusiness(
 ) {
   const [row] = await db.insert(businesses).values(values).returning();
   return row;
+}
+
+/** Idempotent: re-running the finish step must not move the timestamp. */
+export async function completeOnboarding(
+  db: Database,
+  businessId: string,
+  at: Date = new Date(),
+) {
+  const [row] = await db
+    .update(businesses)
+    .set({ onboardingCompletedAt: at })
+    .where(
+      and(
+        eq(businesses.id, businessId),
+        isNull(businesses.onboardingCompletedAt),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
 }
 
 export async function updateBusiness(

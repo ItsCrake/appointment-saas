@@ -18,6 +18,22 @@ export async function requireBusiness() {
   const business = await getBusinessByOwner(db, user.id);
   if (!business) redirect("/dashboard/setup");
 
+  // A business row exists but the owner never finished setup — most likely
+  // they closed the tab mid-flow. Put them back where they left off.
+  if (!business.onboardingCompletedAt) redirect("/dashboard/setup");
+
+  return { user, business };
+}
+
+/**
+ * For the onboarding routes themselves: resolves the business without the
+ * completion check, so the flow does not redirect to itself.
+ */
+export async function requireBusinessForSetup() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  const business = await getBusinessByOwner(db, user.id);
   return { user, business };
 }
 

@@ -75,6 +75,14 @@ export const businesses = pgTable("businesses", {
   reminderHoursBefore: integer("reminder_hours_before").notNull().default(24),
   /** Where owner alerts go. NULL means the owner gets no notifications. */
   notificationEmail: text("notification_email"),
+  /**
+   * Set on the onboarding finish screen. NULL means the owner still has steps
+   * to complete; explicit state rather than inferring from service count,
+   * which would drag an owner back into setup after deleting a service.
+   */
+  onboardingCompletedAt: timestamp("onboarding_completed_at", {
+    withTimezone: true,
+  }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
