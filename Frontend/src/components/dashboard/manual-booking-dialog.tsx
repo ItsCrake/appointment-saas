@@ -33,6 +33,7 @@ export function ManualBookingDialog({
   const [time, setTime] = useState("10:00");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -60,6 +61,7 @@ export function ManualBookingDialog({
         time,
         clientName,
         clientPhone,
+        clientEmail,
         notes,
       });
 
@@ -180,6 +182,18 @@ export function ManualBookingDialog({
               value={clientPhone}
               onChange={(e) => setClientPhone(e.target.value)}
               placeholder="050-1234567"
+              className={`${FIELD} text-start`}
+            />
+          </Field>
+
+          <Field label="אימייל (לאישור ותזכורת)" htmlFor="mb-email">
+            <input
+              id="mb-email"
+              type="email"
+              dir="ltr"
+              value={clientEmail}
+              onChange={(e) => setClientEmail(e.target.value)}
+              placeholder="you@example.com"
               className={`${FIELD} text-start`}
             />
           </Field>

@@ -35,7 +35,12 @@ export function DetailsStep({
   } = useForm<ClientDetails>({
     resolver: standardSchemaResolver(clientDetailsSchema),
     mode: "onTouched",
-    defaultValues: { clientName: "", clientPhone: "", notes: "" },
+    defaultValues: {
+      clientName: "",
+      clientPhone: "",
+      clientEmail: "",
+      notes: "",
+    },
   });
 
   const when = formatFullDateTime(slot.startsAt, timezone);
@@ -118,6 +123,30 @@ export function DetailsStep({
               "text-start",
             )}
             {...register("clientPhone")}
+          />
+        </Field>
+
+        <Field
+          label="אימייל (לקבלת אישור ותזכורת)"
+          htmlFor="clientEmail"
+          error={errors.clientEmail?.message}
+        >
+          <input
+            id="clientEmail"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            dir="ltr"
+            placeholder="you@example.com"
+            aria-invalid={Boolean(errors.clientEmail)}
+            aria-describedby={
+              errors.clientEmail ? "clientEmail-error" : undefined
+            }
+            className={cn(
+              inputClass(Boolean(errors.clientEmail)),
+              "text-start",
+            )}
+            {...register("clientEmail")}
           />
         </Field>
 

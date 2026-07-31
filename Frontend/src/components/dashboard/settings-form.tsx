@@ -15,6 +15,8 @@ type Business = {
   description: string;
   bufferMin: number;
   cancelWindowHours: number;
+  reminderHoursBefore: number;
+  notificationEmail: string;
   timezone: string;
 };
 
@@ -26,6 +28,7 @@ export function SettingsForm({ business }: { business: Business }) {
     ...business,
     bufferMin: String(business.bufferMin),
     cancelWindowHours: String(business.cancelWindowHours),
+    reminderHoursBefore: String(business.reminderHoursBefore),
   });
   const [error, setError] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -47,6 +50,8 @@ export function SettingsForm({ business }: { business: Business }) {
         description: form.description,
         bufferMin: Number(form.bufferMin),
         cancelWindowHours: Number(form.cancelWindowHours),
+        reminderHoursBefore: Number(form.reminderHoursBefore),
+        notificationEmail: form.notificationEmail,
       });
 
       if (result.ok) {
@@ -164,6 +169,40 @@ export function SettingsForm({ business }: { business: Business }) {
         <p className="text-xs text-neutral-500">
           אזור זמן: <span className="font-medium">{business.timezone}</span>
         </p>
+      </Section>
+
+      <Section title="התראות">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="תזכורת ללקוח (שעות לפני)"
+            htmlFor="reminderHoursBefore"
+            hint="0 מבטל תזכורות."
+          >
+            <input
+              id="reminderHoursBefore"
+              type="number"
+              min={0}
+              max={168}
+              value={form.reminderHoursBefore}
+              onChange={(e) => set("reminderHoursBefore", e.target.value)}
+              className={`${FIELD} tabular-nums`}
+            />
+          </Field>
+          <Field
+            label="אימייל להתראות בעל העסק"
+            htmlFor="notificationEmail"
+            hint="לקבלת הודעה על תור חדש או ביטול. ריק = ללא התראות."
+          >
+            <input
+              id="notificationEmail"
+              type="email"
+              dir="ltr"
+              value={form.notificationEmail}
+              onChange={(e) => set("notificationEmail", e.target.value)}
+              className={`${FIELD} text-start`}
+            />
+          </Field>
+        </div>
       </Section>
 
       {error ? (

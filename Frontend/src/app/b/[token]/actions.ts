@@ -5,8 +5,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import {
   cancelAppointmentByToken,
+  cancelPendingNotificationsForAppointment,
   getAppointmentContextByToken,
 } from "@/db/queries";
+import { enqueueCancellationNotifications } from "@/lib/notifications/enqueue";
 import { getCancellationState } from "@/lib/cancellation";
 
 export type CancelResult = { ok: true } | { ok: false; error: string };
@@ -41,6 +43,19 @@ export async function cancelBookingAction(
 
   const cancelled = await cancelAppointmentByToken(db, token);
   if (!cancelled) return { ok: false, error: "לא ניתן לבטל את התור" };
+
+  try {
+    // Drop the queued reminder first — nobody wants a reminder for a slot
+    // they just cancelled.
+    await cancelPendingNotificationsForAppointment(db, cancelled.id);
+    await enqueueCancellationNotifications({
+      db,
+      business,
+      appointment: cancelled,
+    });
+  } catch (error) {
+    console.error("cancellation notifications failed", error);
+  }
 
   revalidatePath(`/b/${token}`);
   return { ok: true };

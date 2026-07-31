@@ -181,10 +181,14 @@ appointments
 - [x] **Added:** toast notifications, empty states, loading states across the dashboard.
 - [ ] Deferred: service image upload (needs Supabase Storage), appointment status filters, timezone editing.
 
-### Phase 4 — Notifications
-- [ ] Email adapter (Resend) + React Email templates: client confirmation, owner alert, cancellation.
-- [ ] `/api/cron/reminders` — hourly job, sends T-24h reminders, sets `reminder_sent_at` (idempotent).
-- [ ] Notification interface ready for a WhatsApp/SMS provider.
+### Phase 4 — Notifications ✅
+- [x] Email adapter (Resend) + Hebrew templates: client confirmation, owner alert, cancellation, reminder. *(Plain-text templates wrapped in minimal RTL HTML rather than React Email — one template set serves email, SMS and WhatsApp.)*
+- [x] `/api/cron/notifications` — dispatches due messages, idempotent. *(Uses a `notifications` outbox table with a unique `dedupe_key`, not `appointments.reminder_sent_at`; the column is now unused. Runs every 15 min via `vercel.json`, guarded by `CRON_SECRET`.)*
+- [x] Notification interface ready for a WhatsApp/SMS provider. *(Twilio adapters written for both; they activate when their keys are present. Every channel falls back to a console provider when unconfigured.)*
+- [x] **Added:** reminders are cancelled when their appointment is, and the dispatcher re-checks appointment state before sending.
+- [x] **Added:** RLS on `notifications` (`0005_notifications_rls.sql`) — it stores client emails and phone numbers.
+- [ ] Deferred: switching client messages to SMS/WhatsApp is a one-line channel change in `enqueue.ts` once Twilio keys exist.
+- [ ] Deferred: drop the now-unused `appointments.reminder_sent_at` column.
 
 ### Phase 5 — Onboarding & Multi-tenant Polish
 - [ ] Sign-up flow: create business → pick slug → services → working hours → live link.

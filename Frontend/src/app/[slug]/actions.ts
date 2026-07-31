@@ -13,6 +13,7 @@ import {
   SlotTakenError,
 } from "@/db/queries";
 import { getAvailableSlots, type Slot } from "@/lib/availability";
+import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { bookingInputSchema, normalizePhone } from "@/lib/validation";
 
 export type SlotsResult =
@@ -83,8 +84,15 @@ export async function createBookingAction(
     };
   }
 
-  const { businessId, serviceId, startsAt, clientName, clientPhone, notes } =
-    parsed.data;
+  const {
+    businessId,
+    serviceId,
+    startsAt,
+    clientName,
+    clientPhone,
+    clientEmail,
+    notes,
+  } = parsed.data;
 
   const [businessRow, service] = await Promise.all([
     getBusinessById(db, businessId),
@@ -128,11 +136,24 @@ export async function createBookingAction(
       status: "confirmed",
       clientName,
       clientPhone: normalizePhone(clientPhone),
+      clientEmail: clientEmail || null,
       notes: notes || null,
       serviceName: service.name,
       priceCents: service.priceCents,
       cancelToken: randomUUID(),
     });
+
+    // Best-effort: the booking is already committed, so a notification
+    // problem must never turn a successful booking into an error.
+    try {
+      await enqueueBookingNotifications({
+        db,
+        business: businessRow,
+        appointment,
+      });
+    } catch (error) {
+      console.error("enqueueBookingNotifications failed", error);
+    }
 
     return {
       ok: true,

@@ -31,6 +31,14 @@ const settingsSchema = z.object({
     .int()
     .min(0, "החלון לא יכול להיות שלילי")
     .max(168, "החלון גבוה מדי"),
+  reminderHoursBefore: z
+    .number()
+    .int()
+    .min(0, "לא יכול להיות שלילי")
+    .max(168, "מוקדם מדי"),
+  notificationEmail: z
+    .union([z.email("כתובת אימייל לא תקינה"), z.literal("")])
+    .optional(),
 });
 
 export async function saveSettingsAction(
@@ -62,6 +70,8 @@ export async function saveSettingsAction(
     description: data.description || null,
     bufferMin: data.bufferMin,
     cancelWindowHours: data.cancelWindowHours,
+    reminderHoursBefore: data.reminderHoursBefore,
+    notificationEmail: data.notificationEmail || null,
   });
 
   revalidatePath("/dashboard/settings");

@@ -29,6 +29,10 @@ export const clientDetailsSchema = z.object({
     // Validated, not transformed: the server normalises before storing, so the
     // field keeps whatever the user typed while they are editing it.
     .refine(isValidPhone, "מספר טלפון נייד לא תקין (לדוגמה: 050-1234567)"),
+  // Optional, but it is the only channel confirmations and reminders use.
+  clientEmail: z
+    .union([z.email("כתובת אימייל לא תקינה"), z.literal("")])
+    .optional(),
   notes: z.string().trim().max(500, "ההערה ארוכה מדי").optional(),
 });
 

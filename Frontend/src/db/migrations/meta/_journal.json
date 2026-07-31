@@ -29,6 +29,20 @@
       "when": 1785482597832,
       "tag": "0003_service_buffer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785484815463,
+      "tag": "0004_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785485155380,
+      "tag": "0005_notifications_rls",
+      "breakpoints": true
     }
   ]
 }

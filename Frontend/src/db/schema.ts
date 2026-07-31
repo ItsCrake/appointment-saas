@@ -27,6 +27,27 @@ export const appointmentStatus = pgEnum("appointment_status", [
   "no_show",
 ]);
 
+export const notificationChannel = pgEnum("notification_channel", [
+  "email",
+  "sms",
+  "whatsapp",
+]);
+
+export const notificationKind = pgEnum("notification_kind", [
+  "booking_confirmation",
+  "booking_alert",
+  "cancellation_confirmation",
+  "cancellation_alert",
+  "reminder",
+]);
+
+export const notificationStatus = pgEnum("notification_status", [
+  "pending",
+  "sent",
+  "failed",
+  "skipped",
+]);
+
 export const businesses = pgTable("businesses", {
   id: uuid("id").primaryKey().defaultRandom(),
   /** FK to auth.users — Supabase owns that table, so it is not modelled here. */
@@ -50,6 +71,10 @@ export const businesses = pgTable("businesses", {
   maxAdvanceDays: integer("max_advance_days").notNull().default(60),
   /** Clients may self-cancel until this many hours before the start. */
   cancelWindowHours: integer("cancel_window_hours").notNull().default(24),
+  /** Hours before the appointment to send the client reminder. 0 disables. */
+  reminderHoursBefore: integer("reminder_hours_before").notNull().default(24),
+  /** Where owner alerts go. NULL means the owner gets no notifications. */
+  notificationEmail: text("notification_email"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -155,6 +180,55 @@ export const appointments = pgTable(
   ],
 );
 
+/**
+ * Transactional outbox. Sends are recorded here first and dispatched by the
+ * cron job, so a provider outage never loses a message and a retry never
+ * duplicates one (`dedupe_key` is unique).
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, {
+      onDelete: "cascade",
+    }),
+    channel: notificationChannel("channel").notNull(),
+    kind: notificationKind("kind").notNull(),
+    /** Email address or phone number, resolved when the row is enqueued. */
+    recipient: text("recipient").notNull(),
+    /** Earliest send time. Immediate messages use `now()`. */
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    status: notificationStatus("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** Idempotency key, e.g. "reminder:<appointmentId>:24". */
+    dedupeKey: text("dedupe_key").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // The dispatcher's only hot query: pending rows that are due.
+    index("notifications_due_idx").on(t.status, t.scheduledFor),
+    index("notifications_business_idx").on(t.businessId, t.createdAt),
+  ],
+);
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  business: one(businesses, {
+    fields: [notifications.businessId],
+    references: [businesses.id],
+  }),
+  appointment: one(appointments, {
+    fields: [notifications.appointmentId],
+    references: [appointments.id],
+  }),
+}));
+
 export const businessesRelations = relations(businesses, ({ many }) => ({
   services: many(services),
   workingHours: many(workingHours),
@@ -206,3 +280,9 @@ export type NewTimeOff = typeof timeOff.$inferInsert;
 export type Appointment = typeof appointments.$inferSelect;
 export type NewAppointment = typeof appointments.$inferInsert;
 export type AppointmentStatus = (typeof appointmentStatus.enumValues)[number];
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
+export type NotificationChannel =
+  (typeof notificationChannel.enumValues)[number];
+export type NotificationKind = (typeof notificationKind.enumValues)[number];
+export type NotificationStatus = (typeof notificationStatus.enumValues)[number];

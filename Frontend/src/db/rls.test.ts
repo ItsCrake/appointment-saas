@@ -5,6 +5,7 @@ import { createTestDb } from "@/test/pglite";
 const TABLES = [
   "appointments",
   "businesses",
+  "notifications",
   "services",
   "time_off",
   "working_hours",

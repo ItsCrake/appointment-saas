@@ -8,12 +8,17 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import {
+  cancelPendingNotificationsForAppointment,
   createAppointment,
   getService,
   SlotTakenError,
   updateAppointmentStatus,
 } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
+import {
+  enqueueBookingNotifications,
+  enqueueCancellationNotifications,
+} from "@/lib/notifications/enqueue";
 import { normalizePhone } from "@/lib/validation";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -24,6 +29,7 @@ const manualBookingSchema = z.object({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "שעה לא תקינה"),
   clientName: z.string().trim().min(2, "יש להזין שם").max(80),
   clientPhone: z.string().trim().min(1, "יש להזין טלפון"),
+  clientEmail: z.union([z.email("אימייל לא תקין"), z.literal("")]).optional(),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
 });
 
@@ -41,7 +47,8 @@ export async function createManualBookingAction(
   }
 
   const { business } = await requireBusiness();
-  const { serviceId, date, time, clientName, clientPhone, notes } = parsed.data;
+  const { serviceId, date, time, clientName, clientPhone, clientEmail, notes } =
+    parsed.data;
 
   const service = await getService(db, business.id, serviceId);
   if (!service) return { ok: false, error: "השירות לא נמצא" };
@@ -51,7 +58,7 @@ export async function createManualBookingAction(
   const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
 
   try {
-    await createAppointment(db, {
+    const appointment = await createAppointment(db, {
       businessId: business.id,
       serviceId,
       startsAt,
@@ -59,11 +66,18 @@ export async function createManualBookingAction(
       status: "confirmed",
       clientName,
       clientPhone: normalizePhone(clientPhone),
+      clientEmail: clientEmail || null,
       notes: notes || null,
       serviceName: service.name,
       priceCents: service.priceCents,
       cancelToken: randomUUID(),
     });
+
+    try {
+      await enqueueBookingNotifications({ db, business, appointment });
+    } catch (error) {
+      console.error("enqueueBookingNotifications failed", error);
+    }
   } catch (error) {
     if (error instanceof SlotTakenError) {
       return { ok: false, error: "יש כבר תור שחופף למועד הזה" };
@@ -104,6 +118,21 @@ export async function setAppointmentStatusAction(
   );
 
   if (!updated) return { ok: false, error: "התור לא נמצא" };
+
+  // Cancelling from the dashboard should notify the client, exactly as the
+  // self-service link does.
+  if (parsedStatus.data === "cancelled") {
+    try {
+      await cancelPendingNotificationsForAppointment(db, updated.id);
+      await enqueueCancellationNotifications({
+        db,
+        business,
+        appointment: updated,
+      });
+    } catch (error) {
+      console.error("cancellation notifications failed", error);
+    }
+  }
 
   revalidatePath("/dashboard");
   return { ok: true };

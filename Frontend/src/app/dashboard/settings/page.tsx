@@ -28,6 +28,8 @@ export default async function SettingsPage() {
           description: business.description ?? "",
           bufferMin: business.bufferMin,
           cancelWindowHours: business.cancelWindowHours,
+          reminderHoursBefore: business.reminderHoursBefore,
+          notificationEmail: business.notificationEmail ?? "",
           timezone: business.timezone,
         }}
       />
