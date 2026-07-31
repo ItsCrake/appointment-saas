@@ -88,6 +88,71 @@ export async function createAppointment(
   }
 }
 
+export type DashboardStats = {
+  /** Excludes cancelled — the owner cares about what is actually happening. */
+  todayCount: number;
+  weekCount: number;
+  upcomingCount: number;
+  /** Denominator for both rates: appointments whose start time has passed. */
+  pastCount: number;
+  cancelledCount: number;
+  noShowCount: number;
+};
+
+/**
+ * One round trip for every headline number, using FILTER so each metric gets
+ * its own predicate over a single scan.
+ *
+ * Both rates are measured only against appointments that have already started:
+ * counting future bookings in the denominator would make a busy week look like
+ * an improvement in no-shows.
+ */
+export async function getDashboardStats(
+  db: Database,
+  businessId: string,
+  windows: {
+    todayStart: Date;
+    todayEnd: Date;
+    weekStart: Date;
+    weekEnd: Date;
+    ratesFrom: Date;
+    now: Date;
+  },
+): Promise<DashboardStats> {
+  const { todayStart, todayEnd, weekStart, weekEnd, ratesFrom, now } = windows;
+
+  // Bind timestamps as ISO strings with an explicit cast: a raw Date inside a
+  // `sql` template has no inferable type for the postgres.js driver, which
+  // fails at bind time even though PGlite accepts it.
+  const at = (value: Date) => sql`${value.toISOString()}::timestamptz`;
+
+  const live = sql`${appointments.status} <> 'cancelled'`;
+  const inRatesWindow = sql`${appointments.startsAt} >= ${at(ratesFrom)} AND ${appointments.startsAt} < ${at(now)}`;
+
+  const [row] = await db
+    .select({
+      todayCount: sql<number>`count(*) FILTER (WHERE ${appointments.startsAt} >= ${at(todayStart)} AND ${appointments.startsAt} < ${at(todayEnd)} AND ${live})::int`,
+      weekCount: sql<number>`count(*) FILTER (WHERE ${appointments.startsAt} >= ${at(weekStart)} AND ${appointments.startsAt} < ${at(weekEnd)} AND ${live})::int`,
+      upcomingCount: sql<number>`count(*) FILTER (WHERE ${appointments.startsAt} >= ${at(now)} AND ${live})::int`,
+      pastCount: sql<number>`count(*) FILTER (WHERE ${inRatesWindow})::int`,
+      cancelledCount: sql<number>`count(*) FILTER (WHERE ${inRatesWindow} AND ${appointments.status} = 'cancelled')::int`,
+      noShowCount: sql<number>`count(*) FILTER (WHERE ${inRatesWindow} AND ${appointments.status} = 'no_show')::int`,
+    })
+    .from(appointments)
+    .where(eq(appointments.businessId, businessId));
+
+  return (
+    row ?? {
+      todayCount: 0,
+      weekCount: 0,
+      upcomingCount: 0,
+      pastCount: 0,
+      cancelledCount: 0,
+      noShowCount: 0,
+    }
+  );
+}
+
 export type ClientSummary = {
   clientPhone: string;
   clientName: string;

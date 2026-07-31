@@ -4,12 +4,21 @@ import { fromZonedTime } from "date-fns-tz";
 import { ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
+import { StatsCards } from "@/components/dashboard/stats-cards";
 import { db } from "@/db";
-import { listAppointmentsInRange, listServices } from "@/db/queries";
+import {
+  getDashboardStats,
+  listAppointmentsInRange,
+  listServices,
+} from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { dateRange, todayInTimezone } from "@/lib/format";
+import { getStatsWindows, toPercent } from "@/lib/stats";
 
 export const metadata: Metadata = { title: "היומן" };
+
+/** Trailing window the cancellation and no-show rates are measured over. */
+const RATES_WINDOW_DAYS = 30;
 
 type PageProps = {
   searchParams: Promise<{ date?: string; view?: string }>;
@@ -39,7 +48,9 @@ export default async function AgendaPage({ searchParams }: PageProps) {
   const rangeStart = fromZonedTime(`${days[0]}T00:00:00`, business.timezone);
   const rangeEnd = new Date(rangeStart.getTime() + days.length * 86_400_000);
 
-  const [appointments, services] = await Promise.all([
+  const windows = getStatsWindows(business.timezone);
+
+  const [appointments, services, stats] = await Promise.all([
     listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
       "pending",
       "confirmed",
@@ -47,6 +58,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
       "no_show",
     ]),
     listServices(db, business.id),
+    getDashboardStats(db, business.id, windows),
   ]);
 
   return (
@@ -68,6 +80,17 @@ export default async function AgendaPage({ searchParams }: PageProps) {
           עמוד ההזמנות
         </Link>
       </header>
+
+      <StatsCards
+        todayCount={stats.todayCount}
+        weekCount={stats.weekCount}
+        pastCount={stats.pastCount}
+        cancelledCount={stats.cancelledCount}
+        noShowCount={stats.noShowCount}
+        cancellationRate={toPercent(stats.cancelledCount, stats.pastCount)}
+        noShowRate={toPercent(stats.noShowCount, stats.pastCount)}
+        ratesWindowDays={RATES_WINDOW_DAYS}
+      />
 
       <AgendaView
         today={today}
