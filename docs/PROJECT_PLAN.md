@@ -147,35 +147,39 @@ appointments
 
 ## 4. Development Roadmap
 
-### Phase 0 — Foundation
-- [ ] `create-next-app` (TS, App Router, Tailwind), ESLint/Prettier, strict `tsconfig`.
-- [ ] Supabase project; connection strings in `.env.local` + `.env.example`.
-- [ ] Drizzle schema + first migration; seed script (1 demo business, 3 services, working hours).
-- [ ] Base layout: RTL support, fonts, shadcn/ui init, theme tokens.
+### Phase 0 — Foundation ✅
+- [x] `create-next-app` (TS, App Router, Tailwind), ESLint/Prettier, strict `tsconfig`.
+- [x] Supabase project; connection strings in `.env.local` + `.env.example`.
+- [x] Drizzle schema + first migration; seed script (1 demo business, 3 services, working hours).
+- [x] Base layout: RTL support, fonts, shadcn/ui init, theme tokens. *(Heebo via next/font; `dir="rtl"`. shadcn/ui not initialised — components written directly against Tailwind so far.)*
 
-### Phase 1 — Data & Availability Engine (the core)
-- [ ] Repository/query layer scoped by `business_id`.
-- [ ] `getAvailableSlots({ businessId, serviceId, date })`: working hours → subtract booked + time_off → apply buffer, min notice, max advance → return slot list.
-- [ ] Unit tests: DST boundary, split shifts, back-to-back bookings, closed days, buffer edges.
-- [ ] Add overlap exclusion constraint + booking transaction that fails cleanly on conflict.
+### Phase 1 — Data & Availability Engine (the core) ✅
+- [x] Repository/query layer scoped by `business_id`. *(`src/db/queries/`, driver-agnostic `Database` handle.)*
+- [x] `getAvailableSlots({ businessId, serviceId, date })`: working hours → subtract booked + time_off → apply buffer, min notice, max advance → return slot list. *(`src/lib/availability.ts`; takes `db` as first arg for injectability.)*
+- [x] Unit tests: DST boundary, split shifts, back-to-back bookings, closed days, buffer edges. *(24 tests on PGlite running the real migrations.)*
+- [x] Add overlap exclusion constraint + booking transaction that fails cleanly on conflict. *(`0001_double_booking_guard.sql`, live on Supabase.)*
+- [x] **Added:** tenant-isolation RLS on all 5 tables, zero anon policies (`0002_tenant_isolation_rls.sql`). Pulled forward from Phase 5.
 
-### Phase 2 — Public Booking Page
-- [ ] `/[business_slug]` route: fetch business + active services (404 on unknown/inactive slug).
-- [ ] Step 1 — service list UI (image, duration, price).
-- [ ] Step 2 — date picker + slot grid (server-fetched availability, loading/empty states).
-- [ ] Step 3 — details form (Zod + RHF) → Server Action `createAppointment` (re-validates slot server-side).
-- [ ] Confirmation screen + `.ics` download.
-- [ ] `/b/[cancel_token]` — view, cancel, reschedule within the cancellation window.
-- [ ] Mobile polish, RTL pass, SEO/OG tags per business.
+### Phase 2 — Public Booking Page ✅
+- [x] `/[business_slug]` route: fetch business + active services (404 on unknown/inactive slug).
+- [x] Step 1 — service list UI (image, duration, price).
+- [x] Step 2 — date picker + slot grid (server-fetched availability, loading/empty states). *(Horizontal day strip instead of a month grid — better for thumbs.)*
+- [x] Step 3 — details form (Zod + RHF) → Server Action `createAppointment` (re-validates slot server-side).
+- [x] Confirmation screen + `.ics` download.
+- [x] `/b/[cancel_token]` — view and cancel within the cancellation window. *(Reschedule deferred: it is a re-book, so it belongs with the Phase 3 admin edit flow.)*
+- [x] Mobile polish, RTL pass, SEO/OG tags per business.
 
-### Phase 3 — Admin Dashboard
-- [ ] Supabase Auth magic link; middleware guard; `/dashboard` shell + business resolution from session.
-- [ ] Appointments: day/week view, filters, manual create/edit/cancel, mark completed/no-show.
-- [ ] Services CRUD + image upload to Supabase Storage.
-- [ ] Working hours editor (weekday rows, split shifts, closed toggle).
-- [ ] Time off manager.
-- [ ] Settings page (slug uniqueness check, timezone, booking rules, logo).
-- [ ] Clients list from appointment history.
+### Phase 3 — Admin Dashboard ✅
+- [x] Supabase Auth + guard; `/dashboard` shell + business resolution from session. *(Email/password rather than magic link — no SMTP configured. Guard lives in `src/proxy.ts`; `middleware` is deprecated in Next 16. Verified end to end against the live project.)*
+- [x] Appointments: day **and week** view, manual create (walk-ins), cancel / completed / no-show. *(Status filters not built.)*
+- [x] Services CRUD **incl. per-service buffer** (`0003_service_buffer.sql`; NULL inherits the business default). *(No image upload to Supabase Storage yet.)*
+- [x] Working hours editor (weekday rows, split shifts, closed = no shifts).
+- [x] Time off manager.
+- [x] Settings page — name, slug (uniqueness-checked), phone, address, description, default buffer, cancellation window. *(Timezone is displayed read-only; logo upload waits on Storage.)*
+- [x] Clients list derived from appointment history (name, phone, bookings, last visit).
+- [x] **Added:** `/dashboard/setup` onboarding + `npm run db:claim` to point the demo shop at a real auth user. Pulled forward from Phase 5.
+- [x] **Added:** toast notifications, empty states, loading states across the dashboard.
+- [ ] Deferred: service image upload (needs Supabase Storage), appointment status filters, timezone editing.
 
 ### Phase 4 — Notifications
 - [ ] Email adapter (Resend) + React Email templates: client confirmation, owner alert, cancellation.

@@ -1,0 +1,196 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { formatInTimeZone } from "date-fns-tz";
+import { CalendarOff, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+
+import { AgendaList, type AgendaAppointment } from "./agenda-list";
+import { ManualBookingDialog } from "./manual-booking-dialog";
+import { dayOfMonth, weekdayLabel } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+type ServiceOption = { id: string; name: string; durationMin: number };
+
+export function AgendaView({
+  today,
+  selectedDate,
+  view,
+  days,
+  timezone,
+  services,
+  appointments,
+}: {
+  today: string;
+  selectedDate: string;
+  view: "day" | "week";
+  days: string[];
+  timezone: string;
+  services: ServiceOption[];
+  appointments: AgendaAppointment[];
+}) {
+  const [dialogDate, setDialogDate] = useState<string | null>(null);
+  const router = useRouter();
+
+  const step = view === "week" ? 7 : 1;
+  const prev = shift(selectedDate, -step);
+  const next = shift(selectedDate, step);
+
+  // Group by the *business-local* day, not the UTC day.
+  const byDay = new Map<string, AgendaAppointment[]>();
+  for (const day of days) byDay.set(day, []);
+  for (const appointment of appointments) {
+    const key = formatInTimeZone(
+      new Date(appointment.startsAt),
+      timezone,
+      "yyyy-MM-dd",
+    );
+    byDay.get(key)?.push(appointment);
+  }
+
+  return (
+    <div>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div className="flex rounded-xl bg-neutral-200/70 p-0.5 dark:bg-neutral-800">
+          {(["day", "week"] as const).map((value) => (
+            <Link
+              key={value}
+              href={`/dashboard?view=${value}&date=${selectedDate}`}
+              aria-current={view === value ? "page" : undefined}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                view === value
+                  ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                  : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200",
+              )}
+            >
+              {value === "day" ? "יום" : "שבוע"}
+            </Link>
+          ))}
+        </div>
+
+        <nav className="flex items-center gap-1" aria-label="ניווט בתאריכים">
+          {/* RTL: "previous" sits on the right, so the chevron points that way. */}
+          <ArrowLink
+            href={`/dashboard?view=${view}&date=${prev}`}
+            label="הקודם"
+            icon={<ChevronRight className="size-4" aria-hidden />}
+          />
+          <ArrowLink
+            href={`/dashboard?view=${view}&date=${next}`}
+            label="הבא"
+            icon={<ChevronLeft className="size-4" aria-hidden />}
+          />
+        </nav>
+
+        {selectedDate !== today ? (
+          <Link
+            href={`/dashboard?view=${view}`}
+            className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+          >
+            היום
+          </Link>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() =>
+            setDialogDate(view === "week" ? days[0] : selectedDate)
+          }
+          className="ms-auto inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
+        >
+          <Plus className="size-4" aria-hidden />
+          תור ידני
+        </button>
+      </div>
+
+      <div className="space-y-6">
+        {days.map((day) => {
+          const dayAppointments = byDay.get(day) ?? [];
+
+          return (
+            <section key={day}>
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  {day === today ? "היום" : `יום ${weekdayLabel(day)}`}
+                  <span className="ms-2 text-xs font-normal text-neutral-400">
+                    {dayOfMonth(day)}/{month(day)}
+                  </span>
+                </h2>
+                {dayAppointments.length > 0 ? (
+                  <span className="text-xs text-neutral-400">
+                    {dayAppointments.length} תורים
+                  </span>
+                ) : null}
+              </div>
+
+              {dayAppointments.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-200 bg-white/50 px-4 py-8 text-center dark:border-neutral-800 dark:bg-neutral-900/40">
+                  <CalendarOff
+                    className="size-5 text-neutral-300"
+                    aria-hidden
+                  />
+                  <p className="text-xs text-neutral-500">אין תורים ביום זה</p>
+                  <button
+                    type="button"
+                    onClick={() => setDialogDate(day)}
+                    className="text-xs font-semibold text-neutral-900 underline underline-offset-4 dark:text-neutral-100"
+                  >
+                    הוספת תור ידני
+                  </button>
+                </div>
+              ) : (
+                <AgendaList
+                  appointments={dayAppointments}
+                  timezone={timezone}
+                />
+              )}
+            </section>
+          );
+        })}
+      </div>
+
+      {dialogDate ? (
+        <ManualBookingDialog
+          date={dialogDate}
+          services={services}
+          onClose={() => setDialogDate(null)}
+          onCreated={() => {
+            setDialogDate(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ArrowLink({
+  href,
+  label,
+  icon,
+}: {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      className="rounded-lg border border-neutral-200 bg-white p-2 text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+    >
+      {icon}
+    </Link>
+  );
+}
+
+function shift(date: string, days: number) {
+  const d = new Date(`${date}T00:00:00Z`);
+  return new Date(d.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function month(date: string) {
+  return new Date(`${date}T00:00:00Z`).getUTCMonth() + 1;
+}
