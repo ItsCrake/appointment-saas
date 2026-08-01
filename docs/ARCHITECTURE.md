@@ -34,7 +34,7 @@ Frontend/src/
 
 ## Database
 
-Six tables, all tenant-scoped by `business_id`.
+Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
   `min_notice_min`, `max_advance_days`, `cancel_window_hours`,
@@ -49,7 +49,7 @@ Six tables, all tenant-scoped by `business_id`.
 - **rate_limits** — fixed-window counters; the only table with no
   `business_id`, so RLS is on with **no policy at all**
 
-Migrations `0000`–`0006` in `src/db/migrations/`, applied with
+Migrations `0000`–`0007` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ### Two constraints that carry real weight
@@ -66,12 +66,21 @@ cancelling frees the slot instantly, with no cleanup.
 `notifications.dedupe_key` is `UNIQUE` — that is what makes enqueueing
 idempotent under retries.
 
-### RLS status: 6 of 6 tables, **0 anon policies**
+### RLS status: 7 of 7 tables, **0 anon policies**
 
-Migrations `0002` and `0005`. Each table has one `FOR ALL TO authenticated`
-policy keyed on `auth.uid() = owner_user_id`, joined through `businesses` for
-child tables. Both `USING` and `WITH CHECK` are set, so an owner cannot insert
-rows pointing at someone else's business.
+Migrations `0002`, `0005` and `0007`. Six tables carry one
+`FOR ALL TO authenticated` policy keyed on `auth.uid() = owner_user_id`, joined
+through `businesses` for child tables. Both `USING` and `WITH CHECK` are set,
+so an owner cannot insert rows pointing at someone else's business.
+
+`rate_limits` is the seventh: RLS on, **zero policies**, which denies every
+role that RLS applies to. That is the intent — it holds no tenant data and
+nothing outside the app's own connection has any business reading it.
+
+Verified against the live database (`pg_policies`): no policy names `anon` or
+`public` in its roles. Note that `relforcerowsecurity` is `false` everywhere,
+so the `postgres` owner still bypasses RLS — which is exactly how the app
+connects, and why server-side `business_id` scoping remains mandatory.
 
 **The app's own connection authenticates as `postgres` and bypasses RLS.** RLS
 exists to close the PostgREST hole: the anon key is public by design, and
@@ -98,11 +107,19 @@ service and re-runs availability before inserting. The exclusion constraint
 settles any remaining race.
 
 **Notifications use a transactional outbox.** Messages are written to
-`notifications` first and dispatched by `/api/cron/notifications` (every 15 min
-via `vercel.json`, guarded by `CRON_SECRET`). Rationale: a provider outage
-delays rather than loses; `dedupe_key` prevents double-sends; and the
-dispatcher re-checks appointment state before sending, so a reminder for a
+`notifications` first and dispatched by `/api/cron/notifications` (scheduled in
+`vercel.json`, guarded by `CRON_SECRET`). Rationale: a provider outage delays
+rather than loses; `dedupe_key` prevents double-sends; and the dispatcher
+re-checks appointment state before sending, so a reminder for a
 since-cancelled appointment is skipped rather than delivered.
+
+**Dispatch cadence is the outbox's one hard constraint.** Confirmations and
+owner alerts are enqueued with `scheduledFor: now`, so a client sees them only
+as fast as the dispatcher runs. `vercel.json` is set to `0 8 * * *` because
+Vercel's Hobby plan rejects any expression that fires more than once a day — at
+that cadence a booking made at 14:00 gets its confirmation the next morning.
+Anything approaching real-time needs Pro, or an external scheduler hitting the
+same URL with the same bearer token. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Providers resolve at send time.** `getProvider(channel)` checks credentials
 on every call, so adding a key switches a channel live with no code change.
@@ -218,8 +235,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   re-run `db:claim` afterwards.
 - Supabase email confirmation is **on** by default; signup returns a user with
   no session and the UI says to check the inbox.
-- Vercel Hobby caps cron at once per day, silently. A 15-minute reminder
-  cadence needs Pro or an external scheduler.
+- Vercel Hobby caps cron at once per day, and **fails the build** rather than
+  silently downgrading — `*/15 * * * *` is rejected at deploy time. The
+  schedule is daily for that reason; the real cadence has to come from Pro or
+  an external scheduler, or confirmations arrive a day late.
 - A `"use server"` file may only export async functions — a exported `const`
   breaks the whole module at runtime.
 - `router.push()` immediately followed by `router.refresh()` cancels the

@@ -54,9 +54,22 @@ pointing at production:
 npm --prefix Frontend run db:migrate
 ```
 
-Verify afterwards that RLS is on for all six tables and no `anon` policy
-exists — the anon key is public, and RLS is the only thing standing between
-tenants.
+Verify afterwards that RLS is on for all seven tables and that no policy is
+reachable by `anon` — the anon key is public, and RLS is the only thing
+standing between tenants:
+
+```sql
+-- Expect 7 rows, all rls_enabled = true.
+select tablename, rowsecurity as rls_enabled
+from pg_tables where schemaname = 'public' order by tablename;
+
+-- Expect ZERO rows.
+select tablename, policyname, roles from pg_policies
+where schemaname = 'public' and roles::text[] && array['anon','public'];
+```
+
+`rate_limits` correctly shows RLS on with no policy at all; the other six each
+have one `authenticated` owner policy.
 
 ## 4. Supabase Auth
 
@@ -68,9 +81,50 @@ tenants.
 
 ## 5. Cron
 
-`vercel.json` schedules `/api/cron/notifications` every 15 minutes. Vercel
-sends `Authorization: Bearer $CRON_SECRET` automatically once that variable is
-set on the project.
+`vercel.json` schedules `/api/cron/notifications` at `0 8 * * *` — 08:00 **UTC**,
+which is 11:00 in Israel during IDT and 10:00 during IST. Vercel sends
+`Authorization: Bearer $CRON_SECRET` automatically once that variable is set on
+the project.
+
+> **Why daily, and what it costs.** Hobby rejects any cron expression that
+> fires more than once a day; a deploy with `*/15 * * * *` fails the build.
+> But every message in the outbox — confirmation, owner alert, cancellation —
+> is enqueued with `scheduledFor: now` and waits for the next dispatch. At one
+> run a day, a client who books at 14:00 receives their confirmation the
+> following morning, and a 24-hour reminder can land anywhere between 24 and 0
+> hours before the appointment.
+>
+> Treat the daily schedule as a build-unblocker, not a working configuration.
+> Either upgrade to Pro and restore `*/15 * * * *`, or leave `vercel.json`
+> daily and drive the real cadence externally — see below.
+
+### External scheduler (free, keeps the 15-minute cadence)
+
+The endpoint is a plain authenticated GET, so anything that can make an HTTP
+request on a schedule works. A GitHub Actions workflow in this repo:
+
+```yaml
+# .github/workflows/dispatch-notifications.yml
+name: dispatch notifications
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -sS -f -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/notifications"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+```
+
+Add `CRON_SECRET` and `APP_URL` as repository secrets. GitHub's scheduler is
+best-effort and can lag by several minutes under load; cron-job.org is more
+punctual if that matters.
 
 Verify after the first deploy:
 
@@ -82,10 +136,8 @@ The response reports each channel's provider and whether it is `live`. If
 `email` shows `"provider": "console"`, Resend is not configured and clients are
 receiving nothing.
 
-> Cron on Vercel's Hobby plan runs at most once per day, and only roughly on
-> schedule. A 15-minute reminder cadence needs the Pro plan, or an external
-> scheduler (cron-job.org, GitHub Actions) hitting the same URL with the same
-> bearer token.
+Vercel's own daily run is also only approximate — it fires within the hour, not
+on the minute.
 
 ## 6. Post-deploy checks
 

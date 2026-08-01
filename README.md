@@ -189,7 +189,7 @@ Run from `Frontend/`.
 | `/dashboard/clients`      | owner         | Derived from booking history                  |
 | `/dashboard/settings`     | owner         | Business profile and booking rules            |
 | `/dashboard/setup`        | owner         | 4-step onboarding                             |
-| `/api/cron/notifications` | `CRON_SECRET` | Dispatches the outbox, every 15 min           |
+| `/api/cron/notifications` | `CRON_SECRET` | Dispatches the outbox on a schedule           |
 
 `/dashboard/*` and `/b/*` send `X-Robots-Tag: noindex` and
 `Cache-Control: private, no-store`; security headers are set globally in
@@ -221,15 +221,16 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 ## Deployment
 
-Full checklist in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The three that bite
+Full checklist in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The four that bite
 hardest:
 
 1. **Vercel Root Directory must be `Frontend`.** Otherwise the build fails with
    "No Next.js version detected" and `vercel.json` is ignored.
 2. **Migrations do not run on deploy.** Run `npm run db:migrate` against
    production yourself.
-3. **Vercel Hobby caps cron at once per day, silently.** A 15-minute reminder
-   cadence needs Pro or an external scheduler.
+3. **Vercel Hobby rejects sub-daily cron at build time.** The schedule is
+   therefore daily, which delays every confirmation email by up to a day.
+   Restoring a useful cadence needs Pro or an external scheduler.
 4. **Without Resend configured, email silently goes nowhere.** Messages are
    logged and marked sent. `check:env --production` fails on this.
 
