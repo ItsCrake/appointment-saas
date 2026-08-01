@@ -25,6 +25,27 @@ function describeAuthError(error: { message?: string; status?: number }) {
     : "שגיאת אימות ללא פירוט. בדקו את יומן Supabase Auth.";
 }
 
+/**
+ * The error's *class* is the fastest way to tell what failed, and it is not in
+ * the message: `AuthApiError` means Supabase replied with a structured
+ * rejection, while `AuthRetryableFetchError` means the request never came back
+ * with a usable response at all (status 0) — a transport failure, not a
+ * credentials one. Logged as `errorClass` rather than `name`, because
+ * observability redacts any context key matching /name/.
+ */
+function reportAuthFailure(scope: string, thrown: unknown) {
+  const error = thrown as { name?: string; status?: number; code?: string };
+  reportError(scope, thrown, {
+    errorClass: error?.name ?? null,
+    status: error?.status ?? null,
+    code: error?.code ?? null,
+  });
+}
+
+/** A transport failure is worth retrying; a rejected credential is not. */
+const TRANSPORT_FAILURE =
+  "לא הצלחנו להגיע לשרת ההזדהות של Supabase. נסו שוב בעוד רגע.";
+
 export type AuthResult =
   { ok: false; error: string } | { ok: true; message?: string };
 
@@ -47,21 +68,18 @@ export async function signInAction(
     .signInWithPassword(parsed.data)
     .catch((thrown: unknown) => {
       // A transport failure rejects rather than returning an error object.
-      reportError("auth.signIn", thrown);
+      reportAuthFailure("auth.signIn", thrown);
       return null;
     });
 
   if (!result) {
-    return { ok: false, error: "לא הצלחנו להגיע לשרת ההזדהות. נסו שוב." };
+    return { ok: false, error: TRANSPORT_FAILURE };
   }
 
   if (result.error) {
     // The reader gets a deliberately vague message — distinguishing the two
     // leaks which emails exist — but the log keeps the real cause.
-    reportError("auth.signIn", result.error, {
-      status: result.error.status ?? null,
-      code: result.error.code ?? null,
-    });
+    reportAuthFailure("auth.signIn", result.error);
     return { ok: false, error: "אימייל או סיסמה שגויים" };
   }
 
@@ -85,19 +103,16 @@ export async function signUpAction(
   const result = await supabase.auth
     .signUp(parsed.data)
     .catch((thrown: unknown) => {
-      reportError("auth.signUp", thrown);
+      reportAuthFailure("auth.signUp", thrown);
       return null;
     });
 
   if (!result) {
-    return { ok: false, error: "לא הצלחנו להגיע לשרת ההזדהות. נסו שוב." };
+    return { ok: false, error: TRANSPORT_FAILURE };
   }
 
   if (result.error) {
-    reportError("auth.signUp", result.error, {
-      status: result.error.status ?? null,
-      code: result.error.code ?? null,
-    });
+    reportAuthFailure("auth.signUp", result.error);
     return { ok: false, error: describeAuthError(result.error) };
   }
 
