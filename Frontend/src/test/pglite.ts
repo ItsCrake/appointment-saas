@@ -21,8 +21,18 @@ export async function createTestDb() {
   // Supabase ships an `auth` schema and the anon/authenticated roles that
   // PGlite does not. The RLS migration references both, so stub the surface it
   // needs and keep migrations byte-identical across environments.
+  //
+  // `auth.users` is a real table here, not a view or a stub: migration 0008
+  // adds a FK to it with ON DELETE CASCADE, and the point of running the real
+  // migrations is that a cascade which loses tenant data is proved rather than
+  // assumed. Only `id` matters — the rest of Supabase's column set is
+  // irrelevant to anything this schema does.
   await pg.exec(`
     CREATE SCHEMA IF NOT EXISTS auth;
+    CREATE TABLE IF NOT EXISTS auth.users (
+      id uuid PRIMARY KEY,
+      email text
+    );
     CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
       LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
     DO $$ BEGIN

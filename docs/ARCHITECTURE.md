@@ -49,7 +49,7 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **rate_limits** — fixed-window counters; the only table with no
   `business_id`, so RLS is on with **no policy at all**
 
-Migrations `0000`–`0007` in `src/db/migrations/`, applied with
+Migrations `0000`–`0008` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ### Two constraints that carry real weight
@@ -65,6 +65,32 @@ cancelling frees the slot instantly, with no cleanup.
 
 `notifications.dedupe_key` is `UNIQUE` — that is what makes enqueueing
 idempotent under retries.
+
+### Owner deletion cascades (0008)
+
+```sql
+ALTER TABLE businesses
+  ADD CONSTRAINT businesses_owner_user_id_fkey
+  FOREIGN KEY (owner_user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+```
+
+`owner_user_id` was a logical FK with nothing enforcing it. Deleting an owner
+in Supabase Auth left the business row behind, still holding its **UNIQUE
+slug** — so the same person re-registering (a new uuid, same email) hit
+`duplicate key value violates unique constraint "businesses_slug_unique"` and
+could never reclaim it. Nobody could clean it up either: the row belonged to a
+uuid that no longer resolved to an account.
+
+**This is a data-destruction path.** Deleting a row in the Supabase Auth
+dashboard now erases that tenant's business, services, hours, time off,
+appointments and notifications — every client name and phone number it held —
+with no prompt and no undo. Correct while the platform has no tenants whose
+records must outlive their account; revisit as `ON DELETE RESTRICT` if that
+changes, which would force businesses to be deleted explicitly instead.
+
+The migration refuses to apply if orphans already exist, rather than deleting
+them to make room for the constraint. `src/db/owner-cascade.test.ts` covers the
+cascade, the slug reclaim, tenant isolation, and that refusal.
 
 ### RLS status: 7 of 7 tables, **0 anon policies**
 

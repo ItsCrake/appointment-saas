@@ -50,7 +50,13 @@ export const notificationStatus = pgEnum("notification_status", [
 
 export const businesses = pgTable("businesses", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** FK to auth.users — Supabase owns that table, so it is not modelled here. */
+  /**
+   * FK to `auth.users` with ON DELETE CASCADE, declared in migration 0008.
+   * Supabase owns that table and it is not modelled here, so — like the
+   * exclusion constraint and the RLS policies — the constraint lives in SQL
+   * rather than in this file. Deleting an owner account therefore erases the
+   * business and everything under it.
+   */
   ownerUserId: uuid("owner_user_id").notNull(),
   /** Public booking page lives at /[slug]. */
   slug: text("slug").notNull().unique(),

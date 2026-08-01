@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { sql } from "drizzle-orm";
+
 import {
   appointments,
   businesses,
@@ -11,14 +13,31 @@ import type { Database } from "@/db/types";
 
 export const TZ = "Asia/Jerusalem";
 
+/**
+ * Supabase owns `auth.users`, so it is not in the Drizzle schema and has to be
+ * seeded with raw SQL. Idempotent, because a test may point several businesses
+ * at one owner.
+ */
+export async function createAuthUser(db: Database, id: string = randomUUID()) {
+  await db.execute(
+    sql`insert into auth.users (id, email) values (${id}, ${`${id}@example.test`})
+        on conflict (id) do nothing`,
+  );
+  return id;
+}
+
 export async function createBusiness(
   db: Database,
   overrides: Partial<typeof businesses.$inferInsert> = {},
 ) {
+  // businesses.owner_user_id is a FK to auth.users as of migration 0008, so the
+  // owner has to exist before the business does.
+  const ownerUserId = overrides.ownerUserId ?? randomUUID();
+  await createAuthUser(db, ownerUserId);
+
   const [row] = await db
     .insert(businesses)
     .values({
-      ownerUserId: randomUUID(),
       slug: `biz-${randomUUID().slice(0, 8)}`,
       name: "מספרת בדיקה",
       timezone: TZ,
@@ -27,6 +46,7 @@ export async function createBusiness(
       minNoticeMin: 0,
       maxAdvanceDays: 365,
       ...overrides,
+      ownerUserId,
     })
     .returning();
 

@@ -68,6 +68,23 @@ select tablename, policyname, roles from pg_policies
 where schemaname = 'public' and roles::text[] && array['anon','public'];
 ```
 
+> **Migration `0008` will refuse to apply if any business points at a deleted
+> auth user.** It adds the owner FK, and it will not delete rows to make room
+> for itself. Find them with the query below, then reassign `owner_user_id` to
+> a live account or delete those businesses deliberately, and re-run.
+>
+> ```sql
+> select b.slug, b.name, b.owner_user_id from businesses b
+> left join auth.users u on u.id = b.owner_user_id where u.id is null;
+> ```
+
+### Deleting an owner account destroys their tenant
+
+Once `0008` is applied, removing a user in **Authentication → Users** cascades
+to their business and every appointment, client name and phone number under it.
+There is no prompt and no undo. Delete test accounts freely before launch; once
+real businesses exist, treat that button as destructive.
+
 `rate_limits` correctly shows RLS on with no policy at all; the other six each
 have one `authenticated` owner policy.
 
