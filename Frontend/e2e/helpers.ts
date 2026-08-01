@@ -1,14 +1,15 @@
 import { expect, type Page } from "@playwright/test";
 import postgres from "postgres";
 
+import { DEMO_SLUG } from "../src/lib/demo";
 import { BOOKING_RULES, buildRateLimitKey } from "../src/lib/rate-limit";
 
 /**
- * The public booking page used by the suite. demo-barber is the seeded demo
- * shop and is owned by the E2E auth user, so one business covers both the
- * public flow and the dashboard assertions.
+ * The public booking page used by the suite. The seeded demo shop is owned by
+ * the E2E auth user, so one business covers both the public flow and the
+ * dashboard assertions.
  */
-export const E2E_SLUG = "demo-barber";
+export const E2E_SLUG = DEMO_SLUG;
 
 /**
  * Every booking this suite creates carries this phone number, which is what

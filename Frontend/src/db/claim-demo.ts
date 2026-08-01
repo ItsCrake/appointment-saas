@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import { DEMO_SLUG } from "../lib/demo";
 import * as schema from "./schema";
 import { businesses } from "./schema";
 
@@ -29,7 +30,7 @@ if (!url) {
 const args = process.argv.slice(2);
 const identifier = args.find((a) => !a.startsWith("--"));
 const slugArg = args.find((a) => a.startsWith("--slug="));
-const slug = slugArg ? slugArg.split("=")[1] : "demo-barber";
+const slug = slugArg ? slugArg.split("=")[1] : DEMO_SLUG;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

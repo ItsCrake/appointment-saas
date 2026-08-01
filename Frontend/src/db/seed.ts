@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import { DEMO_SLUG } from "../lib/demo";
 import * as schema from "./schema";
 import { businesses, services, workingHours } from "./schema";
 
@@ -15,8 +16,6 @@ const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!url) {
   throw new Error("DIRECT_URL (or DATABASE_URL) is not set in .env.local.");
 }
-
-const DEMO_SLUG = "demo-barber";
 
 const client = postgres(url, { max: 1 });
 const db = drizzle(client, { schema });

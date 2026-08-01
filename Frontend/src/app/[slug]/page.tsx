@@ -9,6 +9,7 @@ import {
   listServices,
   listWorkingHours,
 } from "@/db/queries";
+import { isDemoBusiness } from "@/lib/demo";
 
 // Availability changes by the minute — never serve this from a static cache.
 export const dynamic = "force-dynamic";
@@ -46,6 +47,9 @@ export async function generateMetadata({
       siteName: business.name,
     },
     twitter: { card: "summary", title, description },
+    // Follow, so the landing page's demo links are not treated as dead ends,
+    // but never index a shop that does not exist.
+    ...(isDemoBusiness(slug) ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -118,20 +122,26 @@ export default async function BusinessPage({ params }: PageProps) {
     listWorkingHours(db, business.id),
   ]);
 
-  const structuredData = buildStructuredData(
-    business,
-    services,
-    hours.filter((h) => !h.isClosed),
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
-  );
+  // The demo shop's address, phone and prices are invented. Publishing them as
+  // LocalBusiness data would assert a real trader at a real street address.
+  const structuredData = isDemoBusiness(slug)
+    ? null
+    : buildStructuredData(
+        business,
+        services,
+        hours.filter((h) => !h.isClosed),
+        process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+      );
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col">
-      <script
-        type="application/ld+json"
-        // Serialised from our own database, not user-controlled markup.
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-      />
+      {structuredData ? (
+        <script
+          type="application/ld+json"
+          // Serialised from our own database, not user-controlled markup.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
+      ) : null}
       <header className="px-5 pt-8 pb-6 text-center">
         {business.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- remote host is per-tenant and not known at build time
