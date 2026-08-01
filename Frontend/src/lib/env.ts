@@ -92,21 +92,29 @@ export const ENV_VARS: EnvVar[] = [
   },
   {
     name: "RESEND_API_KEY",
-    requirement: "optional",
+    requirement: "production",
     group: "Notifications",
     description:
       "Email provider. Without it, email falls back to the console provider and nothing is delivered.",
     howTo: "resend.com → API Keys.",
     validate: (value) =>
-      value.startsWith("re_") ? null : 'Resend keys normally start with "re_"',
+      value.startsWith("re_")
+        ? null
+        : 'does not look like a Resend key — they start with "re_"',
   },
   {
     name: "NOTIFICATIONS_FROM_EMAIL",
-    requirement: "optional",
+    requirement: "production",
     group: "Notifications",
     description: "Sender address. Required alongside RESEND_API_KEY.",
     howTo:
       'Must use a Resend-verified domain, e.g. "תורים <noreply@yourdomain.com>".',
+    // Accepts both "addr@domain" and "Name <addr@domain>"; Resend rejects
+    // anything without an address with a 422 that only surfaces at send time.
+    validate: (value) =>
+      /[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+/.test(value)
+        ? null
+        : "must contain an email address",
   },
   {
     name: "TWILIO_ACCOUNT_SID",
@@ -149,6 +157,12 @@ export type EnvReport = {
   ok: boolean;
   issues: EnvIssue[];
   present: string[];
+  /**
+   * Which provider `getProvider("email")` will resolve to under this env.
+   * Mirrors the credential check in `lib/notifications/providers.ts` — the two
+   * must agree, or the check reports a delivery path the app does not take.
+   */
+  emailChannel: "resend" | "console";
 };
 
 /**
@@ -163,16 +177,21 @@ export function checkEnv(
   const present: string[] = [];
 
   for (const spec of ENV_VARS) {
+    // Severity follows the spec's tier and the mode — not whether the problem
+    // is a missing value or a malformed one. Otherwise a short CRON_SECRET
+    // would block a dev run that an absent one waves through.
+    const level: EnvIssue["level"] =
+      spec.requirement === "required" ||
+      (spec.requirement === "production" && production)
+        ? "error"
+        : "warning";
+
     const value = env[spec.name]?.trim();
 
     if (!value) {
-      const isError =
-        spec.requirement === "required" ||
-        (spec.requirement === "production" && production);
-
       issues.push({
         name: spec.name,
-        level: isError ? "error" : "warning",
+        level,
         reason: "not set",
         howTo: spec.howTo,
       });
@@ -185,7 +204,7 @@ export function checkEnv(
     if (problem) {
       issues.push({
         name: spec.name,
-        level: spec.requirement === "optional" ? "warning" : "error",
+        level,
         reason: problem,
         howTo: spec.howTo,
       });
@@ -193,20 +212,29 @@ export function checkEnv(
   }
 
   // Half-configured email is worse than none: it looks live but cannot send.
+  // This is an error in every mode — unlike a channel that is simply off, it
+  // cannot be an intentional state.
   const hasKey = Boolean(env.RESEND_API_KEY?.trim());
   const hasFrom = Boolean(env.NOTIFICATIONS_FROM_EMAIL?.trim());
   if (hasKey !== hasFrom) {
-    issues.push({
-      name: hasKey ? "NOTIFICATIONS_FROM_EMAIL" : "RESEND_API_KEY",
+    const missing = hasKey ? "NOTIFICATIONS_FROM_EMAIL" : "RESEND_API_KEY";
+    const issue: EnvIssue = {
+      name: missing,
       level: "error",
       reason: "email is half-configured — both variables are needed to send",
       howTo: "Set both, or clear both to fall back to the console provider.",
-    });
+    };
+    // Under production rules the loop has already queued a bare "not set" for
+    // this name. Replace it rather than reporting the same variable twice.
+    const queued = issues.findIndex((i) => i.name === missing);
+    if (queued === -1) issues.push(issue);
+    else issues[queued] = issue;
   }
 
   return {
     ok: issues.every((issue) => issue.level !== "error"),
     issues,
     present,
+    emailChannel: hasKey && hasFrom ? "resend" : "console",
   };
 }

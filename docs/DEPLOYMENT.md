@@ -9,13 +9,13 @@ it validates every variable below and explains how to obtain each one.
 > root. Without this, the build fails with "No Next.js version detected" and
 > `vercel.json` (crons, headers) is ignored.
 
-| Setting | Value |
-| --- | --- |
-| Framework preset | Next.js |
-| **Root Directory** | **`Frontend`** |
-| Build command | `npm run build` (default) |
-| Install command | `npm install` (default) |
-| Node version | 20.x or newer |
+| Setting            | Value                     |
+| ------------------ | ------------------------- |
+| Framework preset   | Next.js                   |
+| **Root Directory** | **`Frontend`**            |
+| Build command      | `npm run build` (default) |
+| Install command    | `npm install` (default)   |
+| Node version       | 20.x or newer             |
 
 ## 2. Environment variables
 
@@ -24,25 +24,26 @@ Preview. `.env.local` is not deployed.
 
 ### Required
 
-| Variable | Where to get it |
-| --- | --- |
-| `NEXT_PUBLIC_APP_URL` | Your deployed origin, e.g. `https://book.example.com`. Used for notification links, canonical URLs and OG tags — a wrong value sends clients to the wrong host. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon public |
-| `DATABASE_URL` | Supabase → Database → Connection string → **Transaction pooler** (port 6543) |
-| `DIRECT_URL` | Supabase → Database → Connection string → **Session pooler** (port 5432) |
-| `CRON_SECRET` | Generate: `openssl rand -hex 32`. Without it the cron route returns 401 and **no reminder is ever sent**. |
+| Variable                        | Where to get it                                                                                                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_APP_URL`           | Your deployed origin, e.g. `https://book.example.com`. Used for notification links, canonical URLs and OG tags — a wrong value sends clients to the wrong host. |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Supabase → Project Settings → API → Project URL                                                                                                                 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon public                                                                                                                 |
+| `DATABASE_URL`                  | Supabase → Database → Connection string → **Transaction pooler** (port 6543)                                                                                    |
+| `DIRECT_URL`                    | Supabase → Database → Connection string → **Session pooler** (port 5432)                                                                                        |
+| `CRON_SECRET`                   | Generate: `openssl rand -hex 32`. Without it the cron route returns 401 and **no reminder is ever sent**.                                                       |
+| `RESEND_API_KEY`                | resend.com → API Keys. Without it email falls back to a console provider: messages are logged and marked sent, but **nothing is delivered**.                    |
+| `NOTIFICATIONS_FROM_EMAIL`      | A sender on a Resend-verified domain, e.g. `תורים <noreply@yourdomain.com>`. Required alongside the key — half-configured is an error in every mode.            |
 
 Both connection strings contain a `[YOUR-PASSWORD]` placeholder — replace it,
 brackets included. `check:env` fails if the brackets survive.
 
 ### Optional
 
-| Variable | Effect if unset |
-| --- | --- |
-| `RESEND_API_KEY` + `NOTIFICATIONS_FROM_EMAIL` | Email falls back to a console provider: messages are logged and marked sent, but nothing is delivered. **Both or neither** — half-configured is treated as an error. |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM`, `TWILIO_WHATSAPP_FROM` | SMS and WhatsApp channels stay on the console provider. |
-| `SUPABASE_SERVICE_ROLE_KEY` | `npm run db:claim` cannot resolve an email to a user id; pass the uuid instead. Never expose this key to the browser. |
+| Variable                                                                             | Effect if unset                                                                                                           |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM`, `TWILIO_WHATSAPP_FROM` | SMS and WhatsApp channels stay on the console provider. Client messages go by email today, so this is genuinely optional. |
+| `SUPABASE_SERVICE_ROLE_KEY`                                                          | `npm run db:claim` cannot resolve an email to a user id; pass the uuid instead. Never expose this key to the browser.     |
 
 ## 3. Database
 

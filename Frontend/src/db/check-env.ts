@@ -48,6 +48,25 @@ for (const group of groups) {
 const errors = report.issues.filter((i) => i.level === "error");
 const warnings = report.issues.filter((i) => i.level === "warning");
 
+// The variable list alone does not say whether clients actually receive
+// anything — the console provider fails silently and marks messages sent.
+// State the resolved channel outright.
+console.log(`${DIM}Delivery${RESET}`);
+if (report.emailChannel === "resend") {
+  console.log(
+    `  ${GREEN}✓${RESET} email → resend ${DIM}(messages are delivered)${RESET}`,
+  );
+} else {
+  const mark = production ? `${RED}✗${RESET}` : `${YELLOW}!${RESET}`;
+  const colour = production ? RED : YELLOW;
+  console.log(
+    `  ${mark} email → console ${colour}nothing is delivered${RESET}\n` +
+      `      ${DIM}Messages are logged and marked sent. Set RESEND_API_KEY and${RESET}\n` +
+      `      ${DIM}NOTIFICATIONS_FROM_EMAIL to send real mail.${RESET}`,
+  );
+}
+console.log("");
+
 if (report.ok) {
   console.log(
     `${GREEN}✓ Ready${RESET} — ${report.present.length} variables set` +

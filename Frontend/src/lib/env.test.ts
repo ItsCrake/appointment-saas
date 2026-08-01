@@ -9,14 +9,18 @@ const complete = {
   DATABASE_URL: "postgresql://user:pass@host:6543/postgres",
   DIRECT_URL: "postgresql://user:pass@host:5432/postgres",
   CRON_SECRET: "a-sufficiently-long-secret",
+  RESEND_API_KEY: "re_abc123",
+  NOTIFICATIONS_FROM_EMAIL: "noreply@example.com",
 };
 
-/** Copy of `complete` with one key removed, without unused destructuring. */
-function without(key: keyof typeof complete) {
+/** Copy of `complete` with keys removed, without unused destructuring. */
+function without(...keys: (keyof typeof complete)[]) {
   const copy: Record<string, string | undefined> = { ...complete };
-  delete copy[key];
+  for (const key of keys) delete copy[key];
   return copy;
 }
+
+const noEmail = () => without("RESEND_API_KEY", "NOTIFICATIONS_FROM_EMAIL");
 
 function errorsOf(env: Record<string, string | undefined>, production = true) {
   return checkEnv(env, { production })
@@ -67,23 +71,81 @@ describe("checkEnv", () => {
     );
   });
 
-  it("rejects half-configured email", () => {
-    const errors = errorsOf({ ...complete, RESEND_API_KEY: "re_abc123" });
-    expect(errors.join()).toMatch(/half-configured/);
+  it("keeps a malformed production variable advisory in development", () => {
+    // A missing CRON_SECRET is only a warning in dev, so a short one must be
+    // too — otherwise severity depends on the shape of the problem.
+    expect(errorsOf({ ...complete, CRON_SECRET: "short" }, false)).toEqual([]);
   });
 
-  it("accepts email when both variables are present", () => {
-    const errors = errorsOf({
-      ...complete,
-      RESEND_API_KEY: "re_abc123",
-      NOTIFICATIONS_FROM_EMAIL: "noreply@example.com",
+  describe("email delivery", () => {
+    it("requires the email provider in production but not in development", () => {
+      expect(errorsOf(noEmail(), true)).toEqual(
+        expect.arrayContaining([
+          "RESEND_API_KEY: not set",
+          "NOTIFICATIONS_FROM_EMAIL: not set",
+        ]),
+      );
+      expect(errorsOf(noEmail(), false)).toEqual([]);
     });
-    expect(errors).toEqual([]);
-  });
 
-  it("warns rather than errors when email is left unconfigured", () => {
-    const report = checkEnv(complete, { production: true });
-    expect(report.ok).toBe(true);
-    expect(report.issues.some((i) => i.name === "RESEND_API_KEY")).toBe(true);
+    it("reports which provider the email channel resolves to", () => {
+      expect(checkEnv(complete, { production: true }).emailChannel).toBe(
+        "resend",
+      );
+      expect(checkEnv(noEmail(), { production: false }).emailChannel).toBe(
+        "console",
+      );
+    });
+
+    it("resolves to console whenever either variable is missing", () => {
+      expect(
+        checkEnv(without("RESEND_API_KEY"), { production: false }).emailChannel,
+      ).toBe("console");
+      expect(
+        checkEnv(without("NOTIFICATIONS_FROM_EMAIL"), { production: false })
+          .emailChannel,
+      ).toBe("console");
+    });
+
+    it("rejects half-configured email in either mode", () => {
+      expect(
+        errorsOf(without("NOTIFICATIONS_FROM_EMAIL"), true).join(),
+      ).toMatch(/half-configured/);
+      expect(errorsOf(without("RESEND_API_KEY"), false).join()).toMatch(
+        /half-configured/,
+      );
+    });
+
+    it("reports a half-configured variable once, not twice", () => {
+      // In production the variable is both "not set" and "half-configured";
+      // only the more informative message should survive.
+      const issues = checkEnv(without("NOTIFICATIONS_FROM_EMAIL"), {
+        production: true,
+      }).issues.filter((i) => i.name === "NOTIFICATIONS_FROM_EMAIL");
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0].reason).toMatch(/half-configured/);
+    });
+
+    it("rejects a key that is not shaped like a Resend key", () => {
+      expect(
+        errorsOf({ ...complete, RESEND_API_KEY: "sk_live_abc" }).join(),
+      ).toMatch(/Resend key/);
+    });
+
+    it("rejects a sender without an email address", () => {
+      expect(
+        errorsOf({ ...complete, NOTIFICATIONS_FROM_EMAIL: "תורים" }).join(),
+      ).toMatch(/must contain an email address/);
+    });
+
+    it('accepts a "Name <addr>" sender', () => {
+      expect(
+        errorsOf({
+          ...complete,
+          NOTIFICATIONS_FROM_EMAIL: "תורים <noreply@example.com>",
+        }),
+      ).toEqual([]);
+    });
   });
 });

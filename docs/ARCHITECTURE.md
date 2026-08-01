@@ -7,20 +7,20 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 
 ## Stack
 
-| Layer | Choice |
-| --- | --- |
-| Framework | Next.js 16 (App Router, Turbopack), React 19, TypeScript strict |
-| Styling | Tailwind CSS v4, lucide-react. No component library. |
-| Font | Heebo via `next/font` — Hebrew + Latin glyphs |
-| DB | Supabase Postgres, Drizzle ORM, postgres.js driver |
-| Auth | Supabase Auth (`@supabase/ssr`), email + password |
-| Validation | Zod v4 (shared client/server), react-hook-form on the public form |
-| Dates | date-fns + date-fns-tz |
-| Tests | Vitest + PGlite (WASM Postgres) — 130 tests |
-| Hosting | Vercel. **Root Directory must be `Frontend`.** |
+| Layer      | Choice                                                             |
+| ---------- | ------------------------------------------------------------------ |
+| Framework  | Next.js 16 (App Router, Turbopack), React 19, TypeScript strict    |
+| Styling    | Tailwind CSS v4, lucide-react. No component library.               |
+| Font       | Heebo via `next/font` — Hebrew + Latin glyphs                      |
+| DB         | Supabase Postgres, Drizzle ORM, postgres.js driver                 |
+| Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
+| Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
+| Dates      | date-fns + date-fns-tz                                             |
+| Tests      | Vitest + PGlite (WASM Postgres) — 164 tests; Playwright — 10 specs |
+| Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
-Actions and route handlers *are* the backend.
+Actions and route handlers _are_ the backend.
 
 ```
 Frontend/src/
@@ -59,6 +59,7 @@ Migrations `0000`–`0006` in `src/db/migrations/`, applied with
 EXCLUDE USING gist (business_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&)
   WHERE (status IN ('pending','confirmed'))
 ```
+
 Half-open `[)` makes back-to-back bookings legal. The partial predicate means
 cancelling frees the slot instantly, with no cleanup.
 
@@ -110,6 +111,13 @@ console provider when unconfigured** — messages are logged and marked sent.
 This is why the entire pipeline was testable before any provider account
 existed. Check `live: false` in the cron response to see what is not real.
 
+That fallback is silent by design, which makes it dangerous at launch: an
+unconfigured production deploy sends nothing and reports success. So
+`check:env --production` requires `RESEND_API_KEY` and
+`NOTIFICATIONS_FROM_EMAIL` and prints the resolved channel outright — a green
+deploy check must not coexist with zero delivered mail. Development rules keep
+it a warning, since the console provider is the whole point locally.
+
 **`proxy.ts`, not `middleware.ts`.** Next 16 deprecates the middleware file
 convention. It only redirects; the real authorization boundary is
 `requireBusiness()` in `src/lib/dashboard-session.ts`, which resolves the
@@ -118,7 +126,7 @@ No action takes a business id from its request body.
 
 **Abuse defence is layered, and fails open.** The public booking action is
 unauthenticated by design, so it carries a honeypot (a visually hidden field
-that returns a *fabricated* success, writing nothing, so a script gets no
+that returns a _fabricated_ success, writing nothing, so a script gets no
 signal) plus Postgres-backed rate limits on IP and on phone-per-business. Rate
 limits are consumed **before** the honeypot check, or a bot filling the
 honeypot would get unlimited free requests. If the counter table is
@@ -157,7 +165,7 @@ exclusion constraint, enum casts and RLS are genuinely exercised.
 > binding. A raw `Date` inside a Drizzle `sql` template passes in tests and
 > throws at bind time in production — this happened once, in
 > `getDashboardStats`. Aggregate `sql` templates need a smoke test against real
-> Supabase after changes. The suite proves SQL *semantics*, not driver binding.
+> Supabase after changes. The suite proves SQL _semantics_, not driver binding.
 
 Useful scripts: `db:migrate`, `db:seed`, `db:claim -- <uuid>` (point the demo
 shop at a real auth user), `check:env`, `test:e2e`.
@@ -169,7 +177,7 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 ## Feature status
 
-**Done (Phases 0–5B, plus 5A onboarding)**
+**Done (Phases 0–6, bar the production deploy itself)**
 
 - Public booking: 3-step flow, no client login, `.ics` download, self-service
   cancellation at `/b/[token]` within the business's cancel window
@@ -183,9 +191,12 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   verified end to end
 - SEO: per-business metadata, canonical, `LocalBusiness` JSON-LD with opening
   hours and offers, robots, sitemap
-- Deployment: `vercel.json` with cron + security headers, env validation CLI
-
 - Marketing landing page at `/` — static RSC, no DB, prerendered
+- Deployment: `vercel.json` with the cron schedule, security headers in
+  `next.config.ts`, env validation CLI
+- Abuse defence: honeypot + Postgres rate limits on IP and phone-per-business
+- Observability: structured JSON logging with client identifiers redacted
+- Playwright E2E over the public booking and cancellation flows
 
 **Not built**
 
@@ -193,7 +204,9 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   appointments, reviews, custom domains
 - Service image upload (needs Supabase Storage), appointment status filters,
   timezone editing in settings
-- Playwright E2E, Sentry, rate limiting, anti-spam on the public booking form
+- Sentry — `reportError` is the single call site to wire it into
+- E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
+  suite, not through a browser
 - SMS/WhatsApp are code-complete but unproven — no Twilio account yet.
   Switching client messages to SMS is a one-line change to `CLIENT_CHANNEL` in
   `lib/notifications/enqueue.ts`.
