@@ -1,0 +1,60 @@
+# Drives the notification outbox at a usable cadence.
+#
+# Vercel's Hobby plan rejects any cron expression firing more than once a day,
+# so vercel.json is pinned to `0 8 * * *` purely to let the build pass. Every
+# message — confirmation, owner alert, cancellation — is enqueued with
+# `scheduledFor: now` and waits for a dispatch, so that schedule alone would
+# delay a client's confirmation email by up to a day.
+#
+# This workflow calls the same authenticated endpoint every 15 minutes, which
+# restores near-real-time delivery for free. The endpoint is idempotent
+# (notifications.dedupe_key is UNIQUE), so an overlapping or repeated run
+# cannot double-send.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   CRON_SECRET  same value as the Vercel environment variable
+#   APP_URL      deployed origin, no trailing slash, e.g.
+#                https://appointment-saas.vercel.app
+name: dispatch notifications
+
+on:
+  schedule:
+    # Offset off the quarter-hour: GitHub's scheduler is busiest at :00 and
+    # delays runs under load, so :02/:17/:32/:47 land closer to on time.
+    - cron: "2,17,32,47 * * * *"
+  workflow_dispatch:
+
+# No repository contents are read or written; the job only makes an outbound
+# HTTPS request.
+permissions: {}
+
+# A slow dispatch must not overlap the next tick.
+concurrency:
+  group: dispatch-notifications
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the dispatch endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CRON_SECRET}" ] || [ -z "${APP_URL}" ]; then
+            echo "::error::CRON_SECRET and APP_URL repository secrets must both be set."
+            exit 1
+          fi
+
+          # --fail-with-body so a 401 or 500 turns the run red *and* still
+          # prints the reason, rather than failing silently on a schedule
+          # nobody is watching.
+          curl --silent --show-error --fail-with-body \
+            --max-time 90 \
+            --retry 2 --retry-delay 5 --retry-connrefused \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL%/}/api/cron/notifications"
