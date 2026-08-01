@@ -201,8 +201,9 @@ appointments
 > Phase 2 and is complete.
 
 ### Phase 6 — Ship
-- [ ] Playwright E2E: full booking flow + cancel flow + admin CRUD.
-- [x] Rate limiting on booking endpoint, honeypot/anti-spam on the public form. *(Postgres fixed-window counters, `0007`; IP + phone-per-business layers; honeypot returns fabricated success. **Sentry still outstanding.**)*
+- [x] Playwright E2E: booking flow + dashboard verification + cancel flow. *(10 specs in `e2e/`; self-cleaning via a marker phone number. Admin CRUD is still covered only by the PGlite suite, not through the browser.)*
+- [x] Rate limiting on booking endpoint, honeypot/anti-spam on the public form. *(Postgres fixed-window counters, `0007`; IP + phone-per-business layers; honeypot returns fabricated success.)*
+- [x] Structured error reporting at every server boundary (`src/lib/observability.ts`), with client identifiers redacted. *(**Sentry SDK not installed** — `reportError` is the single call site to wire it into.)*
 - [x] **Added:** security headers moved from `vercel.json` to `next.config.ts`, so they apply in dev and on any host — and are testable locally.
 - [ ] Production deploy to Vercel, custom domain, DB backups verified.
 - [ ] Pilot with 1–2 real businesses; collect feedback before building payments/staff/WhatsApp.

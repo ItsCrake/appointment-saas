@@ -13,6 +13,7 @@ import {
 } from "@/db/queries";
 import { getAvailableSlots, type Slot } from "@/lib/availability";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
+import { reportError, reportWarning } from "@/lib/observability";
 import { BOOKING_RULES, rateLimitMessage, SLOTS_RULE } from "@/lib/rate-limit";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
 import { getClientIp } from "@/lib/request-context";
@@ -53,7 +54,7 @@ export async function fetchSlotsAction(
     });
     return { ok: true, slots };
   } catch (error) {
-    console.error("fetchSlotsAction failed", error);
+    reportError("booking.slots", error, { slug, serviceId, date });
     return { ok: false, error: "שגיאה בטעינת המועדים. נסו שוב." };
   }
 }
@@ -173,9 +174,9 @@ export async function createBookingAction(
   // trip and spot a false positive if one ever occurs.
   const automated = looksAutomated(parsed.data);
   if (automated.automated) {
-    console.warn(
-      `[antispam] discarded booking for business ${businessId}: ${automated.reason}`,
-    );
+    reportWarning("antispam.honeypot", automated.reason ?? "automated", {
+      businessId,
+    });
     return { ok: true, appointment: fabricateConfirmation(parsed.data) };
   }
 
@@ -232,7 +233,10 @@ export async function createBookingAction(
         appointment,
       });
     } catch (error) {
-      console.error("enqueueBookingNotifications failed", error);
+      reportError("booking.notify", error, {
+        businessId,
+        appointmentId: appointment.id,
+      });
     }
 
     return {
@@ -259,7 +263,7 @@ export async function createBookingAction(
         error: "המועד נתפס בדיוק עכשיו. בחרו מועד אחר.",
       };
     }
-    console.error("createBookingAction failed", error);
+    reportError("booking.create", error, { businessId, serviceId });
     return { ok: false, error: "אירעה שגיאה בקביעת התור. נסו שוב." };
   }
 }

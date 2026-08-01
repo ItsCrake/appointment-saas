@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { db } from "@/db";
 import { listActiveBusinessSlugs } from "@/db/queries";
+import { reportError } from "@/lib/observability";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -33,7 +34,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   } catch (error) {
     // A database blip must not fail the whole build or request.
-    console.error("sitemap: failed to list businesses", error);
+    reportError("sitemap.businesses", error);
     return root;
   }
 }

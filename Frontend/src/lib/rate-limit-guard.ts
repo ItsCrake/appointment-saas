@@ -1,6 +1,7 @@
 import { incrementRateLimit } from "@/db/queries/rate-limits";
 import type { Database } from "@/db/types";
 
+import { reportError, reportWarning } from "./observability";
 import {
   buildRateLimitKey,
   decide,
@@ -37,16 +38,16 @@ export async function enforceRateLimits(
       const decision = decide(rule, count, expiresAt, now);
 
       if (!decision.allowed) {
-        console.warn(
-          `[rate-limit] ${rule.scope} tripped for "${identifier}" (${count}/${rule.limit})`,
-        );
+        reportWarning("ratelimit.tripped", `${rule.scope} exceeded`, {
+          scope: rule.scope,
+          count,
+          limit: rule.limit,
+        });
         return { allowed: false, decision, rule };
       }
     } catch (error) {
-      console.error(
-        `[rate-limit] check failed for ${rule.scope}; allowing through`,
-        error,
-      );
+      // Deliberately not fatal — see the note above about failing open.
+      reportError("ratelimit.unavailable", error, { scope: rule.scope });
     }
   }
 

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/db";
 import { pruneExpiredRateLimits } from "@/db/queries/rate-limits";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
+import { reportError } from "@/lib/observability";
 import { describeProviders } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ async function handle(request: NextRequest) {
     try {
       prunedRateLimits = await pruneExpiredRateLimits(db, new Date());
     } catch (error) {
-      console.error("rate-limit prune failed", error);
+      reportError("cron.pruneRateLimits", error);
     }
 
     return NextResponse.json({
@@ -52,7 +53,7 @@ async function handle(request: NextRequest) {
       durationMs: Date.now() - started,
     });
   } catch (error) {
-    console.error("cron/notifications failed", error);
+    reportError("cron.notifications", error);
     return NextResponse.json(
       { ok: false, error: (error as Error).message },
       { status: 500 },

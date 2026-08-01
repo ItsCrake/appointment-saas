@@ -130,9 +130,25 @@ inferring from service count, which would drag an owner back into setup after
 deleting a service. The business row is created at step 1 so an abandoned
 signup still leaves a usable account.
 
+## Observability
+
+Every server boundary reports through `reportError` / `reportWarning` in
+`src/lib/observability.ts`, which emits **one structured JSON line** per event
+— searchable by `scope` (`booking.create`, `cron.notifications`,
+`ratelimit.tripped`) rather than by prose, and parsed as a single record by
+Vercel's log drain where a multi-line `console.error` becomes several.
+
+Context keys matching `phone|email|token|secret|password|key|name` are redacted
+before the line is written, so client identifiers never reach a log that might
+be shipped to a third party.
+
+**Sentry is not installed.** `reportError` is the only function that would need
+to call it; every existing call site inherits it for free.
+
 ## Testing
 
 `npm run verify` = env check → lint → typecheck → tests → build.
+`npm run test:e2e` runs Playwright separately (it needs a live server and DB).
 
 Tests run against **PGlite applying the real migration files**, so the
 exclusion constraint, enum casts and RLS are genuinely exercised.
@@ -144,7 +160,12 @@ exclusion constraint, enum casts and RLS are genuinely exercised.
 > Supabase after changes. The suite proves SQL *semantics*, not driver binding.
 
 Useful scripts: `db:migrate`, `db:seed`, `db:claim -- <uuid>` (point the demo
-shop at a real auth user), `check:env`.
+shop at a real auth user), `check:env`, `test:e2e`.
+
+The E2E suite books against `demo-barber` and tags every row it creates with
+the phone number `0559990001`, which is all teardown deletes. The dashboard
+specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
+`.env.local`; without them those specs skip and the public ones still run.
 
 ## Feature status
 

@@ -15,6 +15,7 @@ import {
   updateAppointmentStatus,
 } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
+import { reportError } from "@/lib/observability";
 import {
   enqueueBookingNotifications,
   enqueueCancellationNotifications,
@@ -76,13 +77,18 @@ export async function createManualBookingAction(
     try {
       await enqueueBookingNotifications({ db, business, appointment });
     } catch (error) {
-      console.error("enqueueBookingNotifications failed", error);
+      reportError("dashboard.manualBooking.notify", error, {
+        businessId: business.id,
+      });
     }
   } catch (error) {
     if (error instanceof SlotTakenError) {
       return { ok: false, error: "יש כבר תור שחופף למועד הזה" };
     }
-    console.error("createManualBookingAction failed", error);
+    reportError("dashboard.manualBooking", error, {
+      businessId: business.id,
+      serviceId,
+    });
     return { ok: false, error: "אירעה שגיאה ביצירת התור" };
   }
 
@@ -130,7 +136,9 @@ export async function setAppointmentStatusAction(
         appointment: updated,
       });
     } catch (error) {
-      console.error("cancellation notifications failed", error);
+      reportError("dashboard.cancel.notify", error, {
+        appointmentId: updated.id,
+      });
     }
   }
 

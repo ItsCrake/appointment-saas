@@ -10,6 +10,7 @@ import {
 } from "@/db/queries";
 import { enqueueCancellationNotifications } from "@/lib/notifications/enqueue";
 import { getCancellationState } from "@/lib/cancellation";
+import { reportError } from "@/lib/observability";
 
 export type CancelResult = { ok: true } | { ok: false; error: string };
 
@@ -54,7 +55,7 @@ export async function cancelBookingAction(
       appointment: cancelled,
     });
   } catch (error) {
-    console.error("cancellation notifications failed", error);
+    reportError("cancel.notify", error, { appointmentId: cancelled.id });
   }
 
   revalidatePath(`/b/${token}`);
