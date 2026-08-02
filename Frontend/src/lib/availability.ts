@@ -73,15 +73,19 @@ function overlaps(
 /**
  * Pure slot generation. No IO, so every rule below is unit-testable:
  *
- * - base slots step by `slotIntervalMin` from each shift start, and must end
- *   on or before that shift's end;
- * - **plus** the earliest legal start after each existing appointment, so a
- *   20-minute service does not lose the tail of every gap to the grid (see
- *   `backToBackStarts`);
+ * - the grid steps by the service's **total block** — `durationMin +
+ *   bufferMin` — from each shift start, so consecutive starts leave no
+ *   unbookable remainder between them;
+ * - a booking re-anchors the grid: the next start is that booking's end plus
+ *   the buffer, and stepping resumes from there rather than from the shift
+ *   start;
  * - an appointment blocks a candidate unless at least `bufferMin` separates
  *   them (enforced on both sides, so the gap holds whichever is booked first);
  * - time off blocks on plain overlap, with no buffer;
  * - `minNoticeMin` and `maxAdvanceDays` are measured from `now`.
+ *
+ * `slotIntervalMin` is now only a fallback for a service with no usable
+ * duration, which the guard above already rejects — see the note on the step.
  */
 export function computeSlots(input: ComputeSlotsInput): Slot[] {
   const {
@@ -100,10 +104,24 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
   // null/undefined falls back.
   const bufferMin = serviceBufferMin ?? business.bufferMin;
 
-  if (durationMin <= 0 || slotIntervalMin <= 0) return [];
+  // A service with no length is unbookable whatever the grid says.
+  if (durationMin <= 0) return [];
+
+  /**
+   * The grid steps by the service's whole block, not by a shop-wide interval:
+   * a 15-minute service with a 5-minute gap occupies 20 minutes, so the next
+   * start is 20 minutes later and the day packs with no unbookable remainder.
+   *
+   * `slotIntervalMin` survives only as a fallback for a block that somehow
+   * computes to zero — unreachable while `durationMin > 0` and `bufferMin`
+   * cannot be negative, but cheap insurance against a bad column.
+   */
+  const blockMin = durationMin + bufferMin;
+  const stepMin =
+    blockMin > 0 ? blockMin : slotIntervalMin > 0 ? slotIntervalMin : 15;
 
   const durationMs = durationMin * MINUTE_MS;
-  const stepMs = slotIntervalMin * MINUTE_MS;
+  const stepMs = stepMin * MINUTE_MS;
   const bufferMs = bufferMin * MINUTE_MS;
 
   const earliest = now.getTime() + business.minNoticeMin * MINUTE_MS;
@@ -138,52 +156,59 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
     // Overnight or zero-length shifts are not supported; skip rather than loop.
     if (!(shiftEnd > shiftStart)) continue;
 
-    // The grid alone loses the tail of every gap. A 20-minute service on a
-    // 15-minute grid, with 09:15–09:35 booked, offers nothing until 09:45 —
-    // 09:35 is legal but simply is not a grid point. Adding the earliest legal
-    // start after each appointment recovers exactly those windows.
-    //
-    // Strictly additive: every candidate still runs the same overlap, notice,
-    // horizon and closure checks below, so this can only ever offer more
-    // times, never fewer, and never one that conflicts.
-    const backToBackStarts = busy
-      .map((b) => b.end + bufferMs)
-      .filter((start) => start >= shiftStart && start + durationMs <= shiftEnd);
+    /**
+     * A cursor walk rather than a precomputed candidate list, because a
+     * booking does not merely block a start — it *moves* the grid. After an
+     * appointment the next start is its end plus the buffer, and stepping
+     * resumes from there.
+     *
+     * Keeping the original grid line as well would offer 09:40 immediately
+     * after a re-anchored 09:35 and strand a 5-minute sliver nobody can book,
+     * which is the fragmentation this whole scheme exists to avoid.
+     *
+     * Terminates: every branch moves `cursor` strictly forward. A conflict can
+     * only match when `cursor < conflict.end + bufferMs`, and a closure only
+     * when `cursor < closure.end`, so both jumps are increases; otherwise the
+     * cursor advances by a positive step.
+     */
+    let cursor = shiftStart;
 
-    const candidates: number[] = [];
-    for (
-      let start = shiftStart;
-      start + durationMs <= shiftEnd;
-      start += stepMs
-    ) {
-      candidates.push(start);
-    }
-    candidates.push(...backToBackStarts);
-    candidates.sort((a, b) => a - b);
+    while (cursor + durationMs <= shiftEnd) {
+      const end = cursor + durationMs;
 
-    for (const start of candidates) {
-      const end = start + durationMs;
-
-      // Also dedupes a back-to-back start that the grid already produced.
-      if (seen.has(start)) continue;
-      if (start < earliest || start > latest) continue;
-
-      const hitsAppointment = busy.some((b) =>
-        overlaps(start - bufferMs, end + bufferMs, b.start, b.end),
+      const conflict = busy.find((b) =>
+        overlaps(cursor - bufferMs, end + bufferMs, b.start, b.end),
       );
-      if (hitsAppointment) continue;
+      if (conflict) {
+        cursor = conflict.end + bufferMs;
+        continue;
+      }
 
-      const hitsClosure = closures.some((c) =>
-        overlaps(start, end, c.start, c.end),
+      // Closures re-anchor too, for the same reason; no buffer applies to them.
+      const closure = closures.find((c) =>
+        overlaps(cursor, end, c.start, c.end),
       );
-      if (hitsClosure) continue;
+      if (closure) {
+        cursor = closure.end;
+        continue;
+      }
 
+      // Outside the notice window or past the horizon: skip this start but
+      // keep walking, since the rest of the shift may still be bookable.
+      if (cursor < earliest || cursor > latest || seen.has(cursor)) {
+        cursor += stepMs;
+        continue;
+      }
+
+      const start = cursor;
       seen.add(start);
       slots.push({
         startsAt: new Date(start).toISOString(),
         endsAt: new Date(end).toISOString(),
         label: formatInTimeZone(new Date(start), timezone, "HH:mm"),
       });
+
+      cursor += stepMs;
     }
   }
 

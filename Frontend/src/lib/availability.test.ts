@@ -50,7 +50,7 @@ function labels(slots: { label: string }[]) {
 }
 
 describe("getAvailableSlots — base generation", () => {
-  it("steps by slot_interval_min and never runs past the shift end", async () => {
+  it("steps by the service block and never runs past the shift end", async () => {
     const { business, service } = await setup();
     await createShift(db, business.id, WEEKDAY, "09:00:00", "12:00:00");
 
@@ -61,18 +61,15 @@ describe("getAvailableSlots — base generation", () => {
       now: NOW,
     });
 
-    // 09:00→11:30 inclusive, every 15 min: a 30-min service must end by 12:00.
+    // A 30-minute service with no buffer steps by 30, not by the shop's
+    // slot_interval_min of 15: consecutive starts must leave no remainder too
+    // short to book. Last start is 11:30, ending exactly at close.
     expect(labels(slots)).toEqual([
       "09:00",
-      "09:15",
       "09:30",
-      "09:45",
       "10:00",
-      "10:15",
       "10:30",
-      "10:45",
       "11:00",
-      "11:15",
       "11:30",
     ]);
   });
@@ -291,12 +288,15 @@ describe("getAvailableSlots — buffer margins", () => {
   it("enforces the gap on both sides of an existing booking", async () => {
     const { business, service } = await setup({ bufferMin: 15 });
     await createShift(db, business.id, WEEKDAY, "08:00:00", "12:00:00");
+    // 08:40–09:10 local. The 08:00 candidate ends 08:30 and its 15-minute
+    // gap would run to 08:45 — past the booking's start — so the *leading*
+    // side of the buffer is what rejects it.
     await createAppointment(
       db,
       business.id,
       service.id,
-      new Date("2026-08-03T06:00:00Z"), // 09:00 local
-      new Date("2026-08-03T06:30:00Z"), // 09:30 local
+      new Date("2026-08-03T05:40:00Z"),
+      new Date("2026-08-03T06:10:00Z"),
     );
 
     const got = labels(
@@ -308,12 +308,11 @@ describe("getAvailableSlots — buffer margins", () => {
       }),
     );
 
-    // After: needs 15 min clear, so 09:30 is out and 09:45 is the first.
-    expect(got).not.toContain("09:30");
-    expect(got).toContain("09:45");
-    // Before: 08:30–09:00 leaves no gap; 08:15–08:45 leaves exactly 15 min.
-    expect(got).not.toContain("08:30");
-    expect(got).toContain("08:15");
+    // Before: 08:00 is blocked despite ending well clear of 08:40.
+    expect(got).not.toContain("08:00");
+    // After: the grid re-anchors to 09:10 + 15, and a 30-minute service with a
+    // 15-minute gap then steps by 45.
+    expect(got.slice(0, 3)).toEqual(["09:25", "10:10", "10:55"]);
   });
 
   it("lets a service override the business buffer", async () => {
@@ -400,7 +399,9 @@ describe("getAvailableSlots — buffer margins", () => {
 
   it("does not require a buffer against the shift boundary itself", async () => {
     const { business, service } = await setup({ bufferMin: 15 });
-    await createShift(db, business.id, WEEKDAY, "09:00:00", "12:00:00");
+    // 09:00–11:45 so a 45-minute block lands its last start at 11:15, ending
+    // exactly at close: the buffer is owed to bookings, not to the shift edge.
+    await createShift(db, business.id, WEEKDAY, "09:00:00", "11:45:00");
 
     const got = labels(
       await getAvailableSlots(db, {
@@ -412,7 +413,7 @@ describe("getAvailableSlots — buffer margins", () => {
     );
 
     expect(got[0]).toBe("09:00");
-    expect(got.at(-1)).toBe("11:30");
+    expect(got.at(-1)).toBe("11:15");
   });
 });
 
