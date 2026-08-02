@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 164 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 195 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -28,6 +28,7 @@ Frontend/src/
   components/     booking/ (public), dashboard/ (owner), ui/
   db/             schema, migrations, queries/ (repository layer), scripts
   lib/            availability, notifications/, stats, cancellation, env, ics
+                  slot-periods (slot grouping), branding (theme/gallery/reviews)
   test/           PGlite harness + factories
   proxy.ts        auth redirect guard (NOT middleware.ts — see below)
 ```
@@ -38,7 +39,8 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
   `min_notice_min`, `max_advance_days`, `cancel_window_hours`,
-  `reminder_hours_before`, `notification_email`, `onboarding_completed_at`
+  `reminder_hours_before`, `notification_email`, `onboarding_completed_at`,
+  plus the branding columns from `0009` (see below)
 - **services** — duration, price (agorot), `buffer_min` (NULL inherits business)
 - **working_hours** — weekly template; multiple rows per weekday = split shift;
   no rows = closed. Naive `time` values interpreted in the business timezone.
@@ -49,7 +51,7 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **rate_limits** — fixed-window counters; the only table with no
   `business_id`, so RLS is on with **no policy at all**
 
-Migrations `0000`–`0008` in `src/db/migrations/`, applied with
+Migrations `0000`–`0009` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ### Two constraints that carry real weight
@@ -114,6 +116,35 @@ without it anyone could read every tenant's client names and phone numbers.
 Server code stays responsible for its own `business_id` scoping — which is why
 every repository function takes it explicitly.
 
+### Branding columns (0009)
+
+`businesses` carries five presentation-only columns: `theme_color`,
+`hero_media_url`, `hero_media_type`, `gallery_urls` (jsonb) and `reviews`
+(jsonb). **Nothing here is read by the availability engine or the booking
+rules**, so a bad value can only produce a plain page, never a wrong
+appointment.
+
+`gallery_urls` is jsonb rather than a child table because the array position
+_is_ the display order — a sort column would add a table to reorder two
+thumbnails. `reviews` is jsonb for the same reason plus one more: they are
+typed in by the owner, never queried across tenants, and have no lifecycle.
+
+Three CHECK constraints, because jsonb accepts whatever it is handed:
+
+```sql
+CHECK (jsonb_typeof(gallery_urls) = 'array')
+CHECK (jsonb_typeof(reviews) = 'array')
+CHECK ((hero_media_url IS NULL AND hero_media_type IS NULL)
+    OR (hero_media_url IS NOT NULL AND hero_media_type IN ('image','video')))
+```
+
+The hero pair constraint exists because a type without a URL renders nothing
+and a URL without a type cannot be rendered at all — the two columns must not
+drift. `lib/branding.ts` still re-validates every one of these on read: a seed
+or a psql session can write past the app, and the public page must render
+regardless. `parseGallery` and `parseReviews` drop what does not parse rather
+than throwing.
+
 ## Key technical decisions
 
 **Timezone: UTC storage, business-local reasoning.** Every timestamp column is
@@ -176,10 +207,54 @@ honeypot would get unlimited free requests. If the counter table is
 unreachable, requests are allowed through: refusing every booking because a
 counter is down is worse than the spam.
 
+**The accent theme is CSS, not Tailwind classes.** Tailwind cannot emit a
+class built from a runtime value — `bg-${colour}-600` is never generated — so
+the owner's choice becomes a `data-accent` attribute on the page wrapper and
+the colours arrive as custom properties (`--accent`, `--accent-strong`,
+`--accent-contrast`, `--accent-soft`, `--accent-soft-border`,
+`--accent-on-soft`). Components then use static `bg-(--accent)` utilities.
+
+The values live in `globals.css` for a second reason: each swatch needs a dark
+variant, which an inline style cannot express. `THEME_COLORS` in
+`lib/branding.ts` is the source of truth for which names are _legal_; the
+stylesheet is the source of truth for what they _look like_. Nothing at compile
+time connects the two, so a test asserts every listed colour has a matching
+`[data-accent="…"]` block.
+
+Every swatch clears WCAG AA (4.5:1) for `--accent-contrast` on `--accent`,
+verified by measuring in a browser rather than by eye. This is why emerald and
+cyan sit at the 700 level while the rest are 600 — at 600 both measured ~3.6:1
+against white, and the CTA label is 14px semibold, which gets no large-text
+exemption. Amber inverts `--accent-contrast` to near-black for the same reason.
+
 **Onboarding state is explicit.** `onboarding_completed_at` rather than
 inferring from service count, which would drag an owner back into setup after
 deleting a service. The business row is created at step 1 so an abandoned
 signup still leaves a usable account.
+
+## Public booking components
+
+`components/booking/` splits by responsibility rather than by step, so the
+pieces that need client state are the only ones that ship JavaScript.
+
+| Component          | Boundary   | Role                                                  |
+| ------------------ | ---------- | ----------------------------------------------------- |
+| `booking-flow`     | client     | Orchestrates the 3 steps, owns all booking state      |
+| `business-header`  | **server** | Logo, hero banner, contact row                        |
+| `hours-drawer`     | client     | Weekly-hours bottom sheet — the only JS in the header |
+| `service-step`     | client     | Service cards                                         |
+| `datetime-step`    | client     | Day strip; delegates the slot area                    |
+| `slot-picker`      | client     | Grouped slots, skeleton, empty and error states       |
+| `details-step`     | client     | RHF + Zod form, summary card, honeypot                |
+| `confirmation`     | client     | Success view, `.ics` download, cancel link            |
+| `business-gallery` | client     | Thumbnail grid + lightbox                             |
+| `business-reviews` | **server** | Average rating and testimonial cards                  |
+
+Slots are grouped into morning / afternoon / evening by
+`lib/slot-periods.ts`, a pure function over `slot.label`. The label is already
+rendered in the business timezone by the availability engine, so grouping needs
+no timezone maths of its own and cannot disagree with the time on the button.
+Empty periods are dropped rather than rendered as bare headings.
 
 ## Observability
 

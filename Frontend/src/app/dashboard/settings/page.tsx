@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 
+import { AppearanceForm } from "@/components/dashboard/appearance-form";
 import { SettingsForm } from "@/components/dashboard/settings-form";
+import {
+  parseGallery,
+  parseReviews,
+  toThemeColor,
+  type HeroMediaType,
+} from "@/lib/branding";
 import { requireBusiness } from "@/lib/dashboard-session";
 
 export const metadata: Metadata = { title: "הגדרות" };
@@ -33,6 +40,29 @@ export default async function SettingsPage() {
           timezone: business.timezone,
         }}
       />
+
+      <div className="mt-8">
+        <h2 className="text-lg font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
+          עיצוב עמוד ההזמנות
+        </h2>
+        <p className="mt-0.5 mb-4 text-sm text-neutral-500">
+          צבע, באנר, גלריה וחוות דעת
+        </p>
+
+        <AppearanceForm
+          initial={{
+            themeColor: toThemeColor(business.themeColor),
+            heroMediaUrl: business.heroMediaUrl ?? "",
+            heroMediaType:
+              business.heroMediaType === "image" ||
+              business.heroMediaType === "video"
+                ? (business.heroMediaType as HeroMediaType)
+                : "",
+            galleryUrls: parseGallery(business.galleryUrls),
+            reviews: parseReviews(business.reviews),
+          }}
+        />
+      </div>
     </div>
   );
 }

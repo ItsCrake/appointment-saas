@@ -2,13 +2,21 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { BookingFlow } from "@/components/booking/booking-flow";
+import { BusinessGallery } from "@/components/booking/business-gallery";
 import { BusinessHeader } from "@/components/booking/business-header";
+import { BusinessReviews } from "@/components/booking/business-reviews";
 import { db } from "@/db";
 import {
   getActiveBusinessBySlug,
   listServices,
   listWorkingHours,
 } from "@/db/queries";
+import {
+  parseGallery,
+  parseReviews,
+  toThemeColor,
+  type HeroMediaType,
+} from "@/lib/branding";
 import { isDemoBusiness } from "@/lib/demo";
 import { todayInTimezone } from "@/lib/format";
 
@@ -134,8 +142,24 @@ export default async function BusinessPage({ params }: PageProps) {
         process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
       );
 
+  // Every branding column is validated on read: these are jsonb and varchar,
+  // so a value written by a seed or by psql could be any shape at all, and the
+  // public page must render regardless.
+  const gallery = parseGallery(business.galleryUrls);
+  const reviews = parseReviews(business.reviews);
+  const heroMediaType =
+    business.heroMediaType === "image" || business.heroMediaType === "video"
+      ? (business.heroMediaType as HeroMediaType)
+      : null;
+
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col">
+    // data-accent resolves the --accent custom properties for everything below
+    // it. Tailwind cannot build a class from a runtime value, so the owner's
+    // colour arrives as an attribute and the components stay static.
+    <div
+      data-accent={toThemeColor(business.themeColor)}
+      className="mx-auto flex w-full max-w-lg flex-1 flex-col"
+    >
       {structuredData ? (
         <script
           type="application/ld+json"
@@ -160,6 +184,8 @@ export default async function BusinessPage({ params }: PageProps) {
         todayWeekday={new Date(
           `${todayInTimezone(business.timezone)}T00:00:00Z`,
         ).getUTCDay()}
+        heroMediaUrl={business.heroMediaUrl}
+        heroMediaType={heroMediaType}
       />
 
       {services.length === 0 ? (
@@ -186,6 +212,9 @@ export default async function BusinessPage({ params }: PageProps) {
           }))}
         />
       )}
+
+      <BusinessGallery images={gallery} />
+      <BusinessReviews reviews={reviews} />
 
       <footer className="mt-auto px-5 py-8 text-center text-xs text-neutral-400">
         מופעל על ידי מערכת זימון התורים

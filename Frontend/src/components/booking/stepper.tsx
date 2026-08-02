@@ -14,7 +14,7 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
         className="relative mb-2 h-1 rounded-full bg-neutral-200 dark:bg-neutral-800"
       >
         <div
-          className="h-full rounded-full bg-neutral-900 transition-[width] duration-300 ease-out dark:bg-neutral-100"
+          className="h-full rounded-full bg-(--accent) transition-[width] duration-300 ease-out"
           style={{ width: `${((current - 1) / (STEPS.length - 1)) * 100}%` }}
         />
       </div>
@@ -37,9 +37,9 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
               <span
                 className={cn(
                   "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors",
-                  done && "bg-emerald-600 text-white",
+                  done && "bg-(--accent) text-(--accent-contrast)",
                   active &&
-                    "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900",
+                    "bg-(--accent) text-(--accent-contrast) ring-2 ring-(--accent-soft-border)",
                   !done &&
                     !active &&
                     "bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500",

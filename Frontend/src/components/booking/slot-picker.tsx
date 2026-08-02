@@ -76,10 +76,10 @@ export function SlotPicker({
                         className={cn(
                           "h-12 rounded-xl border text-sm font-semibold tabular-nums",
                           "transition-all duration-150 active:scale-95",
-                          "focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-neutral-100",
+                          "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
                           active
-                            ? "border-neutral-900 bg-neutral-900 text-white shadow-sm dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
-                            : "border-neutral-200 bg-white text-neutral-800 hover:border-neutral-900 hover:shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-neutral-100",
+                            ? "border-(--accent) bg-(--accent) text-(--accent-contrast) shadow-sm"
+                            : "border-neutral-200 bg-white text-neutral-800 hover:border-(--accent) hover:shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
                         )}
                       >
                         {slot.label}

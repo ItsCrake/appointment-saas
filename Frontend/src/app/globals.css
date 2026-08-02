@@ -24,6 +24,119 @@ body {
   color: var(--foreground);
 }
 
+/* ---------------------------------------------------------------------------
+   Per-business accent palette.
+
+   Tailwind cannot emit a class built from a runtime value, so the owner's
+   choice becomes a `data-accent` attribute and the colours arrive as custom
+   properties. Components then use bg-(--accent) / ring-(--accent) and stay
+   static. Each swatch also needs a dark variant, which an inline style could
+   not express — another reason this lives in CSS.
+
+   `--accent-soft` is a tinted surface, not the accent itself: text and card
+   backgrounds stay neutral so contrast never depends on the chosen hue.
+
+   Every swatch must clear WCAG AA (4.5:1) for `--accent-contrast` on
+   `--accent`, because the primary CTA label is 14px semibold — which is not
+   "large text" and so gets no 3:1 exemption. Measured in-browser, not assumed.
+--------------------------------------------------------------------------- */
+/* The bare selector is the fallback for an unexpected attribute value; naming
+   indigo alongside it keeps the default colour explicit rather than implied. */
+[data-accent],
+[data-accent="indigo"] {
+  --accent: oklch(51.1% 0.262 276.966);
+  --accent-strong: oklch(45.7% 0.24 277.023);
+  --accent-contrast: #fff;
+  --accent-soft: oklch(96.2% 0.018 272.314);
+  --accent-soft-border: oklch(87% 0.065 274.039);
+  --accent-on-soft: oklch(45.7% 0.24 277.023);
+}
+
+[data-accent="emerald"] {
+  /* 700, not 600: white on emerald-600 measures 3.65:1 and fails AA for the
+     14px semibold CTA label. Same reason cyan sits one step darker. */
+  --accent: oklch(50.8% 0.118 165.612);
+  --accent-strong: oklch(43.2% 0.095 166.913);
+  --accent-soft: oklch(97.9% 0.021 166.113);
+  --accent-soft-border: oklch(84.5% 0.143 164.978);
+  --accent-on-soft: oklch(43.2% 0.095 166.913);
+}
+
+[data-accent="rose"] {
+  --accent: oklch(58.6% 0.222 17.585);
+  --accent-strong: oklch(51.4% 0.222 16.935);
+  --accent-soft: oklch(96.9% 0.015 12.422);
+  --accent-soft-border: oklch(89.2% 0.058 10.001);
+  --accent-on-soft: oklch(51.4% 0.222 16.935);
+}
+
+[data-accent="amber"] {
+  --accent: oklch(66.6% 0.179 58.318);
+  --accent-strong: oklch(55.5% 0.163 48.998);
+  /* Amber is the one swatch light enough to fail on white text. */
+  --accent-contrast: oklch(21% 0.006 56.043);
+  --accent-soft: oklch(98.7% 0.022 95.277);
+  --accent-soft-border: oklch(87.9% 0.169 91.605);
+  --accent-on-soft: oklch(47.3% 0.137 46.201);
+}
+
+[data-accent="violet"] {
+  --accent: oklch(54.1% 0.281 293.009);
+  --accent-strong: oklch(49.1% 0.27 292.581);
+  --accent-soft: oklch(96.9% 0.016 293.756);
+  --accent-soft-border: oklch(89.4% 0.057 293.283);
+  --accent-on-soft: oklch(49.1% 0.27 292.581);
+}
+
+[data-accent="cyan"] {
+  --accent: oklch(52% 0.105 223.128);
+  --accent-strong: oklch(45% 0.085 224.283);
+  --accent-soft: oklch(98.4% 0.019 200.873);
+  --accent-soft-border: oklch(86.5% 0.087 207.078);
+  --accent-on-soft: oklch(45% 0.085 224.283);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* On a near-black page a 50-level tint glows. Soft surfaces invert to a
+     deep tone and the accent text lifts to stay readable against it. */
+  [data-accent],
+  [data-accent="indigo"] {
+    --accent-soft: oklch(25.7% 0.09 281.288);
+    --accent-soft-border: oklch(35.9% 0.144 278.697);
+    --accent-on-soft: oklch(78.5% 0.115 274.713);
+  }
+
+  [data-accent="emerald"] {
+    --accent-soft: oklch(26.2% 0.051 172.552);
+    --accent-soft-border: oklch(37.8% 0.077 168.94);
+    --accent-on-soft: oklch(84.5% 0.143 164.978);
+  }
+
+  [data-accent="rose"] {
+    --accent-soft: oklch(27.1% 0.105 12.094);
+    --accent-soft-border: oklch(41% 0.159 10.272);
+    --accent-on-soft: oklch(81% 0.117 11.638);
+  }
+
+  [data-accent="amber"] {
+    --accent-soft: oklch(27.9% 0.077 45.635);
+    --accent-soft-border: oklch(41.4% 0.112 45.904);
+    --accent-on-soft: oklch(87.9% 0.169 91.605);
+  }
+
+  [data-accent="violet"] {
+    --accent-soft: oklch(28.3% 0.141 291.089);
+    --accent-soft-border: oklch(38% 0.189 293.745);
+    --accent-on-soft: oklch(81.1% 0.111 293.571);
+  }
+
+  [data-accent="cyan"] {
+    --accent-soft: oklch(30.2% 0.056 229.695);
+    --accent-soft-border: oklch(39.8% 0.07 227.392);
+    --accent-on-soft: oklch(86.5% 0.087 207.078);
+  }
+}
+
 /* Step transitions for the booking flow. */
 @keyframes step-in {
   from {

@@ -36,11 +36,11 @@ export function ServiceStep({ services, selectedId, onSelect }: Props) {
               className={cn(
                 "group flex w-full items-center gap-4 rounded-2xl border bg-white p-4 text-start",
                 "transition-all duration-150 active:scale-[0.99]",
-                "focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-neutral-100",
+                "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
                 "dark:bg-neutral-900",
                 selectedId === service.id
-                  ? "border-neutral-900 ring-1 ring-neutral-900 dark:border-neutral-100 dark:ring-neutral-100"
-                  : "border-neutral-200 hover:border-neutral-900 hover:shadow-md dark:border-neutral-800 dark:hover:border-neutral-100",
+                  ? "border-(--accent) ring-1 ring-(--accent)"
+                  : "border-neutral-200 hover:border-(--accent) hover:shadow-md dark:border-neutral-800",
               )}
             >
               {service.imageUrl ? (

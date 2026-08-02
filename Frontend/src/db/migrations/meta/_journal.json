@@ -64,6 +64,13 @@
       "when": 1785600000000,
       "tag": "0008_owner_user_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785700000000,
+      "tag": "0009_business_branding",
+      "breakpoints": true
     }
   ]
 }

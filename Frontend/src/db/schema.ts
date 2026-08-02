@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   smallint,
@@ -10,6 +11,7 @@ import {
   timestamp,
   unique,
   uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -93,6 +95,44 @@ export const businesses = pgTable("businesses", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+
+  /* ---- Branding. Presentation only: none of it reaches the booking rules. -- */
+
+  /**
+   * Accent swatch for the public page. A plain varchar rather than a pgEnum:
+   * adding a colour is a stylesheet change, and an enum would force a
+   * migration and a deploy to ship one. `lib/branding.ts` validates on read,
+   * so an unknown value renders the default instead of breaking the page.
+   */
+  themeColor: varchar("theme_color", { length: 20 })
+    .notNull()
+    .default("indigo"),
+  /** Optional hero background behind the business name. */
+  heroMediaUrl: text("hero_media_url"),
+  /** "image" | "video". NULL whenever there is no hero. */
+  heroMediaType: varchar("hero_media_type", { length: 10 }),
+  /**
+   * Image URLs, ordered — the array position *is* the display order, which is
+   * why this is jsonb rather than a child table with a sort column.
+   */
+  galleryUrls: jsonb("gallery_urls").$type<string[]>().notNull().default([]),
+  /**
+   * Owner-entered testimonials. Deliberately not a table: they are typed in by
+   * hand, never queried across tenants, and have no lifecycle of their own.
+   * Shape is enforced by `reviewsSchema` on write and re-checked on read.
+   */
+  reviews: jsonb("reviews")
+    .$type<
+      {
+        id: string;
+        clientName: string;
+        rating: number;
+        comment: string;
+        date: string;
+      }[]
+    >()
+    .notNull()
+    .default([]),
 });
 
 export const services = pgTable(
