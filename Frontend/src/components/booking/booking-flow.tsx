@@ -186,6 +186,7 @@ export function BookingFlow({ slug, business, services }: Props) {
         {step === 2 && service ? (
           <DateTimeStep
             dates={dates}
+            today={today}
             selectedDate={date}
             slots={slots}
             loading={loadingSlots}

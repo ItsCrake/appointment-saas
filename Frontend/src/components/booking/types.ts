@@ -14,3 +14,12 @@ export type BookingService = {
   currency: string;
   imageUrl: string | null;
 };
+
+/** The subset of a working_hours row the public page renders. */
+export type BookingHours = {
+  weekday: number;
+  /** Wall-clock "HH:mm:ss" in the business timezone. */
+  startTime: string;
+  endTime: string;
+  isClosed: boolean;
+};

@@ -18,10 +18,13 @@ export function ServiceStep({ services, selectedId, onSelect }: Props) {
     <section aria-labelledby="service-heading" className="px-5">
       <h2
         id="service-heading"
-        className="mb-4 text-base font-semibold text-neutral-900 dark:text-neutral-100"
+        className="text-base font-semibold text-neutral-900 dark:text-neutral-100"
       >
         בחרו שירות
       </h2>
+      <p className="mt-1 mb-4 text-xs text-neutral-500">
+        {services.length} שירותים זמינים להזמנה
+      </p>
 
       <ul className="space-y-3">
         {services.map((service) => (
@@ -31,12 +34,13 @@ export function ServiceStep({ services, selectedId, onSelect }: Props) {
               onClick={() => onSelect(service)}
               aria-pressed={selectedId === service.id}
               className={cn(
-                "group flex w-full items-center gap-4 rounded-2xl border bg-white p-4 text-start transition-all",
-                "focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99]",
+                "group flex w-full items-center gap-4 rounded-2xl border bg-white p-4 text-start",
+                "transition-all duration-150 active:scale-[0.99]",
+                "focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-neutral-100",
                 "dark:bg-neutral-900",
                 selectedId === service.id
                   ? "border-neutral-900 ring-1 ring-neutral-900 dark:border-neutral-100 dark:ring-neutral-100"
-                  : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-800",
+                  : "border-neutral-200 hover:border-neutral-900 hover:shadow-md dark:border-neutral-800 dark:hover:border-neutral-100",
               )}
             >
               {service.imageUrl ? (
@@ -44,7 +48,7 @@ export function ServiceStep({ services, selectedId, onSelect }: Props) {
                 <img
                   src={service.imageUrl}
                   alt=""
-                  className="size-14 shrink-0 rounded-xl object-cover"
+                  className="size-16 shrink-0 rounded-xl object-cover"
                 />
               ) : null}
 
@@ -52,24 +56,28 @@ export function ServiceStep({ services, selectedId, onSelect }: Props) {
                 <span className="block truncate font-semibold text-neutral-900 dark:text-neutral-100">
                   {service.name}
                 </span>
+
                 {service.description ? (
-                  <span className="mt-0.5 block truncate text-xs text-neutral-500">
+                  // Two lines rather than one: a service description is the
+                  // only place an owner explains what the client is buying.
+                  <span className="mt-1 line-clamp-2 block text-xs leading-relaxed text-neutral-500">
                     {service.description}
                   </span>
                 ) : null}
-                <span className="mt-1.5 flex items-center gap-3 text-xs text-neutral-500">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="size-3.5" aria-hidden />
+
+                <span className="mt-2 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                    <Clock className="size-3" aria-hidden />
                     {formatDuration(service.durationMin)}
                   </span>
-                  <span className="font-semibold text-neutral-900 dark:text-neutral-200">
+                  <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
                     {formatPrice(service.priceCents, service.currency)}
                   </span>
                 </span>
               </span>
 
               <ChevronLeft
-                className="size-5 shrink-0 text-neutral-300 transition-transform group-hover:-translate-x-0.5 rtl:rotate-0"
+                className="size-5 shrink-0 text-neutral-300 transition-transform duration-150 group-hover:-translate-x-1 dark:text-neutral-600"
                 aria-hidden
               />
             </button>

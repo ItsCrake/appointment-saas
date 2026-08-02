@@ -70,26 +70,34 @@ export function DetailsStep({
         הפרטים שלכם
       </h2>
 
-      {/* Summary of what is being booked, so nobody confirms blind. */}
-      <div className="mb-6 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="font-semibold text-neutral-900 dark:text-neutral-100">
-          {service.name}
-        </p>
-        <dl className="mt-2 space-y-1 text-sm text-neutral-600 dark:text-neutral-400">
+      {/* Summary of what is being booked, so nobody confirms blind. The time is
+          the largest thing on the card — it is what people double-check. */}
+      <div className="mb-6 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
+        <div className="flex items-center justify-between gap-3 bg-neutral-900 px-4 py-3 text-white dark:bg-neutral-100 dark:text-neutral-900">
+          <span className="min-w-0 truncate text-sm font-semibold">
+            {service.name}
+          </span>
+          <span className="shrink-0 text-lg leading-none font-bold tabular-nums">
+            {when.time}
+          </span>
+        </div>
+
+        <dl className="space-y-1.5 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">
           <div className="flex items-center gap-2">
             <dt className="sr-only">מועד</dt>
             <Clock className="size-4 shrink-0" aria-hidden />
             <dd>
-              יום {when.weekday}, {when.date} בשעה{" "}
-              <span className="font-semibold tabular-nums">{when.time}</span>
+              יום {when.weekday}, {when.date}
             </dd>
           </div>
           <div className="flex items-center gap-2">
-            <dt className="sr-only">מחיר</dt>
+            <dt className="sr-only">מחיר ומשך</dt>
             <Tag className="size-4 shrink-0" aria-hidden />
             <dd>
-              {formatPrice(service.priceCents, service.currency)} ·{" "}
-              {formatDuration(service.durationMin)}
+              <span className="font-semibold text-neutral-900 dark:text-neutral-100">
+                {formatPrice(service.priceCents, service.currency)}
+              </span>{" "}
+              · {formatDuration(service.durationMin)}
             </dd>
           </div>
         </dl>
@@ -218,7 +226,7 @@ export function DetailsStep({
         <button
           type="submit"
           disabled={submitting}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white shadow-sm transition-all hover:bg-neutral-800 hover:shadow-md focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] disabled:opacity-60 disabled:active:scale-100 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
           {submitting ? (
             <>

@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarPlus, Check, CalendarCheck, Phone, User } from "lucide-react";
+import {
+  CalendarPlus,
+  Check,
+  CalendarCheck,
+  Phone,
+  Tag,
+  User,
+  ShieldCheck,
+} from "lucide-react";
 
 import type { BookingConfirmation } from "@/app/[slug]/actions";
 import { formatFullDateTime, formatPrice } from "@/lib/format";
@@ -31,36 +39,45 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
   }
 
   return (
-    <section className="animate-step px-5" aria-labelledby="confirm-heading">
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-900 dark:bg-emerald-950/30">
+    <section
+      className="animate-step px-5 pb-8"
+      aria-labelledby="confirm-heading"
+    >
+      <div className="rounded-3xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-6 text-center dark:border-emerald-900 dark:from-emerald-950/40 dark:to-neutral-950">
         <div
           aria-hidden
-          className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-emerald-600 text-white"
+          className="mx-auto mb-3 flex size-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-600/25"
         >
-          <Check className="size-6" strokeWidth={3} />
+          <Check className="size-7" strokeWidth={3} />
         </div>
 
         <h2
           id="confirm-heading"
-          className="text-lg font-bold text-emerald-900 dark:text-emerald-100"
+          className="text-xl font-bold text-emerald-900 dark:text-emerald-100"
         >
           התור נקבע בהצלחה!
         </h2>
         <p className="mt-1 text-sm text-emerald-800/80 dark:text-emerald-200/70">
           נתראה ב{appointment.businessName}
         </p>
+
+        {/* The date and time, large. This is the one fact worth remembering. */}
+        <p className="mt-4 text-2xl font-bold text-neutral-900 tabular-nums dark:text-neutral-50">
+          {when.time}
+        </p>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          יום {when.weekday}, {when.date}
+        </p>
       </div>
 
       <dl className="mt-4 divide-y divide-neutral-200 rounded-2xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
         <Row
           icon={<CalendarCheck className="size-4" aria-hidden />}
-          label="מועד"
+          label="שירות"
         >
-          יום {when.weekday}, {when.date} בשעה{" "}
-          <span className="font-semibold tabular-nums">{when.time}</span>
+          {appointment.serviceName}
         </Row>
-        <Row label="שירות">
-          {appointment.serviceName} ·{" "}
+        <Row icon={<Tag className="size-4" aria-hidden />} label="מחיר">
           {formatPrice(appointment.priceCents, appointment.currency)}
         </Row>
         <Row icon={<User className="size-4" aria-hidden />} label="שם">
@@ -74,23 +91,31 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
       <button
         type="button"
         onClick={addToCalendar}
-        className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:bg-neutral-100 dark:text-neutral-900"
+        className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white shadow-sm transition-all hover:bg-neutral-800 hover:shadow-md focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
       >
         <CalendarPlus className="size-4" aria-hidden />
         הוספה ליומן
       </button>
 
+      {/* The cancel link is the client's only handle on this booking once they
+          close the tab, so it gets a full-width control and an explanation
+          rather than a quiet text link. */}
       <Link
         href={`/b/${appointment.cancelToken}`}
-        className="mt-3 flex h-12 w-full items-center justify-center rounded-xl border border-neutral-300 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-neutral-300 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
       >
+        <ShieldCheck className="size-4" aria-hidden />
         צפייה או ביטול התור
       </Link>
+
+      <p className="mt-2.5 text-center text-xs leading-relaxed text-neutral-500">
+        שמרו את הקישור הזה — דרכו תוכלו לבטל את התור בעצמכם.
+      </p>
 
       <button
         type="button"
         onClick={onBookAnother}
-        className="mt-3 h-12 w-full rounded-xl text-sm font-semibold text-neutral-500 transition-colors hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none dark:hover:text-neutral-100"
+        className="mt-4 h-12 w-full rounded-xl text-sm font-semibold text-neutral-500 transition-colors hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none dark:hover:text-neutral-100"
       >
         קביעת תור נוסף
       </button>

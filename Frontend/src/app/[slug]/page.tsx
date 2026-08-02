@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { MapPin, Phone } from "lucide-react";
 
 import { BookingFlow } from "@/components/booking/booking-flow";
+import { BusinessHeader } from "@/components/booking/business-header";
 import { db } from "@/db";
 import {
   getActiveBusinessBySlug,
@@ -10,6 +10,7 @@ import {
   listWorkingHours,
 } from "@/db/queries";
 import { isDemoBusiness } from "@/lib/demo";
+import { todayInTimezone } from "@/lib/format";
 
 // Availability changes by the minute — never serve this from a static cache.
 export const dynamic = "force-dynamic";
@@ -142,51 +143,24 @@ export default async function BusinessPage({ params }: PageProps) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
       ) : null}
-      <header className="px-5 pt-8 pb-6 text-center">
-        {business.logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- remote host is per-tenant and not known at build time
-          <img
-            src={business.logoUrl}
-            alt=""
-            className="mx-auto mb-4 size-20 rounded-full object-cover ring-1 ring-black/5"
-          />
-        ) : (
-          <div
-            aria-hidden
-            className="mx-auto mb-4 flex size-20 items-center justify-center rounded-full bg-neutral-900 text-2xl font-bold text-white"
-          >
-            {business.name.trim().charAt(0)}
-          </div>
-        )}
-
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
-          {business.name}
-        </h1>
-
-        {business.description ? (
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-            {business.description}
-          </p>
-        ) : null}
-
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-neutral-500">
-          {business.address ? (
-            <span className="inline-flex items-center gap-1.5">
-              <MapPin className="size-3.5 shrink-0" aria-hidden />
-              {business.address}
-            </span>
-          ) : null}
-          {business.phone ? (
-            <a
-              href={`tel:${business.phone}`}
-              className="inline-flex items-center gap-1.5 hover:text-neutral-900 dark:hover:text-neutral-200"
-            >
-              <Phone className="size-3.5 shrink-0" aria-hidden />
-              {business.phone}
-            </a>
-          ) : null}
-        </div>
-      </header>
+      <BusinessHeader
+        name={business.name}
+        description={business.description}
+        logoUrl={business.logoUrl}
+        address={business.address}
+        phone={business.phone}
+        hours={hours.map((h) => ({
+          weekday: h.weekday,
+          startTime: h.startTime,
+          endTime: h.endTime,
+          isClosed: h.isClosed,
+        }))}
+        // Resolved server-side in the business timezone, so "today" matches the
+        // shop's day rather than the visitor's device.
+        todayWeekday={new Date(
+          `${todayInTimezone(business.timezone)}T00:00:00Z`,
+        ).getUTCDay()}
+      />
 
       {services.length === 0 ? (
         <p className="px-5 py-16 text-center text-sm text-neutral-500">
