@@ -15,6 +15,7 @@ import {
   updateBusiness,
 } from "@/db/queries";
 import { requireBusinessForSetup, requireUser } from "@/lib/dashboard-session";
+import { PLAN_TYPES } from "@/lib/plans";
 
 export type SetupResult =
   { ok: true; next: string } | { ok: false; error: string };
@@ -191,11 +192,32 @@ export async function saveSetupHoursAction(
 
   revalidatePath("/dashboard/setup");
   revalidatePath(`/${business.slug}`);
+  return { ok: true, next: "plan" };
+}
+
+/**
+ * Step 4. Records the tier the owner picked. Nothing is charged and nothing is
+ * gated on it — there is no payment provider — so this is a stated preference,
+ * not an entitlement. Kept as its own step so the choice is deliberate rather
+ * than a checkbox on the finish screen.
+ */
+export async function savePlanAction(input: unknown): Promise<SetupResult> {
+  const parsed = z.object({ planType: z.enum(PLAN_TYPES) }).safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "יש לבחור מסלול" };
+  }
+
+  const { business } = await requireBusinessForSetup();
+  if (!business) return { ok: false, error: "יש להשלים קודם את פרטי העסק" };
+
+  await updateBusiness(db, business.id, { planType: parsed.data.planType });
+
+  revalidatePath("/dashboard/setup");
   return { ok: true, next: "done" };
 }
 
 /**
- * Step 4. Marks onboarding complete, which is what stops requireBusiness()
+ * Step 5. Marks onboarding complete, which is what stops requireBusiness()
  * from routing the owner back here.
  */
 export async function completeOnboardingAction(): Promise<SetupResult> {

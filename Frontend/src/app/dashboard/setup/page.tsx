@@ -5,14 +5,15 @@ import { SetupFlow } from "@/components/dashboard/setup-flow";
 import { db } from "@/db";
 import { listServices, listWorkingHours } from "@/db/queries";
 import { requireBusinessForSetup } from "@/lib/dashboard-session";
+import { toPlanType } from "@/lib/plans";
 
 export const metadata: Metadata = { title: "הקמת העסק" };
 export const dynamic = "force-dynamic";
 
-const STEPS = ["details", "services", "hours", "done"] as const;
+const STEPS = ["details", "services", "hours", "plan", "done"] as const;
 type Step = (typeof STEPS)[number];
 
-type PageProps = { searchParams: Promise<{ step?: string }> };
+type PageProps = { searchParams: Promise<{ step?: string; plan?: string }> };
 
 export default async function SetupPage({ searchParams }: PageProps) {
   const { business } = await requireBusinessForSetup();
@@ -20,7 +21,9 @@ export default async function SetupPage({ searchParams }: PageProps) {
   // Finished owners have no business here; the dashboard is theirs now.
   if (business?.onboardingCompletedAt) redirect("/dashboard");
 
-  const { step: rawStep } = await searchParams;
+  // ?plan= comes from the landing page's pricing cards, so a tier chosen
+  // before signing up survives into the wizard.
+  const { step: rawStep, plan: requestedPlan } = await searchParams;
   const requested = STEPS.includes(rawStep as Step) ? (rawStep as Step) : null;
 
   // Steps beyond the first need a business row, so a deep link without one
@@ -63,6 +66,7 @@ export default async function SetupPage({ searchParams }: PageProps) {
             startTime: h.startTime.slice(0, 5),
             endTime: h.endTime.slice(0, 5),
           }))}
+        planType={toPlanType(business?.planType ?? requestedPlan)}
         appUrl={appUrl}
       />
     </div>

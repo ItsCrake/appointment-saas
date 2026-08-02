@@ -4,14 +4,22 @@ import {
   ArrowLeft,
   BellRing,
   CalendarCheck,
-  Link2,
+  ChartNoAxesColumn,
+  Palette,
   ShieldCheck,
   Smartphone,
   Sparkles,
+  type LucideIcon,
 } from "lucide-react";
 
+import { FaqAccordion } from "@/components/marketing/faq-accordion";
+import { PricingTable } from "@/components/marketing/pricing-table";
+import { FAQS, FEATURES, STEPS, type FeatureIcon } from "@/lib/landing-content";
+import { TRIAL_DAYS } from "@/lib/plans";
+
 // No database access and no dynamic APIs, so this prerenders as static HTML
-// and is served from the edge cache. Keep it that way.
+// and is served from the edge cache. Keep it that way — the pricing toggle and
+// the FAQ accordion are client islands precisely so this page need not be.
 
 export const metadata: Metadata = {
   title: { absolute: "זימון תורים אונליין לעסקים קטנים" },
@@ -40,43 +48,22 @@ export const metadata: Metadata = {
   },
 };
 
-const STEPS = [
-  {
-    title: "הגדרת שירותים ושעות",
-    body: "מגדירים מה אתם נותנים, כמה זמן כל טיפול לוקח ומתי אתם פתוחים. חמש דקות, פעם אחת.",
-  },
-  {
-    title: "שיתוף קישור אישי",
-    body: "מקבלים כתובת משלכם. שולחים בוואטסאפ, מצמידים לביו באינסטגרם, מדפיסים על כרטיס ביקור.",
-  },
-  {
-    title: "קבלת תורים אוטומטית",
-    body: "הלקוחות קובעים לבד, מסביב לשעון. אתם רואים הכול ביומן אחד מסודר.",
-  },
-] as const;
+/**
+ * The content module stores icon *names* so it stays plain data. This is the
+ * one place a name becomes a component.
+ */
+const FEATURE_ICONS: Record<FeatureIcon, LucideIcon> = {
+  smartphone: Smartphone,
+  bell: BellRing,
+  calendar: CalendarCheck,
+  palette: Palette,
+  chart: ChartNoAxesColumn,
+  shield: ShieldCheck,
+};
 
-const FEATURES = [
-  {
-    icon: BellRing,
-    title: "תזכורות אוטומטיות",
-    body: "תזכורת נשלחת ללקוח לפני התור, בזמן שאתם קובעים. פחות שכחות, פחות חלונות ריקים ביומן.",
-  },
-  {
-    icon: Link2,
-    title: "ביטול עצמאי",
-    body: "לקוח שלא יכול להגיע מבטל בעצמו דרך קישור אישי — והמועד מתפנה מיד להזמנה הבאה.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "אפס כפילויות",
-    body: "גם אם שני לקוחות לוחצים על אותה שעה באותו רגע, רק אחד יקבל אותה. זה נאכף במסד הנתונים עצמו.",
-  },
-  {
-    icon: Smartphone,
-    title: "בנוי לנייד",
-    body: "רוב הלקוחות קובעים מהטלפון. העמוד מהיר, בעברית ומימין לשמאל — בלי אפליקציה ובלי הרשמה.",
-  },
-] as const;
+/** teal-700, not teal-600: white on teal-600 measures ~3.4:1 and fails AA. */
+const CTA_PRIMARY =
+  "inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 font-semibold text-white transition-colors hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none";
 
 export default function LandingPage() {
   return (
@@ -86,7 +73,7 @@ export default function LandingPage() {
           <Link href="/" className="flex items-center gap-2">
             <span
               aria-hidden
-              className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+              className="flex size-8 items-center justify-center rounded-lg bg-teal-700 text-white"
             >
               <CalendarCheck className="size-4" />
             </span>
@@ -96,7 +83,12 @@ export default function LandingPage() {
           </Link>
 
           <nav className="flex items-center gap-2">
-            {/* h-10 keeps both a comfortable thumb target in the header. */}
+            <Link
+              href="#pricing"
+              className="hidden h-10 items-center rounded-lg px-3 text-sm font-medium text-neutral-600 transition-colors hover:text-neutral-900 sm:inline-flex dark:text-neutral-400 dark:hover:text-neutral-100"
+            >
+              מחירים
+            </Link>
             <Link
               href="/login"
               className="inline-flex h-10 items-center rounded-lg px-3 text-sm font-medium text-neutral-600 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
@@ -105,7 +97,7 @@ export default function LandingPage() {
             </Link>
             <Link
               href="/dashboard/setup"
-              className="inline-flex h-10 items-center rounded-xl bg-neutral-900 px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+              className={`${CTA_PRIMARY} h-10 px-4 text-sm`}
             >
               התחל עכשיו
             </Link>
@@ -114,8 +106,9 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1">
+        {/* Hero */}
         <section className="mx-auto w-full max-w-5xl px-5 pt-16 pb-12 text-center sm:pt-24">
-          <p className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-medium text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
+          <p className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-200">
             <Sparkles className="size-3.5" aria-hidden />
             למספרות, קוסמטיקאיות, מטפלים וכל עסק שעובד לפי תורים
           </p>
@@ -134,16 +127,16 @@ export default function LandingPage() {
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/dashboard/setup"
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-7 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 sm:w-auto dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+              className={`${CTA_PRIMARY} h-12 w-full px-7 text-sm sm:w-auto`}
             >
-              התחילו בחינם
+              התחילו {TRIAL_DAYS} ימי ניסיון בחינם
               <ArrowLeft className="size-4" aria-hidden />
             </Link>
             <Link
               href="/demo-barber"
-              className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-neutral-300 px-7 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 sm:w-auto dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-neutral-300 px-7 text-sm font-semibold text-neutral-800 transition-colors hover:border-teal-700 hover:text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none sm:w-auto dark:border-neutral-700 dark:text-neutral-200 dark:hover:text-teal-300"
             >
-              לצפייה בהדגמה
+              לצפייה בהדגמה חיה
             </Link>
           </div>
 
@@ -156,11 +149,11 @@ export default function LandingPage() {
         <section className="mx-auto w-full max-w-3xl px-5 pb-16">
           <Link
             href="/demo-barber"
-            className="group flex flex-col items-start gap-4 rounded-2xl border border-neutral-200 bg-gradient-to-l from-neutral-50 to-white p-6 transition-colors hover:border-neutral-400 sm:flex-row sm:items-center dark:border-neutral-800 dark:from-neutral-900 dark:to-neutral-950 dark:hover:border-neutral-600"
+            className="group flex flex-col items-start gap-4 rounded-2xl border border-neutral-200 bg-gradient-to-l from-teal-50 to-white p-6 transition-colors hover:border-teal-600 sm:flex-row sm:items-center dark:border-neutral-800 dark:from-teal-950/40 dark:to-neutral-950 dark:hover:border-teal-700"
           >
             <span
               aria-hidden
-              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-white"
             >
               <CalendarCheck className="size-5" />
             </span>
@@ -172,7 +165,7 @@ export default function LandingPage() {
                 נסו לקבוע תור אמיתי בעמוד ההדגמה — מספרת רון. לוקח פחות מדקה.
               </span>
             </span>
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-teal-800 dark:text-teal-300">
               להדגמה
               <ArrowLeft
                 className="size-4 transition-transform group-hover:-translate-x-1"
@@ -182,6 +175,7 @@ export default function LandingPage() {
           </Link>
         </section>
 
+        {/* How it works */}
         <section className="border-y border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/40">
           <div className="mx-auto w-full max-w-5xl px-5 py-16">
             <h2 className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
@@ -196,7 +190,7 @@ export default function LandingPage() {
                 <li key={step.title}>
                   <span
                     aria-hidden
-                    className="flex size-9 items-center justify-center rounded-full bg-neutral-900 text-sm font-bold text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    className="flex size-9 items-center justify-center rounded-full bg-teal-700 text-sm font-bold text-white"
                   >
                     {index + 1}
                   </span>
@@ -212,45 +206,80 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* Features */}
         <section className="mx-auto w-full max-w-5xl px-5 py-16">
           <h2 className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
             מה מקבלים
           </h2>
 
-          <ul className="mt-10 grid gap-4 sm:grid-cols-2">
-            {FEATURES.map(({ icon: Icon, title, body }) => (
-              <li
-                key={title}
-                className="rounded-2xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900"
-              >
-                <span
-                  aria-hidden
-                  className="flex size-10 items-center justify-center rounded-xl bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+          <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map((feature) => {
+              const Icon = FEATURE_ICONS[feature.icon];
+              return (
+                <li
+                  key={feature.title}
+                  className="rounded-2xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900"
                 >
-                  <Icon className="size-5" />
-                </span>
-                <h3 className="mt-4 font-semibold text-neutral-900 dark:text-neutral-50">
-                  {title}
-                </h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-                  {body}
-                </p>
-              </li>
-            ))}
+                  <span
+                    aria-hidden
+                    className="flex size-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300"
+                  >
+                    <Icon className="size-5" />
+                  </span>
+                  <h3 className="mt-4 font-semibold text-neutral-900 dark:text-neutral-50">
+                    {feature.title}
+                  </h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+                    {feature.body}
+                  </p>
+                </li>
+              );
+            })}
           </ul>
         </section>
 
+        {/* Pricing */}
+        <section
+          id="pricing"
+          className="scroll-mt-16 border-y border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/40"
+        >
+          <div className="mx-auto w-full max-w-5xl px-5 py-16">
+            <h2 className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
+              מחירים פשוטים
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-center text-sm text-neutral-600 dark:text-neutral-400">
+              {TRIAL_DAYS} ימי ניסיון בחינם בכל המסלולים. בלי כרטיס אשראי ובלי
+              התחייבות.
+            </p>
+
+            <div className="mt-8">
+              <PricingTable />
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section className="mx-auto w-full max-w-3xl px-5 py-16">
+          <h2 className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
+            שאלות נפוצות
+          </h2>
+          <div className="mt-8">
+            <FaqAccordion items={FAQS} />
+          </div>
+        </section>
+
+        {/* Closing CTA */}
         <section className="mx-auto w-full max-w-3xl px-5 pb-20">
-          <div className="rounded-2xl bg-neutral-900 px-6 py-12 text-center dark:bg-neutral-100">
-            <h2 className="text-2xl font-bold tracking-tight text-white dark:text-neutral-900">
+          <div className="rounded-2xl bg-gradient-to-br from-teal-700 to-teal-900 px-6 py-12 text-center">
+            <h2 className="text-2xl font-bold tracking-tight text-white">
               היומן שלכם, מסודר מהיום
             </h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-neutral-300 dark:text-neutral-600">
+            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-teal-50">
               הקימו את עמוד ההזמנות שלכם ושתפו את הקישור עוד היום.
             </p>
             <Link
               href="/dashboard/setup"
-              className="mt-7 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-8 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-200 dark:bg-neutral-900 dark:text-white dark:hover:bg-neutral-800"
+              className="mt-7 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-8 text-sm font-semibold text-teal-900 transition-colors hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-teal-800 focus-visible:outline-none"
             >
               התחילו בחינם
               <ArrowLeft className="size-4" aria-hidden />
@@ -266,22 +295,28 @@ export default function LandingPage() {
           <p className="text-xs text-neutral-500">
             © זימון תורים. כל הזכויות שמורות.
           </p>
-          <nav className="flex items-center gap-5 text-xs text-neutral-500">
+          <nav className="flex flex-wrap items-center justify-center gap-5 text-xs text-neutral-500">
             <Link
               href="/demo-barber"
-              className="transition-colors hover:text-neutral-900 dark:hover:text-neutral-200"
+              className="transition-colors hover:text-teal-800 dark:hover:text-teal-300"
             >
               הדגמה
             </Link>
             <Link
+              href="#pricing"
+              className="transition-colors hover:text-teal-800 dark:hover:text-teal-300"
+            >
+              מחירים
+            </Link>
+            <Link
               href="/login"
-              className="transition-colors hover:text-neutral-900 dark:hover:text-neutral-200"
+              className="transition-colors hover:text-teal-800 dark:hover:text-teal-300"
             >
               כניסה לבעלי עסקים
             </Link>
             <Link
               href="/dashboard/setup"
-              className="transition-colors hover:text-neutral-900 dark:hover:text-neutral-200"
+              className="transition-colors hover:text-teal-800 dark:hover:text-teal-300"
             >
               הרשמה
             </Link>

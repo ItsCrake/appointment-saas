@@ -44,9 +44,17 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!user && pathname.startsWith("/dashboard")) {
+    // Carry the query, not just the path: a tier picked on the landing page
+    // arrives as /dashboard/setup?plan=pro, and dropping the search string
+    // silently loses that choice across the sign-in round trip.
+    const target = `${pathname}${request.nextUrl.search}`;
+
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("next", pathname);
+    // clone() brings the original query with it, which would both leak those
+    // params onto /login and duplicate them inside `next`.
+    url.search = "";
+    url.searchParams.set("next", target);
     return NextResponse.redirect(url);
   }
 

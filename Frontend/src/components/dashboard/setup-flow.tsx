@@ -7,14 +7,17 @@ import { AlertCircle, Check, Loader2 } from "lucide-react";
 import {
   completeOnboardingAction,
   saveBusinessDetailsAction,
+  savePlanAction,
   saveStarterServicesAction,
   saveSetupHoursAction,
 } from "@/app/dashboard/setup/actions";
+import type { PlanType } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 import { SetupDetailsStep } from "./setup-details-step";
 import { SetupDoneStep } from "./setup-done-step";
 import { SetupHoursStep } from "./setup-hours-step";
+import { SetupPlanStep } from "./setup-plan-step";
 import { SetupServicesStep, type DraftService } from "./setup-services-step";
 
 export type SetupBusiness = {
@@ -30,22 +33,24 @@ export type SetupShift = {
   endTime: string;
 };
 
-type Step = "details" | "services" | "hours" | "done";
+type Step = "details" | "services" | "hours" | "plan" | "done";
 
 const STEP_LABELS: Record<Step, string> = {
   details: "פרטי העסק",
   services: "שירותים",
   hours: "שעות",
+  plan: "מסלול",
   done: "סיום",
 };
 
-const ORDER: Step[] = ["details", "services", "hours", "done"];
+const ORDER: Step[] = ["details", "services", "hours", "plan", "done"];
 
 export function SetupFlow({
   step,
   business,
   services,
   shifts,
+  planType,
   appUrl,
 }: {
   step: Step;
@@ -57,6 +62,7 @@ export function SetupFlow({
     priceCents: number;
   }[];
   shifts: SetupShift[];
+  planType: PlanType;
   appUrl: string;
 }) {
   const router = useRouter();
@@ -95,7 +101,7 @@ export function SetupFlow({
         <p className="mt-1 text-sm text-neutral-500">
           {step === "done"
             ? "עמוד ההזמנות שלכם באוויר"
-            : "ארבעה שלבים קצרים. אפשר לשנות הכול אחר כך."}
+            : "חמישה שלבים קצרים. אפשר לשנות הכול אחר כך."}
         </p>
       </header>
 
@@ -113,9 +119,8 @@ export function SetupFlow({
                 className={cn(
                   "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
                   done &&
-                    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-                  active &&
-                    "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900",
+                    "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200",
+                  active && "bg-teal-700 text-white",
                   !done && !active && "text-neutral-400",
                 )}
               >
@@ -127,9 +132,7 @@ export function SetupFlow({
                   aria-hidden
                   className={cn(
                     "h-px w-3",
-                    done
-                      ? "bg-emerald-500"
-                      : "bg-neutral-200 dark:bg-neutral-800",
+                    done ? "bg-teal-600" : "bg-neutral-200 dark:bg-neutral-800",
                   )}
                 />
               ) : null}
@@ -177,6 +180,17 @@ export function SetupFlow({
             pending={pending}
             onBack={() => go("services")}
             onSubmit={(next) => submit(() => saveSetupHoursAction(next))}
+          />
+        ) : null}
+
+        {step === "plan" ? (
+          <SetupPlanStep
+            selected={planType}
+            pending={pending}
+            onBack={() => go("hours")}
+            onSubmit={(next) =>
+              submit(() => savePlanAction({ planType: next }))
+            }
           />
         ) : null}
 

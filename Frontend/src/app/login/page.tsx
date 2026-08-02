@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { CalendarCheck } from "lucide-react";
 
 import { LoginForm } from "@/components/dashboard/login-form";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -34,6 +36,21 @@ export default async function LoginPage({ searchParams }: PageProps) {
     <main className="flex flex-1 items-center justify-center px-5 py-16">
       <div className="w-full max-w-sm">
         <header className="mb-8 text-center">
+          <Link
+            href="/"
+            className="mb-5 inline-flex items-center gap-2 rounded-lg focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none"
+          >
+            <span
+              aria-hidden
+              className="flex size-9 items-center justify-center rounded-xl bg-teal-700 text-white"
+            >
+              <CalendarCheck className="size-5" />
+            </span>
+            <span className="font-bold text-neutral-900 dark:text-neutral-50">
+              זימון תורים
+            </span>
+          </Link>
+
           <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
             כניסת בעלי עסקים
           </h1>
@@ -42,7 +59,20 @@ export default async function LoginPage({ searchParams }: PageProps) {
           </p>
         </header>
 
-        <LoginForm next={next} />
+        {/* Card, so the form reads as one object rather than floating fields. */}
+        <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+          <LoginForm next={next} />
+        </div>
+
+        <p className="mt-5 text-center text-xs text-neutral-500">
+          עדיין אין לכם עסק במערכת?{" "}
+          <Link
+            href="/dashboard/setup"
+            className="font-semibold text-teal-800 underline-offset-2 hover:underline dark:text-teal-300"
+          >
+            הקימו אותו בחמש דקות
+          </Link>
+        </p>
       </div>
     </main>
   );

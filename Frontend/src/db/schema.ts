@@ -133,6 +133,23 @@ export const businesses = pgTable("businesses", {
     >()
     .notNull()
     .default([]),
+
+  /* ---- Subscription. Recorded, not enforced — see the note below. --------- */
+
+  /**
+   * The tier the owner picked during onboarding. **Nothing bills against this
+   * and no feature is gated on it**: there is no payment provider wired up, so
+   * this records a stated intent, not an entitlement. Treat it as a lead
+   * signal until checkout exists.
+   */
+  planType: varchar("plan_type", { length: 20 }).notNull().default("starter"),
+  /**
+   * Always `trialing` today, for the same reason. Kept as a column rather than
+   * derived so the eventual billing integration has somewhere to write.
+   */
+  subscriptionStatus: varchar("subscription_status", { length: 20 })
+    .notNull()
+    .default("trialing"),
 });
 
 export const services = pgTable(

@@ -58,8 +58,9 @@ export function LoginForm({ next }: { next?: string }) {
             }}
             className={cn(
               "h-9 rounded-lg text-sm font-semibold transition-colors",
+              "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
               mode === value
-                ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                ? "bg-white text-teal-800 shadow-sm dark:bg-neutral-900 dark:text-teal-300"
                 : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200",
             )}
           >
@@ -84,7 +85,7 @@ export function LoginForm({ next }: { next?: string }) {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-neutral-900 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+            className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           />
         </div>
 
@@ -106,7 +107,7 @@ export function LoginForm({ next }: { next?: string }) {
             }
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-neutral-900 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+            className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           />
           {mode === "signup" ? (
             <p className="mt-1.5 text-xs text-neutral-500">לפחות 8 תווים</p>
@@ -136,7 +137,7 @@ export function LoginForm({ next }: { next?: string }) {
         <button
           type="submit"
           disabled={pending}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white shadow-sm transition-all hover:bg-teal-800 hover:shadow-md focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] disabled:opacity-60 disabled:active:scale-100"
         >
           {pending ? (
             <>

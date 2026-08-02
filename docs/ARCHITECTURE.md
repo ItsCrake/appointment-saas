@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 195 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 208 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -25,10 +25,11 @@ Actions and route handlers _are_ the backend.
 ```
 Frontend/src/
   app/            routes: /[slug], /b/[token], /dashboard/*, /login, /api/cron
-  components/     booking/ (public), dashboard/ (owner), ui/
+  components/     booking/ (public), dashboard/ (owner), marketing/ (landing), ui/
   db/             schema, migrations, queries/ (repository layer), scripts
   lib/            availability, notifications/, stats, cancellation, env, ics
                   slot-periods (slot grouping), branding (theme/gallery/reviews)
+                  plans + landing-content (pricing and landing copy as data)
   test/           PGlite harness + factories
   proxy.ts        auth redirect guard (NOT middleware.ts — see below)
 ```
@@ -40,7 +41,8 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
   `min_notice_min`, `max_advance_days`, `cancel_window_hours`,
   `reminder_hours_before`, `notification_email`, `onboarding_completed_at`,
-  plus the branding columns from `0009` (see below)
+  plus the branding columns from `0009` and the subscription columns from
+  `0010` (see below)
 - **services** — duration, price (agorot), `buffer_min` (NULL inherits business)
 - **working_hours** — weekly template; multiple rows per weekday = split shift;
   no rows = closed. Naive `time` values interpreted in the business timezone.
@@ -51,7 +53,7 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **rate_limits** — fixed-window counters; the only table with no
   `business_id`, so RLS is on with **no policy at all**
 
-Migrations `0000`–`0009` in `src/db/migrations/`, applied with
+Migrations `0000`–`0010` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ### Two constraints that carry real weight
@@ -145,6 +147,23 @@ or a psql session can write past the app, and the public page must render
 regardless. `parseGallery` and `parseReviews` drop what does not parse rather
 than throwing.
 
+### Subscription columns (0010) — recorded, not enforced
+
+`plan_type` (`free|starter|pro|business`) and `subscription_status`
+(`trialing|active|cancelled`), both CHECK-constrained. CHECK rather than a
+Postgres enum so adding a tier is one migration instead of two.
+
+**Nothing bills against these and no feature is gated on either.** There is no
+payment provider wired up, so `plan_type` records the tier an owner picked in
+the onboarding wizard — a lead signal — and `subscription_status` never leaves
+`trialing`. The landing page advertises prices that nothing can currently
+charge. Treat both columns as intent until checkout exists.
+
+The tier a visitor picks on the landing page travels as
+`/dashboard/setup?plan=pro`. `proxy.ts` preserves the **query** as well as the
+path when it bounces an anonymous visitor to `/login`, or that choice would be
+lost across sign-in.
+
 ## Key technical decisions
 
 **Timezone: UTC storage, business-local reasoning.** Every timestamp column is
@@ -231,6 +250,27 @@ exemption. Amber inverts `--accent-contrast` to near-black for the same reason.
 inferring from service count, which would drag an owner back into setup after
 deleting a service. The business row is created at step 1 so an abandoned
 signup still leaves a usable account.
+
+## Marketing surface
+
+`/` is a **static prerender** with no database access, and must stay that way.
+The pricing billing toggle and the FAQ accordion are the only interactive
+parts, so each is its own client island in `components/marketing/` rather than
+a `"use client"` on the page.
+
+Pricing tiers, feature copy and FAQs live in `lib/plans.ts` and
+`lib/landing-content.ts` as plain data with no JSX, so prices and copy can be
+edited without touching a component — and so the pricing maths is unit-tested.
+`landing-content.ts` stores icon _names_, not components, which is what keeps
+it importable as data; `page.tsx` maps a name to a `lucide-react` component in
+one place.
+
+**Teal is the platform brand and is unrelated to the per-business
+`--accent`.** Landing, login and onboarding are platform surfaces and use
+static Tailwind teal utilities; `/[slug]` is tenant-branded and uses the
+custom properties. Solid CTAs use **teal-700, not teal-600** — white on
+teal-600 measures 3.67:1 and fails WCAG AA, teal-700 measures 5.36:1.
+Measured in a browser, as with the accent palette.
 
 ## Public booking components
 
