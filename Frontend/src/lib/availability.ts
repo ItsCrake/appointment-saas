@@ -75,6 +75,9 @@ function overlaps(
  *
  * - base slots step by `slotIntervalMin` from each shift start, and must end
  *   on or before that shift's end;
+ * - **plus** the earliest legal start after each existing appointment, so a
+ *   20-minute service does not lose the tail of every gap to the grid (see
+ *   `backToBackStarts`);
  * - an appointment blocks a candidate unless at least `bufferMin` separates
  *   them (enforced on both sides, so the gap holds whichever is booked first);
  * - time off blocks on plain overlap, with no buffer;
@@ -135,13 +138,33 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
     // Overnight or zero-length shifts are not supported; skip rather than loop.
     if (!(shiftEnd > shiftStart)) continue;
 
+    // The grid alone loses the tail of every gap. A 20-minute service on a
+    // 15-minute grid, with 09:15–09:35 booked, offers nothing until 09:45 —
+    // 09:35 is legal but simply is not a grid point. Adding the earliest legal
+    // start after each appointment recovers exactly those windows.
+    //
+    // Strictly additive: every candidate still runs the same overlap, notice,
+    // horizon and closure checks below, so this can only ever offer more
+    // times, never fewer, and never one that conflicts.
+    const backToBackStarts = busy
+      .map((b) => b.end + bufferMs)
+      .filter((start) => start >= shiftStart && start + durationMs <= shiftEnd);
+
+    const candidates: number[] = [];
     for (
       let start = shiftStart;
       start + durationMs <= shiftEnd;
       start += stepMs
     ) {
+      candidates.push(start);
+    }
+    candidates.push(...backToBackStarts);
+    candidates.sort((a, b) => a - b);
+
+    for (const start of candidates) {
       const end = start + durationMs;
 
+      // Also dedupes a back-to-back start that the grid already produced.
       if (seen.has(start)) continue;
       if (start < earliest || start > latest) continue;
 

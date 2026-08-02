@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { AlertCircle } from "lucide-react";
 
 import type { Slot } from "@/lib/availability";
 import { dayOfMonth, monthLabel, weekdayLabel } from "@/lib/format";
@@ -15,7 +16,10 @@ type Props = {
   selectedDate: string;
   slots: Slot[];
   loading: boolean;
+  /** A slot *fetch* failure — the picker has nothing to show. */
   error?: string;
+  /** A previous *booking* failure. Slots below are still valid and selectable. */
+  notice?: string;
   selectedSlot?: Slot;
   onSelectDate: (date: string) => void;
   onSelectSlot: (slot: Slot) => void;
@@ -28,6 +32,7 @@ export function DateTimeStep({
   slots,
   loading,
   error,
+  notice,
   selectedSlot,
   onSelectDate,
   onSelectSlot,
@@ -100,6 +105,16 @@ export function DateTimeStep({
           );
         })}
       </div>
+
+      {notice ? (
+        <p
+          role="alert"
+          className="mb-4 flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {notice}
+        </p>
+      ) : null}
 
       <SlotPicker
         slots={slots}

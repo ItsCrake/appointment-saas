@@ -90,6 +90,10 @@ export function BookingFlow({ slug, business, services }: Props) {
   function selectDate(next: string) {
     setDate(next);
     setSlot(undefined);
+    // A booking failure describes the slot they just lost, not this date.
+    // Leaving it set kept the picker showing that error for every subsequent
+    // date, with no way back to the grid short of reloading the page.
+    setSubmitError(undefined);
     if (service) void loadSlots(service.id, next);
   }
 
@@ -134,6 +138,10 @@ export function BookingFlow({ slug, business, services }: Props) {
     if (result.code === "SLOT_TAKEN") {
       setSlot(undefined);
       setStep(2);
+      // Discard the cached list first: it still contains the slot that was
+      // just taken, and it is what the picker renders until the refetch lands.
+      setSlots([]);
+      setSlotsError(undefined);
       void loadSlots(service.id, date);
     }
   }
@@ -190,7 +198,8 @@ export function BookingFlow({ slug, business, services }: Props) {
             selectedDate={date}
             slots={slots}
             loading={loadingSlots}
-            error={slotsError ?? (submitError ? submitError : undefined)}
+            error={slotsError}
+            notice={submitError}
             selectedSlot={slot}
             onSelectDate={selectDate}
             onSelectSlot={selectSlot}

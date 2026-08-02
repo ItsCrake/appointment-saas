@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 218 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 228 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -184,6 +184,16 @@ and it is _expected_ revenue: nothing in this product records a payment.
 `getDashboardStats()` do the IO around them. This is what makes DST behaviour
 testable — the same `09:00` shift is `06:00Z` in August and `07:00Z` in
 December, and both are asserted.
+
+**Slot candidates are the grid _plus_ the end of every appointment.** Stepping
+by `slot_interval_min` from the shift start alone loses the tail of each gap: a
+20-minute service on a 15-minute grid with 09:15–09:35 booked offers nothing
+until 09:45, because 09:35 is legal but is not a grid point. `computeSlots`
+therefore also proposes `appointment.end + buffer` — the earliest legal start
+after each booking. The addition is strictly additive: every candidate still
+runs the same overlap, buffer, notice, horizon and closure checks, so it can
+only ever offer more times, never fewer, and never a conflicting one. Covered
+by `lib/availability-backtoback.test.ts`.
 
 **Availability is server-only.** The client echoes back a `startsAt` produced
 by the server; `createBookingAction` re-derives duration from the stored
