@@ -5,6 +5,11 @@ import { Check, Loader2, Phone, UserX, X } from "lucide-react";
 
 import { setAppointmentStatusAction } from "@/app/dashboard/actions";
 import { useToast } from "@/components/ui/toast";
+import {
+  STATUS_LABEL,
+  StatusChip,
+  type AppointmentStatusName,
+} from "@/components/dashboard/ui";
 import { formatFullDateTime, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -18,25 +23,6 @@ export type AgendaAppointment = {
   serviceName: string;
   priceCents: number;
   notes: string | null;
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "ממתין",
-  confirmed: "מאושר",
-  completed: "הושלם",
-  no_show: "לא הגיע",
-  cancelled: "בוטל",
-};
-
-const STATUS_STYLE: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
-  confirmed:
-    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-  completed:
-    "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
-  no_show: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
-  cancelled:
-    "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
 };
 
 export function AgendaList({
@@ -75,7 +61,7 @@ function AgendaRow({
   const end = formatFullDateTime(appointment.endsAt, timezone);
   const open = status === "confirmed" || status === "pending";
 
-  function update(next: string) {
+  function update(next: AppointmentStatusName) {
     const previous = status;
     setStatus(next); // optimistic
     setError(undefined);
@@ -114,14 +100,7 @@ function AgendaRow({
             <p className="font-semibold text-neutral-900 dark:text-neutral-100">
               {appointment.clientName}
             </p>
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                STATUS_STYLE[status],
-              )}
-            >
-              {STATUS_LABEL[status]}
-            </span>
+            <StatusChip status={status} />
           </div>
 
           <p className="mt-0.5 truncate text-sm text-neutral-500">
@@ -156,7 +135,7 @@ function AgendaRow({
             <QuickAction
               onClick={() => update("completed")}
               disabled={pending}
-              tone="emerald"
+              tone="teal"
               icon={<Check className="size-3.5" aria-hidden />}
               label="הושלם"
               busy={pending}
@@ -201,14 +180,13 @@ function QuickAction({
 }: {
   onClick: () => void;
   disabled: boolean;
-  tone: "emerald" | "red" | "neutral";
+  tone: "teal" | "red" | "neutral";
   icon: React.ReactNode;
   label: string;
   busy?: boolean;
 }) {
   const tones = {
-    emerald:
-      "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40",
+    teal: "border-teal-200 text-teal-800 hover:bg-teal-50 dark:border-teal-900 dark:text-teal-300 dark:hover:bg-teal-950/40",
     red: "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40",
     neutral:
       "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800",

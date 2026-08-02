@@ -223,6 +223,10 @@ describe("getDashboardStats", () => {
       pastCount: 0,
       cancelledCount: 0,
       noShowCount: 0,
+      // sum() over no rows is NULL in Postgres; coalesced so the card can
+      // render a price rather than "₪NaN".
+      todayRevenueCents: 0,
+      newClientsThisWeek: 0,
     });
   });
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
 
 import { appointments, businesses, type AppointmentStatus } from "../schema";
 import type { Database } from "../types";
@@ -123,6 +123,10 @@ export type DashboardStats = {
   pastCount: number;
   cancelledCount: number;
   noShowCount: number;
+  /** Sum of today's non-cancelled prices, in agorot. Expected, not collected. */
+  todayRevenueCents: number;
+  /** Phones whose first-ever booking falls inside this week. */
+  newClientsThisWeek: number;
 };
 
 /**
@@ -163,20 +167,69 @@ export async function getDashboardStats(
       pastCount: sql<number>`count(*) FILTER (WHERE ${inRatesWindow})::int`,
       cancelledCount: sql<number>`count(*) FILTER (WHERE ${inRatesWindow} AND ${appointments.status} = 'cancelled')::int`,
       noShowCount: sql<number>`count(*) FILTER (WHERE ${inRatesWindow} AND ${appointments.status} = 'no_show')::int`,
+      // coalesce: sum() over an empty filter is NULL, not 0.
+      todayRevenueCents: sql<number>`coalesce(sum(${appointments.priceCents}) FILTER (WHERE ${appointments.startsAt} >= ${at(todayStart)} AND ${appointments.startsAt} < ${at(todayEnd)} AND ${live}), 0)::int`,
     })
     .from(appointments)
     .where(eq(appointments.businessId, businessId));
 
-  return (
-    row ?? {
+  const newClientsThisWeek = await countNewClients(db, businessId, {
+    from: weekStart,
+    to: weekEnd,
+  });
+
+  return {
+    ...(row ?? {
       todayCount: 0,
       weekCount: 0,
       upcomingCount: 0,
       pastCount: 0,
       cancelledCount: 0,
       noShowCount: 0,
-    }
-  );
+      todayRevenueCents: 0,
+    }),
+    newClientsThisWeek,
+  };
+}
+
+/**
+ * Clients whose *first* booking falls in the window — not merely everyone who
+ * booked in it, which would count regulars as new every time they return.
+ *
+ * Its own query rather than another FILTER on the aggregate above: this groups
+ * by phone and the others count rows, so they cannot share a scan.
+ */
+export async function countNewClients(
+  db: Database,
+  businessId: string,
+  window: { from: Date; to: Date },
+): Promise<number> {
+  // Same ISO-string cast as the aggregate above: a raw Date inside a `sql`
+  // template has no inferable type for the postgres.js driver.
+  const at = (value: Date) => sql`${value.toISOString()}::timestamptz`;
+
+  // Built through the query builder rather than db.execute(): the shared
+  // Database handle is driver-agnostic, so execute() returns an untyped result.
+  const firstBookings = db
+    .select({ phone: appointments.clientPhone })
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        ne(appointments.status, "cancelled"),
+      ),
+    )
+    .groupBy(appointments.clientPhone)
+    .having(
+      sql`min(${appointments.startsAt}) >= ${at(window.from)} AND min(${appointments.startsAt}) < ${at(window.to)}`,
+    )
+    .as("first_bookings");
+
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(firstBookings);
+
+  return row?.count ?? 0;
 }
 
 export type ClientSummary = {

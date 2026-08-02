@@ -113,7 +113,7 @@ export function SetupDoneStep({
         type="button"
         onClick={onFinish}
         disabled={pending}
-        className="mt-5 h-12 w-full rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+        className="mt-5 h-12 w-full rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
       >
         כניסה ללוח הניהול
       </button>

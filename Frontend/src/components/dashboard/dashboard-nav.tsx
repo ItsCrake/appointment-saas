@@ -64,9 +64,10 @@ export function DashboardNav() {
                 aria-current={isActive(href) ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
                   isActive(href)
-                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                    : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800",
+                    ? "bg-teal-700 text-white shadow-sm"
+                    : "text-neutral-600 hover:bg-teal-50 hover:text-teal-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-teal-300",
                 )}
               >
                 <Icon className="size-4 shrink-0" aria-hidden />
@@ -96,7 +97,7 @@ export function DashboardNav() {
           className={cn(
             "rounded-lg p-2 transition-colors",
             isActive("/dashboard/settings")
-              ? "text-neutral-900 dark:text-neutral-100"
+              ? "text-teal-700 dark:text-teal-300"
               : "text-neutral-400",
           )}
         >
@@ -114,7 +115,7 @@ export function DashboardNav() {
       </div>
 
       {/* Mobile: fixed bottom bar, thumb-reachable. */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/95 backdrop-blur md:hidden dark:border-neutral-800 dark:bg-neutral-900/95">
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden dark:border-neutral-800 dark:bg-neutral-900/95">
         <ul className="grid grid-cols-4">
           {MOBILE_LINKS.map(({ href, label, icon: Icon }) => (
             <li key={href}>
@@ -124,11 +125,18 @@ export function DashboardNav() {
                 className={cn(
                   "flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
                   isActive(href)
-                    ? "text-neutral-900 dark:text-neutral-100"
-                    : "text-neutral-400",
+                    ? "text-teal-700 dark:text-teal-300"
+                    : "text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300",
                 )}
               >
-                <Icon className="size-5" aria-hidden />
+                <span
+                  className={cn(
+                    "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+                    isActive(href) && "bg-teal-50 dark:bg-teal-950/60",
+                  )}
+                >
+                  <Icon className="size-5" aria-hidden />
+                </span>
                 {label}
               </Link>
             </li>

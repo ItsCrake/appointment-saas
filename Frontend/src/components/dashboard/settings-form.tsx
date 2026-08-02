@@ -218,7 +218,7 @@ export function SettingsForm({ business }: { business: Business }) {
       <button
         type="submit"
         disabled={pending}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 md:w-auto md:px-8 dark:bg-neutral-100 dark:text-neutral-900"
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 md:w-auto md:px-8"
       >
         {pending ? (
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -230,7 +230,7 @@ export function SettingsForm({ business }: { business: Business }) {
 }
 
 const FIELD =
-  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-neutral-900 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
+  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
 
 function Section({
   title,

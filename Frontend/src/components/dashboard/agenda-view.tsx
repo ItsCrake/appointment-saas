@@ -116,7 +116,7 @@ export function AgendaView({
           onClick={() =>
             setDialogDate(view === "week" ? days[0] : selectedDate)
           }
-          className="ms-auto inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
+          className="ms-auto inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-neutral-800"
         >
           <Plus className="size-4" aria-hidden />
           תור ידני

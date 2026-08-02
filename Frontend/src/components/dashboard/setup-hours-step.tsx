@@ -129,7 +129,7 @@ export function SetupHoursStep({
           type="button"
           onClick={() => onSubmit(shifts)}
           disabled={pending}
-          className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+          className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
         >
           המשך לסיום
         </button>

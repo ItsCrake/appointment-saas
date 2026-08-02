@@ -37,7 +37,7 @@ type Props = {
 };
 
 const inputClass =
-  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-transparent focus:ring-2 focus:ring-neutral-900 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:ring-neutral-100";
+  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ";
 
 export function AppearanceForm({ initial }: Props) {
   const [themeColor, setThemeColor] = useState<ThemeColor>(initial.themeColor);
@@ -139,7 +139,7 @@ export function AppearanceForm({ initial }: Props) {
               data-accent={colour}
               className={cn(
                 "flex flex-col items-center gap-1.5 rounded-xl border p-2.5 transition-all active:scale-95",
-                "focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none",
+                "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
                 themeColor === colour
                   ? "border-(--accent) ring-1 ring-(--accent)"
                   : "border-neutral-200 hover:border-neutral-400 dark:border-neutral-800",
@@ -252,7 +252,7 @@ export function AppearanceForm({ initial }: Props) {
           <button
             type="button"
             onClick={addGalleryImage}
-            className="flex h-11 shrink-0 items-center gap-1 rounded-xl bg-neutral-900 px-3 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
+            className="flex h-11 shrink-0 items-center gap-1 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white transition-colors hover:bg-teal-800"
           >
             <Plus className="size-4" aria-hidden />
             הוספה
@@ -371,7 +371,7 @@ export function AppearanceForm({ initial }: Props) {
                       aria-checked={review.rating === value}
                       aria-label={`${value} כוכבים`}
                       onClick={() => patchReview(review.id, { rating: value })}
-                      className="rounded p-0.5 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none"
+                      className="rounded p-0.5 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none"
                     >
                       <Star
                         className={cn(
@@ -435,7 +435,7 @@ export function AppearanceForm({ initial }: Props) {
         type="button"
         onClick={save}
         disabled={saving}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white transition-colors hover:bg-teal-800 disabled:opacity-60"
       >
         {saving ? (
           <>

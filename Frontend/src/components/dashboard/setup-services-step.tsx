@@ -20,7 +20,7 @@ const TEMPLATES: DraftService[] = [
 ];
 
 const FIELD =
-  "h-10 w-full rounded-lg border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-neutral-900 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
+  "h-10 w-full rounded-lg border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
 
 export function SetupServicesStep({
   existing,
@@ -170,7 +170,7 @@ export function SetupServicesStep({
           type="button"
           onClick={() => onSubmit(drafts.filter((d) => d.name.trim()))}
           disabled={pending}
-          className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+          className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
         >
           המשך לשעות
         </button>

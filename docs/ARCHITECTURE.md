@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 208 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 218 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -171,6 +171,14 @@ lost across sign-in.
 resolved through `fromZonedTime(…, business.timezone)`. Never compare a local
 date to a UTC one.
 
+**Dashboard stats are one aggregate plus one grouped query.** Every headline
+number rides a single `FILTER` scan, except `newClientsThisWeek`: it groups by
+phone and asks whether `min(starts_at)` falls inside the week, which cannot
+share a scan with a row count. That definition matters — counting everyone who
+booked this week would relabel regulars as new on every return visit.
+`todayRevenueCents` is coalesced because `sum()` over an empty filter is NULL,
+and it is _expected_ revenue: nothing in this product records a payment.
+
 **Pure/IO split for anything time-based.** `computeSlots()` and
 `getStatsWindows()` are pure functions; `getAvailableSlots()` and
 `getDashboardStats()` do the IO around them. This is what makes DST behaviour
@@ -271,6 +279,23 @@ static Tailwind teal utilities; `/[slug]` is tenant-branded and uses the
 custom properties. Solid CTAs use **teal-700, not teal-600** — white on
 teal-600 measures 3.67:1 and fails WCAG AA, teal-700 measures 5.36:1.
 Measured in a browser, as with the accent palette.
+
+## Dashboard chrome
+
+`components/dashboard/ui.tsx` holds every shared control — `btnPrimary`,
+`btnSecondary`, `inputClass`, `cardClass`, `StatusChip`, `EmptyState`,
+`SkeletonRows`, `PageHeader`. Each manager previously styled its own buttons
+and focus rings, which is how they drifted apart; one definition per control
+is what stops that recurring. Same teal-700 rule as the marketing surface.
+
+Appointment status colours live in `StatusChip` only: confirmed teal, pending
+amber, cancelled rose, no-show slate, completed emerald. The label is always
+rendered beside the colour, so status never depends on hue alone.
+
+**Navigation breakpoints are paired at `md` on purpose.** The desktop sidebar
+is `md:block` and the mobile bottom bar is `md:hidden`. Moving the bottom bar
+to `sm:hidden` without also moving the sidebar would leave 640–768px with no
+navigation at all.
 
 ## Public booking components
 

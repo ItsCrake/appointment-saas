@@ -92,6 +92,8 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         noShowCount={stats.noShowCount}
         cancellationRate={toPercent(stats.cancelledCount, stats.pastCount)}
         noShowRate={toPercent(stats.noShowCount, stats.pastCount)}
+        todayRevenueCents={stats.todayRevenueCents}
+        newClientsThisWeek={stats.newClientsThisWeek}
         ratesWindowDays={RATES_WINDOW_DAYS}
       />
 

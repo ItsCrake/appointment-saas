@@ -1,11 +1,13 @@
 import {
-  CalendarClock,
   CalendarDays,
   CalendarRange,
+  UserPlus,
   UserX,
+  Wallet,
   XCircle,
 } from "lucide-react";
 
+import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export type StatsCardsProps = {
@@ -18,29 +20,42 @@ export type StatsCardsProps = {
   cancellationRate: number;
   noShowRate: number;
   ratesWindowDays: number;
+  todayRevenueCents: number;
+  newClientsThisWeek: number;
 };
 
 export function StatsCards({
   todayCount,
   weekCount,
-  upcomingCount,
   pastCount,
   cancelledCount,
   noShowCount,
   cancellationRate,
   noShowRate,
   ratesWindowDays,
+  todayRevenueCents,
+  newClientsThisWeek,
 }: StatsCardsProps) {
   // With almost no history a percentage is noise — 1 of 2 is not "50%".
   const ratesAreMeaningful = pastCount >= 5;
 
   return (
-    <dl className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
+    <dl className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
       <Card
         icon={<CalendarDays className="size-4" aria-hidden />}
         label="היום"
         value={String(todayCount)}
         hint={todayCount === 1 ? "תור אחד" : `${todayCount} תורים`}
+        tone="accent"
+      />
+      <Card
+        icon={<Wallet className="size-4" aria-hidden />}
+        label="הכנסה צפויה"
+        value={formatPrice(todayRevenueCents)}
+        // "Expected" is doing real work here: nothing in this product records
+        // a payment, so this is the value of today's bookings, not takings.
+        hint="לפי התורים של היום"
+        tone="accent"
       />
       <Card
         icon={<CalendarRange className="size-4" aria-hidden />}
@@ -49,10 +64,10 @@ export function StatsCards({
         hint="מיום ראשון"
       />
       <Card
-        icon={<CalendarClock className="size-4" aria-hidden />}
-        label="תורים קרובים"
-        value={String(upcomingCount)}
-        hint="מכאן והלאה"
+        icon={<UserPlus className="size-4" aria-hidden />}
+        label="לקוחות חדשים"
+        value={String(newClientsThisWeek)}
+        hint="שהזמינו לראשונה השבוע"
       />
       <Card
         icon={<XCircle className="size-4" aria-hidden />}
@@ -91,11 +106,25 @@ function Card({
   label: string;
   value: string;
   hint: string;
-  tone?: "neutral" | "warn";
+  tone?: "neutral" | "warn" | "accent";
 }) {
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-      <dt className="flex items-center gap-1.5 text-xs font-medium text-neutral-500">
+    <div
+      className={cn(
+        "rounded-2xl border p-4 transition-colors",
+        tone === "accent"
+          ? "border-teal-200 bg-teal-50/60 dark:border-teal-900 dark:bg-teal-950/30"
+          : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900",
+      )}
+    >
+      <dt
+        className={cn(
+          "flex items-center gap-1.5 text-xs font-medium",
+          tone === "accent"
+            ? "text-teal-800 dark:text-teal-300"
+            : "text-neutral-500",
+        )}
+      >
         {icon}
         {label}
       </dt>

@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { SetupBusiness } from "./setup-flow";
 
 const FIELD =
-  "h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-neutral-900 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100";
+  "h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100";
 
 /** Turns "מספרת רון" into a usable latin slug suggestion, or nothing. */
 function suggestSlug(name: string) {
@@ -96,7 +96,7 @@ export function SetupDetailsStep({
       <button
         type="submit"
         disabled={pending}
-        className="h-12 w-full rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900"
+        className="h-12 w-full rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
       >
         המשך לשירותים
       </button>
