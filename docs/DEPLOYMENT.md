@@ -43,6 +43,7 @@ brackets included. `check:env` fails if the brackets survive.
 | Variable                                                                             | Effect if unset                                                                                                           |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM`, `TWILIO_WHATSAPP_FROM` | SMS and WhatsApp channels stay on the console provider. Client messages go by email today, so this is genuinely optional. |
+| `SUPER_ADMIN_EMAILS`                                                                 | `/master` denies everyone. The console is unreachable, which is the safe default — set it only when you want it.          |
 | `SUPABASE_SERVICE_ROLE_KEY`                                                          | `npm run db:claim` cannot resolve an email to a user id; pass the uuid instead. Never expose this key to the browser.     |
 
 ## 3. Database
@@ -68,6 +69,9 @@ select tablename, policyname, roles from pg_policies
 where schemaname = 'public' and roles::text[] && array['anon','public'];
 ```
 
+`rate_limits` correctly shows RLS on with no policy at all; the other six each
+have one `authenticated` owner policy.
+
 > **Migration `0008` will refuse to apply if any business points at a deleted
 > auth user.** It adds the owner FK, and it will not delete rows to make room
 > for itself. Find them with the query below, then reassign `owner_user_id` to
@@ -78,15 +82,30 @@ where schemaname = 'public' and roles::text[] && array['anon','public'];
 > left join auth.users u on u.id = b.owner_user_id where u.id is null;
 > ```
 
+### The platform console
+
+`/master` is gated by `SUPER_ADMIN_EMAILS`, a comma-separated list of login
+emails. It **fails closed**: unset, empty or whitespace denies everyone, so a
+typo locks you out rather than opening the console.
+
+Treat the roster as a privileged secret. Anyone on it can read every tenant's
+client list, freeze any business, and impersonate any owner. Promotion requires
+a redeploy, which is deliberate.
+
+```bash
+SUPER_ADMIN_EMAILS="owner@yourdomain.com"
+```
+
+Impersonation writes are attributed to the tenant, not to the admin — see the
+warning in [ARCHITECTURE.md](ARCHITECTURE.md#impersonation) before handing the
+roster to anyone but yourself.
+
 ### Deleting an owner account destroys their tenant
 
 Once `0008` is applied, removing a user in **Authentication → Users** cascades
 to their business and every appointment, client name and phone number under it.
 There is no prompt and no undo. Delete test accounts freely before launch; once
 real businesses exist, treat that button as destructive.
-
-`rate_limits` correctly shows RLS on with no policy at all; the other six each
-have one `authenticated` owner policy.
 
 ## 4. Supabase Auth
 

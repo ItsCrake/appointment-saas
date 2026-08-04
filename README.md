@@ -1,4 +1,4 @@
-# Appointment SaaS
+# Bazman · בזמן
 
 Multi-tenant appointment booking platform for small service businesses —
 barbers, salons, clinics, studios. Hebrew / RTL, mobile-first.
@@ -6,7 +6,8 @@ barbers, salons, clinics, studios. Hebrew / RTL, mobile-first.
 Every business gets a public booking page at `/[slug]` that clients use without
 creating an account, plus an owner dashboard at `/dashboard` for the calendar,
 services, hours and settings. Notifications (confirmation, owner alert,
-reminder, cancellation) are dispatched from a transactional outbox.
+reminder, cancellation) are dispatched from a transactional outbox. The
+platform owner gets a super-admin console at `/master`.
 
 |                                 |                                              |
 | ------------------------------- | -------------------------------------------- |
@@ -39,7 +40,7 @@ cancellations / no-shows.
   instant cannot both win.
 - All timestamps are stored in UTC and reasoned about in the business
   timezone. DST transitions are covered by tests.
-- Row Level Security is on for all 6 tables with **zero anon policies**, which
+- Row Level Security is on for all 7 tables with **zero anon policies**, which
   is what keeps the public Supabase anon key from reading every tenant's client
   names and phone numbers.
 - The public booking form carries a honeypot plus Postgres-backed rate limits
@@ -53,10 +54,12 @@ cancellations / no-shows.
 .
 ├── Frontend/          the entire application — there is no separate backend tier
 │   ├── src/
-│   │   ├── app/       routes: /, /[slug], /b/[token], /dashboard/*, /login, /api/cron
-│   │   ├── components/  booking/ (public), dashboard/ (owner), ui/
+│   │   ├── app/       routes: /, /[slug], /b/[token], /dashboard/*, /master/*, /login, /api/cron
+│   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
 │   │   ├── db/        schema, migrations, queries/ (repository layer), scripts
+│   │   │              queries/admin.ts — the only cross-tenant queries
 │   │   ├── lib/       availability, notifications/, stats, rate limiting, env, ics
+│   │   │              branding, plans, platform-metrics, super-admin, impersonation
 │   │   ├── test/      PGlite harness + factories
 │   │   └── proxy.ts   auth redirect guard (Next 16 deprecates middleware.ts)
 │   ├── e2e/           Playwright specs
@@ -82,7 +85,8 @@ cp .env.example .env.local
 
 Fill in `.env.local` — at minimum `NEXT_PUBLIC_APP_URL`,
 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DATABASE_URL`,
-`DIRECT_URL` and `CRON_SECRET`. Then:
+`DIRECT_URL` and `CRON_SECRET`. Add `SUPER_ADMIN_EMAILS` if you want the
+`/master` console — it denies everyone while unset. Then:
 
 ```bash
 npm run check:env
@@ -158,49 +162,55 @@ Run from `Frontend/`.
 
 ## Tech stack
 
-| Layer          | Choice                                                            |
-| -------------- | ----------------------------------------------------------------- |
-| Framework      | Next.js 16 (App Router, Turbopack), React 19, TypeScript strict   |
-| Styling        | Tailwind CSS v4, lucide-react — no component library              |
-| Font           | Heebo via `next/font` (Hebrew + Latin)                            |
-| Database       | Supabase Postgres, Drizzle ORM, postgres.js driver                |
-| Auth           | Supabase Auth (`@supabase/ssr`), email + password, owners only    |
-| Validation     | Zod v4 shared client/server, react-hook-form on the public form   |
-| Dates          | date-fns + date-fns-tz                                            |
-| Email          | Resend (falls back to a console provider)                         |
-| SMS / WhatsApp | Twilio adapters — code-complete, unproven                         |
-| Unit tests     | Vitest against PGlite (WASM Postgres) running the real migrations |
-| E2E            | Playwright, Chromium                                              |
-| Hosting        | Vercel — **Root Directory must be `Frontend`**                    |
+| Layer          | Choice                                                                      |
+| -------------- | --------------------------------------------------------------------------- |
+| Framework      | Next.js 16 (App Router, Turbopack), React 19, TypeScript strict             |
+| Styling        | Tailwind CSS v4, lucide-react — no component library                        |
+| Font           | Heebo via `next/font` (Hebrew + Latin)                                      |
+| Database       | Supabase Postgres, Drizzle ORM, postgres.js driver                          |
+| Auth           | Supabase Auth (`@supabase/ssr`); owners by session, `/master` by env roster |
+| Validation     | Zod v4 shared client/server, react-hook-form on the public form             |
+| Dates          | date-fns + date-fns-tz                                                      |
+| Email          | Resend (falls back to a console provider)                                   |
+| SMS / WhatsApp | Twilio adapters — code-complete, unproven                                   |
+| Unit tests     | Vitest against PGlite (WASM Postgres) running the real migrations           |
+| E2E            | Playwright, Chromium                                                        |
+| Hosting        | Vercel — **Root Directory must be `Frontend`**                              |
 
 ---
 
 ## Routes
 
-| Route                     | Access        | Notes                                         |
-| ------------------------- | ------------- | --------------------------------------------- |
-| `/`                       | public        | Marketing landing page, static, no DB         |
-| `/[slug]`                 | public        | Booking flow: service → date & time → details |
-| `/b/[token]`              | token         | Self-service cancellation, `noindex`          |
-| `/login`                  | public        | Owner sign-in / sign-up                       |
-| `/dashboard`              | owner         | Day & week agenda, stats, manual booking      |
-| `/dashboard/services`     | owner         | Services CRUD                                 |
-| `/dashboard/hours`        | owner         | Weekly hours + time off                       |
-| `/dashboard/clients`      | owner         | Derived from booking history                  |
-| `/dashboard/settings`     | owner         | Business profile and booking rules            |
-| `/dashboard/setup`        | owner         | 4-step onboarding                             |
-| `/api/cron/notifications` | `CRON_SECRET` | Dispatches the outbox on a schedule           |
+| Route                     | Access        | Notes                                           |
+| ------------------------- | ------------- | ----------------------------------------------- |
+| `/`                       | public        | Marketing landing page, static, no DB           |
+| `/[slug]`                 | public        | Booking flow: service → date & time → details   |
+| `/b/[token]`              | token         | Self-service cancellation, `noindex`            |
+| `/login`                  | public        | Owner sign-in / sign-up                         |
+| `/dashboard`              | owner         | Day & week agenda, stats, manual booking        |
+| `/dashboard/services`     | owner         | Services CRUD                                   |
+| `/dashboard/hours`        | owner         | Weekly hours + time off                         |
+| `/dashboard/clients`      | owner         | Derived from booking history                    |
+| `/dashboard/settings`     | owner         | Business profile and booking rules              |
+| `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
+| `/master`                 | super admin   | Platform overview: tenants, MRR, conversion     |
+| `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, freeze |
+| `/master/live`            | super admin   | Global booking feed across all tenants          |
+| `/master/alerts`          | super admin   | Churn risk, expiring trials, failed sends       |
+| `/api/cron/notifications` | `CRON_SECRET` | Dispatches the outbox on a schedule             |
 
 `/dashboard/*` and `/b/*` send `X-Robots-Tag: noindex` and
 `Cache-Control: private, no-store`; security headers are set globally in
-`next.config.ts` so they apply in dev too.
+`next.config.ts` so they apply in dev too. `/master` is `noindex` in its own
+metadata and is guarded server-side in its layout, in every page **and** in
+every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-master).
 
 ---
 
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 164 unit tests, build
+npm run verify     # env, lint, types, 252 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
@@ -240,7 +250,15 @@ Run `npm run check:env -- --production` before every deploy.
 
 ## Status
 
-MVP feature-complete through Phase 6. Not built: payments/deposits,
-multi-staff resources, Google Calendar sync, recurring appointments, reviews,
-custom domains, service image upload, Sentry. See
-[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the full roadmap.
+Feature-complete through **Phase 7** (super-admin console). Shipped since the
+MVP: per-business branding, subscription plans and pricing, the Bazman brand
+rollout, and `/master`.
+
+**Next milestone is billing** — plans are _recorded but not enforced_. There is
+no payment provider: `plan_type`, `subscription_status` and `trial_ends_at`
+capture intent, nothing charges against them, and no feature is gated on them.
+See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md).
+
+Still not built: payments/deposits, multi-staff resources, Google Calendar
+sync, recurring appointments, custom domains, service image upload (needs
+Supabase Storage), Sentry.

@@ -25,11 +25,14 @@ Actions and route handlers _are_ the backend.
 ```
 Frontend/src/
   app/            routes: /[slug], /b/[token], /dashboard/*, /master/*, /login, /api/cron
-  components/     booking/ (public), dashboard/ (owner), marketing/ (landing), ui/
+  components/     booking/ (public), dashboard/ (owner), marketing/ (landing),
+                  master/ (platform console), ui/
   db/             schema, migrations, queries/ (repository layer), scripts
   lib/            availability, notifications/, stats, cancellation, env, ics
                   slot-periods (slot grouping), branding (theme/gallery/reviews)
                   plans + landing-content (pricing and landing copy as data)
+                  brand (the wordmark, one place), platform-metrics (MRR etc.)
+                  super-admin + master-session + impersonation (/master access)
   test/           PGlite harness + factories
   proxy.ts        auth redirect guard (NOT middleware.ts — see below)
 ```
@@ -41,8 +44,8 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
   `min_notice_min`, `max_advance_days`, `cancel_window_hours`,
   `reminder_hours_before`, `notification_email`, `onboarding_completed_at`,
-  plus the branding columns from `0009` and the subscription columns from
-  `0010` (see below)
+  plus the branding columns from `0009`, the subscription columns from `0010`
+  and `trial_ends_at` from `0011` (see below)
 - **services** — duration, price (agorot), `buffer_min` (NULL inherits business)
 - **working_hours** — weekly template; multiple rows per weekday = split shift;
   no rows = closed. Naive `time` values interpreted in the business timezone.
@@ -429,7 +432,7 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 ## Feature status
 
-**Done (Phases 0–6, bar the production deploy itself)**
+**Done (Phases 0–7, bar the production deploy itself)**
 
 - Public booking: 3-step flow, no client login, `.ics` download, self-service
   cancellation at `/b/[token]` within the business's cancel window
@@ -438,7 +441,7 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Dashboard: day/week agenda, manual booking for walk-ins, quick status
   actions, services CRUD, working hours, time off, clients list, settings,
   stats cards
-- Auth + 4-step onboarding with live-link finish screen
+- Auth + 5-step onboarding (details → services → hours → plan → live link)
 - Notifications: confirmation, owner alert, reminder, cancellation — all four
   verified end to end
 - SEO: per-business metadata, canonical, `LocalBusiness` JSON-LD with opening
@@ -449,11 +452,20 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Abuse defence: honeypot + Postgres rate limits on IP and phone-per-business
 - Observability: structured JSON logging with client identifiers redacted
 - Playwright E2E over the public booking and cancellation flows
+- Per-business branding: accent theme, hero media, gallery + lightbox, reviews
+- Pricing page with a monthly/yearly toggle; plan recorded during onboarding
+- Super-admin console at `/master`: tenant metrics, impersonation, trial
+  extension, freeze, live feed, churn and delivery alerts
 
 **Not built**
 
-- Payments/deposits, multi-staff resources, Google Calendar sync, recurring
-  appointments, reviews, custom domains
+- **Billing.** No payment provider. `plan_type`, `subscription_status` and
+  `trial_ends_at` record intent; nothing charges against them, no feature is
+  gated on them, and no job acts on a lapsed trial. The landing page
+  advertises prices that cannot be collected. This is the next milestone —
+  see [PROJECT_PLAN.md](PROJECT_PLAN.md).
+- Multi-staff resources, Google Calendar sync, recurring appointments,
+  custom domains
 - Service image upload (needs Supabase Storage), appointment status filters,
   timezone editing in settings
 - Sentry — `reportError` is the single call site to wire it into
@@ -463,6 +475,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   Switching client messages to SMS is a one-line change to `CLIENT_CHANNEL` in
   `lib/notifications/enqueue.ts`.
 - `appointments.reminder_sent_at` is dead since the outbox landed; safe to drop
+- Read-only impersonation. An admin viewing a tenant can currently write as
+  that tenant; see the warning under [Impersonation](#impersonation).
+- The Business tier advertises SMS reminders and multi-staff on the pricing
+  page. Neither exists — copy to fix or a roadmap to honour.
 
 ## Gotchas
 

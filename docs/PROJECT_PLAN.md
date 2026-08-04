@@ -1,4 +1,4 @@
-# PROJECT PLAN — Appointment Scheduling SaaS
+# PROJECT PLAN — Bazman · בזמן
 
 Multi-tenant booking platform. Each business gets a public mobile-first booking page at `/[business_slug]` plus an admin dashboard at `/dashboard`.
 Reference model: Noah Calendar (Hebrew / RTL, service → date → time → confirm).
@@ -72,6 +72,13 @@ Online payments/deposits, multi-staff resources, Google Calendar 2-way sync, AI 
 ---
 
 ## 3. Database Schema (concise)
+
+> ⚠️ **This section is the original design sketch and has drifted.** It predates
+> migrations `0003`–`0011`, so it omits per-service buffers, the notifications
+> outbox, rate limits, onboarding state, and the branding / subscription /
+> trial columns. `Frontend/src/db/schema.ts` is the source of truth, and
+> [ARCHITECTURE.md](ARCHITECTURE.md#database) documents the constraints that
+> carry weight. Kept here for the original reasoning, not as a reference.
 
 ```
 businesses
@@ -221,6 +228,54 @@ appointments
 - [ ] Production deploy to Vercel, custom domain, DB backups verified.
 - [ ] Pilot with 1–2 real businesses; collect feedback before building payments/staff/WhatsApp.
 
+### Phase 7 — Brand, branding and the platform console ✅
+
+- [x] Per-business branding: accent theme, hero image/video, gallery with lightbox, owner-entered reviews (`0009`). _(Theme is a `data-accent` attribute plus CSS custom properties — Tailwind cannot emit a class from a runtime value. Every swatch is WCAG AA verified.)_
+- [x] Landing page rebuilt: split hero, animated `Bazman.` / `בזמן.` wordmark, dashboard mockup, pricing table with a monthly/yearly toggle, FAQ accordion. _(`/` stays a static prerender; the toggle and accordion are client islands.)_
+- [x] Subscription plans recorded on the tenant (`0010`) and selectable during onboarding, which is now five steps.
+- [x] Global rename to **Bazman / בזמן**, with the name centralised in `lib/brand.ts`.
+- [x] Dashboard overhaul: shared teal chrome, mobile bottom nav, revenue and new-client stats, clients search with call/WhatsApp shortcuts.
+- [x] **Super-admin command center at `/master`** — four tabs (סקירה / עסקים / פעילות בלייב / התראות) over `db/queries/admin.ts`.
+  - [x] Access by `SUPER_ADMIN_EMAILS` env roster. Fails closed: an empty or unset roster denies everyone. A column was rejected — super-admin is a property of a _user_, and users live in Supabase's `auth.users`, which this app must not alter.
+  - [x] Guarded in the layout, in every page **and** in every action. A layout alone is not a boundary: a client navigation between tabs reuses it without re-running it.
+  - [x] Overview: tenant breakdown by status, platform booking pulse, MRR and trial-conversion. Conversion excludes the still-trialing cohort from its denominator.
+  - [x] Businesses: searchable tenant table with impersonation, `+7 days` trial extension and freeze/unfreeze.
+  - [x] Impersonation keeps the admin's own identity — a cookie holding only a business id, re-verified against the roster on every request. Minting a real Supabase session for the target owner was rejected: it would make the admin indistinguishable from the tenant in Supabase's own auth logs.
+  - [x] Live feed across all tenants, deliberately excluding client names and phone numbers.
+  - [x] Alerts: churn risk (7 quiet days), trials expiring within 48h, failed notification deliveries.
+  - [x] Trial clock (`0011`, `trial_ends_at`), backfilled for existing trialing tenants.
+- [ ] Deferred: impersonation is **not read-only**. `requireBusiness()` is the one boundary every dashboard action shares, so an impersonating admin can write as the tenant. Needs a per-action gate — half-covering it would be worse than not doing it.
+
+### Phase 8 — Billing (next milestone)
+
+Everything about money is currently **recorded but not enforced**. `plan_type`,
+`subscription_status` and `trial_ends_at` capture intent; nothing charges
+against them, no feature is gated on them, and no job downgrades a lapsed
+trial. The landing page advertises prices that cannot be collected. Closing
+that gap is the next milestone.
+
+- [ ] Payment gateway. Israeli market means the realistic options are a local
+      provider with Hebrew invoicing and חשבונית מס (Tranzila, Cardcom, Meshulam,
+      Grow/Payplus) or Stripe — Stripe has the better developer experience but
+      does not issue a compliant Israeli tax invoice on its own.
+- [ ] Checkout and subscription lifecycle: trial → active → past due → cancelled,
+      driven by provider webhooks rather than by the app's own clock.
+- [ ] **Entitlements.** Decide what each tier actually buys and enforce it —
+      today a Starter tenant gets everything a Business tenant does. The
+      Business tier currently advertises SMS reminders and multi-staff, neither
+      of which exists.
+- [ ] A job that acts on `trial_ends_at` instead of only reporting it.
+- [ ] Cost model per tenant: Resend/Twilio spend, Supabase rows and storage,
+      Vercel function time — so a tier's margin is a measured number rather than
+      a guess. `/master` is where it belongs.
+- [ ] Dunning and failed-payment emails, reusing the existing outbox.
+- [ ] Billing history and invoice download in the owner dashboard.
+
+**Blocking business decisions before any of this:** confirm final pricing, pick
+the provider, and decide whether unpaid tenants are frozen (public page offline)
+or downgraded (page stays up, features locked). `/master` already has the freeze
+switch; nothing automatic uses it.
+
 ---
 
-**Definition of Done for MVP:** a business owner signs up, configures services and hours in under 10 minutes, shares `yourdomain.com/their-slug`, and a client books a real appointment from a phone — with both parties emailed and no double-booking possible.
+**Definition of Done for MVP:** a business owner signs up, configures services and hours in under 10 minutes, shares `yourdomain.com/their-slug`, and a client books a real appointment from a phone — with both parties emailed and no double-booking possible. ✅ _Met — pending the production deploy and a pilot._
