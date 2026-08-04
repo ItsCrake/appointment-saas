@@ -1,3 +1,4 @@
+import { BRAND } from "@/lib/brand";
 import { formatFullDateTime, formatPrice } from "@/lib/format";
 
 import type { NotificationContext } from "./types";
@@ -87,12 +88,18 @@ export function toHtml(subject: string, body: string) {
     )
     .join("");
 
+  // The signature lives here and not in `body`, because that same body is
+  // what the SMS and WhatsApp providers send — a platform footer would ride
+  // on every message and cost a segment.
   return (
     `<!doctype html><html dir="rtl" lang="he"><body style="margin:0;padding:24px;` +
     `background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#171717">` +
     `<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:24px">` +
     `<h1 style="margin:0 0 16px;font-size:18px">${escapeHtml(subject)}</h1>` +
-    `${paragraphs}</div></body></html>`
+    `${paragraphs}` +
+    `<p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e5e5e5;` +
+    `font-size:12px;color:#a3a3a3">נשלח באמצעות ${escapeHtml(BRAND.name)}</p>` +
+    `</div></body></html>`
   );
 }
 

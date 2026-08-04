@@ -16,6 +16,7 @@ import { DashboardMockup } from "@/components/marketing/dashboard-mockup";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { PricingTable } from "@/components/marketing/pricing-table";
 import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
+import { BRAND, BRAND_MARK } from "@/lib/brand";
 import { FAQS, FEATURES, STEPS, type FeatureIcon } from "@/lib/landing-content";
 import { TRIAL_DAYS } from "@/lib/plans";
 
@@ -24,11 +25,14 @@ import { TRIAL_DAYS } from "@/lib/plans";
 // the FAQ accordion are client islands precisely so this page need not be.
 
 export const metadata: Metadata = {
-  title: { absolute: "זימון תורים אונליין לעסקים קטנים" },
-  description:
-    "עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בשלוש נגיעות, בלי טלפונים ובלי הרשמה — ואתם מקבלים יומן מסודר עם תזכורות אוטומטיות.",
+  title: { absolute: BRAND.title },
+  description: BRAND.tagline,
   alternates: { canonical: "/" },
   keywords: [
+    // The generic terms stay: they are what people actually search for, and
+    // nobody looks for a brand they have not heard of yet.
+    BRAND.name,
+    BRAND.nameHe,
     "זימון תורים",
     "קביעת תורים אונליין",
     "יומן תורים לעסק",
@@ -36,17 +40,16 @@ export const metadata: Metadata = {
     "תורים למספרה",
   ],
   openGraph: {
-    title: "זימון תורים אונליין לעסקים קטנים",
-    description:
-      "עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בשלוש נגיעות, ואתם מקבלים יומן מסודר עם תזכורות אוטומטיות.",
+    title: BRAND.title,
+    description: BRAND.tagline,
     url: "/",
     type: "website",
     locale: "he_IL",
   },
   twitter: {
     card: "summary",
-    title: "זימון תורים אונליין לעסקים קטנים",
-    description: "עמוד הזמנות אישי לעסק שלכם. בלי טלפונים, בלי בלאגן.",
+    title: BRAND.title,
+    description: BRAND.tagline,
   },
 };
 
@@ -80,7 +83,8 @@ export default function LandingPage() {
               <CalendarCheck className="size-4" />
             </span>
             <span className="font-bold text-neutral-900 dark:text-neutral-50">
-              זימון תורים
+              {BRAND_MARK.stem}
+              <span className="text-teal-500">{BRAND_MARK.dot}</span>
             </span>
           </Link>
 
@@ -128,7 +132,7 @@ export default function LandingPage() {
               <div className="relative">
                 <p className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-teal-200">
                   <Sparkles className="size-3.5" aria-hidden />
-                  מערכת זימון תורים לעסקים קטנים
+                  מערכת ניהול תורים לעסקים קטנים
                 </p>
 
                 <TypewriterLogo />
@@ -316,7 +320,7 @@ export default function LandingPage() {
           {/* No new Date() here: this page is prerendered, so the year would
               freeze at build time and quietly go stale between deploys. */}
           <p className="text-xs text-neutral-500">
-            © זימון תורים. כל הזכויות שמורות.
+            © {BRAND.name}. כל הזכויות שמורות.
           </p>
           <nav className="flex flex-wrap items-center justify-center gap-5 text-xs text-neutral-500">
             <Link

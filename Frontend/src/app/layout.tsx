@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Heebo } from "next/font/google";
+
+import { BRAND } from "@/lib/brand";
+
 import "./globals.css";
 
 // Heebo ships both Hebrew and Latin glyphs — required for an RTL-first UI.
@@ -15,17 +18,16 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
-    default: "זימון תורים אונליין",
-    template: "%s · זימון תורים",
+    default: BRAND.title,
+    template: `%s · ${BRAND.name}`,
   },
-  description:
-    "קביעת תורים אונליין לעסקים קטנים — עמוד הזמנות מהיר ללקוחות וניהול יומן פשוט לבעל העסק.",
-  applicationName: "זימון תורים",
+  description: BRAND.tagline,
+  applicationName: BRAND.name,
   formatDetection: { telephone: true },
   openGraph: {
     type: "website",
     locale: "he_IL",
-    siteName: "זימון תורים",
+    siteName: BRAND.name,
   },
   twitter: { card: "summary" },
 };

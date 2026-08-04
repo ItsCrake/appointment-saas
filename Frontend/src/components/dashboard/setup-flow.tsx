@@ -11,6 +11,7 @@ import {
   saveStarterServicesAction,
   saveSetupHoursAction,
 } from "@/app/dashboard/setup/actions";
+import { BRAND } from "@/lib/brand";
 import type { PlanType } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -96,7 +97,7 @@ export function SetupFlow({
     <div>
       <header className="mb-6 text-center">
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
-          {step === "done" ? "הכול מוכן!" : "הקמת העסק שלכם"}
+          {step === "done" ? "הכול מוכן!" : `ברוכים הבאים ל${BRAND.name}`}
         </h1>
         <p className="mt-1 text-sm text-neutral-500">
           {step === "done"

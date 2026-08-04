@@ -17,6 +17,7 @@ import {
   toThemeColor,
   type HeroMediaType,
 } from "@/lib/branding";
+import { BRAND } from "@/lib/brand";
 import { isDemoBusiness } from "@/lib/demo";
 import { todayInTimezone } from "@/lib/format";
 
@@ -217,7 +218,7 @@ export default async function BusinessPage({ params }: PageProps) {
       <BusinessReviews reviews={reviews} />
 
       <footer className="mt-auto px-5 py-8 text-center text-xs text-neutral-400">
-        מופעל על ידי מערכת זימון התורים
+        מופעל על ידי {BRAND.name}
       </footer>
     </div>
   );

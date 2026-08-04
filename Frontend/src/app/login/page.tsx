@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CalendarCheck } from "lucide-react";
 
 import { LoginForm } from "@/components/dashboard/login-form";
+import { BRAND_MARK } from "@/lib/brand";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export const metadata: Metadata = {
@@ -47,7 +48,8 @@ export default async function LoginPage({ searchParams }: PageProps) {
               <CalendarCheck className="size-5" />
             </span>
             <span className="font-bold text-neutral-900 dark:text-neutral-50">
-              זימון תורים
+              {BRAND_MARK.stem}
+              <span className="text-teal-500">{BRAND_MARK.dot}</span>
             </span>
           </Link>
 
@@ -55,7 +57,10 @@ export default async function LoginPage({ searchParams }: PageProps) {
             כניסת בעלי עסקים
           </h1>
           <p className="mt-2 text-sm text-neutral-500">
-            ניהול התורים, השירותים ושעות הפעילות
+            ניהול התורים, השירותים ושעות הפעילות ב־{BRAND_MARK.stem}
+            <span className="text-teal-600 dark:text-teal-400">
+              {BRAND_MARK.dot}
+            </span>
           </p>
         </header>
 
