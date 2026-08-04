@@ -12,8 +12,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { DashboardMockup } from "@/components/marketing/dashboard-mockup";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { PricingTable } from "@/components/marketing/pricing-table";
+import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
 import { FAQS, FEATURES, STEPS, type FeatureIcon } from "@/lib/landing-content";
 import { TRIAL_DAYS } from "@/lib/plans";
 
@@ -106,43 +108,64 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1">
-        {/* Hero */}
-        <section className="mx-auto w-full max-w-5xl px-5 pt-16 pb-12 text-center sm:pt-24">
-          <p className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-200">
-            <Sparkles className="size-3.5" aria-hidden />
-            למספרות, קוסמטיקאיות, מטפלים וכל עסק שעובד לפי תורים
-          </p>
+        {/* Hero — split: dark brand panel beside a product mockup.
+            Capped at ~78vh on desktop so the band below shows above the fold. */}
+        <section className="mx-auto flex w-full max-w-6xl items-center px-5 py-10 lg:min-h-[78vh] lg:py-12">
+          <div className="grid w-full items-center gap-6 lg:grid-cols-2 lg:gap-10">
+            {/* Brand panel */}
+            <div className="relative overflow-hidden rounded-3xl bg-slate-950 p-8 sm:p-10 lg:p-12">
+              {/* Two soft teal pools instead of a flat gradient — cheap depth,
+                  and they sit behind the text rather than tinting it. */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -end-16 -top-24 size-64 rounded-full bg-teal-500/20 blur-3xl"
+              />
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -start-20 -bottom-28 size-72 rounded-full bg-teal-400/10 blur-3xl"
+              />
 
-          <h1 className="mx-auto max-w-3xl text-4xl leading-tight font-bold tracking-tight text-balance text-neutral-900 sm:text-5xl dark:text-neutral-50">
-            קבלו תורים אונליין.
-            <br className="hidden sm:block" /> בלי טלפונים, בלי בלאגן.
-          </h1>
+              <div className="relative">
+                <p className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-teal-200">
+                  <Sparkles className="size-3.5" aria-hidden />
+                  מערכת זימון תורים לעסקים קטנים
+                </p>
 
-          <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-neutral-600 sm:text-lg dark:text-neutral-400">
-            עמוד הזמנות אישי לעסק שלכם. הלקוחות בוחרים שירות, יום ושעה בשלוש
-            נגיעות — בלי הרשמה ובלי סיסמאות. אתם מקבלים יומן מסודר ותזכורות
-            שנשלחות מעצמן.
-          </p>
+                <TypewriterLogo />
 
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link
-              href="/dashboard/setup"
-              className={`${CTA_PRIMARY} h-12 w-full px-7 text-sm sm:w-auto`}
-            >
-              התחילו {TRIAL_DAYS} ימי ניסיון בחינם
-              <ArrowLeft className="size-4" aria-hidden />
-            </Link>
-            <Link
-              href="/demo-barber"
-              className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-neutral-300 px-7 text-sm font-semibold text-neutral-800 transition-colors hover:border-teal-700 hover:text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none sm:w-auto dark:border-neutral-700 dark:text-neutral-200 dark:hover:text-teal-300"
-            >
-              לצפייה בהדגמה חיה
-            </Link>
+                <p className="mt-5 max-w-md text-base leading-relaxed text-slate-300 sm:text-lg">
+                  ניהול תורים חכם, מדויק וללא חורים ביומן.
+                </p>
+
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                  <Link
+                    href="/dashboard/setup"
+                    className={`${CTA_PRIMARY} h-12 px-6 text-sm`}
+                  >
+                    התחל ניסיון חינם
+                    <ArrowLeft className="size-4" aria-hidden />
+                  </Link>
+                  <Link
+                    href="/demo-barber"
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-white/20 px-6 text-sm font-semibold text-white transition-colors hover:border-teal-400 hover:text-teal-200 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 focus-visible:outline-none"
+                  >
+                    נסה דמו בלייב
+                  </Link>
+                </div>
+
+                <p className="mt-5 text-xs text-slate-400">
+                  {TRIAL_DAYS} ימי ניסיון · ההקמה לוקחת כחמש דקות · בלי כרטיס
+                  אשראי
+                </p>
+              </div>
+            </div>
+
+            {/* Product mockup. Hidden below lg: a shrunken dashboard is
+                unreadable on a phone and only pushes the CTAs off screen. */}
+            <div className="hidden lg:block">
+              <DashboardMockup />
+            </div>
           </div>
-
-          <p className="mt-4 text-xs text-neutral-500">
-            ההקמה לוקחת כחמש דקות. אין צורך בכרטיס אשראי.
-          </p>
         </section>
 
         {/* Live demo — the fastest way to understand the product is to use it. */}
