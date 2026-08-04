@@ -150,6 +150,13 @@ export const businesses = pgTable("businesses", {
   subscriptionStatus: varchar("subscription_status", { length: 20 })
     .notNull()
     .default("trialing"),
+  /**
+   * When the trial lapses. NULL means no trial clock is running — an account
+   * that was converted, cancelled, or created before trials were tracked.
+   * Nothing enforces it: no job downgrades an expired trial, so this drives
+   * the `/master` alerts and nothing else.
+   */
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
 });
 
 export const services = pgTable(

@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 
+import { db } from "@/db";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
+import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { ToastProvider } from "@/components/ui/toast";
+import { getBusinessById } from "@/db/queries";
+import { readImpersonatedBusinessId } from "@/lib/impersonation";
+import { currentSuperAdmin } from "@/lib/master-session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export const metadata: Metadata = {
@@ -11,7 +16,24 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardLayout({
+/**
+ * Resolves the impersonation banner independently of `requireBusiness()`.
+ * The layout renders around routes that redirect (setup), so it must not
+ * itself depend on a resolved business.
+ */
+async function impersonatedName(): Promise<string | null> {
+  const id = await readImpersonatedBusinessId();
+  if (!id) return null;
+
+  // Same re-check as requireBusiness: the cookie alone proves nothing.
+  const admin = await currentSuperAdmin();
+  if (!admin) return null;
+
+  const business = await getBusinessById(db, id);
+  return business?.name ?? null;
+}
+
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -32,8 +54,13 @@ export default function DashboardLayout({
     );
   }
 
+  const supportingBusiness = await impersonatedName();
+
   return (
     <ToastProvider>
+      {supportingBusiness ? (
+        <ImpersonationBanner businessName={supportingBusiness} />
+      ) : null}
       <div className="flex min-h-full flex-1 flex-col bg-neutral-50 md:flex-row dark:bg-neutral-950">
         <DashboardNav />
         {/* pb-24 clears the mobile bottom bar; md restores normal padding. */}

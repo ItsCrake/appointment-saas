@@ -117,6 +117,15 @@ export const ENV_VARS: EnvVar[] = [
         : "must contain an email address",
   },
   {
+    name: "SUPER_ADMIN_EMAILS",
+    requirement: "optional",
+    group: "Platform console",
+    description:
+      "Comma-separated emails allowed into /master. Empty denies everyone.",
+    howTo:
+      "Set to the platform owner's login email. Anyone listed can read every tenant's client data, so keep the list short.",
+  },
+  {
     name: "TWILIO_ACCOUNT_SID",
     requirement: "optional",
     group: "Notifications (SMS/WhatsApp)",

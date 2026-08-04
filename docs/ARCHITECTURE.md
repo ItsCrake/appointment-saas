@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 233 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 252 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -24,7 +24,7 @@ Actions and route handlers _are_ the backend.
 
 ```
 Frontend/src/
-  app/            routes: /[slug], /b/[token], /dashboard/*, /login, /api/cron
+  app/            routes: /[slug], /b/[token], /dashboard/*, /master/*, /login, /api/cron
   components/     booking/ (public), dashboard/ (owner), marketing/ (landing), ui/
   db/             schema, migrations, queries/ (repository layer), scripts
   lib/            availability, notifications/, stats, cancellation, env, ics
@@ -53,7 +53,7 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **rate_limits** — fixed-window counters; the only table with no
   `business_id`, so RLS is on with **no policy at all**
 
-Migrations `0000`–`0010` in `src/db/migrations/`, applied with
+Migrations `0000`–`0011` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ### Two constraints that carry real weight
@@ -280,6 +280,53 @@ exemption. Amber inverts `--accent-contrast` to near-black for the same reason.
 inferring from service count, which would drag an owner back into setup after
 deleting a service. The business row is created at step 1 so an abandoned
 signup still leaves a usable account.
+
+## Platform console (`/master`)
+
+Super-admin only. Four tabs — overview, businesses, live feed, alerts — over
+`db/queries/admin.ts`, the one module whose queries deliberately cross tenant
+boundaries. It lives apart from the tenant-scoped repository precisely so a
+function without a `business_id` filter reads as intentional.
+
+**Access is an env roster, not a column.** `SUPER_ADMIN_EMAILS` is a
+comma-separated list. A `is_super_admin` column was rejected: super-admin is a
+property of a _user_, users live in Supabase's `auth.users` which this app must
+not add columns to, and `businesses` is the wrong home — an owner may have
+several and a platform admin may own none. An empty or unset roster **denies
+everyone**; the console fails closed.
+
+`proxy.ts` does not match `/master`, so there is no middleware fallback. The
+guard runs in the layout, in every page, and in every action. The layout alone
+is not enough — a client-side navigation between tabs reuses it without
+re-running it — and an action is a plain POST endpoint that being rendered
+inside `/master` proves nothing about.
+
+### Impersonation
+
+`/master` can open a tenant's dashboard for support. The cookie holds only a
+business id and is **not trusted on its own**: `requireBusiness()` re-checks
+that the caller is a super admin on every request before honouring it, so a
+stolen or forged cookie is inert without a live admin session.
+
+Minting a real Supabase session for the target owner was rejected — it would
+make the admin indistinguishable from the tenant in Supabase's own auth logs,
+and a leaked token would be a standalone credential for that account. Here the
+admin keeps their own identity, and start/stop are logged with the admin's user
+id under `master.impersonate.*`.
+
+> ⚠️ **Impersonation is not read-only.** `requireBusiness()` is the single
+> boundary every dashboard action shares, so an impersonating admin can write
+> as the tenant and those writes are indistinguishable from the owner's in the
+> data. The banner and the audit log are the mitigations. Enforcing read-only
+> needs a per-action gate and is deliberately deferred rather than half-done —
+> partial coverage would be worse than none, because it would look safe.
+
+### Trial column (0011)
+
+`trial_ends_at`, backfilled to `created_at + 14 days` for existing trialing
+tenants. Like `plan_type` it is **recorded, not enforced**: no job downgrades a
+lapsed trial and no feature checks it. It drives the console's expiry alerts
+and the "+7 days" action, nothing else.
 
 ## Marketing surface
 
