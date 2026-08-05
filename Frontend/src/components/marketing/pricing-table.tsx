@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 
 import { formatPrice } from "@/lib/format";
 import {
@@ -17,6 +17,10 @@ import { cn } from "@/lib/utils";
 /**
  * The only interactive part of the pricing section. Kept as its own island so
  * the surrounding landing page stays a static server component.
+ *
+ * Monochrome, radius 0, matching the page. The highlighted tier is marked by
+ * inverting it to solid ink rather than by tinting a border: with no accent
+ * hue available, weight is the only way to say "this one".
  */
 export function PricingTable() {
   const [cycle, setCycle] = useState<BillingCycle>("yearly");
@@ -24,114 +28,155 @@ export function PricingTable() {
 
   return (
     <div>
-      <div className="flex justify-center">
-        <div
-          role="radiogroup"
-          aria-label="מחזור חיוב"
-          className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900"
-        >
-          {(
-            [
-              ["monthly", "חודשי"],
-              ["yearly", "שנתי"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={cycle === value}
-              onClick={() => setCycle(value)}
-              className={cn(
-                "inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-colors",
-                "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
-                cycle === value
-                  ? "bg-teal-700 text-white"
-                  : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100",
-              )}
-            >
-              {label}
-              {value === "yearly" && savings > 0 ? (
-                <span
-                  className={cn(
-                    "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                    cycle === "yearly"
-                      ? "bg-white/20 text-white"
-                      : "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200",
-                  )}
-                >
-                  חסכו {savings}%
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
+      <div
+        role="radiogroup"
+        aria-label="מחזור חיוב"
+        className="inline-flex items-center border border-zinc-300 dark:border-zinc-700"
+      >
+        {(
+          [
+            ["monthly", "חודשי"],
+            ["yearly", "שנתי"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={cycle === value}
+            onClick={() => setCycle(value)}
+            className={cn(
+              "inline-flex h-10 items-center gap-2 px-5 text-sm font-semibold transition-colors",
+              "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none focus-visible:ring-inset dark:focus-visible:ring-white",
+              cycle === value
+                ? "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
+                : "text-zinc-500 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50",
+            )}
+          >
+            {label}
+            {value === "yearly" && savings > 0 ? (
+              <span
+                className={cn(
+                  "px-1.5 py-0.5 text-[10px] font-bold",
+                  cycle === "yearly"
+                    ? "bg-white/20 text-white dark:bg-zinc-950/15 dark:text-zinc-950"
+                    : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+                )}
+              >
+                חסכו {savings}%
+              </span>
+            ) : null}
+          </button>
+        ))}
       </div>
 
-      <p className="mt-3 text-center text-xs text-neutral-500">
+      <p className="mt-3 text-xs text-zinc-500">
         {cycle === "yearly"
           ? "המחיר מוצג לחודש, בחיוב שנתי מראש."
           : "המחיר לחודש, בחיוב חודשי. אפשר לבטל בכל רגע."}
       </p>
 
-      {/* Two tiers, so the grid is capped and centred rather than stretched
-          across the full container — two cards on a three-column track read as
-          a missing third. */}
-      <ul className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
+      {/* Two tiers, so the grid is capped rather than stretched across the full
+          container: two cards on a three-column track read as a missing third. */}
+      <ul className="mt-8 grid max-w-3xl gap-px bg-zinc-200 sm:grid-cols-2 dark:bg-zinc-800">
         {PRICING_TIERS.map((tier) => {
           const price = priceForCycle(tier, cycle);
           const tierSaving = yearlySavingsPercent(tier);
+          const featured = Boolean(tier.highlighted);
 
           return (
             <li
               key={tier.id}
               className={cn(
-                "relative flex flex-col rounded-2xl border bg-white p-6 dark:bg-neutral-900",
-                tier.highlighted
-                  ? "border-teal-700 shadow-lg ring-1 ring-teal-700"
-                  : "border-neutral-200 dark:border-neutral-800",
+                "flex flex-col p-7",
+                featured
+                  ? "bg-zinc-950 dark:bg-zinc-100"
+                  : "bg-white dark:bg-zinc-950",
               )}
             >
-              {tier.highlighted ? (
-                <span className="absolute -top-3 inline-flex items-center gap-1 rounded-full bg-teal-700 px-3 py-1 text-[11px] font-bold text-white">
-                  <Sparkles className="size-3" aria-hidden />
-                  הכי פופולרי
-                </span>
-              ) : null}
+              <div className="flex items-baseline justify-between gap-3">
+                <h3
+                  className={cn(
+                    "text-lg font-bold tracking-tight",
+                    featured
+                      ? "text-white dark:text-zinc-950"
+                      : "text-zinc-950 dark:text-zinc-50",
+                  )}
+                >
+                  {tier.name}
+                </h3>
+                {featured ? (
+                  <span className="bg-white px-2 py-0.5 text-[10px] font-bold text-zinc-950 dark:bg-zinc-950 dark:text-white">
+                    הכי פופולרי
+                  </span>
+                ) : null}
+              </div>
 
-              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">
-                {tier.name}
-              </h3>
-              <p className="mt-1 min-h-10 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+              <p
+                className={cn(
+                  "mt-1.5 min-h-10 text-sm leading-relaxed",
+                  featured
+                    ? "text-zinc-400 dark:text-zinc-600"
+                    : "text-zinc-600 dark:text-zinc-400",
+                )}
+              >
                 {tier.tagline}
               </p>
 
-              <p className="mt-5 flex items-baseline gap-1.5">
-                <span className="text-3xl font-bold text-neutral-900 tabular-nums dark:text-neutral-50">
+              <p className="mt-6 flex items-baseline gap-1.5">
+                <span
+                  className={cn(
+                    "text-4xl font-black tracking-tighter tabular-nums",
+                    featured
+                      ? "text-white dark:text-zinc-950"
+                      : "text-zinc-950 dark:text-zinc-50",
+                  )}
+                >
                   {formatPrice(price)}
                 </span>
-                <span className="text-sm text-neutral-500">/ לחודש</span>
+                <span
+                  className={cn(
+                    "text-sm",
+                    featured
+                      ? "text-zinc-400 dark:text-zinc-600"
+                      : "text-zinc-500",
+                  )}
+                >
+                  / לחודש
+                </span>
               </p>
 
-              {cycle === "yearly" ? (
-                <p className="mt-1 text-xs font-medium text-teal-800 dark:text-teal-300">
-                  חיוב שנתי {formatPrice(tier.yearlyCents)} — חיסכון{" "}
-                  {tierSaving}%
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-neutral-400">
-                  ללא התחייבות, ביטול בכל עת
-                </p>
-              )}
+              <p
+                className={cn(
+                  "mt-1 text-xs",
+                  featured
+                    ? "text-zinc-400 dark:text-zinc-600"
+                    : "text-zinc-500",
+                )}
+              >
+                {cycle === "yearly"
+                  ? `חיוב שנתי ${formatPrice(tier.yearlyCents)}, חיסכון ${tierSaving}%`
+                  : "ללא התחייבות, ביטול בכל עת"}
+              </p>
 
-              <ul className="mt-6 flex-1 space-y-2.5">
+              <ul className="mt-7 flex-1 space-y-3">
                 {tier.features.map((feature) => (
                   <li
                     key={feature}
-                    className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-300"
+                    className={cn(
+                      "flex items-start gap-2.5 text-sm",
+                      featured
+                        ? "text-zinc-300 dark:text-zinc-700"
+                        : "text-zinc-700 dark:text-zinc-300",
+                    )}
                   >
                     <Check
-                      className="mt-0.5 size-4 shrink-0 text-teal-700 dark:text-teal-400"
+                      className={cn(
+                        "mt-0.5 size-4 shrink-0",
+                        featured
+                          ? "text-white dark:text-zinc-950"
+                          : "text-zinc-950 dark:text-zinc-50",
+                      )}
                       aria-hidden
                     />
                     {feature}
@@ -142,14 +187,14 @@ export function PricingTable() {
               <Link
                 href={`/dashboard/setup?plan=${tier.id}`}
                 className={cn(
-                  "mt-6 inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-semibold transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none",
-                  tier.highlighted
-                    ? "bg-teal-700 text-white hover:bg-teal-800"
-                    : "border border-neutral-300 text-neutral-800 hover:border-teal-700 hover:text-teal-800 dark:border-neutral-700 dark:text-neutral-200 dark:hover:text-teal-300",
+                  "mt-8 inline-flex h-11 w-full items-center justify-center text-sm font-semibold whitespace-nowrap transition-colors",
+                  "focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px",
+                  featured
+                    ? "bg-white text-zinc-950 hover:bg-zinc-200 focus-visible:ring-white focus-visible:ring-offset-zinc-950 dark:bg-zinc-950 dark:text-white dark:hover:bg-zinc-800 dark:focus-visible:ring-zinc-950 dark:focus-visible:ring-offset-zinc-100"
+                    : "border border-zinc-300 text-zinc-950 hover:border-zinc-950 hover:bg-zinc-50 focus-visible:ring-zinc-950 dark:border-zinc-700 dark:text-zinc-50 dark:hover:border-zinc-100 dark:hover:bg-zinc-900 dark:focus-visible:ring-white",
                 )}
               >
-                התחלת תקופת ניסיון
+                התחלת ניסיון
               </Link>
             </li>
           );

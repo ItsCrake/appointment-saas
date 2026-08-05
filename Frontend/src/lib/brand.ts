@@ -16,7 +16,10 @@ export const BRAND = {
   name: "Bazman",
   nameHe: "בזמן",
   tagline: "מערכת ניהול תורים מתקדמת, מדויקת וללא חורים ביומן.",
-  title: "Bazman — מערכת ניהול תורים חכמה לעסקים",
+  // Pipe rather than a dash: the title is the most-seen string the brand has,
+  // in the tab and in every search result, and a long dash there reads as
+  // machine-written filler.
+  title: "Bazman | מערכת ניהול תורים חכמה לעסקים",
 } as const;
 
 /**

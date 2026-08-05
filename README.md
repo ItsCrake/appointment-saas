@@ -185,7 +185,7 @@ Run from `Frontend/`.
 
 | Route                     | Access        | Notes                                           |
 | ------------------------- | ------------- | ----------------------------------------------- |
-| `/`                       | public        | Marketing landing page, static, no DB           |
+| `/`                       | public        | Marketing landing page, static, no DB, monochrome |
 | `/[slug]`                 | public        | Booking flow: service → date & time → details   |
 | `/b/[token]`              | token         | Self-service cancellation, `noindex`            |
 | `/login`                  | public        | Owner sign-in / sign-up                         |
@@ -254,8 +254,14 @@ Run `npm run check:env -- --production` before every deploy.
 
 Feature-complete through **Phase 7** (super-admin console), plus **stage 8a**
 of the billing milestone. Shipped since the MVP: per-business branding,
-subscription plans and pricing, the Bazman brand rollout, `/master`, and a
-two-tier plan line whose entitlements are enforced server-side.
+subscription plans and pricing, the Bazman brand rollout, `/master`, a
+two-tier plan line whose entitlements are enforced server-side, and a
+monochrome rebuild of the landing page.
+
+> The landing page is now a zero-accent monochrome surface while `/login`,
+> `/dashboard/*` and `/master` still use the teal chrome. The two look like
+> different products until that is reconciled in one pass. See
+> [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-landing-page-is-monochrome-nothing-else-is).
 
 **The milestone in progress is billing.** Plans are now _enforced_ — a Pro
 tenant gets custom branding and SMS reminders, a Starter tenant does not, and a

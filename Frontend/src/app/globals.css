@@ -200,6 +200,43 @@ body {
   animation: caret 1.05s steps(1, end) infinite;
 }
 
+/* Landing scroll hint: a hairline that draws downward, then retracts from the
+   top, so the eye is pulled down the page rather than merely blinked at.
+   Transform and opacity only, so it composites on the GPU and never lays out.
+
+   The default guidance is that scroll affordances are decoration; this one is
+   load-bearing. The hero is capped at 70% of the viewport precisely so the next
+   section peeks, and the hint is what says that peek is intentional. */
+@keyframes scroll-hint {
+  0% {
+    transform: scaleY(0);
+    transform-origin: top;
+    opacity: 0;
+  }
+  30% {
+    transform: scaleY(1);
+    transform-origin: top;
+    opacity: 1;
+  }
+  /* Origin flips at full extension, so the retraction reads as the line
+     travelling downward rather than rewinding back up. */
+  31% {
+    transform: scaleY(1);
+    transform-origin: bottom;
+    opacity: 1;
+  }
+  70%,
+  100% {
+    transform: scaleY(0);
+    transform-origin: bottom;
+    opacity: 0;
+  }
+}
+
+.animate-scroll-hint {
+  animation: scroll-hint 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
 /* Skeletons: a sweep reads as "loading" where a bare pulse reads as "broken". */
 @keyframes shimmer {
   from {
@@ -236,7 +273,8 @@ body {
   .animate-sheet,
   .animate-fade,
   .animate-shimmer,
-  .animate-caret {
+  .animate-caret,
+  .animate-scroll-hint {
     animation: none;
   }
 }

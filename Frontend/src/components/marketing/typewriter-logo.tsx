@@ -15,11 +15,14 @@ const PHRASES = [
 ];
 
 /** Stable text for assistive tech and for anything reading the DOM. */
-const ACCESSIBLE_NAME = "Bazman — בזמן";
+const ACCESSIBLE_NAME = "Bazman, בזמן";
 
-const TYPE_MS = 95;
-const DELETE_MS = 45;
-const HOLD_MS = 1900;
+// Slower than a real typist and slower than the previous pass. The wordmark is
+// the only thing on this half of the hero, so the cadence is the composition:
+// at 95ms it read as a loading spinner, at 130ms it reads as deliberate.
+const TYPE_MS = 130;
+const DELETE_MS = 55;
+const HOLD_MS = 2400;
 
 type Phase = "typing" | "holding" | "deleting";
 
@@ -74,7 +77,9 @@ export function TypewriterLogo({ className }: { className?: string }) {
   return (
     <h1
       className={cn(
-        "text-4xl font-black tracking-tight text-white lg:text-6xl",
+        // Tracking is tightened hard at display size: Heebo set loose at 8xl
+        // reads as a default, set tight it reads as a wordmark.
+        "text-5xl font-black tracking-tighter text-white sm:text-6xl lg:text-7xl xl:text-8xl",
         className,
       )}
     >
@@ -87,9 +92,11 @@ export function TypewriterLogo({ className }: { className?: string }) {
         {/* min-height keeps the row from collapsing when text is empty
             mid-cycle, so the layout below never jumps. */}
         <span className="min-h-[1.2em]">{text}</span>
+        {/* The caret is the one place the mark carries a colour, and in a
+            monochrome system that colour is the paper itself. */}
         <span
           className={cn(
-            "ms-0.5 inline-block w-[0.06em] self-stretch bg-teal-400",
+            "ms-1 inline-block w-[0.055em] self-stretch bg-white",
             !reducedMotion && "animate-caret",
           )}
         />

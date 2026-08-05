@@ -232,6 +232,7 @@ appointments
 
 - [x] Per-business branding: accent theme, hero image/video, gallery with lightbox, owner-entered reviews (`0009`). _(Theme is a `data-accent` attribute plus CSS custom properties — Tailwind cannot emit a class from a runtime value. Every swatch is WCAG AA verified.)_
 - [x] Landing page rebuilt: split hero, animated `Bazman.` / `בזמן.` wordmark, dashboard mockup, pricing table with a monthly/yearly toggle, FAQ accordion. _(`/` stays a static prerender; the toggle and accordion are client islands.)_
+  - [x] **Rebuilt again after stage 8a, monochrome.** Zero accent hue, radius 0, 70/30 above-the-fold split with a 50/50 hero: Canvas particle field and the typed wordmark on ink, the agenda preview and the actions on paper. Teal is gone from `/` and still present on `/login`, `/dashboard/*` and `/master` — a known, deliberate inconsistency to resolve in one pass. See [ARCHITECTURE.md](ARCHITECTURE.md#the-landing-page-is-monochrome-nothing-else-is).
 - [x] Subscription plans recorded on the tenant (`0010`) and selectable during onboarding, which is now five steps.
 - [x] Global rename to **Bazman / בזמן**, with the name centralised in `lib/brand.ts`.
 - [x] Dashboard overhaul: shared teal chrome, mobile bottom nav, revenue and new-client stats, clients search with call/WhatsApp shortcuts.

@@ -16,7 +16,9 @@ export function FaqAccordion({ items }: { items: Faq[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <ul className="divide-y divide-neutral-200 rounded-2xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
+    // Hairlines only, no surrounding box: the questions are already a list,
+    // and a bordered card around them adds a frame nothing needed.
+    <ul className="divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
       {items.map((item, index) => {
         const open = openIndex === index;
         const panelId = `faq-panel-${index}`;
@@ -31,13 +33,13 @@ export function FaqAccordion({ items }: { items: Faq[] }) {
                 aria-expanded={open}
                 aria-controls={panelId}
                 onClick={() => setOpenIndex(open ? null : index)}
-                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-start text-sm font-semibold text-neutral-900 transition-colors hover:text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none dark:text-neutral-100 dark:hover:text-teal-300"
+                className="flex w-full items-center justify-between gap-4 py-5 text-start text-sm font-bold text-zinc-950 transition-colors hover:text-zinc-500 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:text-zinc-50 dark:hover:text-zinc-400 dark:focus-visible:ring-white"
               >
                 {item.question}
                 <ChevronDown
                   aria-hidden
                   className={cn(
-                    "size-4 shrink-0 text-neutral-400 transition-transform duration-200",
+                    "size-4 shrink-0 text-zinc-400 transition-transform duration-200",
                     open && "rotate-180",
                   )}
                 />
@@ -49,7 +51,7 @@ export function FaqAccordion({ items }: { items: Faq[] }) {
               role="region"
               aria-labelledby={buttonId}
               hidden={!open}
-              className="px-5 pb-4 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400"
+              className="max-w-[65ch] pb-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400"
             >
               {item.answer}
             </div>

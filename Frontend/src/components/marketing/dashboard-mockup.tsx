@@ -1,21 +1,24 @@
-import { CalendarCheck, TrendingUp, Wallet } from "lucide-react";
-
 import { cn } from "@/lib/utils";
 
 /**
- * A product illustration, not a component of the product. It ships no
- * JavaScript — every "interactive" touch here is a CSS hover — so it stays a
- * server component even though the brief grouped it with the typewriter.
+ * A scaled-down render of the real agenda, not a picture of one. It uses the
+ * product's own row shape, status vocabulary and Hebrew service names, so what
+ * a visitor sees here is what they get after signup.
+ *
+ * Deliberately no browser chrome. Traffic-light dots and a fake address bar
+ * are what turn a preview into a mock screenshot, and a mock screenshot is a
+ * promise the product has to keep twice.
  *
  * Announced as a single image with one description rather than as a dozen
- * headings and list items, because none of these numbers are real and a screen
- * reader walking them would be reading fiction.
+ * headings and list items: the figures below are illustrative, and a screen
+ * reader walking them row by row would be reading fiction.
  */
 
+/** Illustrative figures. Not real data, and never presented as measured. */
 const STATS = [
-  { icon: CalendarCheck, label: "תורים היום", value: "12", tone: "teal" },
-  { icon: Wallet, label: "הכנסה צפויה", value: "₪840", tone: "teal" },
-  { icon: TrendingUp, label: "ניצולת יומן", value: "94%", tone: "plain" },
+  { label: "תורים היום", value: "12" },
+  { label: "הכנסה צפויה", value: "₪840" },
+  { label: "חלונות פנויים", value: "3" },
 ] as const;
 
 const AGENDA = [
@@ -40,92 +43,76 @@ const AGENDA = [
   },
 ] as const;
 
+/**
+ * Monochrome has no hue to spend on status, so the axis is weight: a confirmed
+ * booking is filled ink, a pending one is an outline. The label is always
+ * rendered beside it, so the distinction never rests on fill alone.
+ */
 const STATUS = {
-  confirmed: { label: "מאושר", className: "bg-teal-100 text-teal-800" },
-  pending: { label: "ממתין", className: "bg-amber-100 text-amber-900" },
+  confirmed: {
+    label: "מאושר",
+    className: "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900",
+  },
+  pending: {
+    label: "ממתין",
+    className:
+      "border border-zinc-300 text-zinc-500 dark:border-zinc-600 dark:text-zinc-400",
+  },
 } as const;
 
-export function DashboardMockup() {
+export function DashboardMockup({ className }: { className?: string }) {
   return (
     <div
       role="img"
-      aria-label="תצוגה מקדימה של לוח הבקרה: תורים היום, הכנסה צפויה, וסדר היום עם סטטוס לכל תור"
-      className="group w-full overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl ring-1 shadow-black/40 ring-black/5 transition-transform duration-500 hover:-translate-y-1"
+      aria-label="תצוגה מקדימה של לוח הבקרה: תורים היום, הכנסה צפויה, חלונות פנויים, וסדר היום עם סטטוס לכל תור"
+      className={cn(
+        // Radius 0, in line with the rest of the page. The only elevation is a
+        // hairline and a very soft shadow: a heavy drop shadow would be the
+        // loudest thing in a composition built on restraint.
+        "w-full border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(9,9,11,0.04),0_12px_32px_-12px_rgba(9,9,11,0.12)] dark:border-zinc-800 dark:bg-zinc-950",
+        className,
+      )}
     >
-      {/* Browser chrome */}
-      <div
-        aria-hidden
-        className="flex items-center gap-2 border-b border-neutral-200 bg-neutral-100 px-3 py-2.5"
-      >
-        <span className="flex gap-1.5">
-          <span className="size-2.5 rounded-full bg-red-400" />
-          <span className="size-2.5 rounded-full bg-amber-400" />
-          <span className="size-2.5 rounded-full bg-green-400" />
-        </span>
-        <span
-          dir="ltr"
-          className="mx-auto rounded-md bg-white px-3 py-0.5 text-[10px] text-neutral-400 tabular-nums"
-        >
-          bazman.app/dashboard
-        </span>
-      </div>
-
-      <div aria-hidden className="bg-white p-4">
-        <div className="mb-3 flex items-baseline justify-between">
-          <p className="text-sm font-bold text-neutral-900">היומן שלי</p>
-          <p className="text-[10px] text-neutral-400">יום שני, 7 בספטמבר</p>
+      <div aria-hidden className="p-4 sm:p-5">
+        <div className="flex items-baseline justify-between border-b border-zinc-200 pb-3 dark:border-zinc-800">
+          <p className="text-sm font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            היומן שלי
+          </p>
+          <p className="text-[10px] text-zinc-400">יום שני, 7 בספטמבר</p>
         </div>
 
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          {STATS.map(({ icon: Icon, label, value, tone }) => (
-            <div
-              key={label}
-              className={cn(
-                "rounded-xl border p-2.5 transition-colors duration-300",
-                tone === "teal"
-                  ? "border-teal-200 bg-teal-50/70 group-hover:border-teal-300"
-                  : "border-neutral-200 bg-neutral-50",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex items-center gap-1 text-[10px] font-medium",
-                  tone === "teal" ? "text-teal-800" : "text-neutral-500",
-                )}
-              >
-                <Icon className="size-3" />
+        {/* Hairline-divided columns rather than three bordered cards: at this
+            scale a card inside a card is just noise. */}
+        <div className="grid grid-cols-3 divide-x divide-zinc-200 border-b border-zinc-200 divide-x-reverse dark:divide-zinc-800 dark:border-zinc-800">
+          {STATS.map(({ label, value }) => (
+            <div key={label} className="px-2 py-3 first:ps-0 last:pe-0">
+              <span className="block text-[10px] font-medium text-zinc-400">
                 {label}
               </span>
-              <span className="mt-1 block text-lg leading-none font-bold text-neutral-900 tabular-nums">
+              <span className="mt-1 block text-lg leading-none font-bold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">
                 {value}
               </span>
             </div>
           ))}
         </div>
 
-        <ul className="space-y-1.5">
-          {AGENDA.map((row, i) => (
-            <li
-              key={row.time}
-              // Staggered lift on hover, so the card reads as live rather than
-              // as a flat screenshot.
-              style={{ transitionDelay: `${i * 45}ms` }}
-              className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-3 py-2 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:border-teal-200 group-hover:shadow-sm"
-            >
-              <span className="text-xs font-bold text-neutral-900 tabular-nums">
+        <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+          {AGENDA.map((row) => (
+            <li key={row.time} className="flex items-center gap-3 py-2.5">
+              <span className="text-xs font-bold text-zinc-900 tabular-nums dark:text-zinc-100">
                 {row.time}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-semibold text-neutral-800">
+                <span className="block truncate text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   {row.name}
                 </span>
-                <span className="block truncate text-[10px] text-neutral-400">
+                <span className="block truncate text-[10px] text-zinc-400">
                   {row.service}
                 </span>
               </span>
               <span
                 className={cn(
-                  "shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold",
+                  "shrink-0 px-2 py-0.5 text-[9px] font-bold",
                   STATUS[row.status].className,
                 )}
               >

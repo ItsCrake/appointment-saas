@@ -434,16 +434,65 @@ a `"use client"` on the page.
 Pricing tiers, feature copy and FAQs live in `lib/plans.ts` and
 `lib/landing-content.ts` as plain data with no JSX, so prices and copy can be
 edited without touching a component — and so the pricing maths is unit-tested.
-`landing-content.ts` stores icon _names_, not components, which is what keeps
-it importable as data; `page.tsx` maps a name to a `lucide-react` component in
-one place.
+`landing-content.ts` still stores icon _names_ rather than components, which is
+what keeps it importable as data. The landing page no longer renders them: the
+feature section is an editorial list, not an icon grid. The field is kept
+because it costs nothing and the next surface that wants icons will need it.
 
-**Teal is the platform brand and is unrelated to the per-business
-`--accent`.** Landing, login and onboarding are platform surfaces and use
-static Tailwind teal utilities; `/[slug]` is tenant-branded and uses the
-custom properties. Solid CTAs use **teal-700, not teal-600** — white on
-teal-600 measures 3.67:1 and fails WCAG AA, teal-700 measures 5.36:1.
-Measured in a browser, as with the accent palette.
+### The landing page is monochrome. Nothing else is.
+
+`/` was rebuilt on a **zero-accent palette**: ink is `zinc-950` (`#09090b`),
+paper is white, and the `zinc-200..600` ramp carries everything between. There
+is no accent hue at all, which makes **contrast the accent** — every primary
+action is solid ink on paper and inverts wholesale in dark mode. Measured in a
+browser: 19.9:1 on every solid CTA, 16.1:1 on the outline CTA, 7.6:1 on
+secondary body copy, in both schemes.
+
+Two rules hold it together, and breaking either is what makes the page look
+generated again:
+
+- **Radius 0, everywhere.** No exceptions on the landing surface. A hard edge
+  is what makes a monochrome layout read as considered rather than unstyled.
+- **One theme per page.** The hero's black/white split is a deliberate
+  composition inside one section, not a light section next to a dark one. In
+  dark mode the "paper" half becomes `zinc-900` against the `zinc-950` half so
+  the split survives instead of collapsing into a single black rectangle.
+
+> **Teal is not gone from the platform.** `/login`, `/dashboard/*` and
+> `/master` still use the teal chrome described under
+> [Dashboard chrome](#dashboard-chrome), and `BRAND_MARK` is still rendered
+> with a teal stop on those surfaces. The landing page and the app now look
+> like two different products. That is a real inconsistency and it is
+> deliberate scope, not an oversight: the brief covered `/`. Whichever way it
+> is resolved, it should be resolved in one pass rather than drifting.
+
+Per-business `--accent` is unrelated to either and is untouched: `/[slug]` is
+tenant-branded and still uses the custom properties from `lib/branding.ts`.
+
+### Above-the-fold structure
+
+The hero is `calc((100dvh - 4rem) * 0.7)` tall: exactly 70% of the space below
+the 64px header, so the section beneath occupies the remaining 30% and peeks
+above the fold. A `min-h` floor stops it collapsing on a short laptop, where
+70% of 500px would crush the mockup.
+
+The document is `dir="rtl"`, so grid column 1 renders on the **right**. The
+hero's dark panel therefore carries `lg:order-2` to sit on the visual left
+while staying first in the DOM, where its `<h1>` belongs. Below `lg` the split
+stacks and the mockup is dropped rather than shrunk.
+
+`hero-particles.tsx` is a Canvas client leaf. Canvas rather than a swarm of
+animated DOM nodes: fifty absolutely-positioned divs are fifty composited
+layers, which is what turns a "subtle" effect into a 30fps phone. Nothing in it
+touches React state — positions live in a plain array mutated inside the rAF
+loop, so the component renders exactly once. It paints one frame synchronously
+before starting the loop, because `requestAnimationFrame` is suspended in a
+background tab and a page opened in one would otherwise show an empty black
+panel until focused.
+
+The scroll affordance is a hairline that draws downward and retracts, with no
+label and no wheel icon. It exists because the 70/30 split is deliberate and
+something has to say the peek is intentional.
 
 ## Dashboard chrome
 
@@ -551,6 +600,8 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   extension, freeze, live feed, churn and delivery alerts
 - Two-tier plan line (₪69 / ₪99) with entitlements enforced server-side —
   branding gated on write, client reminder channel chosen by tier
+- Landing page rebuilt monochrome: 70/30 above-the-fold split, 50/50 hero with
+  a Canvas particle field and the typed wordmark, zero accent hue, radius 0
 
 **Not built**
 
