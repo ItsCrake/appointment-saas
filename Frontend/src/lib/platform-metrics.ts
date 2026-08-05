@@ -17,8 +17,16 @@ export type TenantBreakdown = {
   /** Active subscription and not frozen. */
   active: number;
   trialing: number;
-  /** `is_active = false` — frozen by an admin, whatever the subscription says. */
+  /** `is_active = false` — frozen by an admin or by the billing sweep. */
   frozen: number;
+  /**
+   * In the non-payment grace window: degraded, still serving, not yet frozen.
+   *
+   * Its own bucket rather than folded into `cancelled`, because these are the
+   * tenants still worth chasing. Counting them as churn would overstate it and
+   * point the recovery effort at exactly the wrong list.
+   */
+  pastDue: number;
   cancelled: number;
 };
 
@@ -28,6 +36,7 @@ export function breakdownTenants(rows: TenantRow[]): TenantBreakdown {
     active: 0,
     trialing: 0,
     frozen: 0,
+    pastDue: 0,
     cancelled: 0,
   };
 
@@ -40,10 +49,7 @@ export function breakdownTenants(rows: TenantRow[]): TenantBreakdown {
     }
     if (row.subscriptionStatus === "active") breakdown.active += 1;
     else if (row.subscriptionStatus === "trialing") breakdown.trialing += 1;
-    // TODO(8b): `past_due` lands in this bucket, which overstates churn on the
-    // console. Nothing can write it until migration 0012 widens the CHECK, so
-    // no live row reaches here yet — but the breakdown needs its own field the
-    // moment the grace window ships.
+    else if (row.subscriptionStatus === "past_due") breakdown.pastDue += 1;
     else breakdown.cancelled += 1;
   }
 
@@ -87,6 +93,9 @@ export function trialPipelineCents(rows: TenantRow[]): number {
  * Counting it as a failure makes a growing platform look like a collapsing
  * one. Returns null when nobody has decided yet, so the UI shows "—" rather
  * than a confident 0%.
+ *
+ * `past_due` is excluded for the same reason: a tenant inside the grace window
+ * is mid-decision, and most of them are one card update away from active.
  */
 export function trialConversionPercent(rows: TenantRow[]): number | null {
   let converted = 0;

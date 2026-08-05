@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { db } from "@/db";
 import { pruneExpiredRateLimits } from "@/db/queries/rate-limits";
+import { sweepSubscriptions } from "@/lib/billing/sweep";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { reportError } from "@/lib/observability";
 import { describeProviders } from "@/lib/notifications/providers";
@@ -35,6 +36,18 @@ async function handle(request: NextRequest) {
   const started = Date.now();
 
   try {
+    // Sweep BEFORE dispatch, so a warning queued this run goes out this run
+    // rather than sitting a full day. On a daily cron that ordering is the
+    // difference between a 3-day warning and a 2-day one.
+    let billing = null;
+    try {
+      billing = await sweepSubscriptions(db);
+    } catch (error) {
+      // A failed sweep must not stop the outbox: bookings are the product,
+      // billing is the business. Reported, not rethrown.
+      reportError("cron.sweepSubscriptions", error);
+    }
+
     const summary = await dispatchDueNotifications(db, { limit: 100 });
 
     // Housekeeping rides along rather than needing a second cron entry.
@@ -48,6 +61,7 @@ async function handle(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       ...summary,
+      billing,
       prunedRateLimits,
       providers: describeProviders(),
       durationMs: Date.now() - started,

@@ -10,7 +10,7 @@ import {
   deleteTimeOff,
   replaceWorkingHours,
 } from "@/db/queries";
-import { requireBusiness } from "@/lib/dashboard-session";
+import { requireWritable } from "@/lib/dashboard-session";
 
 export type HoursActionResult = { ok: true } | { ok: false; error: string };
 
@@ -57,7 +57,7 @@ export async function saveWorkingHoursAction(
     seen.add(key);
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
 
   await replaceWorkingHours(
     db,
@@ -90,7 +90,7 @@ export async function createTimeOffAction(
     return { ok: false, error: parsed.error.issues[0].message };
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
   const { date, startTime, endTime, reason } = parsed.data;
 
   // The owner types local wall-clock time; the column stores UTC.
@@ -125,7 +125,7 @@ export async function deleteTimeOffAction(
   const parsed = z.uuid().safeParse(timeOffId);
   if (!parsed.success) return { ok: false, error: "בקשה לא תקינה" };
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
 
   const deleted = await deleteTimeOff(db, business.id, parsed.data);
   if (!deleted) return { ok: false, error: "החסימה לא נמצאה" };

@@ -58,8 +58,22 @@ describe("breakdownTenants", () => {
       active: 0,
       trialing: 0,
       frozen: 0,
+      pastDue: 0,
       cancelled: 0,
     });
+  });
+
+  it("counts a grace-window tenant separately from a churned one", () => {
+    // These are the tenants still worth chasing. Folding them into `cancelled`
+    // would overstate churn and point the recovery effort at the wrong list.
+    const out = breakdownTenants([
+      tenant({ subscriptionStatus: "past_due" }),
+      tenant({ subscriptionStatus: "past_due" }),
+      tenant({ subscriptionStatus: "cancelled" }),
+    ]);
+
+    expect(out.pastDue).toBe(2);
+    expect(out.cancelled).toBe(1);
   });
 
   it("counts a frozen tenant as frozen whatever its subscription says", () => {
@@ -86,6 +100,7 @@ describe("breakdownTenants", () => {
       total: 4,
       active: 2,
       trialing: 1,
+      pastDue: 0,
       cancelled: 1,
       frozen: 0,
     });

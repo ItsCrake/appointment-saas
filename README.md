@@ -40,7 +40,7 @@ cancellations / no-shows.
   instant cannot both win.
 - All timestamps are stored in UTC and reasoned about in the business
   timezone. DST transitions are covered by tests.
-- Row Level Security is on for all 7 tables with **zero anon policies**, which
+- Row Level Security is on for all 9 tables with **zero anon policies**, which
   is what keeps the public Supabase anon key from reading every tenant's client
   names and phone numbers.
 - The public booking form carries a honeypot plus Postgres-backed rate limits
@@ -194,6 +194,7 @@ Run from `Frontend/`.
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
 | `/dashboard/clients`      | owner         | Derived from booking history                    |
 | `/dashboard/settings`     | owner         | Business profile and booking rules              |
+| `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
 | `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
 | `/master`                 | super admin   | Platform overview: tenants, MRR, conversion     |
 | `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, freeze |
@@ -212,7 +213,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 270 unit tests, build
+npm run verify     # env, lint, types, 293 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
@@ -264,11 +265,12 @@ monochrome rebuild of the landing page.
 > one pass. See
 > [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-landing-page-is-monochrome-plus-one-gradient-nothing-else-is).
 
-**The milestone in progress is billing.** Plans are now _enforced_ — a Pro
-tenant gets custom branding and SMS reminders, a Starter tenant does not, and a
-lapsed subscription resolves to free entitlements. What is still missing is the
-money: there is no payment provider, nothing charges against `plan_type`, and
-no job acts on `trial_ends_at`. Stages 8b–8e cover the lifecycle, the payment
+**The milestone in progress is billing.** Plans are enforced and the lifecycle
+runs: a lapsed trial drops to `past_due`, the owner gets warned at T-3 and T-1,
+paid features switch off, and after a 7-day grace window the tenant is frozen —
+public page offline, dashboard read-only. What is still missing is **collecting
+the money**: there is no payment provider, so nothing charges a card and no
+webhook moves a subscription to `active`. Stages 8c–8e cover the payment
 adapter and the cost model — see
 [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#phase-8--billing-in-progress).
 

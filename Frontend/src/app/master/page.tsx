@@ -93,8 +93,13 @@ export default async function MasterOverviewPage() {
               icon={<Snowflake className="size-3.5" aria-hidden />}
               label="מוקפאים"
               value={String(breakdown.frozen)}
-              hint={`${breakdown.cancelled} ביטלו מנוי`}
-              tone={breakdown.frozen > 0 ? "warn" : "plain"}
+              // past_due is the recovery list: still serving, still reachable,
+              // not yet frozen. Surfaced beside the freeze count because that
+              // is the pipeline between the two.
+              hint={`${breakdown.pastDue} בחלון חסד · ${breakdown.cancelled} ביטלו`}
+              tone={
+                breakdown.frozen > 0 || breakdown.pastDue > 0 ? "warn" : "plain"
+              }
             />
           </div>
 

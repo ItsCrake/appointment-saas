@@ -21,9 +21,29 @@ export type NotificationProvider = {
   send(message: OutboundMessage): Promise<SendResult>;
 };
 
-/** Everything a template needs, resolved once at dispatch time. */
-export type NotificationContext = {
-  kind: NotificationKind;
+/**
+ * Kinds that address the *platform's* relationship with the tenant rather than
+ * a booking. They carry no appointment, which is exactly why the dispatcher
+ * needed an appointment-optional path: it used to skip any row without one, so
+ * these would have inserted cleanly and then disappeared.
+ */
+export const BILLING_KINDS = [
+  "trial_ending",
+  "trial_ended",
+  "payment_failed",
+  "payment_receipt",
+] as const;
+
+export type BillingKind = (typeof BILLING_KINDS)[number];
+export type AppointmentKind = Exclude<NotificationKind, BillingKind>;
+
+export function isBillingKind(kind: NotificationKind): kind is BillingKind {
+  return (BILLING_KINDS as readonly string[]).includes(kind);
+}
+
+/** Everything an appointment template needs, resolved once at dispatch time. */
+export type AppointmentContext = {
+  kind: AppointmentKind;
   businessName: string;
   businessPhone: string | null;
   businessAddress: string | null;
@@ -35,3 +55,26 @@ export type NotificationContext = {
   priceCents: number;
   startsAt: string;
 };
+
+/**
+ * Billing templates address the owner, not a client. A separate shape rather
+ * than optional fields on the one above: making `clientName` optional would
+ * make it optional for the reminder template too, where its absence is a bug.
+ */
+export type BillingContext = {
+  kind: BillingKind;
+  businessName: string;
+  businessTimezone: string;
+  /** Where the owner goes to fix it. */
+  billingUrl: string;
+  /** Display name of the tier involved, e.g. "מקצועי". */
+  planName: string;
+  /** Trial end or grace end, whichever the kind is about. ISO. */
+  deadline?: string;
+  /** Days remaining, for the warning copy. */
+  daysLeft?: number;
+  /** Charged or attempted amount, in agorot. */
+  amountCents?: number;
+};
+
+export type NotificationContext = AppointmentContext | BillingContext;

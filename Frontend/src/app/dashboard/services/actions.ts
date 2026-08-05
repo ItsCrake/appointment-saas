@@ -10,7 +10,7 @@ import {
   deleteService,
   updateService,
 } from "@/db/queries";
-import { requireBusiness } from "@/lib/dashboard-session";
+import { requireWritable } from "@/lib/dashboard-session";
 
 export type ServiceActionResult =
   { ok: true; message?: string } | { ok: false; error: string };
@@ -49,7 +49,7 @@ export async function saveServiceAction(
     return { ok: false, error: parsed.error.issues[0].message };
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
   const values = {
     ...parsed.data,
     description: parsed.data.description || null,
@@ -71,7 +71,7 @@ export async function toggleServiceAction(
   serviceId: string,
   isActive: boolean,
 ): Promise<ServiceActionResult> {
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
 
   const updated = await updateService(db, business.id, serviceId, { isActive });
   if (!updated) return { ok: false, error: "השירות לא נמצא" };
@@ -89,7 +89,7 @@ export async function toggleServiceAction(
 export async function removeServiceAction(
   serviceId: string,
 ): Promise<ServiceActionResult> {
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
 
   try {
     const deleted = await deleteService(db, business.id, serviceId);

@@ -290,43 +290,48 @@ else ships before a merchant account exists.
 > nothing.** Everything Starter sells is baseline product, so the grace window
 > applies no pressure and the 8b freeze is their only real enforcement.
 
-#### 8b — Lifecycle & the write gate
+#### 8b — Lifecycle & the write gate ✅
 
-- [ ] Migration `0012`: widen the `subscription_status` CHECK to include
-      `past_due`; rewrite legacy `business` rows to `pro` and drop it from the
-      plan CHECK; add `grace_started_at`, `frozen_reason`, `billing_cycle`,
+- [x] Migration `0012`: `past_due` added to the status CHECK; legacy `business`
+      rows rewritten **up** to `pro` and dropped from the plan CHECK;
+      `grace_started_at`, `frozen_reason`, `billing_cycle`,
       `provider_customer_id`, `provider_subscription_id`, `current_period_end`,
-      `cancel_at_period_end`.
-- [ ] New tables `subscription_events` (UNIQUE `provider_event_id`, the same
-      idempotency trick as `notifications.dedupe_key`; RLS on with **zero**
-      policies, like `rate_limits`) and `invoices` (tenant-scoped, owner
-      policy). The 7-of-7-tables, zero-anon-policies invariant must hold.
-- [ ] `requireBusiness()` gains `access: "full" | "read-only"`; a
-      `requireWritable()` helper guards every mutating action.
-- [ ] **A coverage test over every `"use server"` module** asserting each
-      exported action calls a sanctioned guard. This is what stops the gate
-      being the half-done thing the impersonation note warns about — a new
-      action that forgets fails CI instead of shipping a hole.
-- [ ] Trial sweeper riding the existing daily cron (the precedent is the
-      rate-limit prune): warn at T-3 and T-1, move lapsed trials to `past_due`,
-      freeze after 7 days of grace. Only `frozen_reason = 'billing'` is ever
-      auto-unfrozen, so a recovered payment cannot undo an admin freeze.
-- [ ] `/master` breakdown gains a `past_due` bucket — today it would land in
-      `cancelled` and overstate churn.
+      `cancel_at_period_end` added.
+- [x] New tables `subscription_events` (UNIQUE `(provider, provider_event_id)`,
+      scoped by provider because two providers mint the same opaque ids; RLS on
+      with **zero** policies) and `invoices` (RLS **`FOR SELECT` only** — an
+      owner who could `INSERT` could mark themselves paid). Invariant now
+      **9 of 9 tables, 0 anon policies**, asserted by `db/rls.test.ts`.
+- [x] `lib/billing/lifecycle.ts` — the state machine as pure functions. Freeze
+      is last not first, one action per tenant per run, half-open warning bands,
+      and `past_due` with no clock is never frozen.
+- [x] `requireBusiness()` returns `access`; `requireWritable()` guards every
+      mutating dashboard action and redirects rather than throwing.
+- [x] **Coverage test over every `"use server"` module.** Verified by reverting
+      three actions to `requireBusiness()` and confirming it named all three.
+      A stale-exemption test keeps the waiver list honest.
+- [x] Trial sweep riding the existing daily cron: warn at T-3 and T-1, lapse to
+      `past_due` with the clock, freeze after 7 days. Only
+      `frozen_reason = 'billing'` is ever auto-unfrozen. Runs *before* dispatch
+      so a warning queued this run goes out this run.
+- [x] `/master` breakdown gains a `past_due` bucket; trial conversion still
+      excludes it, because a tenant mid-grace has not decided.
+- [x] **Pulled forward from 8c:** the dispatcher's appointment-optional path
+      and the four billing `notification_kind` values. Without them the sweep's
+      warnings would have inserted cleanly and vanished, so shipping the sweep
+      without the fix would have been shipping a silent failure.
+- [x] **Pulled forward from 8c:** a read-only `/dashboard/billing`, because the
+      freeze banner and the branding upsell both needed a real destination.
 
-#### 8c — Adapter, dispatcher, billing UI
+#### 8c — Payment adapter
 
 - [ ] `lib/billing/` — `BillingProvider` interface plus a console provider that
       **hard-refuses in production**. This inverts the notifications fallback
       on purpose: there a silent success loses mail, here it invents revenue.
-- [ ] Fix `dispatch.ts`, which skips any row with no appointment — billing mail
-      has none, so it would insert cleanly and vanish. Add the
-      appointment-optional branch and the new `notification_kind` values
-      (`trial_ending`, `trial_ended`, `payment_failed`, `payment_receipt`).
-      Note `ALTER TYPE ... ADD VALUE` cannot run inside a transaction block.
-- [ ] `/dashboard/billing`: current plan, upgrade/downgrade, invoice history,
-      cancel. Repoint the settings upgrade button at it (it goes to `/#pricing`
-      today).
+- [ ] Checkout action and plan changes on `/dashboard/billing`, which today
+      reports state without collecting.
+- [ ] Apply `canAutoUnfreeze` on recovery: a successful payment thaws a
+      `billing` freeze and never an `admin` one.
 
 #### 8d — The payment provider *(needs the provider decision)*
 

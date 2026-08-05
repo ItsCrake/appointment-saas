@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 270 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 293 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -39,7 +39,8 @@ Frontend/src/
 
 ## Database
 
-Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
+Nine tables. Seven are tenant-scoped by `business_id`; `rate_limits` is not,
+and `subscription_events` only optionally is.
 
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
   `min_notice_min`, `max_advance_days`, `cancel_window_hours`,
@@ -53,10 +54,15 @@ Seven tables. Six are tenant-scoped by `business_id`; `rate_limits` is not.
 - **appointments** — UTC instants, status enum, snapshots `service_name` and
   `price_cents`, `cancel_token` for the self-service link
 - **notifications** — transactional outbox (see below)
-- **rate_limits** — fixed-window counters; the only table with no
-  `business_id`, so RLS is on with **no policy at all**
+- **rate_limits** — fixed-window counters; no `business_id`, so RLS is on with
+  **no policy at all**
+- **subscription_events** (`0012`) — provider webhook log. `UNIQUE (provider,
+  provider_event_id)` is the same idempotency trick as
+  `notifications.dedupe_key`: providers retry, and a duplicate `invoice.paid`
+  must not extend a paid period twice. RLS on, **zero policies**
+- **invoices** (`0012`) — billing history. RLS grants **SELECT only**
 
-Migrations `0000`–`0011` in `src/db/migrations/`, applied with
+Migrations `0000`–`0012` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ### Two constraints that carry real weight
@@ -99,16 +105,20 @@ The migration refuses to apply if orphans already exist, rather than deleting
 them to make room for the constraint. `src/db/owner-cascade.test.ts` covers the
 cascade, the slug reclaim, tenant isolation, and that refusal.
 
-### RLS status: 7 of 7 tables, **0 anon policies**
+### RLS status: 9 of 9 tables, **0 anon policies**
 
-Migrations `0002`, `0005` and `0007`. Six tables carry one
+Migrations `0002`, `0005`, `0007` and `0012`. Six tables carry one
 `FOR ALL TO authenticated` policy keyed on `auth.uid() = owner_user_id`, joined
 through `businesses` for child tables. Both `USING` and `WITH CHECK` are set,
 so an owner cannot insert rows pointing at someone else's business.
 
-`rate_limits` is the seventh: RLS on, **zero policies**, which denies every
-role that RLS applies to. That is the intent — it holds no tenant data and
-nothing outside the app's own connection has any business reading it.
+Three tables deliberately differ, and `db/rls.test.ts` asserts each:
+
+| Table                 | Policy                | Why                                                                                                            |
+| --------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `rate_limits`         | none                  | Infrastructure, no tenant data. RLS on with zero policies denies every role RLS applies to.                    |
+| `subscription_events` | none                  | Raw provider payloads can carry billing addresses and card metadata. An owner has no reason to read webhooks.  |
+| `invoices`            | `FOR SELECT` only     | Owners edit services and hours; nobody edits their own invoices. One who could `INSERT` could mark themselves paid. |
 
 Verified against the live database (`pg_policies`): no policy names `anon` or
 `public` in its roles. Note that `relforcerowsecurity` is `false` everywhere,
@@ -161,17 +171,49 @@ Postgres enum so adding a tier is one migration instead of two.
 moves `subscription_status` off `trialing` on its own — but the tier a tenant
 holds does decide what they can do.
 
-The column values and the TypeScript constants have deliberately drifted, in
-the safe direction, ahead of migration `0012`:
-
-| Value        | In the CHECK? | In `lib/plans.ts`? | Why                                                                                  |
-| ------------ | ------------- | ------------------ | ------------------------------------------------------------------------------------ |
-| `business`   | yes           | no                 | Retired tier. `toPlanType` maps it **up** to `pro` until `0012` rewrites the rows.   |
-| `past_due`   | no            | yes                | Listed early so it can never normalise into a status that grants paid features.       |
+Migration `0012` closed the drift that stage 8a deliberately opened: `business`
+rows were rewritten to `pro` and dropped from the CHECK, and `past_due` was
+added to it. During that window the code understood both values and the
+database understood neither fully.
 
 That ordering is the rule, not an accident: **code learns a value before the
 database can produce it, and keeps understanding a value after the database
-stops.** The reverse order breaks every read between deploy and migration.
+stops.** The reverse order breaks every read between deploy and migration, and
+in this specific case would have let `toSubscriptionStatus` resolve `past_due`
+to `trialing` — handing paid features to a tenant who had stopped paying.
+
+### The lifecycle (0012)
+
+```
+trialing --(trial lapses)--> past_due --(7 days)--> frozen
+   |                            |
+   +--------(pays)-------> active <--(pays)--+
+```
+
+`lib/billing/lifecycle.ts` is pure: `planTransition(row, now)` returns one
+action and touches nothing. `lib/billing/sweep.ts` does the IO around it, and
+rides the existing daily cron rather than taking a second entry — the same
+precedent as the rate-limit prune. Daily granularity is genuinely right here,
+unlike for booking confirmations: a trial clock is measured in days.
+
+Decisions worth keeping:
+
+- **Freezing is last, never first.** A tenant whose card expired still has
+  clients holding a link to their booking page. Seven days degraded, then dark.
+- **One action per tenant per run.** A trial that lapsed ninety days ago starts
+  its grace clock *today* and is considered for freezing on a later run, so a
+  backlog cannot skip the window it is owed.
+- **Warning bands are half-open and non-overlapping** (`1 < d <= 3`, then
+  `0 < d <= 1`). A cron run that never happened degrades to one late warning
+  rather than two landing in the same inbox on the same morning.
+- **`past_due` with no clock is never frozen.** That state means a status set by
+  hand or by a provider event that started no clock, and the guess would cost a
+  tenant their public page.
+- **Status and clock move in one statement.** Split across two, a failure
+  between them strands a tenant `past_due` with no clock — degraded forever,
+  never frozen, never recovered.
+- **Only `frozen_reason = 'billing'` is ever auto-unfrozen.** An admin freeze is
+  a deliberate act, and a successful charge must not buy a way back in.
 
 The tier a visitor picks on the landing page travels as
 `/dashboard/setup?plan=pro`. `proxy.ts` preserves the **query** as well as the
@@ -372,6 +414,36 @@ The action check is the boundary; the page check is courtesy. A server action
 is a plain POST endpoint, so a hidden button proves nothing about who can call
 it — the same reasoning that makes every `/master` action re-check the roster.
 
+## The write gate
+
+`requireBusiness()` returns an `access` of `full` or `read-only`, derived from
+`is_active`. **Every mutating dashboard action calls `requireWritable()`**,
+which redirects rather than throwing: a frozen owner with a stale tab clicks
+Save and lands back on the dashboard, where the banner explains why, instead of
+an unhandled server error. Still fail-closed — the action body never runs.
+
+Reads stay open deliberately. A frozen tenant keeps their calendar, their
+client list and their history; only writes and new bookings stop.
+
+> **This is the gate the impersonation warning was waiting for.** It is
+> currently wired to the freeze only. Making impersonation read-only is now a
+> one-line change in `accessFor()`, and is a product decision rather than a
+> technical one — support may legitimately need to fix a tenant's settings.
+
+### Coverage is checked mechanically, not by review
+
+`lib/dashboard-session.coverage.test.ts` parses every `"use server"` module,
+extracts each exported action, and fails the build unless it names a sanctioned
+guard. Actions that legitimately need none — onboarding, the public booking
+flow, auth entry points, `stopImpersonationAction` — sit in an `EXEMPT` map
+with a stated reason, and a second test fails if an entry there goes stale.
+
+This exists because ARCHITECTURE.md warned that a per-action gate with partial
+coverage is **worse** than no gate, since it looks safe. Trusting review to
+catch a missing `requireWritable` is exactly the failure mode that warning
+describes. The test was verified by reverting three actions to
+`requireBusiness()` and confirming it named all three.
+
 **Branding is gated on write only, and grandfathered on read.** Anything
 already saved keeps rendering on the public page. Branding predates this gate,
 so a tenant could have set it while it was free; pulling their gallery down as
@@ -410,19 +482,23 @@ and a leaked token would be a standalone credential for that account. Here the
 admin keeps their own identity, and start/stop are logged with the admin's user
 id under `master.impersonate.*`.
 
-> ⚠️ **Impersonation is not read-only.** `requireBusiness()` is the single
-> boundary every dashboard action shares, so an impersonating admin can write
-> as the tenant and those writes are indistinguishable from the owner's in the
-> data. The banner and the audit log are the mitigations. Enforcing read-only
-> needs a per-action gate and is deliberately deferred rather than half-done —
-> partial coverage would be worse than none, because it would look safe.
+> ⚠️ **Impersonation is still not read-only.** An impersonating admin can write
+> as the tenant, and those writes are indistinguishable from the owner's in the
+> data. The banner and the audit log remain the mitigations.
+>
+> The per-action gate this warning asked for now exists (see
+> [The write gate](#the-write-gate)) and is enforced for frozen tenants, with
+> mechanical coverage. Pointing it at impersonation is a one-line change; it is
+> held back as a product decision, not a technical gap. An impersonating admin
+> *does* inherit a frozen tenant's read-only access, because that reflects the
+> account's state rather than who is looking at it.
 
 ### Trial column (0011)
 
 `trial_ends_at`, backfilled to `created_at + 14 days` for existing trialing
-tenants. Like `plan_type` it is **recorded, not enforced**: no job downgrades a
-lapsed trial and no feature checks it. It drives the console's expiry alerts
-and the "+7 days" action, nothing else.
+tenants. Since `0012` it **is** enforced: the daily sweep moves a lapsed trial
+to `past_due` and starts the grace clock. It still also drives the console's
+expiry alerts and the "+7 days" action.
 
 ## Marketing surface
 
@@ -647,6 +723,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   extension, freeze, live feed, churn and delivery alerts
 - Two-tier plan line (₪69 / ₪99) with entitlements enforced server-side —
   branding gated on write, client reminder channel chosen by tier
+- Subscription lifecycle: trial sweep, 7-day grace window, automatic freeze,
+  dunning mail through the outbox, and a read-only dashboard for frozen
+  tenants with mechanically-verified action coverage
+- `/dashboard/billing` — plan, status, grace deadline and invoice history
 - Landing page rebuilt monochrome: 70/30 above-the-fold split, feathered
   ink/paper hero with a Canvas bubble field and the typed wordmark, one accent
   gradient reserved for active and primary states, soft geometry throughout,
@@ -654,10 +734,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 **Not built**
 
-- **Billing.** No payment provider. Features are now gated on `plan_type` and
-  `subscription_status` (see [Entitlements](#entitlements)), but **nothing
-  charges against them** and no job acts on a lapsed trial. The landing page
-  advertises prices that cannot be collected. Stages 8b–8e of the milestone —
+- **Payment collection.** There is still no provider: nothing charges a card,
+  no webhook moves a subscription to `active`, and `/dashboard/billing` reports
+  state without collecting. Everything *around* that now works — entitlements,
+  the lifecycle, the grace clock, the freeze, dunning mail. Stages 8d and 8e —
   see [PROJECT_PLAN.md](PROJECT_PLAN.md).
 - Multi-staff resources, Google Calendar sync, recurring appointments,
   custom domains

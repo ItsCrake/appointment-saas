@@ -11,7 +11,7 @@ import {
   reviewsSchema,
   THEME_COLORS,
 } from "@/lib/branding";
-import { requireBusiness } from "@/lib/dashboard-session";
+import { requireWritable } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
 import { reportError, reportWarning } from "@/lib/observability";
 
@@ -43,7 +43,7 @@ export async function saveAppearanceAction(
     return { ok: false, error: parsed.error.issues[0].message };
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
 
   // The entitlement check belongs *here*, not only in the form. A server action
   // is a plain POST endpoint: a hidden button proves nothing about who can call

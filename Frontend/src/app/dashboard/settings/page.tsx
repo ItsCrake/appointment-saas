@@ -100,13 +100,11 @@ function BrandingUpsell() {
         צבע מותאם, באנר, גלריית עבודות וחוות דעת של לקוחות — כדי שעמוד ההזמנות
         ייראה כמו העסק שלכם ולא כמו טופס.
       </p>
-      {/* Points at the public pricing section until /dashboard/billing exists
-          in stage 8c — a live control that 404s is worse than an extra hop. */}
       <Link
-        href="/#pricing"
+        href="/dashboard/billing"
         className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-teal-700 px-5 text-sm font-semibold text-white transition-colors hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none"
       >
-        השוואת מסלולים
+        פרטי המסלול
       </Link>
     </div>
   );

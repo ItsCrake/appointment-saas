@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import { isSlugTaken, updateBusiness } from "@/db/queries";
-import { requireBusiness } from "@/lib/dashboard-session";
+import { requireWritable } from "@/lib/dashboard-session";
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
 
@@ -49,7 +49,7 @@ export async function saveSettingsAction(
     return { ok: false, error: parsed.error.issues[0].message };
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
   const data = parsed.data;
 
   // Checked here for a friendly message; the unique index is the real guard.

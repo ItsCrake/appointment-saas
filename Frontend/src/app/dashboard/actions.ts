@@ -14,7 +14,7 @@ import {
   SlotTakenError,
   updateAppointmentStatus,
 } from "@/db/queries";
-import { requireBusiness } from "@/lib/dashboard-session";
+import { requireWritable } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import {
   enqueueBookingNotifications,
@@ -47,7 +47,7 @@ export async function createManualBookingAction(
     return { ok: false, error: parsed.error.issues[0].message };
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
   const { serviceId, date, time, clientName, clientPhone, clientEmail, notes } =
     parsed.data;
 
@@ -114,7 +114,7 @@ export async function setAppointmentStatusAction(
     return { ok: false, error: "בקשה לא תקינה" };
   }
 
-  const { business } = await requireBusiness();
+  const { business } = await requireWritable();
 
   const updated = await updateAppointmentStatus(
     db,

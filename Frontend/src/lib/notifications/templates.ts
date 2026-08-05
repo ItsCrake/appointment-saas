@@ -1,7 +1,22 @@
 import { BRAND } from "@/lib/brand";
 import { formatFullDateTime, formatPrice } from "@/lib/format";
 
-import type { NotificationContext } from "./types";
+import {
+  isBillingKind,
+  type BillingContext,
+  type NotificationContext,
+} from "./types";
+
+/**
+ * Narrows the context, not just its `kind`. A guard on `context.kind` alone
+ * tells TypeScript nothing about the object it came from, so the appointment
+ * branch below would still see optional billing fields.
+ */
+function isBillingContext(
+  context: NotificationContext,
+): context is BillingContext {
+  return isBillingKind(context.kind);
+}
 
 /**
  * Hebrew copy for every notification kind. Kept as plain strings so the same
@@ -13,6 +28,8 @@ export function renderNotification(context: NotificationContext): {
   subject: string;
   body: string;
 } {
+  if (isBillingContext(context)) return renderBilling(context);
+
   const when = formatFullDateTime(context.startsAt, context.businessTimezone);
   const slot = `יום ${when.weekday}, ${when.date} בשעה ${when.time}`;
   const price = formatPrice(context.priceCents);
@@ -73,9 +90,76 @@ export function renderNotification(context: NotificationContext): {
           `מועד שהתפנה: ${slot}`,
       };
   }
+  // No fallback: the switch is exhaustive over `AppointmentKind`, so `context`
+  // is `never` here. Adding a kind without a case is now a compile error
+  // rather than a silently generic email.
+}
 
-  // Exhaustive above; this satisfies the compiler for unknown future kinds.
-  return { subject: context.businessName, body: slot };
+/**
+ * Billing copy. Addressed to the owner about their own account, so it uses the
+ * business name rather than a client name and never mentions an appointment.
+ *
+ * Deliberately plain about consequences. A dunning notice that is vague about
+ * what stops working, and when, produces a support ticket instead of a
+ * payment.
+ */
+function renderBilling(context: BillingContext): {
+  subject: string;
+  body: string;
+} {
+  const deadline = context.deadline
+    ? formatFullDateTime(context.deadline, context.businessTimezone)
+    : null;
+  const deadlineText = deadline ? `${deadline.date}` : "";
+
+  switch (context.kind) {
+    case "trial_ending": {
+      const days = context.daysLeft ?? 0;
+      const when =
+        days === 1
+          ? "מחר"
+          : `בעוד ${days} ימים${deadlineText ? ` (${deadlineText})` : ""}`;
+      return {
+        subject: `תקופת הניסיון של ${context.businessName} מסתיימת ${when}`,
+        body:
+          `תקופת הניסיון שלכם ב${BRAND.name} מסתיימת ${when}.\n\n` +
+          `כדי להמשיך במסלול ${context.planName} ללא הפסקה, אפשר להסדיר תשלום כאן:\n` +
+          `${context.billingUrl}\n\n` +
+          `עמוד ההזמנות שלכם ימשיך לעבוד גם אחרי סיום הניסיון. נשלח תזכורת לפני שמשהו משתנה.`,
+      };
+    }
+
+    case "trial_ended":
+      return {
+        subject: `תקופת הניסיון של ${context.businessName} הסתיימה`,
+        body:
+          `תקופת הניסיון שלכם ב${BRAND.name} הסתיימה.\n\n` +
+          `עמוד ההזמנות ממשיך לעבוד והתורים הקיימים נשמרים. ` +
+          `התכונות של מסלול ${context.planName} מושבתות בינתיים.\n\n` +
+          `אם לא יוסדר תשלום עד ${deadlineText}, עמוד ההזמנות ייסגר לקביעת תורים חדשים.\n\n` +
+          `להסדרת התשלום: ${context.billingUrl}`,
+      };
+
+    case "payment_failed":
+      return {
+        subject: `התשלום עבור ${context.businessName} לא עבר`,
+        body:
+          `לא הצלחנו לחייב את אמצעי התשלום שלכם ב${BRAND.name}.\n\n` +
+          `עמוד ההזמנות ממשיך לעבוד בינתיים. ` +
+          `אם התשלום לא יוסדר עד ${deadlineText}, הוא ייסגר לקביעת תורים חדשים.\n\n` +
+          `לעדכון אמצעי התשלום: ${context.billingUrl}`,
+      };
+
+    case "payment_receipt":
+      return {
+        subject: `קבלה על התשלום ב${BRAND.name}`,
+        body:
+          `התקבל תשלום עבור ${context.businessName}.\n\n` +
+          `מסלול: ${context.planName}\n` +
+          `סכום: ${formatPrice(context.amountCents ?? 0)}\n\n` +
+          `לצפייה בחשבוניות ובפרטי המנוי: ${context.billingUrl}`,
+      };
+  }
 }
 
 /** Minimal RTL-aware HTML wrapper. No external CSS survives email clients. */

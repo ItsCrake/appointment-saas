@@ -41,6 +41,13 @@ export const notificationKind = pgEnum("notification_kind", [
   "cancellation_confirmation",
   "cancellation_alert",
   "reminder",
+  // Billing kinds (0012). These carry no appointment, which is why the
+  // dispatcher grew an appointment-optional path — it used to skip any row
+  // without one, so these would have inserted cleanly and then vanished.
+  "trial_ending",
+  "trial_ended",
+  "payment_failed",
+  "payment_receipt",
 ]);
 
 export const notificationStatus = pgEnum("notification_status", [
@@ -153,11 +160,117 @@ export const businesses = pgTable("businesses", {
   /**
    * When the trial lapses. NULL means no trial clock is running — an account
    * that was converted, cancelled, or created before trials were tracked.
-   * Nothing enforces it: no job downgrades an expired trial, so this drives
-   * the `/master` alerts and nothing else.
+   *
+   * Since 0012 this **is** enforced: the daily sweep moves a lapsed trial to
+   * `past_due` and starts the grace clock below.
    */
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+
+  /* ---- Billing lifecycle (0012). --------------------------------------- */
+
+  /**
+   * When the non-payment grace window started. NULL means no clock is running.
+   *
+   * Explicit rather than derived from `trialEndsAt`, because the other route
+   * into grace is a failed payment on an active subscription, which has no
+   * trial behind it.
+   */
+  graceStartedAt: timestamp("grace_started_at", { withTimezone: true }),
+  /**
+   * `admin` | `billing`. NULL whenever `isActive` is true.
+   *
+   * The sweep only ever unfreezes `billing`. Without this column a tenant an
+   * admin froze deliberately would be reinstated by their next payment.
+   */
+  frozenReason: varchar("frozen_reason", { length: 20 }),
+  /** `monthly` | `yearly`. What the subscription is billed on. */
+  billingCycle: varchar("billing_cycle", { length: 10 })
+    .notNull()
+    .default("monthly"),
+  /** Opaque provider handles. Never parsed by the app. */
+  providerCustomerId: text("provider_customer_id"),
+  providerSubscriptionId: text("provider_subscription_id"),
+  /** End of the paid period, as reported by the provider. */
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  /** Set when an owner cancels but has already paid through the period. */
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
 });
+
+/**
+ * Provider webhook log. `UNIQUE (provider, provider_event_id)` is the same
+ * idempotency trick as `notifications.dedupe_key`: providers retry webhooks,
+ * and a duplicate `invoice.paid` must not extend a paid period twice.
+ *
+ * RLS is on with **zero policies**, like `rate_limits`. Raw provider payloads
+ * can carry billing addresses and card metadata, and an owner has no reason to
+ * read the webhook stream at all.
+ */
+export const subscriptionEvents = pgTable(
+  "subscription_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Nullable: an event that cannot be mapped to a tenant is still logged. */
+    businessId: uuid("business_id").references(() => businesses.id, {
+      onDelete: "set null",
+    }),
+    provider: text("provider").notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    /** `received` | `processed` | `ignored` | `failed`. */
+    status: varchar("status", { length: 20 }).notNull().default("received"),
+    error: text("error"),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("subscription_events_provider_event_key").on(
+      t.provider,
+      t.providerEventId,
+    ),
+    index("subscription_events_business_idx").on(t.businessId, t.receivedAt),
+  ],
+);
+
+/**
+ * Billing history for the owner dashboard.
+ *
+ * RLS grants `SELECT` only, unlike every other tenant table. Owners genuinely
+ * edit their services and hours; nobody edits their own invoices, and an owner
+ * who could INSERT one could mark themselves paid.
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerInvoiceId: text("provider_invoice_id"),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull().default("ILS"),
+    /** `draft` | `open` | `paid` | `void` | `uncollectible`. */
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    issuedAt: timestamp("issued_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /**
+     * The provider's own document. For the Israeli market this is where the
+     * חשבונית מס lives — the app does not generate tax documents itself.
+     */
+    hostedUrl: text("hosted_url"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("invoices_business_idx").on(t.businessId, t.issuedAt)],
+);
 
 export const services = pgTable(
   "services",
@@ -387,3 +500,7 @@ export type NotificationChannel =
   (typeof notificationChannel.enumValues)[number];
 export type NotificationKind = (typeof notificationKind.enumValues)[number];
 export type NotificationStatus = (typeof notificationStatus.enumValues)[number];
+export type SubscriptionEvent = typeof subscriptionEvents.$inferSelect;
+export type NewSubscriptionEvent = typeof subscriptionEvents.$inferInsert;
+export type Invoice = typeof invoices.$inferSelect;
+export type NewInvoice = typeof invoices.$inferInsert;

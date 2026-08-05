@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 
 import { db } from "@/db";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
+import { FrozenBanner } from "@/components/dashboard/frozen-banner";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { ToastProvider } from "@/components/ui/toast";
-import { getBusinessById } from "@/db/queries";
+import { getBusinessById, getBusinessByOwner } from "@/db/queries";
 import { readImpersonatedBusinessId } from "@/lib/impersonation";
 import { currentSuperAdmin } from "@/lib/master-session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getCurrentUser } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: { default: "ניהול", template: "%s · ניהול" },
@@ -33,6 +35,30 @@ async function impersonatedName(): Promise<string | null> {
   return business?.name ?? null;
 }
 
+/**
+ * Freeze state for the banner, resolved the same way and for the same reason:
+ * this layout wraps routes that redirect, so it cannot call
+ * `requireBusiness()` without fighting them.
+ *
+ * The banner is only an explanation. `requireWritable()` is what actually
+ * refuses the write, so a missing banner is a confusing screen, never an open
+ * door.
+ */
+async function frozenState(): Promise<{ reason: string | null } | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const impersonatedId = await readImpersonatedBusinessId();
+  const business = impersonatedId
+    ? (await currentSuperAdmin())
+      ? await getBusinessById(db, impersonatedId)
+      : null
+    : await getBusinessByOwner(db, user.id);
+
+  if (!business || business.isActive) return null;
+  return { reason: business.frozenReason };
+}
+
 export default async function DashboardLayout({
   children,
 }: {
@@ -54,13 +80,17 @@ export default async function DashboardLayout({
     );
   }
 
-  const supportingBusiness = await impersonatedName();
+  const [supportingBusiness, frozen] = await Promise.all([
+    impersonatedName(),
+    frozenState(),
+  ]);
 
   return (
     <ToastProvider>
       {supportingBusiness ? (
         <ImpersonationBanner businessName={supportingBusiness} />
       ) : null}
+      {frozen ? <FrozenBanner reason={frozen.reason} /> : null}
       <div className="flex min-h-full flex-1 flex-col bg-neutral-50 md:flex-row dark:bg-neutral-950">
         <DashboardNav />
         {/* pb-24 clears the mobile bottom bar; md restores normal padding. */}

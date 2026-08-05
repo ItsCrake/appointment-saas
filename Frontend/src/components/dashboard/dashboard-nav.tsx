@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Clock,
+  CreditCard,
   LogOut,
   Scissors,
   Settings,
@@ -19,10 +20,11 @@ const LINKS = [
   { href: "/dashboard/services", label: "שירותים", icon: Scissors },
   { href: "/dashboard/hours", label: "שעות", icon: Clock },
   { href: "/dashboard/clients", label: "לקוחות", icon: Users },
+  { href: "/dashboard/billing", label: "חיוב", icon: CreditCard },
   { href: "/dashboard/settings", label: "הגדרות", icon: Settings },
 ] as const;
 
-/** The bottom bar only fits four; settings lives in the sidebar and header. */
+/** The bottom bar only fits four; billing and settings live in the sidebar. */
 const MOBILE_LINKS = LINKS.slice(0, 4);
 
 export function DashboardNav() {
