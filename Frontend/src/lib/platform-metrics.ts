@@ -40,6 +40,10 @@ export function breakdownTenants(rows: TenantRow[]): TenantBreakdown {
     }
     if (row.subscriptionStatus === "active") breakdown.active += 1;
     else if (row.subscriptionStatus === "trialing") breakdown.trialing += 1;
+    // TODO(8b): `past_due` lands in this bucket, which overstates churn on the
+    // console. Nothing can write it until migration 0012 widens the CHECK, so
+    // no live row reaches here yet — but the breakdown needs its own field the
+    // moment the grace window ships.
     else breakdown.cancelled += 1;
   }
 
@@ -50,7 +54,6 @@ const MONTHLY_BY_PLAN: Record<PlanType, number> = {
   free: 0,
   starter: PRICING_TIERS.find((t) => t.id === "starter")?.monthlyCents ?? 0,
   pro: PRICING_TIERS.find((t) => t.id === "pro")?.monthlyCents ?? 0,
-  business: PRICING_TIERS.find((t) => t.id === "business")?.monthlyCents ?? 0,
 };
 
 /**

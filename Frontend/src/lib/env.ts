@@ -125,32 +125,42 @@ export const ENV_VARS: EnvVar[] = [
     howTo:
       "Set to the platform owner's login email. Anyone listed can read every tenant's client data, so keep the list short.",
   },
+  /*
+   * Twilio is `production`, not `optional`, because the Pro tier *sells* SMS
+   * reminders. The same rule that makes Resend a production requirement applies
+   * with more force here: an unconfigured channel falls back to the console
+   * provider and reports success, so a deploy without these keys would take
+   * money for reminders it silently never sends. A green deploy check must not
+   * coexist with a paid feature that cannot fire.
+   */
   {
     name: "TWILIO_ACCOUNT_SID",
-    requirement: "optional",
+    requirement: "production",
     group: "Notifications (SMS/WhatsApp)",
-    description: "Enables the SMS and WhatsApp channels.",
+    description: "Enables the SMS and WhatsApp channels, sold on the Pro tier.",
     howTo: "twilio.com → Console → Account SID.",
   },
   {
     name: "TWILIO_AUTH_TOKEN",
-    requirement: "optional",
+    requirement: "production",
     group: "Notifications (SMS/WhatsApp)",
     description: "Twilio auth token.",
     howTo: "twilio.com → Console → Auth Token.",
   },
   {
     name: "TWILIO_SMS_FROM",
-    requirement: "optional",
+    requirement: "production",
     group: "Notifications (SMS/WhatsApp)",
-    description: "Sending number for SMS, in E.164.",
+    description:
+      "Sending number for SMS, in E.164. Without it Pro reminders fall back to email.",
     howTo: "twilio.com → Phone Numbers.",
   },
   {
     name: "TWILIO_WHATSAPP_FROM",
     requirement: "optional",
     group: "Notifications (SMS/WhatsApp)",
-    description: "Sending number for WhatsApp, in E.164.",
+    description:
+      "Sending number for WhatsApp. Optional: reminders are never auto-routed to WhatsApp, because a business-initiated message needs a Meta-approved template.",
     howTo: "twilio.com → Messaging → WhatsApp senders.",
   },
 ];

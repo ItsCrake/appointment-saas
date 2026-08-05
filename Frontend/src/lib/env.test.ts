@@ -11,6 +11,10 @@ const complete = {
   CRON_SECRET: "a-sufficiently-long-secret",
   RESEND_API_KEY: "re_abc123",
   NOTIFICATIONS_FROM_EMAIL: "noreply@example.com",
+  // Production-required since the Pro tier sells SMS reminders.
+  TWILIO_ACCOUNT_SID: "AC0123456789",
+  TWILIO_AUTH_TOKEN: "twilio-auth-token",
+  TWILIO_SMS_FROM: "+972500000000",
 };
 
 /** Copy of `complete` with keys removed, without unused destructuring. */
@@ -46,6 +50,22 @@ describe("checkEnv", () => {
     expect(errorsOf(without("CRON_SECRET"), true)).toContain(
       "CRON_SECRET: not set",
     );
+  });
+
+  it("blocks a production deploy that cannot send the SMS the Pro tier sells", () => {
+    // Twilio is not merely "nice to have" once a tier advertises SMS
+    // reminders: an unconfigured channel falls back to the console provider
+    // and reports success, so this is the check standing between a paying Pro
+    // tenant and reminders that quietly go nowhere.
+    expect(errorsOf(without("TWILIO_SMS_FROM"), true)).toContain(
+      "TWILIO_SMS_FROM: not set",
+    );
+    // Still only a warning locally — the console provider is the point in dev.
+    expect(errorsOf(without("TWILIO_SMS_FROM"), false)).toEqual([]);
+  });
+
+  it("keeps WhatsApp optional — reminders are never auto-routed to it", () => {
+    expect(errorsOf(without(), true)).toEqual([]);
   });
 
   it("catches the unreplaced Supabase password placeholder", () => {

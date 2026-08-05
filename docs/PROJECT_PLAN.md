@@ -246,35 +246,103 @@ appointments
   - [x] Trial clock (`0011`, `trial_ends_at`), backfilled for existing trialing tenants.
 - [ ] Deferred: impersonation is **not read-only**. `requireBusiness()` is the one boundary every dashboard action shares, so an impersonating admin can write as the tenant. Needs a per-action gate — half-covering it would be worse than not doing it.
 
-### Phase 8 — Billing (next milestone)
+### Phase 8 — Billing (in progress)
 
-Everything about money is currently **recorded but not enforced**. `plan_type`,
-`subscription_status` and `trial_ends_at` capture intent; nothing charges
-against them, no feature is gated on them, and no job downgrades a lapsed
-trial. The landing page advertises prices that cannot be collected. Closing
-that gap is the next milestone.
+Money was **recorded but not enforced**. Stage 8a closed the enforcement half:
+features are now gated on the subscription columns. The collection half — a
+payment provider, a lifecycle driven by webhooks, and a job that acts on a
+lapsed trial — is stages 8b–8e.
 
-- [ ] Payment gateway. Israeli market means the realistic options are a local
-      provider with Hebrew invoicing and חשבונית מס (Tranzila, Cardcom, Meshulam,
-      Grow/Payplus) or Stripe — Stripe has the better developer experience but
-      does not issue a compliant Israeli tax invoice on its own.
-- [ ] Checkout and subscription lifecycle: trial → active → past due → cancelled,
-      driven by provider webhooks rather than by the app's own clock.
-- [ ] **Entitlements.** Decide what each tier actually buys and enforce it —
-      today a Starter tenant gets everything a Business tenant does. The
-      Business tier currently advertises SMS reminders and multi-staff, neither
-      of which exists.
-- [ ] A job that acts on `trial_ends_at` instead of only reporting it.
-- [ ] Cost model per tenant: Resend/Twilio spend, Supabase rows and storage,
-      Vercel function time — so a tier's margin is a measured number rather than
-      a guess. `/master` is where it belongs.
-- [ ] Dunning and failed-payment emails, reusing the existing outbox.
-- [ ] Billing history and invoice download in the owner dashboard.
+**Decisions taken (2026-08-05), previously blocking:**
 
-**Blocking business decisions before any of this:** confirm final pricing, pick
-the provider, and decide whether unpaid tenants are frozen (public page offline)
-or downgraded (page stays up, features locked). `/master` already has the freeze
-switch; nothing automatic uses it.
+| Question           | Decision                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| Tier line          | **Two tiers**: Starter ₪69/mo, Pro ₪99/mo. `business` retired and folded into `pro`.                    |
+| Volume caps        | **None.** Both tiers include unlimited bookings; differentiation is by feature only.                     |
+| Unpaid tenants     | **7-day grace** (downgrade + warnings), then **freeze**: public booking off, dashboard read-only.        |
+| Multi-staff copy   | **Removed** — it does not exist. SMS/WhatsApp stays, because the Twilio adapters and outbox do exist.    |
+| Payment provider   | **Deferred by design.** Build the adapter and a console provider; the concrete provider is one file.     |
+
+Sequencing is deliberate: only 8d needs the provider decision, so everything
+else ships before a merchant account exists.
+
+#### 8a — Plans & entitlements ✅
+
+- [x] Two-tier line in `lib/plans.ts` at ₪69 / ₪99. Booking-cap copy removed;
+      a test asserts no tier feature can reintroduce one.
+- [x] `lib/entitlements.ts` — pure, no IO, the single place deciding what a
+      tier buys. Takes the business row rather than a `PlanType`, so no caller
+      can consult the plan without the status.
+- [x] Enforced: branding writes in `settings/appearance-actions.ts` (the
+      boundary) with an upgrade panel on the settings page (the courtesy), and
+      the client reminder channel in `lib/notifications/enqueue.ts`.
+- [x] `past_due` taught to the code ahead of the migration that allows it, so
+      it can never normalise into a status that grants paid features. Retired
+      `business` maps **up** to `pro`, never down to the default.
+- [x] Unknown status fails closed, unknown plan fails open — see
+      [ARCHITECTURE.md](ARCHITECTURE.md#entitlements) for why they differ.
+- [x] Twilio moved to a production requirement: a tier that sells SMS must not
+      deploy onto a console provider that reports success and delivers nothing.
+- [x] 18 new unit tests; `npm run verify` green at 270.
+
+> Known consequence, accepted: **for a Starter tenant, entitlements change
+> nothing.** Everything Starter sells is baseline product, so the grace window
+> applies no pressure and the 8b freeze is their only real enforcement.
+
+#### 8b — Lifecycle & the write gate
+
+- [ ] Migration `0012`: widen the `subscription_status` CHECK to include
+      `past_due`; rewrite legacy `business` rows to `pro` and drop it from the
+      plan CHECK; add `grace_started_at`, `frozen_reason`, `billing_cycle`,
+      `provider_customer_id`, `provider_subscription_id`, `current_period_end`,
+      `cancel_at_period_end`.
+- [ ] New tables `subscription_events` (UNIQUE `provider_event_id`, the same
+      idempotency trick as `notifications.dedupe_key`; RLS on with **zero**
+      policies, like `rate_limits`) and `invoices` (tenant-scoped, owner
+      policy). The 7-of-7-tables, zero-anon-policies invariant must hold.
+- [ ] `requireBusiness()` gains `access: "full" | "read-only"`; a
+      `requireWritable()` helper guards every mutating action.
+- [ ] **A coverage test over every `"use server"` module** asserting each
+      exported action calls a sanctioned guard. This is what stops the gate
+      being the half-done thing the impersonation note warns about — a new
+      action that forgets fails CI instead of shipping a hole.
+- [ ] Trial sweeper riding the existing daily cron (the precedent is the
+      rate-limit prune): warn at T-3 and T-1, move lapsed trials to `past_due`,
+      freeze after 7 days of grace. Only `frozen_reason = 'billing'` is ever
+      auto-unfrozen, so a recovered payment cannot undo an admin freeze.
+- [ ] `/master` breakdown gains a `past_due` bucket — today it would land in
+      `cancelled` and overstate churn.
+
+#### 8c — Adapter, dispatcher, billing UI
+
+- [ ] `lib/billing/` — `BillingProvider` interface plus a console provider that
+      **hard-refuses in production**. This inverts the notifications fallback
+      on purpose: there a silent success loses mail, here it invents revenue.
+- [ ] Fix `dispatch.ts`, which skips any row with no appointment — billing mail
+      has none, so it would insert cleanly and vanish. Add the
+      appointment-optional branch and the new `notification_kind` values
+      (`trial_ending`, `trial_ended`, `payment_failed`, `payment_receipt`).
+      Note `ALTER TYPE ... ADD VALUE` cannot run inside a transaction block.
+- [ ] `/dashboard/billing`: current plan, upgrade/downgrade, invoice history,
+      cancel. Repoint the settings upgrade button at it (it goes to `/#pricing`
+      today).
+
+#### 8d — The payment provider *(needs the provider decision)*
+
+- [ ] Concrete adapter (Stripe, or Cardcom/Meshulam/Grow for native חשבונית מס).
+- [ ] `POST /api/billing/webhook` — signature-verified; the provider signature
+      is the auth, not a bearer token. Idempotent on `provider_event_id`.
+- [ ] Dunning and failed-payment emails through the existing outbox.
+
+#### 8e — Cost model
+
+- [ ] `lib/cost-model.ts`, pure like `platform-metrics.ts`.
+- [ ] Per-tenant usage query in `db/queries/admin.ts` (notification counts by
+      channel, appointment volume).
+- [ ] `/master` finance tab: **marginal** per-tenant cost reported separately
+      from **fixed** platform overhead amortised across active tenants, plus
+      break-even tenant count. A blended per-tenant number would be a confident
+      fiction, and this is a screen a pricing decision gets made on.
 
 ---
 

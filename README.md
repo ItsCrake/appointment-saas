@@ -115,8 +115,10 @@ npm run db:claim -- <your-auth-user-uuid>
 
 Notifications work out of the box without any provider account: every channel
 falls back to a console provider that logs the message and marks it sent. Add
-`RESEND_API_KEY` + `NOTIFICATIONS_FROM_EMAIL` to make email real — both are
-required for production, and `check:env --production` fails without them.
+`RESEND_API_KEY` + `NOTIFICATIONS_FROM_EMAIL` to make email real, and the
+`TWILIO_*` keys to make SMS real. All are required for production and
+`check:env --production` fails without them — a channel a tier *sells* must
+not resolve to a provider that delivers nothing.
 
 ---
 
@@ -210,7 +212,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 252 unit tests, build
+npm run verify     # env, lint, types, 270 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
@@ -250,15 +252,24 @@ Run `npm run check:env -- --production` before every deploy.
 
 ## Status
 
-Feature-complete through **Phase 7** (super-admin console). Shipped since the
-MVP: per-business branding, subscription plans and pricing, the Bazman brand
-rollout, and `/master`.
+Feature-complete through **Phase 7** (super-admin console), plus **stage 8a**
+of the billing milestone. Shipped since the MVP: per-business branding,
+subscription plans and pricing, the Bazman brand rollout, `/master`, and a
+two-tier plan line whose entitlements are enforced server-side.
 
-**Next milestone is billing** — plans are _recorded but not enforced_. There is
-no payment provider: `plan_type`, `subscription_status` and `trial_ends_at`
-capture intent, nothing charges against them, and no feature is gated on them.
-See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md).
+**The milestone in progress is billing.** Plans are now _enforced_ — a Pro
+tenant gets custom branding and SMS reminders, a Starter tenant does not, and a
+lapsed subscription resolves to free entitlements. What is still missing is the
+money: there is no payment provider, nothing charges against `plan_type`, and
+no job acts on `trial_ends_at`. Stages 8b–8e cover the lifecycle, the payment
+adapter and the cost model — see
+[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#phase-8--billing-in-progress).
 
 Still not built: payments/deposits, multi-staff resources, Google Calendar
 sync, recurring appointments, custom domains, service image upload (needs
 Supabase Storage), Sentry.
+
+> **Deploy note:** the Pro tier sells SMS reminders, so
+> `check:env --production` now requires Twilio credentials. Without a Twilio
+> account, either add one or drop the SMS line from the Pro tier in
+> `lib/plans.ts` before deploying.

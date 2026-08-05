@@ -159,11 +159,23 @@ export function getProvider(
   return twilioProvider(channel) ?? consoleProvider(channel);
 }
 
+/**
+ * Whether a channel reaches a real recipient under the current environment.
+ *
+ * The console fallback reports success, so routing to an unconfigured channel
+ * loses messages silently. Callers that *choose* a channel — rather than being
+ * handed one — must check this first, or a paid SMS reminder becomes a log line
+ * nobody reads.
+ */
+export function isChannelLive(channel: NotificationChannel): boolean {
+  return getProvider(channel).name !== "console";
+}
+
 export function describeProviders() {
   return (["email", "sms", "whatsapp"] as const).map((channel) => ({
     channel,
     provider: getProvider(channel).name,
-    live: getProvider(channel).name !== "console",
+    live: isChannelLive(channel),
   }));
 }
 

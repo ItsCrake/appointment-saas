@@ -1,17 +1,64 @@
 import type { Appointment, Business } from "@/db/schema";
 import { enqueueNotification } from "@/db/queries/notifications";
 import type { Database } from "@/db/types";
+import { entitlementsFor } from "@/lib/entitlements";
 
-import type { NotificationKind } from "./types";
+import { isChannelLive } from "./providers";
+import type { NotificationChannel, NotificationKind } from "./types";
+
+/** Owner alerts are always email — the owner has an inbox, by definition. */
+const OWNER_CHANNEL = "email" as const;
 
 /**
- * Which channel carries which message. Email is the only channel wired to a
- * real provider today; switching a row to "sms" is a one-word change once
- * Twilio credentials exist, because the dispatcher resolves providers by
- * channel at send time.
+ * Client messages follow the tenant's entitlements: SMS reminders are a Pro
+ * feature, and this is the line that makes that copy true.
+ *
+ * Two guards, both load-bearing:
+ *
+ * - `isChannelLive` — an unconfigured channel falls back to the console
+ *   provider, which reports success and delivers nothing. Routing a Pro
+ *   tenant's reminders to SMS on a deploy with no Twilio keys would silently
+ *   stop reminding their clients, which is strictly worse than the email they
+ *   were getting before.
+ * - entitlement — a lapsed Pro tenant resolves to `free` and lands back on
+ *   email, with no separate downgrade path to maintain.
+ *
+ * WhatsApp is deliberately *not* auto-selected even when entitled and
+ * configured: a reminder is a business-initiated message, so Meta requires a
+ * pre-approved template outside the 24-hour service window. The adapter works;
+ * routing to it before that approval exists would produce provider rejections
+ * rather than messages. Preference order is the value here, not an oversight.
  */
-const CLIENT_CHANNEL = "email" as const;
-const OWNER_CHANNEL = "email" as const;
+const CLIENT_CHANNEL_PREFERENCE: readonly NotificationChannel[] = [
+  "sms",
+  "email",
+];
+
+type Delivery = { channel: NotificationChannel; recipient: string };
+
+function clientDelivery(
+  business: Business,
+  appointment: Appointment,
+): Delivery | null {
+  const entitlements = entitlementsFor(business);
+
+  for (const channel of CLIENT_CHANNEL_PREFERENCE) {
+    if (channel === "sms") {
+      if (!entitlements.smsReminders) continue;
+      if (!isChannelLive("sms")) continue;
+      const phone = appointment.clientPhone?.trim();
+      if (phone) return { channel: "sms", recipient: phone };
+      continue;
+    }
+
+    if (channel === "email") {
+      const email = appointment.clientEmail?.trim();
+      if (email) return { channel: "email", recipient: email };
+    }
+  }
+
+  return null;
+}
 
 function appBaseUrl() {
   return (
@@ -44,14 +91,15 @@ export async function enqueueBookingNotifications({
   now = new Date(),
 }: EnqueueInput) {
   const queued: string[] = [];
+  const delivery = clientDelivery(business, appointment);
 
-  if (appointment.clientEmail) {
+  if (delivery) {
     const row = await enqueueNotification(db, {
       businessId: business.id,
       appointmentId: appointment.id,
-      channel: CLIENT_CHANNEL,
+      channel: delivery.channel,
       kind: "booking_confirmation",
-      recipient: appointment.clientEmail,
+      recipient: delivery.recipient,
       scheduledFor: now,
       dedupeKey: dedupeKey("booking_confirmation", appointment.id),
     });
@@ -88,7 +136,10 @@ export async function enqueueReminder({
   now = new Date(),
 }: EnqueueInput) {
   const hours = business.reminderHoursBefore;
-  if (hours <= 0 || !appointment.clientEmail) return [];
+  if (hours <= 0) return [];
+
+  const delivery = clientDelivery(business, appointment);
+  if (!delivery) return [];
 
   const sendAt = new Date(appointment.startsAt.getTime() - hours * 3_600_000);
   if (sendAt.getTime() <= now.getTime()) return [];
@@ -96,10 +147,13 @@ export async function enqueueReminder({
   const row = await enqueueNotification(db, {
     businessId: business.id,
     appointmentId: appointment.id,
-    channel: CLIENT_CHANNEL,
+    channel: delivery.channel,
     kind: "reminder",
-    recipient: appointment.clientEmail,
+    recipient: delivery.recipient,
     scheduledFor: sendAt,
+    // The channel is deliberately absent from the key: one reminder per
+    // appointment, whatever carries it. Including it would let a plan change
+    // between booking and send time queue a second copy.
     dedupeKey: dedupeKey("reminder", appointment.id, `:${hours}`),
   });
 
@@ -114,14 +168,15 @@ export async function enqueueCancellationNotifications({
   now = new Date(),
 }: EnqueueInput) {
   const queued: string[] = [];
+  const delivery = clientDelivery(business, appointment);
 
-  if (appointment.clientEmail) {
+  if (delivery) {
     const row = await enqueueNotification(db, {
       businessId: business.id,
       appointmentId: appointment.id,
-      channel: CLIENT_CHANNEL,
+      channel: delivery.channel,
       kind: "cancellation_confirmation",
-      recipient: appointment.clientEmail,
+      recipient: delivery.recipient,
       scheduledFor: now,
       dedupeKey: dedupeKey("cancellation_confirmation", appointment.id),
     });

@@ -32,8 +32,21 @@ describe("plan columns", () => {
     expect(toPlanType(null)).toBe("starter");
 
     expect(toSubscriptionStatus("active")).toBe("active");
-    expect(toSubscriptionStatus("past_due")).toBe("trialing");
+    expect(toSubscriptionStatus("gibberish")).toBe("trialing");
     expect(toSubscriptionStatus(undefined)).toBe("trialing");
+  });
+
+  it("maps the retired business tier up to pro, never down to the default", () => {
+    // Rows written before the three-tier line was collapsed still say
+    // "business". Falling back to DEFAULT_PLAN would demote the tenant who was
+    // paying the most, which is the one outcome a repackaging must not produce.
+    expect(toPlanType("business")).toBe("pro");
+  });
+
+  it("keeps past_due distinct instead of normalising it to trialing", () => {
+    // The whole point of listing it early: a status meaning "not paying" must
+    // never round-trip into one that entitles the tenant to paid features.
+    expect(toSubscriptionStatus("past_due")).toBe("past_due");
   });
 
   it("accepts every listed value", () => {
@@ -97,6 +110,23 @@ describe("shipped config", () => {
 
   it("highlights exactly one tier", () => {
     expect(PRICING_TIERS.filter((t) => t.highlighted)).toHaveLength(1);
+  });
+
+  it("ships the two-tier line at the agreed prices", () => {
+    expect(PRICING_TIERS.map((t) => t.id)).toEqual(["starter", "pro"]);
+    expect(findTier("starter")?.monthlyCents).toBe(6900);
+    expect(findTier("pro")?.monthlyCents).toBe(9900);
+  });
+
+  it("sells no tier on booking volume", () => {
+    // Both tiers include unlimited bookings. A feature line implying a cap
+    // would be advertising an entitlement nothing enforces — and enforcing it
+    // would mean turning a paying client away at someone else's booking page.
+    for (const t of PRICING_TIERS) {
+      for (const feature of t.features) {
+        expect(feature).not.toMatch(/עד \d+ תורים/);
+      }
+    }
   });
 
   it("prices every tier so yearly beats monthly", () => {

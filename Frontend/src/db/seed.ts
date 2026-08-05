@@ -43,6 +43,9 @@ async function seed() {
         minNoticeMin: 60,
         maxAdvanceDays: 45,
         cancelWindowHours: 12,
+        // Pro so the demo shows the whole product. Branding is a Pro
+        // entitlement, and a demo shop that cannot demo it is not much of one.
+        planType: "pro",
       })
       .returning();
 

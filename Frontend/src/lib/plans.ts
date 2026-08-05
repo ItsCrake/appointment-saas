@@ -2,17 +2,46 @@
  * Subscription config. Pure data with no JSX, so prices and copy can be edited
  * without touching a component — and so the maths below can be unit-tested.
  *
- * NOTE: nothing here charges anyone. There is no payment provider wired up, so
- * `plan_type` records an owner's *stated* choice and `subscription_status`
- * stays `trialing`. No feature is gated on either column. See ARCHITECTURE.md.
+ * NOTE: nothing here charges anyone yet. There is no payment provider wired up,
+ * so `plan_type` records an owner's *stated* choice and `subscription_status`
+ * stays `trialing`. What each tier *buys* now lives in `lib/entitlements.ts`
+ * and is enforced; what it *costs* still is not collected. See ARCHITECTURE.md.
  */
 
-export const PLAN_TYPES = ["free", "starter", "pro", "business"] as const;
+/**
+ * Two purchasable tiers. `free` is not a product and is never offered on the
+ * pricing page — it is the degraded state a tenant falls to during the
+ * non-payment grace window, which is why it has to be a legal column value.
+ */
+export const PLAN_TYPES = ["free", "starter", "pro"] as const;
 export type PlanType = (typeof PLAN_TYPES)[number];
 
+/**
+ * Tiers that no longer exist, mapped to their successor.
+ *
+ * `business` was folded into `pro` when the line went from three tiers to two.
+ * Mapping it *up* rather than letting it fall to the default is deliberate: it
+ * was the most expensive tier, and silently demoting a tenant who paid the most
+ * would be the worst possible outcome of a repackaging.
+ *
+ * This lands before the migration that rewrites the rows, not after. Code must
+ * tolerate the old value while it is still in the database — the reverse order
+ * would break every `/master` read between deploy and migration.
+ */
+const LEGACY_PLAN_ALIASES: Record<string, PlanType> = { business: "pro" };
+
+/**
+ * `past_due` is listed here before anything can write it: migration 0012
+ * widens the CHECK constraint that still rejects it. Teaching the code the
+ * value first is the safe order — until then `toSubscriptionStatus` would
+ * normalise it to `trialing`, which is a *silent grant of paid features* to a
+ * tenant who has stopped paying. A status that means "not paying" must never
+ * round-trip into one that means "paying".
+ */
 export const SUBSCRIPTION_STATUSES = [
   "trialing",
   "active",
+  "past_due",
   "cancelled",
 ] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
@@ -22,10 +51,10 @@ export const DEFAULT_STATUS: SubscriptionStatus = "trialing";
 
 /** Never throws: a column written outside the app still renders a valid page. */
 export function toPlanType(value: unknown): PlanType {
-  return typeof value === "string" &&
-    (PLAN_TYPES as readonly string[]).includes(value)
-    ? (value as PlanType)
-    : DEFAULT_PLAN;
+  if (typeof value !== "string") return DEFAULT_PLAN;
+  if ((PLAN_TYPES as readonly string[]).includes(value))
+    return value as PlanType;
+  return LEGACY_PLAN_ALIASES[value] ?? DEFAULT_PLAN;
 }
 
 export function toSubscriptionStatus(value: unknown): SubscriptionStatus {
@@ -53,18 +82,27 @@ export type PricingTier = {
   highlighted?: boolean;
 };
 
+/**
+ * Two tiers, separated by features only — never by volume. Both include
+ * unlimited bookings, so a busy month can never turn into a surprise bill or a
+ * client turned away at the door. Nothing here may reintroduce a usage cap
+ * without `lib/entitlements.ts` gaining a counter to enforce it.
+ *
+ * Yearly is ten months for twelve, which is where the ~16% badge comes from.
+ */
 export const PRICING_TIERS: PricingTier[] = [
   {
     id: "starter",
     name: "בסיסי",
     tagline: "לעסק שרק מתחיל לקבל תורים אונליין",
-    monthlyCents: 4900,
-    yearlyCents: 49000,
+    monthlyCents: 6900,
+    yearlyCents: 69000,
     features: [
       "עמוד הזמנות אישי",
-      "עד 100 תורים בחודש",
+      "תורים ללא הגבלה",
       "תזכורות במייל",
       "ביטול עצמאי ללקוח",
+      "יומן, אנשי קשר וסטטיסטיקות בסיסיות",
     ],
   },
   {
@@ -75,26 +113,12 @@ export const PRICING_TIERS: PricingTier[] = [
     yearlyCents: 99000,
     features: [
       "כל מה שבבסיסי",
-      "תורים ללא הגבלה",
+      "תזכורות SMS ווואטסאפ",
       "גלריה, חוות דעת וצבע מותאם",
-      "דוחות וסטטיסטיקות",
-      "תמיכה בוואטסאפ",
+      "דוחות וסטטיסטיקות מתקדמים",
+      "ליווי בהקמה ותמיכה בעדיפות",
     ],
     highlighted: true,
-  },
-  {
-    id: "business",
-    name: "עסקי",
-    tagline: "לעסק עם כמה מטפלים או כמה סניפים",
-    monthlyCents: 19900,
-    yearlyCents: 199000,
-    features: [
-      "כל מה שבמקצועי",
-      "מספר אנשי צוות",
-      "תזכורות SMS",
-      "ליווי בהקמה",
-      "תמיכה בעדיפות",
-    ],
   },
 ];
 

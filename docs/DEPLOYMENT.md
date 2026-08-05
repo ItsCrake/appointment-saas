@@ -34,17 +34,29 @@ Preview. `.env.local` is not deployed.
 | `CRON_SECRET`                   | Generate: `openssl rand -hex 32`. Without it the cron route returns 401 and **no reminder is ever sent**.                                                       |
 | `RESEND_API_KEY`                | resend.com → API Keys. Without it email falls back to a console provider: messages are logged and marked sent, but **nothing is delivered**.                    |
 | `NOTIFICATIONS_FROM_EMAIL`      | A sender on a Resend-verified domain, e.g. `תורים <noreply@yourdomain.com>`. Required alongside the key — half-configured is an error in every mode.            |
+| `TWILIO_ACCOUNT_SID`            | twilio.com → Console → Account SID. **Newly required in production** — see below.                                                                              |
+| `TWILIO_AUTH_TOKEN`             | twilio.com → Console → Auth Token.                                                                                                                             |
+| `TWILIO_SMS_FROM`               | twilio.com → Phone Numbers, in E.164. Without it, Pro tenants silently fall back to email reminders.                                                            |
 
 Both connection strings contain a `[YOUR-PASSWORD]` placeholder — replace it,
 brackets included. `check:env` fails if the brackets survive.
 
+> **Why Twilio moved out of "optional".** The Pro tier now *sells* SMS
+> reminders, and an unconfigured channel resolves to the console provider,
+> which reports success and delivers nothing. Deploying without these keys
+> would take money for reminders that never fire, so
+> `check:env --production` fails on them — the same rule already applied to
+> Resend. If you want to go live before opening a Twilio account, remove the
+> SMS line from the Pro tier in `lib/plans.ts` first; then the check has
+> nothing to enforce and the tier stops promising it.
+
 ### Optional
 
-| Variable                                                                             | Effect if unset                                                                                                           |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM`, `TWILIO_WHATSAPP_FROM` | SMS and WhatsApp channels stay on the console provider. Client messages go by email today, so this is genuinely optional. |
-| `SUPER_ADMIN_EMAILS`                                                                 | `/master` denies everyone. The console is unreachable, which is the safe default — set it only when you want it.          |
-| `SUPABASE_SERVICE_ROLE_KEY`                                                          | `npm run db:claim` cannot resolve an email to a user id; pass the uuid instead. Never expose this key to the browser.     |
+| Variable                    | Effect if unset                                                                                                                                                                            |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TWILIO_WHATSAPP_FROM`      | The WhatsApp channel stays on the console provider. Genuinely optional: reminders are never auto-routed to WhatsApp, because a business-initiated message needs a Meta-approved template. |
+| `SUPER_ADMIN_EMAILS`        | `/master` denies everyone. The console is unreachable, which is the safe default — set it only when you want it.                                                                            |
+| `SUPABASE_SERVICE_ROLE_KEY` | `npm run db:claim` cannot resolve an email to a user id; pass the uuid instead. Never expose this key to the browser.                                                                       |
 
 ## 3. Database
 

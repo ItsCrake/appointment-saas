@@ -12,7 +12,8 @@ import {
   THEME_COLORS,
 } from "@/lib/branding";
 import { requireBusiness } from "@/lib/dashboard-session";
-import { reportError } from "@/lib/observability";
+import { entitlementsFor } from "@/lib/entitlements";
+import { reportError, reportWarning } from "@/lib/observability";
 
 export type AppearanceResult = { ok: true } | { ok: false; error: string };
 
@@ -43,6 +44,20 @@ export async function saveAppearanceAction(
   }
 
   const { business } = await requireBusiness();
+
+  // The entitlement check belongs *here*, not only in the form. A server action
+  // is a plain POST endpoint: a hidden button proves nothing about who can call
+  // it, exactly as `/master` actions re-check the roster rather than trusting
+  // the page that rendered them.
+  if (!entitlementsFor(business).customBranding) {
+    reportWarning("settings.appearance", "branding write refused", {
+      businessId: business.id,
+      planType: business.planType,
+      subscriptionStatus: business.subscriptionStatus,
+    });
+    return { ok: false, error: "עיצוב מותאם זמין במסלול המקצועי" };
+  }
+
   const data = parsed.data;
 
   try {

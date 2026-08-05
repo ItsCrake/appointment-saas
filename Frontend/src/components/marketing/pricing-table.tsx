@@ -74,7 +74,10 @@ export function PricingTable() {
           : "המחיר לחודש, בחיוב חודשי. אפשר לבטל בכל רגע."}
       </p>
 
-      <ul className="mt-8 grid gap-4 lg:grid-cols-3">
+      {/* Two tiers, so the grid is capped and centred rather than stretched
+          across the full container — two cards on a three-column track read as
+          a missing third. */}
+      <ul className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
         {PRICING_TIERS.map((tier) => {
           const price = priceForCycle(tier, cycle);
           const tierSaving = yearlySavingsPercent(tier);

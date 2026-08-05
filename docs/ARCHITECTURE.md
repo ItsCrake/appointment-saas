@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 252 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 270 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -150,17 +150,28 @@ or a psql session can write past the app, and the public page must render
 regardless. `parseGallery` and `parseReviews` drop what does not parse rather
 than throwing.
 
-### Subscription columns (0010) — recorded, not enforced
+### Subscription columns (0010) — enforced as entitlements, still not billed
 
 `plan_type` (`free|starter|pro|business`) and `subscription_status`
 (`trialing|active|cancelled`), both CHECK-constrained. CHECK rather than a
 Postgres enum so adding a tier is one migration instead of two.
 
-**Nothing bills against these and no feature is gated on either.** There is no
-payment provider wired up, so `plan_type` records the tier an owner picked in
-the onboarding wizard — a lead signal — and `subscription_status` never leaves
-`trialing`. The landing page advertises prices that nothing can currently
-charge. Treat both columns as intent until checkout exists.
+**Features are now gated on these columns; money still is not collected.** See
+[Entitlements](#entitlements) below. There is no payment provider, so nothing
+moves `subscription_status` off `trialing` on its own — but the tier a tenant
+holds does decide what they can do.
+
+The column values and the TypeScript constants have deliberately drifted, in
+the safe direction, ahead of migration `0012`:
+
+| Value        | In the CHECK? | In `lib/plans.ts`? | Why                                                                                  |
+| ------------ | ------------- | ------------------ | ------------------------------------------------------------------------------------ |
+| `business`   | yes           | no                 | Retired tier. `toPlanType` maps it **up** to `pro` until `0012` rewrites the rows.   |
+| `past_due`   | no            | yes                | Listed early so it can never normalise into a status that grants paid features.       |
+
+That ordering is the rule, not an accident: **code learns a value before the
+database can produce it, and keeps understanding a value after the database
+stops.** The reverse order breaks every read between deploy and migration.
 
 The tier a visitor picks on the landing page travels as
 `/dashboard/setup?plan=pro`. `proxy.ts` preserves the **query** as well as the
@@ -237,6 +248,25 @@ console provider when unconfigured** — messages are logged and marked sent.
 This is why the entire pipeline was testable before any provider account
 existed. Check `live: false` in the cron response to see what is not real.
 
+**The client channel follows the tenant's entitlements.** `CLIENT_CHANNEL` used
+to be a module constant; it is now `clientDelivery()`, which picks SMS for a Pro
+tenant and email for everyone else. Two guards, both load-bearing:
+
+- `isChannelLive()` — routing to an unconfigured channel would hand messages to
+  the console provider, which reports success. A Pro tenant on a deploy without
+  Twilio keys keeps their email reminders rather than silently losing them.
+- the entitlement itself — a lapsed Pro tenant resolves to `free` and lands
+  back on email, with no separate downgrade path to maintain.
+
+WhatsApp is deliberately **never auto-selected**, even when entitled and
+configured: a reminder is business-initiated, so Meta requires a pre-approved
+template outside the 24-hour service window. The adapter works; routing to it
+before that approval exists produces provider rejections, not messages.
+
+The reminder `dedupe_key` deliberately excludes the channel — one reminder per
+appointment, whatever carries it. Including it would let a plan change between
+booking and send time queue a second copy.
+
 That fallback is silent by design, which makes it dangerous at launch: an
 unconfigured production deploy sends nothing and reports success. So
 `check:env --production` requires `RESEND_API_KEY` and
@@ -283,6 +313,69 @@ exemption. Amber inverts `--accent-contrast` to near-black for the same reason.
 inferring from service count, which would drag an owner back into setup after
 deleting a service. The business row is created at step 1 so an abandoned
 signup still leaves a usable account.
+
+## Entitlements
+
+`lib/entitlements.ts` is the single place that decides what a tier buys. Pure,
+like `platform-metrics.ts` — no IO, no database handle — so every rule is
+unit-testable and callable from an action, a page or the notification enqueuer.
+
+**Two tiers, separated by features only — never by volume.** Both include
+unlimited bookings. A usage cap would mean adding IO to this module, which is
+the signal to stop: a cap punishes the *client* for the tenant's plan choice,
+turning a booking page into a paywall at the worst possible moment.
+
+```
+                    starter (₪69)   pro (₪99)
+customBranding            ·             ✓
+smsReminders              ·             ✓
+whatsappReminders         ·             ✓
+advancedAnalytics         ·             ✓
+prioritySupport           ·             ✓
+```
+
+`free` and `starter` are identical here, and that is not an oversight.
+Everything Starter sells — booking page, unlimited bookings, email reminders,
+self-service cancellation, the basic dashboard — is baseline product no tenant
+is denied. Starter buys *the right to keep using it*, not an extra capability.
+The consequence is worth stating rather than discovering: **for a Starter
+tenant the coming grace window applies no pressure at all**, and the freeze at
+the end of it is the only enforcement they will feel.
+
+### Two rules that carry the weight
+
+**Plan and status are never consulted separately.** `entitlementsFor()` takes
+the business row, not a `PlanType`, so no caller can check the tier without the
+status. A `past_due` or `cancelled` Pro tenant resolves to `free` — which is
+what makes the downgrade a single rule instead of a second code path in every
+consumer.
+
+**Unknown status fails closed; unknown plan fails open.** `effectivePlan`
+matches the raw column against the paying set rather than reusing
+`toSubscriptionStatus`, whose fallback is `trialing`. The realistic way an
+unrecognised status appears is a provider webhook writing one the constant has
+not learned yet — `unpaid`, `incomplete_expired`, `paused` — and nearly all of
+them mean the tenant is not paying, so unknown must not become a grant. An
+unknown *plan* on a paying status still gets the default tier, because there
+the tenant demonstrably is paying. The display normaliser and the entitlement
+check default in opposite directions on purpose.
+
+### Where it is enforced
+
+| Surface                             | Gate                                                              |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| `settings/appearance-actions.ts`    | Refuses branding writes without `customBranding`, and logs them   |
+| `dashboard/settings/page.tsx`       | Renders an upgrade panel instead of the form                      |
+| `lib/notifications/enqueue.ts`      | Picks the client channel from `smsReminders`                      |
+
+The action check is the boundary; the page check is courtesy. A server action
+is a plain POST endpoint, so a hidden button proves nothing about who can call
+it — the same reasoning that makes every `/master` action re-check the roster.
+
+**Branding is gated on write only, and grandfathered on read.** Anything
+already saved keeps rendering on the public page. Branding predates this gate,
+so a tenant could have set it while it was free; pulling their gallery down as
+a side effect of a repackaging would be hostile.
 
 ## Platform console (`/master`)
 
@@ -456,13 +549,15 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Pricing page with a monthly/yearly toggle; plan recorded during onboarding
 - Super-admin console at `/master`: tenant metrics, impersonation, trial
   extension, freeze, live feed, churn and delivery alerts
+- Two-tier plan line (₪69 / ₪99) with entitlements enforced server-side —
+  branding gated on write, client reminder channel chosen by tier
 
 **Not built**
 
-- **Billing.** No payment provider. `plan_type`, `subscription_status` and
-  `trial_ends_at` record intent; nothing charges against them, no feature is
-  gated on them, and no job acts on a lapsed trial. The landing page
-  advertises prices that cannot be collected. This is the next milestone —
+- **Billing.** No payment provider. Features are now gated on `plan_type` and
+  `subscription_status` (see [Entitlements](#entitlements)), but **nothing
+  charges against them** and no job acts on a lapsed trial. The landing page
+  advertises prices that cannot be collected. Stages 8b–8e of the milestone —
   see [PROJECT_PLAN.md](PROJECT_PLAN.md).
 - Multi-staff resources, Google Calendar sync, recurring appointments,
   custom domains
@@ -471,14 +566,17 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Sentry — `reportError` is the single call site to wire it into
 - E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
   suite, not through a browser
-- SMS/WhatsApp are code-complete but unproven — no Twilio account yet.
-  Switching client messages to SMS is a one-line change to `CLIENT_CHANNEL` in
-  `lib/notifications/enqueue.ts`.
+- SMS/WhatsApp are code-complete but **unproven — no Twilio account yet**. The
+  routing is wired (`clientDelivery()` picks SMS for Pro), so the only thing
+  between a Pro tenant and real SMS is credentials. `check:env --production`
+  now fails without them, which blocks a deploy until that account exists.
+- WhatsApp needs a Meta-approved template before reminders can route to it.
+  Until then the channel is deliberately configured-but-unused.
 - `appointments.reminder_sent_at` is dead since the outbox landed; safe to drop
 - Read-only impersonation. An admin viewing a tenant can currently write as
-  that tenant; see the warning under [Impersonation](#impersonation).
-- The Business tier advertises SMS reminders and multi-staff on the pricing
-  page. Neither exists — copy to fix or a roadmap to honour.
+  that tenant; see the warning under [Impersonation](#impersonation). Stage 8b
+  builds the per-action write gate for frozen tenants — the same mechanism, so
+  that is when this gets closed properly rather than half-done.
 
 ## Gotchas
 
