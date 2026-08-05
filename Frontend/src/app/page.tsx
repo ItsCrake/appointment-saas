@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { CtaBanner } from "@/components/marketing/cta-banner";
 import { DashboardMockup } from "@/components/marketing/dashboard-mockup";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { HeroParticles } from "@/components/marketing/hero-particles";
@@ -24,13 +25,21 @@ import { TRIAL_DAYS } from "@/lib/plans";
    accent, contrast *is* the accent, which is why every primary action is
    solid ink on paper and inverts wholesale in dark mode.
 
-   SHAPE — radius 0, everywhere, no exceptions. Rounded corners are the single
-   loudest tell of a generated page; a hard edge is what makes a monochrome
-   layout read as considered rather than as unstyled.
+   ACCENT — one gradient, violet into blue, defined once as --brand-gradient
+   in globals.css. It is spent only on things that are *active* or *primary*:
+   the live dot and the next appointment in the mockup, the featured tier, the
+   closing banner. Everything else stays monochrome. A gradient used for
+   decoration is what turns an accent into a theme.
+
+   SHAPE — soft, and consistent: pill (`rounded-full`) for anything
+   interactive, `rounded-3xl` for containers, `rounded-2xl` for a surface
+   nested inside a container. One documented rule, applied everywhere. Mixing
+   pill buttons into square cards is what reads as unfinished.
 
    ORDER IN RTL — the document is dir="rtl", so grid column 1 renders on the
-   *right*. The hero's dark panel therefore carries `lg:order-2` to sit on the
-   visual left while staying first in the DOM, where its <h1> belongs.
+   *right*. The hero's copy column therefore carries `lg:order-1` and the
+   wordmark `lg:order-2`, putting the wordmark on the visual left while its
+   <h1> stays first in the DOM.
 --------------------------------------------------------------------------- */
 
 export const metadata: Metadata = {
@@ -72,10 +81,10 @@ const CTA_DEMO = "צפייה בהדגמה";
 
 /** Solid ink on paper: 19:1 in light mode, and the same inverted in dark. */
 const btnPrimary =
-  "inline-flex items-center justify-center gap-2 bg-zinc-950 px-6 text-sm font-semibold whitespace-nowrap text-white transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-white";
+  "inline-flex items-center justify-center gap-2 rounded-full bg-zinc-950 px-6 text-sm font-semibold whitespace-nowrap text-white transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-white";
 
 const btnGhost =
-  "inline-flex items-center justify-center gap-2 border border-zinc-300 px-6 text-sm font-semibold whitespace-nowrap text-zinc-900 transition-colors hover:border-zinc-950 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-100 dark:hover:bg-zinc-900 dark:focus-visible:ring-white";
+  "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-300 px-6 text-sm font-semibold whitespace-nowrap text-zinc-900 transition-colors hover:border-zinc-950 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-100 dark:hover:bg-zinc-900 dark:focus-visible:ring-white";
 
 const sectionTitle =
   "text-3xl font-black tracking-tighter text-zinc-950 sm:text-4xl dark:text-zinc-50";
@@ -121,58 +130,68 @@ export default function LandingPage() {
             beneath it occupies the remaining 30% and peeks above the fold. The
             floor stops it collapsing on a short laptop, where 70% of 500px
             would crush the mockup. */}
-        <section className="grid h-[calc((100dvh-4rem)*0.7)] min-h-[30rem] grid-cols-1 grid-rows-[9rem_1fr] lg:h-[calc((100dvh-4rem)*0.7)] lg:min-h-[28rem] lg:grid-cols-2 lg:grid-rows-1">
-          {/* Left on desktop, top on mobile. */}
-          <div className="relative flex items-center justify-center overflow-hidden bg-zinc-950 lg:order-2">
+        <section className="relative h-[calc((100dvh-4rem)*0.7)] min-h-[30rem] overflow-hidden bg-white lg:min-h-[28rem] dark:bg-zinc-900">
+          {/* The ink half is its own layer, not a grid cell, so its inner edge
+              can be feathered with a mask and dissolve into the paper beneath.
+              A grid cell cannot bleed past its own track, which is exactly what
+              made the previous seam a hard line. The mask carries the canvas
+              with it, so the bubbles fade out with the panel. */}
+          <div aria-hidden className="hero-ink pointer-events-none">
             <HeroParticles className="absolute inset-0 h-full w-full" />
-            <TypewriterLogo className="relative px-6 text-center" />
           </div>
 
-          {/* Right on desktop, below on mobile. */}
-          <div className="relative flex flex-col justify-center bg-white px-6 py-8 sm:px-10 lg:order-1 lg:px-12 xl:px-16 dark:bg-zinc-900">
-            <div className="mx-auto w-full max-w-lg">
-              <p className="max-w-[38ch] text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-300">
-                עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בעצמם, והיומן
-                מתמלא בלי חורים ובלי טלפונים.
-              </p>
+          <div className="relative grid h-full grid-cols-1 grid-rows-[11rem_1fr] lg:grid-cols-2 lg:grid-rows-1">
+            {/* Visual left on desktop, top on mobile. */}
+            <div className="flex items-center justify-center lg:order-2">
+              <TypewriterLogo className="px-6 text-center" />
+            </div>
 
-              {/* A scaled render of the real agenda, not a screenshot of one.
+            {/* Visual right on desktop, below on mobile. */}
+            <div className="relative flex flex-col justify-center px-6 py-8 sm:px-10 lg:order-1 lg:px-12 xl:px-16">
+              <div className="mx-auto w-full max-w-lg">
+                <p className="max-w-[38ch] text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-300">
+                  עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בעצמם, והיומן
+                  מתמלא בלי חורים ובלי טלפונים.
+                </p>
+
+                {/* A scaled render of the real agenda, not a screenshot of one.
                   Hidden below lg: at phone width it shrinks to unreadable and
                   only pushes the actions off screen. */}
-              <div className="mt-8 hidden lg:block">
-                <DashboardMockup />
-              </div>
+                <div className="mt-8 hidden lg:block">
+                  <DashboardMockup />
+                </div>
 
-              {/* Width, never flex, controls the mobile stack. `flex-1` inside
+                {/* Width, never flex, controls the mobile stack. `flex-1` inside
                   a flex-col parent sizes the *cross axis*, which silently beat
                   `h-12` and squashed both buttons to 20px: under the 44px
                   minimum touch target, and invisible in a desktop-only check. */}
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link
-                  href="/dashboard/setup"
-                  className={`${btnPrimary} h-12 w-full sm:w-auto`}
-                >
-                  {CTA_SIGNUP}
-                  <ArrowLeft className="size-4" aria-hidden />
-                </Link>
-                <Link
-                  href="/demo-barber"
-                  className={`${btnGhost} h-12 w-full sm:w-auto`}
-                >
-                  {CTA_DEMO}
-                </Link>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                  <Link
+                    href="/dashboard/setup"
+                    className={`${btnPrimary} h-12 w-full sm:w-auto`}
+                  >
+                    {CTA_SIGNUP}
+                    <ArrowLeft className="size-4" aria-hidden />
+                  </Link>
+                  <Link
+                    href="/demo-barber"
+                    className={`${btnGhost} h-12 w-full sm:w-auto`}
+                  >
+                    {CTA_DEMO}
+                  </Link>
+                </div>
               </div>
-            </div>
 
-            {/* The peek below is deliberate, and this says so. A hairline that
+              {/* The peek below is deliberate, and this says so. A hairline that
                 draws downward and retracts, with no label and no wheel icon:
                 the movement is the whole message. */}
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 bottom-5 mx-auto hidden h-10 w-px bg-zinc-300 lg:block dark:bg-zinc-700"
-            >
-              <span className="animate-scroll-hint block h-full w-full bg-zinc-950 dark:bg-zinc-100" />
-            </span>
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 bottom-5 mx-auto hidden h-10 w-px rounded-full bg-zinc-300 lg:block dark:bg-zinc-700"
+              >
+                <span className="animate-scroll-hint block h-full w-full rounded-full bg-zinc-950 dark:bg-zinc-100" />
+              </span>
+            </div>
           </div>
         </section>
 
@@ -209,16 +228,19 @@ export default function LandingPage() {
             is the order, and "שלב 1" adds a word without adding meaning. */}
         <section className="mx-auto w-full max-w-[1400px] px-5 py-20 sm:px-8 sm:py-28">
           <h2 className={sectionTitle}>איך זה עובד</h2>
-          <ol className="mt-12 grid gap-px bg-zinc-200 sm:grid-cols-3 dark:bg-zinc-800">
+          {/* Hairline-segmented panel with a soft shell, not three cards. The
+              rounded outer shape carries the page's geometry; splitting it into
+              separate boxes would land on the generic feature-card grid. */}
+          <ol className="mt-12 grid gap-px overflow-hidden rounded-3xl bg-zinc-200 sm:grid-cols-3 dark:bg-zinc-800">
             {STEPS.map((step) => (
               <li
                 key={step.title}
-                className="bg-white pt-6 sm:px-6 sm:pt-8 dark:bg-zinc-950"
+                className="bg-white px-6 pt-6 sm:pt-8 dark:bg-zinc-950"
               >
                 <h3 className="text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
                   {step.title}
                 </h3>
-                <p className="mt-2 pb-6 text-sm leading-relaxed text-zinc-600 sm:pb-8 dark:text-zinc-400">
+                <p className="mt-2 pb-6 text-sm leading-relaxed text-zinc-600 sm:pb-10 dark:text-zinc-400">
                   {step.body}
                 </p>
               </li>
@@ -276,25 +298,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* CLOSING — full-bleed ink. The one place the page inverts, and it
-            closes the composition the hero's dark panel opened. */}
-        <section className="bg-zinc-950">
-          <div className="mx-auto w-full max-w-[1400px] px-5 py-24 text-center sm:px-8 sm:py-32">
-            <h2 className="text-3xl font-black tracking-tighter text-white sm:text-5xl">
-              היומן שלכם, מסודר מהיום
-            </h2>
-            <p className="mx-auto mt-4 max-w-md text-base leading-relaxed text-zinc-400">
-              הקימו את עמוד ההזמנות שלכם ושתפו את הקישור עוד היום.
-            </p>
-            <Link
-              href="/dashboard/setup"
-              className="mt-10 inline-flex h-12 items-center justify-center gap-2 bg-white px-8 text-sm font-semibold whitespace-nowrap text-zinc-950 transition-colors hover:bg-zinc-200 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus-visible:outline-none active:translate-y-px"
-            >
-              {CTA_SIGNUP}
-              <ArrowLeft className="size-4" aria-hidden />
-            </Link>
-          </div>
-        </section>
+        {/* CLOSING — the gradient banner *replaces* the old ink CTA rather
+            than following it. Two signup sections stacked at the bottom is two
+            asks, and the second reads as the first not having worked. */}
+        <CtaBanner signupLabel={CTA_SIGNUP} demoLabel={CTA_DEMO} />
       </main>
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800">

@@ -3,6 +3,43 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* -------------------------------------------------------------------------
+     Brand gradient. ONE gradient for the whole marketing surface, declared
+     here so no component can invent a second one: the fastest way to make a
+     monochrome page look cheap is two accents that nearly match.
+
+     Violet into blue, stopping short of cyan on purpose. Anything past blue
+     lands back in teal, which this page exists to be rid of.
+
+     Used sparingly and only where something is *active* or *primary*. The
+     page is still monochrome; this is the one place colour is allowed.
+
+     EVERY STOP CARRIES WHITE TEXT AT WCAG AA OR BETTER, and that is what sets
+     the lightness, not taste. The first draft ran violet-500 into blue-600,
+     which measured 4.23:1 and 4.47:1 against white: both under the 4.5:1 floor,
+     on a button label, a badge and a status chip. One step darker across the
+     ramp fixes all three at once. Measured, not eyeballed. Re-measure before
+     brightening any of these.
+  ------------------------------------------------------------------------- */
+  --brand-from: #6d28d9;
+  --brand-mid: #4f46e5;
+  --brand-to: #1d4ed8;
+  --brand-gradient: linear-gradient(
+    135deg,
+    var(--brand-from) 0%,
+    var(--brand-mid) 45%,
+    var(--brand-to) 100%
+  );
+  /* Deeper, lower-luminance variant for large fills, where the bright ramp
+     above would fight white type instead of carrying it. */
+  --brand-gradient-deep: linear-gradient(
+    160deg,
+    #4c1d95 0%,
+    #5b21b6 28%,
+    #1e3a8a 68%,
+    #1d4ed8 100%
+  );
 }
 
 @theme inline {
@@ -237,6 +274,84 @@ body {
   animation: scroll-hint 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
+/* ---------------------------------------------------------------------------
+   Hero ink panel.
+
+   The dark half is its own absolutely-positioned layer rather than a grid
+   cell, so its inner edge can be feathered with a mask and dissolve into the
+   paper underneath. A grid cell cannot bleed past its own track, which is what
+   made the old seam a hard line.
+
+   The mask carries the canvas with it, so the bubbles fade out with the panel
+   instead of stopping dead at an invisible boundary.
+
+   Mobile is a top band fading downward; desktop is a left column fading to the
+   right. Both are physical directions on purpose: the panel is positioned by
+   where it *looks*, and the page is RTL, so logical properties would flip it.
+--------------------------------------------------------------------------- */
+.hero-ink {
+  position: absolute;
+  inset: 0 0 auto 0;
+  /* Taller than the wordmark row (11rem) so the fade happens *below* the
+     wordmark and *above* the body copy, never behind either. */
+  height: 12rem;
+  background-color: #09090b;
+  -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+}
+
+@media (min-width: 1024px) {
+  .hero-ink {
+    inset: 0 auto 0 0;
+    /* Solid to ~41.6% of the section, fading out by 52%. The light column's
+       text begins at ~54% once its padding is counted, so body copy never
+       lands on the tail of the gradient, where a grey tint would quietly cost
+       it contrast. The wordmark is centred at 25% and never reaches the fade. */
+    width: 52%;
+    height: auto;
+    -webkit-mask-image: linear-gradient(to right, #000 80%, transparent 100%);
+    mask-image: linear-gradient(to right, #000 80%, transparent 100%);
+  }
+}
+
+/* Tech grid for the CTA banner. A pattern, not an image request. */
+.dot-matrix {
+  background-image: radial-gradient(
+    circle,
+    rgb(255 255 255 / 0.16) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+/* Warm flare at the bottom centre, playing against the cool gradient base. */
+.cta-flare {
+  background: radial-gradient(
+    ellipse 62% 52% at 50% 100%,
+    rgb(251 191 36 / 0.34) 0%,
+    rgb(249 115 22 / 0.16) 38%,
+    transparent 72%
+  );
+}
+
+/* Glass tiles drift on their own offsets so the group never pulses in unison.
+   Rotation is a variable so each tile keeps its tilt through the animation. */
+@keyframes tile-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--tilt, 0deg));
+  }
+  50% {
+    transform: translateY(-12px) rotate(var(--tilt, 0deg));
+  }
+}
+
+.animate-tile {
+  animation: tile-float var(--float-duration, 7s) ease-in-out infinite;
+  animation-delay: var(--float-delay, 0s);
+  transform: rotate(var(--tilt, 0deg));
+}
+
 /* Skeletons: a sweep reads as "loading" where a bare pulse reads as "broken". */
 @keyframes shimmer {
   from {
@@ -274,7 +389,8 @@ body {
   .animate-fade,
   .animate-shimmer,
   .animate-caret,
-  .animate-scroll-hint {
+  .animate-scroll-hint,
+  .animate-tile {
     animation: none;
   }
 }

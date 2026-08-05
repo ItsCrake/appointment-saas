@@ -258,10 +258,11 @@ subscription plans and pricing, the Bazman brand rollout, `/master`, a
 two-tier plan line whose entitlements are enforced server-side, and a
 monochrome rebuild of the landing page.
 
-> The landing page is now a zero-accent monochrome surface while `/login`,
-> `/dashboard/*` and `/master` still use the teal chrome. The two look like
-> different products until that is reconciled in one pass. See
-> [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-landing-page-is-monochrome-nothing-else-is).
+> The landing page is now a monochrome surface with a single violet-to-blue
+> accent gradient, while `/login`, `/dashboard/*` and `/master` still use the
+> teal chrome. The two look like different products until that is reconciled in
+> one pass. See
+> [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-landing-page-is-monochrome-plus-one-gradient-nothing-else-is).
 
 **The milestone in progress is billing.** Plans are now _enforced_ — a Pro
 tenant gets custom branding and SMS reminders, a Starter tenant does not, and a

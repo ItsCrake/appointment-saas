@@ -439,23 +439,40 @@ what keeps it importable as data. The landing page no longer renders them: the
 feature section is an editorial list, not an icon grid. The field is kept
 because it costs nothing and the next surface that wants icons will need it.
 
-### The landing page is monochrome. Nothing else is.
+### The landing page is monochrome plus one gradient. Nothing else is.
 
-`/` was rebuilt on a **zero-accent palette**: ink is `zinc-950` (`#09090b`),
-paper is white, and the `zinc-200..600` ramp carries everything between. There
-is no accent hue at all, which makes **contrast the accent** — every primary
-action is solid ink on paper and inverts wholesale in dark mode. Measured in a
-browser: 19.9:1 on every solid CTA, 16.1:1 on the outline CTA, 7.6:1 on
-secondary body copy, in both schemes.
+`/` runs on a **monochrome base with a single accent gradient**: ink is
+`zinc-950` (`#09090b`), paper is white, and the `zinc-200..600` ramp carries
+everything between. Measured in a browser, both schemes: 19.9:1 on solid CTAs,
+16.1:1 on the outline CTA, 12.0:1 on hero body copy.
 
-Two rules hold it together, and breaking either is what makes the page look
-generated again:
+**One gradient, declared once** as `--brand-gradient` in `globals.css`, violet
+into blue. A second near-matching accent is the fastest way to make a
+monochrome page look cheap, so components read the variable and never define
+their own. It stops short of cyan deliberately: anything past blue lands back
+in teal, which this page exists to be rid of.
 
-- **Radius 0, everywhere.** No exceptions on the landing surface. A hard edge
-  is what makes a monochrome layout read as considered rather than unstyled.
-- **One theme per page.** The hero's black/white split is a deliberate
+It is spent only on things that are **active or primary** — the live dot and
+the next appointment in the mockup, the recommended tier's badge and action,
+the closing banner. Everything else stays monochrome. A gradient used for
+decoration is what turns an accent into a theme.
+
+> **The ramp's lightness is set by contrast, not by taste.** The first draft ran
+> violet-500 into blue-600 and measured **4.23:1** and **4.47:1** against white,
+> both under the 4.5:1 floor, on a button label, a badge and a status chip. One
+> step darker across all three stops (`#6d28d9`, `#4f46e5`, `#1d4ed8`) puts the
+> worst case at **6.29:1**. Re-measure before brightening any of them.
+
+Two rules hold the rest together:
+
+- **Soft geometry, one documented scale.** Pill (`rounded-full`) for anything
+  interactive, `rounded-3xl` for containers, `rounded-2xl` for a surface nested
+  inside a container. Pill buttons dropped into square cards is what reads as
+  unfinished, so the rule applies to the whole surface or none of it. Bare text
+  links carry no radius because they paint no box.
+- **One theme per page.** The hero's ink/paper split is a deliberate
   composition inside one section, not a light section next to a dark one. In
-  dark mode the "paper" half becomes `zinc-900` against the `zinc-950` half so
+  dark mode the paper half becomes `zinc-900` against the `zinc-950` half so
   the split survives instead of collapsing into a single black rectangle.
 
 > **Teal is not gone from the platform.** `/login`, `/dashboard/*` and
@@ -481,18 +498,48 @@ hero's dark panel therefore carries `lg:order-2` to sit on the visual left
 while staying first in the DOM, where its `<h1>` belongs. Below `lg` the split
 stacks and the mockup is dropped rather than shrunk.
 
-`hero-particles.tsx` is a Canvas client leaf. Canvas rather than a swarm of
-animated DOM nodes: fifty absolutely-positioned divs are fifty composited
-layers, which is what turns a "subtle" effect into a 30fps phone. Nothing in it
-touches React state — positions live in a plain array mutated inside the rAF
-loop, so the component renders exactly once. It paints one frame synchronously
-before starting the loop, because `requestAnimationFrame` is suspended in a
-background tab and a page opened in one would otherwise show an empty black
-panel until focused.
+**The ink half is a layer, not a grid cell.** A grid cell cannot bleed past its
+own track, which is what made the seam a hard line. It is absolutely positioned
+and feathered with a `mask-image`, so it dissolves into the paper beneath and
+carries the canvas with it — the bubbles fade out with the panel rather than
+stopping dead at an invisible boundary.
+
+The mask geometry is load-bearing and was set by measurement: the ink runs to
+52% of the section and is solid to 41.6%, so the fade band sits between them.
+The wordmark spans 9–41% and never reaches it; the light column's body copy
+starts at ~65% and clears it entirely. **Body text must never land on the tail
+of that gradient**, where a grey tint quietly costs it contrast. Mobile uses the
+same idea rotated: a 12rem top band fading below the wordmark row and above the
+copy. Both directions are physical, not logical, because the panel is
+positioned by where it *looks* and the page is RTL.
+
+`hero-particles.tsx` is a Canvas client leaf drawing **hollow stroked bubbles**,
+varied in size, drifting upward with a sine sway and a slow radius pulse. Size
+drives parallax: bigger rings rise slower and sit fainter, which is where the
+depth comes from. Canvas rather than a swarm of animated DOM nodes — forty
+absolutely-positioned divs are forty composited layers, which is what turns a
+"subtle" effect into a 30fps phone. Nothing in it touches React state; positions
+live in a plain array mutated inside the rAF loop, so the component renders
+exactly once. It paints one frame synchronously before starting the loop,
+because `requestAnimationFrame` is suspended in a background tab and a page
+opened in one would otherwise show an empty black panel until focused.
 
 The scroll affordance is a hairline that draws downward and retracts, with no
 label and no wheel icon. It exists because the 70/30 split is deliberate and
 something has to say the peek is intentional.
+
+### Closing banner
+
+`cta-banner.tsx` closes the page: the deep gradient variant, a dot-matrix
+pattern masked out toward the bottom, a warm flare at the base, and five glass
+tiles drifting on individual offsets so the group never pulses in unison. Every
+decorative layer is `aria-hidden` and `pointer-events-none` — none of it carries
+meaning and all of it sits over the region the buttons live in.
+
+It **replaces** the previous ink CTA rather than following it. Two signup
+sections stacked at the bottom is two asks, and the second reads as the first
+not having worked. The tiles are `hidden lg:flex` because at phone width they
+would sit on top of the headline rather than around it.
 
 ## Dashboard chrome
 
@@ -600,8 +647,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   extension, freeze, live feed, churn and delivery alerts
 - Two-tier plan line (₪69 / ₪99) with entitlements enforced server-side —
   branding gated on write, client reminder channel chosen by tier
-- Landing page rebuilt monochrome: 70/30 above-the-fold split, 50/50 hero with
-  a Canvas particle field and the typed wordmark, zero accent hue, radius 0
+- Landing page rebuilt monochrome: 70/30 above-the-fold split, feathered
+  ink/paper hero with a Canvas bubble field and the typed wordmark, one accent
+  gradient reserved for active and primary states, soft geometry throughout,
+  and a gradient closing banner with glass tiles
 
 **Not built**
 
