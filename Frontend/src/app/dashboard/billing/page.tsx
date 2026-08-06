@@ -4,17 +4,19 @@ import { CreditCard, ExternalLink } from "lucide-react";
 
 import { db } from "@/db";
 import { listInvoices } from "@/db/queries/invoices";
+import { PlanPicker } from "@/components/dashboard/plan-picker";
 import { cardClass, EmptyState, PageHeader } from "@/components/dashboard/ui";
+import { isBillingLive } from "@/lib/billing/providers";
 import { requireBusiness } from "@/lib/dashboard-session";
-import { GRACE_DAYS } from "@/lib/billing/lifecycle";
-import { entitlementsFor, isDowngraded } from "@/lib/entitlements";
-import { formatPrice } from "@/lib/format";
+import { daysUntil, GRACE_DAYS } from "@/lib/billing/lifecycle";
 import {
-  findTier,
-  toPlanType,
-  toSubscriptionStatus,
-  TRIAL_DAYS,
-} from "@/lib/plans";
+  effectivePlan,
+  entitlementsFor,
+  isDowngraded,
+  isTrialing,
+} from "@/lib/entitlements";
+import { formatPrice } from "@/lib/format";
+import { findTier, toPlanType, toSubscriptionStatus } from "@/lib/plans";
 
 export const metadata: Metadata = { title: "חיוב ומנוי" };
 
@@ -46,17 +48,30 @@ export default async function BillingPage() {
   // be able to reach the one page that explains how to get un-frozen.
   const { business } = await requireBusiness();
 
-  const plan = toPlanType(business.planType);
   const status = toSubscriptionStatus(business.subscriptionStatus);
+  const trialing = isTrialing(business);
+
+  // What the page shows is what the tenant actually *has*, not what the column
+  // says. During a trial that is the full Pro tier, so showing "בסיסי" beside
+  // features they can demonstrably use was the confusing half of this bug.
+  const plan = effectivePlan(business);
   const tier = findTier(plan);
   const entitlements = entitlementsFor(business);
   const downgraded = isDowngraded(business);
+
+  // Derived from the tenant's own clock, never from TRIAL_DAYS. A trial
+  // extended by `/master` is longer than the constant, and printing the
+  // constant would confidently tell that owner the wrong number.
+  const trialDaysLeft = business.trialEndsAt
+    ? Math.max(daysUntil(business.trialEndsAt, new Date()), 0)
+    : null;
 
   const graceEndsAt = business.graceStartedAt
     ? new Date(business.graceStartedAt.getTime() + GRACE_DAYS * 86_400_000)
     : null;
 
   const invoices = await listInvoices(db, business.id);
+  const billingLive = isBillingLive();
 
   return (
     <div>
@@ -68,9 +83,12 @@ export default async function BillingPage() {
       <div className={`${cardClass} p-5`}>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <p className="text-xs text-neutral-500">המסלול הנוכחי</p>
+            <p className="text-xs text-neutral-500">
+              {trialing ? "המסלול בתקופת הניסיון" : "המסלול הנוכחי"}
+            </p>
             <p className="mt-0.5 text-lg font-bold text-neutral-900 dark:text-neutral-50">
-              {tier?.name ?? "חינמי"}
+              {tier ? `מסלול ${tier.name}` : "חינמי"}
+              {trialing ? " (Pro)" : ""}
             </p>
           </div>
           <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
@@ -81,7 +99,9 @@ export default async function BillingPage() {
         <dl className="mt-5 grid gap-4 border-t border-neutral-200 pt-4 sm:grid-cols-2 dark:border-neutral-800">
           {tier ? (
             <div>
-              <dt className="text-xs text-neutral-500">מחיר</dt>
+              <dt className="text-xs text-neutral-500">
+                {trialing ? "המחיר בתום הניסיון" : "מחיר"}
+              </dt>
               <dd className="mt-0.5 text-sm font-semibold text-neutral-900 tabular-nums dark:text-neutral-100">
                 {formatPrice(
                   business.billingCycle === "yearly"
@@ -95,10 +115,12 @@ export default async function BillingPage() {
             </div>
           ) : null}
 
-          {status === "trialing" && business.trialEndsAt ? (
+          {trialing && business.trialEndsAt ? (
             <div>
               <dt className="text-xs text-neutral-500">
-                הניסיון ({TRIAL_DAYS} ימים) מסתיים
+                {trialDaysLeft === 0
+                  ? "הניסיון מסתיים היום"
+                  : `נותרו ${trialDaysLeft} ימי ניסיון`}
               </dt>
               <dd className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                 {formatDate(business.trialEndsAt, business.timezone)}
@@ -129,21 +151,33 @@ export default async function BillingPage() {
           ) : null}
         </dl>
 
+        {trialing ? (
+          // Stated rather than implied. The tenant may have picked Basic at
+          // signup and is being shown Pro at ₪99: without this line that reads
+          // as a price they did not agree to, instead of what it is.
+          <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-xs leading-relaxed text-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+            בתקופת הניסיון פתוחות לכם כל התכונות של המסלול המקצועי: עיצוב מותאם,
+            גלריה, חוות דעת ותזכורות SMS. בסיום הניסיון תוכלו לבחור את המסלול
+            שמתאים לכם, ולא נחייב אתכם בלי אישור.
+          </p>
+        ) : null}
+
         {downgraded ? (
           <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             התכונות של המסלול מושבתות עד להסדרת התשלום. היומן, הלקוחות
             וההיסטוריה נשמרים במלואם.
           </p>
         ) : null}
-
-        {/* Said plainly rather than implied by a missing button: there is no
-            checkout yet, and an owner should not be left hunting for one. */}
-        <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-neutral-500">
-          <CreditCard className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          תשלום מקוון עדיין אינו זמין. לשינוי מסלול או להסדרת תשלום צרו קשר
-          ונטפל בזה ידנית.
-        </p>
       </div>
+
+      <h2 className="mt-8 mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+        {trialing ? "בחירת מסלול להמשך" : "שינוי מסלול"}
+      </h2>
+      <PlanPicker
+        currentPlan={toPlanType(business.planType)}
+        currentCycle={business.billingCycle === "yearly" ? "yearly" : "monthly"}
+        live={billingLive}
+      />
 
       <h2 className="mt-8 mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
         חשבוניות

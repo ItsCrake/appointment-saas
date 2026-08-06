@@ -182,6 +182,17 @@ export type EnvReport = {
    * must agree, or the check reports a delivery path the app does not take.
    */
   emailChannel: "resend" | "console";
+  /**
+   * Whether money can actually be collected.
+   *
+   * Reported rather than enforced, unlike Resend and Twilio. There is no
+   * provider to configure until stage 8d, so failing the check would block
+   * every deploy on something nobody can fix yet. The runtime guard is what
+   * makes that safe: the console provider **refuses** in production rather
+   * than simulating, so a deploy without a provider cannot mark anyone paid.
+   * Flip this to a hard error when the concrete adapter lands.
+   */
+  billingLive: boolean;
 };
 
 /**
@@ -255,5 +266,9 @@ export function checkEnv(
     issues,
     present,
     emailChannel: hasKey && hasFrom ? "resend" : "console",
+    // No provider adapter exists yet, so this is always false. It is surfaced
+    // so `check:env` states it outright instead of leaving it to be discovered
+    // by a tenant clicking a disabled button.
+    billingLive: false,
   };
 }

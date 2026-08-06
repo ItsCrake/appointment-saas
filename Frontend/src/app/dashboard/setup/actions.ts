@@ -15,7 +15,7 @@ import {
   updateBusiness,
 } from "@/db/queries";
 import { requireBusinessForSetup, requireUser } from "@/lib/dashboard-session";
-import { PLAN_TYPES } from "@/lib/plans";
+import { PLAN_TYPES, TRIAL_DAYS } from "@/lib/plans";
 
 export type SetupResult =
   { ok: true; next: string } | { ok: false; error: string };
@@ -76,6 +76,15 @@ export async function saveBusinessDetailsAction(
       phone: phone || null,
       timezone: "Asia/Jerusalem",
       locale: "he",
+      // The trial clock starts here, and nowhere else.
+      //
+      // Until now nothing ever wrote this column: migration 0011 backfilled
+      // existing rows and `/master` could extend it, but a tenant who signed
+      // up got NULL. That left the entire lifecycle dead for every new
+      // account — the sweep only considers rows with a clock, so they would
+      // never be warned, never lapse and never be frozen. They would simply
+      // sit in `trialing` forever, holding full Pro entitlements for free.
+      trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 86_400_000),
     });
     // Seed the default week so step 3 has something to confirm.
     await replaceWorkingHours(db, business.id, DEFAULT_SHIFTS);

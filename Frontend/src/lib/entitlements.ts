@@ -1,4 +1,4 @@
-import { toPlanType } from "./plans";
+import { toPlanType, TRIAL_PLAN } from "./plans";
 import type { PlanType, SubscriptionStatus } from "./plans";
 
 /**
@@ -68,7 +68,8 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
  * falls back to `free`, which is what makes the downgrade a single rule rather
  * than a second code path in every consumer.
  */
-const PAYING_STATUSES: readonly SubscriptionStatus[] = ["trialing", "active"];
+/** Statuses that entitle a tenant to anything at all. */
+const ENTITLED_STATUSES: readonly SubscriptionStatus[] = ["trialing", "active"];
 
 export type SubscriptionState = {
   planType: unknown;
@@ -76,8 +77,8 @@ export type SubscriptionState = {
 };
 
 /**
- * Deliberately matches the raw column against the paying set rather than
- * routing it through `toSubscriptionStatus`, which falls back to `trialing`.
+ * Deliberately matches the raw column rather than routing it through
+ * `toSubscriptionStatus`, which falls back to `trialing`.
  *
  * That fallback is right for display — `/master` showing "trialing" for a
  * corrupt row is harmless — and wrong for entitlement, because it converts an
@@ -89,21 +90,40 @@ export type SubscriptionState = {
  * The two functions default in opposite directions on purpose: display leans
  * readable, entitlement leans restrictive.
  */
-function isPaying(subscriptionStatus: unknown): boolean {
+function statusIs(
+  subscriptionStatus: unknown,
+  candidates: readonly SubscriptionStatus[],
+): boolean {
   return (
     typeof subscriptionStatus === "string" &&
-    (PAYING_STATUSES as readonly string[]).includes(subscriptionStatus)
+    (candidates as readonly string[]).includes(subscriptionStatus)
   );
 }
 
+export function isTrialing(state: SubscriptionState): boolean {
+  return statusIs(state.subscriptionStatus, ["trialing"]);
+}
+
 /**
- * The tier a tenant is currently entitled to, which is not always the tier they
- * chose. Both columns are varchar, so neither is trusted as written: a value
- * put there by psql or a seed cannot grant a feature.
+ * The tier a tenant is currently entitled to, which is rarely the tier stored
+ * on the row. Both columns are varchar, so neither is trusted as written: a
+ * value put there by psql or a seed cannot grant a feature.
+ *
+ * Three cases, in order:
+ *
+ * 1. **Trialing → `TRIAL_PLAN`**, whatever they picked. The chosen tier is a
+ *    statement of intent for *after* the trial; during it they get the whole
+ *    product. Without this, a tenant who picked Basic hit "upgrade your plan"
+ *    walls during the exact window they were evaluating.
+ * 2. **Active → the tier they actually pay for.**
+ * 3. **Anything else → `free`.** Grace, cancelled, unrecognised.
  */
 export function effectivePlan(state: SubscriptionState): PlanType {
-  if (!isPaying(state.subscriptionStatus)) return "free";
-  return toPlanType(state.planType);
+  if (isTrialing(state)) return TRIAL_PLAN;
+  if (statusIs(state.subscriptionStatus, ["active"])) {
+    return toPlanType(state.planType);
+  }
+  return "free";
 }
 
 /**
@@ -116,10 +136,16 @@ export function entitlementsFor(state: SubscriptionState): Entitlements {
   return BY_PLAN[effectivePlan(state)];
 }
 
-/** True when the tier was downgraded by billing state rather than by choice. */
+/**
+ * True when billing state has taken features *away*, never when it has added
+ * them.
+ *
+ * Compared against the entitled statuses rather than against the chosen tier:
+ * a trialing Basic tenant now resolves to Pro, so a plain
+ * `effectivePlan !== planType` comparison would report them as downgraded
+ * while they are in fact being handed more than they picked.
+ */
 export function isDowngraded(state: SubscriptionState): boolean {
-  return (
-    effectivePlan(state) !== toPlanType(state.planType) &&
-    toPlanType(state.planType) !== "free"
-  );
+  if (statusIs(state.subscriptionStatus, ENTITLED_STATUSES)) return false;
+  return toPlanType(state.planType) !== "free";
 }

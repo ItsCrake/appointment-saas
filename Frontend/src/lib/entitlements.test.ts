@@ -6,7 +6,7 @@ import {
   isDowngraded,
   type Entitlements,
 } from "@/lib/entitlements";
-import { PLAN_TYPES, SUBSCRIPTION_STATUSES } from "@/lib/plans";
+import { PLAN_TYPES, SUBSCRIPTION_STATUSES, TRIAL_PLAN } from "@/lib/plans";
 
 const state = (planType: unknown, subscriptionStatus: unknown) => ({
   planType,
@@ -22,10 +22,19 @@ const FEATURES = [
 ] as const satisfies readonly (keyof Entitlements)[];
 
 describe("effectivePlan", () => {
-  it("honours the chosen tier while the tenant is paying or trialing", () => {
+  it("honours the chosen tier while the tenant is actively paying", () => {
     expect(effectivePlan(state("pro", "active"))).toBe("pro");
-    expect(effectivePlan(state("pro", "trialing"))).toBe("pro");
     expect(effectivePlan(state("starter", "active"))).toBe("starter");
+  });
+
+  it("gives every trial the full product, whatever tier was picked", () => {
+    // The bug this replaces: a tenant who picked Basic at signup hit
+    // "upgrade your plan" walls during the exact window they were evaluating.
+    expect(effectivePlan(state("starter", "trialing"))).toBe(TRIAL_PLAN);
+    expect(effectivePlan(state("pro", "trialing"))).toBe(TRIAL_PLAN);
+    expect(effectivePlan(state("free", "trialing"))).toBe(TRIAL_PLAN);
+    // Even a garbage plan column, because the *status* is what grants here.
+    expect(effectivePlan(state("enterprise", "trialing"))).toBe(TRIAL_PLAN);
   });
 
   it("drops to free the moment the subscription stops paying", () => {
@@ -39,7 +48,7 @@ describe("effectivePlan", () => {
   });
 
   it("never throws on a value written outside the app", () => {
-    // An unknown *plan* on a paying status still gets the default tier — the
+    // An unknown *plan* on an active status still gets the default tier — the
     // tenant is paying, so denying them everything would be the wrong bias.
     expect(effectivePlan(state("enterprise", "active"))).toBe("starter");
     // An unknown *status* is the opposite case, and resolves to free.
@@ -56,10 +65,19 @@ describe("entitlementsFor", () => {
     }
   });
 
-  it("gives a starter tenant no paid feature", () => {
+  it("gives an actively-paying starter tenant no paid feature", () => {
     const entitlements = entitlementsFor(state("starter", "active"));
     for (const feature of FEATURES) {
       expect(entitlements[feature]).toBe(false);
+    }
+  });
+
+  it("unlocks every paid feature for a trialing starter tenant", () => {
+    // The regression that started this: branding and gallery were blocked for
+    // trial users, so the trial demonstrated the tier they had *not* chosen.
+    const entitlements = entitlementsFor(state("starter", "trialing"));
+    for (const feature of FEATURES) {
+      expect(entitlements[feature]).toBe(true);
     }
   });
 
@@ -103,9 +121,15 @@ describe("entitlementsFor", () => {
 });
 
 describe("isDowngraded", () => {
-  it("is true only when billing state overrode the chosen tier", () => {
+  it("is true only when billing state took features away", () => {
     expect(isDowngraded(state("pro", "past_due"))).toBe(true);
     expect(isDowngraded(state("pro", "active"))).toBe(false);
+  });
+
+  it("is false for a trial that grants more than the chosen tier", () => {
+    // A plain `effectivePlan !== planType` comparison would call this a
+    // downgrade, while the tenant is in fact being handed Pro for free.
+    expect(effectivePlan(state("starter", "trialing"))).not.toBe("starter");
     expect(isDowngraded(state("starter", "trialing"))).toBe(false);
   });
 

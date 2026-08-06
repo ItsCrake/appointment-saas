@@ -69,6 +69,19 @@ export type BillingCycle = (typeof BILLING_CYCLES)[number];
 
 export const TRIAL_DAYS = 14;
 
+/**
+ * The tier a trial hands over, regardless of which one the owner picked during
+ * onboarding.
+ *
+ * A trial exists to show the product, so it shows the *whole* product. Giving a
+ * tenant who picked Basic only Basic features during their trial means the one
+ * window in which they are actively evaluating is the one window they cannot
+ * see what they would be paying more for. It is also how a trial produces a
+ * "your plan does not include this" wall, which is the worst possible sentence
+ * to show someone who has not decided yet.
+ */
+export const TRIAL_PLAN: PlanType = "pro";
+
 export type PricingTier = {
   id: Exclude<PlanType, "free">;
   name: string;

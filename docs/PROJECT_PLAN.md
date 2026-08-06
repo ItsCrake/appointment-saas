@@ -323,22 +323,44 @@ else ships before a merchant account exists.
 - [x] **Pulled forward from 8c:** a read-only `/dashboard/billing`, because the
       freeze banner and the branding upsell both needed a real destination.
 
-#### 8c — Payment adapter
+#### 8c — Payment adapter ✅
 
-- [ ] `lib/billing/` — `BillingProvider` interface plus a console provider that
-      **hard-refuses in production**. This inverts the notifications fallback
-      on purpose: there a silent success loses mail, here it invents revenue.
-- [ ] Checkout action and plan changes on `/dashboard/billing`, which today
-      reports state without collecting.
-- [ ] Apply `canAutoUnfreeze` on recovery: a successful payment thaws a
-      `billing` freeze and never an `admin` one.
+- [x] **Trial entitlement fix (found before starting 8c).** A trial now grants
+      `TRIAL_PLAN` (Pro) whatever tier was picked at signup. Previously a
+      tenant who chose Basic hit "upgrade your plan" walls on branding and
+      gallery during the exact window they were evaluating, and
+      `/dashboard/billing` labelled them בסיסי while they held Pro features.
+- [x] **Trial clock fix (found while fixing the above).** Nothing ever wrote
+      `trial_ends_at` on signup: `0011` backfilled existing rows and `/master`
+      could extend it, but new tenants got NULL. The sweep only considers rows
+      with a clock, so **every account created since launch was invisible to
+      the entire 8b lifecycle** — never warned, never lapsed, never frozen. It
+      is now set at business creation.
+- [x] `/dashboard/billing` shows the tier actually held, the post-trial price,
+      and a countdown derived from the tenant's own `trial_ends_at` rather than
+      the `TRIAL_DAYS` constant — a trial extended from `/master` is longer
+      than the constant, and printing it told that owner the wrong date.
+- [x] `lib/billing/types.ts` + `providers.ts` — `BillingProvider` resolved at
+      call time, with a console provider that **hard-refuses in production**.
+      Asserted by test: the inverted fallback is the point.
+- [x] `activateSubscription()` — the one place a subscription becomes active.
+      Clears the grace clock, writes invoice and audit rows idempotently, and
+      lifts only a `billing` freeze. Nine PGlite tests over the real tables.
+- [x] Checkout and cycle-change UI on `/dashboard/billing`, with buttons
+      disabled and the reason stated while no provider is configured.
+- [x] `check:env` reports the resolved billing provider beside the email
+      channel. Deliberately not a hard error yet: nothing can be configured
+      until 8d, and the runtime refusal is the real guard.
 
 #### 8d — The payment provider *(needs the provider decision)*
 
-- [ ] Concrete adapter (Stripe, or Cardcom/Meshulam/Grow for native חשבונית מס).
+- [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
+      חשבונית מס). `getBillingProvider()` is the only function to change.
 - [ ] `POST /api/billing/webhook` — signature-verified; the provider signature
-      is the auth, not a bearer token. Idempotent on `provider_event_id`.
-- [ ] Dunning and failed-payment emails through the existing outbox.
+      is the auth, not a bearer token. Idempotent on `provider_event_id`, and
+      calling the existing `activateSubscription()` rather than a second path.
+- [ ] `payment_failed` → `past_due` + grace clock, reusing the sweep's states.
+- [ ] Flip `check:env` to fail on a `console` billing provider in production.
 
 #### 8e — Cost model
 

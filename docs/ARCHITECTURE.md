@@ -368,13 +368,21 @@ the signal to stop: a cap punishes the *client* for the tenant's plan choice,
 turning a booking page into a paywall at the worst possible moment.
 
 ```
-                    starter (₪69)   pro (₪99)
-customBranding            ·             ✓
-smsReminders              ·             ✓
-whatsappReminders         ·             ✓
-advancedAnalytics         ·             ✓
-prioritySupport           ·             ✓
+                    starter (₪69)   pro (₪99)   trialing
+customBranding            ·             ✓           ✓
+smsReminders              ·             ✓           ✓
+whatsappReminders         ·             ✓           ✓
+advancedAnalytics         ·             ✓           ✓
+prioritySupport           ·             ✓           ✓
 ```
+
+**A trial grants `TRIAL_PLAN` (Pro) regardless of the tier picked at signup.**
+The chosen tier is a statement of intent for *after* the trial. Before this
+rule, a tenant who picked Basic hit "upgrade your plan" walls on branding and
+gallery during the exact window they were evaluating the product — the trial
+demonstrated the tier they had not chosen. `/dashboard/billing` shows what they
+actually hold, so it reads Pro at ₪99 during a trial, with the post-trial price
+labelled as such.
 
 `free` and `starter` are identical here, and that is not an oversight.
 Everything Starter sells — booking page, unlimited bookings, email reminders,
@@ -388,9 +396,22 @@ the end of it is the only enforcement they will feel.
 
 **Plan and status are never consulted separately.** `entitlementsFor()` takes
 the business row, not a `PlanType`, so no caller can check the tier without the
-status. A `past_due` or `cancelled` Pro tenant resolves to `free` — which is
-what makes the downgrade a single rule instead of a second code path in every
-consumer.
+status. Resolution is three cases in order: trialing grants `TRIAL_PLAN`,
+active grants the tier actually paid for, everything else grants `free`. That
+is what makes both the trial upgrade and the non-payment downgrade a single
+rule rather than a second code path in every consumer.
+
+`isDowngraded()` therefore compares against the *entitled statuses*, not
+against the chosen tier: a trialing Basic tenant resolves to Pro, so a plain
+`effectivePlan !== planType` check would flag them as downgraded while they are
+being handed more than they picked.
+
+**The trial clock is written at business creation** and nowhere else. Until
+stage 8c it was written nowhere at all: migration `0011` backfilled existing
+rows and `/master` could extend it, but a tenant who signed up got NULL. The
+sweep only considers rows with a clock, so every new account was invisible to
+it — never warned, never lapsed, never frozen, holding full trial entitlements
+indefinitely.
 
 **Unknown status fails closed; unknown plan fails open.** `effectivePlan`
 matches the raw column against the paying set rather than reusing
@@ -608,6 +629,38 @@ The scroll affordance is a hairline that draws downward and retracts, with no
 label and no wheel icon. It exists because the 70/30 split is deliberate and
 something has to say the peek is intentional.
 
+## Payment adapter (8c)
+
+`lib/billing/providers.ts` resolves a `BillingProvider` at call time, the same
+way `getProvider(channel)` does for notifications. Adding credentials switches
+the live provider on with no code change, and `getBillingProvider()` is the
+single function stage 8d has to teach a new name.
+
+> **The fallback rule is inverted here, and that is the whole point.** An
+> unconfigured notification channel falls back to a console provider that
+> reports success and delivers nothing — annoying, recoverable, and the reason
+> the outbox was testable before Resend existed. The same fallback in billing
+> would mark tenants as paying without money moving: it would not lose a
+> message, it would **invent revenue**. So the console provider *refuses* in
+> production rather than simulating, and a test asserts it.
+
+`check:env` reports the resolved billing provider beside the email channel, but
+does **not** fail on `console` — there is no provider to configure until 8d, so
+blocking every deploy on it would be theatre. The runtime refusal is the real
+guard.
+
+`activateSubscription()` in `lib/billing/activate.ts` is the single place a
+subscription becomes `active`. Both checkout and the eventual webhook land
+there, so the status change, the invoice and the audit row cannot drift apart
+between two call sites. It clears `grace_started_at` (left set, the sweep would
+freeze a tenant who has just paid), writes the invoice and event with
+`onConflictDoNothing` so a retried webhook cannot bill twice, and lifts a
+freeze only when `canAutoUnfreeze` allows it.
+
+Cancellation records `cancel_at_period_end` and revokes nothing: the tenant
+paid through the period, and the provider event is what eventually moves the
+status.
+
 ### Closing banner
 
 `cta-banner.tsx` closes the page: the deep gradient variant, a dot-matrix
@@ -739,11 +792,12 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 **Not built**
 
-- **Payment collection.** There is still no provider: nothing charges a card,
-  no webhook moves a subscription to `active`, and `/dashboard/billing` reports
-  state without collecting. Everything *around* that now works — entitlements,
-  the lifecycle, the grace clock, the freeze, dunning mail. Stages 8d and 8e —
-  see [PROJECT_PLAN.md](PROJECT_PLAN.md).
+- **A real payment provider.** The adapter, the checkout action, the activation
+  path and the invoice/audit writes all exist and are tested; what is missing
+  is an implementation of `BillingProvider` that talks to a payment company,
+  and the webhook that would drive it. `getBillingProvider()` is the only
+  function that needs to learn a new name. Stages 8d and 8e — see
+  [PROJECT_PLAN.md](PROJECT_PLAN.md).
 - Multi-staff resources, Google Calendar sync, recurring appointments,
   custom domains
 - Service image upload (needs Supabase Storage), appointment status filters,

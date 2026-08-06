@@ -213,7 +213,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 293 unit tests, build
+npm run verify     # env, lint, types, 309 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
@@ -266,13 +266,16 @@ monochrome rebuild of the landing page.
 > [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-landing-page-is-monochrome-plus-one-gradient-nothing-else-is).
 
 **The milestone in progress is billing.** Plans are enforced and the lifecycle
-runs: a lapsed trial drops to `past_due`, the owner gets warned at T-3 and T-1,
-paid features switch off, and after a 7-day grace window the tenant is frozen —
-public page offline, dashboard read-only. What is still missing is **collecting
-the money**: there is no payment provider, so nothing charges a card and no
-webhook moves a subscription to `active`. Stages 8c–8e cover the payment
-adapter and the cost model — see
-[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#phase-8--billing-in-progress).
+runs: a trial hands over the full Pro product, a lapsed trial drops to
+`past_due`, the owner gets warned at T-3 and T-1, paid features switch off, and
+after a 7-day grace window the tenant is frozen — public page offline,
+dashboard read-only. The checkout path, the activation and the invoice trail
+are built and tested behind a provider adapter.
+
+What is missing is **an implementation of that adapter that talks to a payment
+company**, plus its webhook. Until one exists the console provider refuses in
+production, so nothing can be marked paid without money moving. Stages 8d–8e —
+see [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#phase-8--billing-in-progress).
 
 Still not built: payments/deposits, multi-staff resources, Google Calendar
 sync, recurring appointments, custom domains, service image upload (needs

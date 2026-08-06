@@ -65,6 +65,20 @@ if (report.emailChannel === "resend") {
       `      ${DIM}NOTIFICATIONS_FROM_EMAIL to send real mail.${RESET}`,
   );
 }
+
+// Stated rather than left to be discovered by a tenant clicking a disabled
+// button. Not an error: no provider exists to configure until stage 8d, and
+// the console provider refuses in production rather than faking a payment.
+if (report.billingLive) {
+  console.log(
+    `  ${GREEN}✓${RESET} billing → live ${DIM}(payments are collected)${RESET}`,
+  );
+} else {
+  console.log(
+    `  ${YELLOW}!${RESET} billing → console ${YELLOW}no payments are collected${RESET}\n` +
+      `      ${DIM}Checkout is refused in production until a provider is wired up.${RESET}`,
+  );
+}
 console.log("");
 
 if (report.ok) {
