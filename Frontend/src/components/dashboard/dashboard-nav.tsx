@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Clock,
   CreditCard,
+  Loader2,
   LogOut,
   Scissors,
   Settings,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { signOutAction } from "@/app/login/actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -26,6 +28,27 @@ const LINKS = [
 
 /** The bottom bar only fits four; billing and settings live in the sidebar. */
 const MOBILE_LINKS = LINKS.slice(0, 4);
+
+/**
+ * Covers the gap the route fallback cannot: the moment between the click and
+ * the loading skeleton painting, while the RSC payload is still in flight.
+ *
+ * Must be a descendant of the `<Link>` it reports on, which is why it is its
+ * own component. Always rendered and only faded, so nothing reflows when it
+ * appears — an inline indicator that changes layout is worse than none.
+ */
+function LinkSpinner() {
+  const { pending } = useLinkStatus();
+  return (
+    <Loader2
+      aria-hidden
+      className={cn(
+        "size-3.5 shrink-0 animate-spin transition-opacity duration-150",
+        pending ? "opacity-100" : "opacity-0",
+      )}
+    />
+  );
+}
 
 export function DashboardNav() {
   const pathname = usePathname();
@@ -73,20 +96,21 @@ export function DashboardNav() {
                 )}
               >
                 <Icon className="size-4 shrink-0" aria-hidden />
-                {label}
+                <span className="flex-1">{label}</span>
+                <LinkSpinner />
               </Link>
             </li>
           ))}
         </ul>
 
         <form action={signOutAction} className="mt-6 px-3">
-          <button
-            type="submit"
-            className="flex items-center gap-2 text-sm font-medium text-neutral-500 transition-colors hover:text-red-600"
+          <SubmitButton
+            className="text-sm font-medium text-neutral-500 hover:text-red-600"
+            pendingLabel="מתנתק…"
           >
             <LogOut className="size-4" aria-hidden />
             התנתקות
-          </button>
+          </SubmitButton>
         </form>
       </nav>
 

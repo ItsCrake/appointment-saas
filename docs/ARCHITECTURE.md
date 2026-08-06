@@ -703,6 +703,47 @@ sections stacked at the bottom is two asks, and the second reads as the first
 not having worked. The tiles are `hidden lg:flex` because at phone width they
 would sit on top of the headline rather than around it.
 
+## Navigation feedback
+
+Alpha testers reported a 1.5–2 second dead click on every navigation, and
+clicked again thinking it had failed. The cause was structural, not slow code.
+
+**Every dynamic route lacked a `loading.tsx`.** Next skips prefetching a
+dynamic route entirely unless one exists; with one, the route is *partially*
+prefetched — shared layout and loading skeleton ahead of time, dynamic content
+on demand. Every dashboard page is `force-dynamic` and none had a fallback, so
+nothing could be prefetched and the browser sat on the old page until the
+server finished its database work before painting a single pixel.
+
+Measured on `/demo-barber`, prefetch payload with `Next-Router-Prefetch: 1`:
+
+| | Payload | Skeleton prefetched |
+| ------------------------ | ------------ | ------------------- |
+| Without `loading.tsx`    | 197 bytes    | no                  |
+| With `loading.tsx`       | 11,896 bytes | yes                 |
+
+So the fix is a `loading.tsx` per dynamic route, not a spinner bolted onto a
+button. Three layers now cover the whole transition:
+
+1. **`useLinkStatus` on sidebar links** — the gap between the click and the
+   fallback painting, while the RSC payload is in flight. The indicator is
+   always rendered and only faded, because an inline element that appears would
+   reflow the row it sits in.
+2. **`loading.tsx`** — prefetched, so it paints on the click. Each skeleton
+   mirrors its page's real layout so the swap does not shift anything.
+   `/master` has its own, because the tenant shimmer is tuned for paper and
+   flashes against slate.
+3. **`RouteProgress`** — the top-edge bar, rendered *by* the fallbacks. Driven
+   by Suspense rather than router events, so there is no subscription to router
+   internals, no timers, and no state that can stick on after a cancelled
+   transition. It is a server component and ships no JavaScript.
+
+**Form-action buttons use `useFormStatus` via `components/ui/submit-button`.**
+It has to be a separate component: the hook returns `{ pending: false }` when
+called from whatever renders the `<form>`. Disabling on submit is not only
+feedback — a form action posted twice runs twice, and "nothing happened so I
+clicked again" is precisely what was reported.
+
 ## Dashboard chrome
 
 `components/dashboard/ui.tsx` holds every shared control — `btnPrimary`,

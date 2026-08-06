@@ -1,6 +1,7 @@
 import { ShieldAlert } from "lucide-react";
 
 import { stopImpersonationAction } from "@/app/master/actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 /**
  * Shown on every dashboard screen while a super admin is viewing a tenant.
@@ -22,12 +23,12 @@ export function ImpersonationBanner({
         העסק.
       </p>
       <form action={stopImpersonationAction}>
-        <button
-          type="submit"
-          className="inline-flex h-8 items-center rounded-lg bg-amber-900 px-3 text-xs font-semibold text-white transition-colors hover:bg-amber-950 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:outline-none dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
+        <SubmitButton
+          className="h-8 rounded-lg bg-amber-900 px-3 text-xs font-semibold text-white hover:bg-amber-950 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:outline-none dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
+          pendingLabel="יוצא…"
         >
           יציאה ממצב תמיכה
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

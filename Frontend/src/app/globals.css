@@ -317,6 +317,22 @@ body {
   transform: rotate(var(--tilt, 0deg));
 }
 
+/* Top-edge navigation bar. Transform only, so it composites on the GPU and
+   never lays out. The travel is 300% because the bar is a third of the track:
+   -100% starts it fully off the leading edge, 300% clears the trailing one. */
+@keyframes route-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.route-progress {
+  animation: route-progress 0.9s ease-in-out infinite;
+}
+
 /* Skeletons: a sweep reads as "loading" where a bare pulse reads as "broken". */
 @keyframes shimmer {
   from {
@@ -355,7 +371,10 @@ body {
   .animate-shimmer,
   .animate-caret,
   .animate-scroll-hint,
-  .animate-tile {
+  .animate-tile,
+  /* Parked at the leading edge rather than hidden: a still bar is a quieter
+     signal than a moving one, but it is still the signal. */
+  .route-progress {
     animation: none;
   }
 }

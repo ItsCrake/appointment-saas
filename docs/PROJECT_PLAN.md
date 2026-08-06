@@ -369,6 +369,21 @@ Four issues from real business owners testing the product.
       field can be blank, and select on focus so the first keystroke replaces.
 - [x] **Android RTL time picker clipped.** `dir="ltr"` on every time input.
 
+#### Navigation performance pass ✅
+
+- [x] **Root cause: no `loading.tsx` on any dynamic route.** Next skips
+      prefetching dynamic routes without one, so every navigation waited on a
+      full server render before painting. Measured: the prefetch payload for
+      `/demo-barber` went from 197 bytes to 11,896 with the skeleton included.
+- [x] `loading.tsx` for all seven dashboard routes, all four `/master` tabs and
+      the public booking page, each shaped like its real page.
+- [x] `RouteProgress` top bar, rendered by the fallbacks so Suspense drives it
+      rather than router events. Server component, no JavaScript.
+- [x] `useLinkStatus` indicators on the sidebar, covering the moment before the
+      fallback paints.
+- [x] `SubmitButton` (`useFormStatus`) for the two form-action buttons that had
+      no pending state. The rest already had `useTransition` guards.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
