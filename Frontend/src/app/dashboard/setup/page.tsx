@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { SetupFlow } from "@/components/dashboard/setup-flow";
 import { db } from "@/db";
 import { listServices, listWorkingHours } from "@/db/queries";
+import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
 import { requireBusinessForSetup } from "@/lib/dashboard-session";
 import { toPlanType } from "@/lib/plans";
 
@@ -37,7 +39,14 @@ export default async function SetupPage({ searchParams }: PageProps) {
       ])
     : [[], []];
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  // Resolved from the live request rather than from the env alone. A deploy
+  // whose NEXT_PUBLIC_APP_URL is unset or still says localhost otherwise puts
+  // an unopenable link in front of an owner about to share it with customers.
+  const requestHeaders = await headers();
+  const appUrl = pickAppUrl(
+    configuredAppUrl(),
+    originFromHeaders((name) => requestHeaders.get(name)),
+  );
 
   return (
     <div className="mx-auto max-w-xl">

@@ -352,6 +352,23 @@ else ships before a merchant account exists.
       channel. Deliberately not a hard error yet: nothing can be configured
       until 8d, and the runtime refusal is the real guard.
 
+#### Alpha feedback pass (between 8c and 8d) ✅
+
+Four issues from real business owners testing the product.
+
+- [x] **Share links pointed at localhost.** `lib/app-url.ts` resolves the origin
+      from the request when the env is unset or still says localhost, with a
+      `window.location.origin` backstop in the copy-link step. A runtime origin
+      never overrides a real configured domain.
+- [x] **Manual bookings appeared not to notify.** The action always enqueued;
+      the real cause is that a phone booking has no email, and email is the
+      only live channel, so nothing was queued at all. Now reported to the
+      owner instead of silent. Confirmations also dispatch inline rather than
+      waiting for the daily cron.
+- [x] **Sticky `0` in price and duration.** Numeric drafts are strings so a
+      field can be blank, and select on focus so the first keystroke replaces.
+- [x] **Android RTL time picker clipped.** `dir="ltr"` on every time input.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

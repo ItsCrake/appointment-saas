@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Check, Copy, ExternalLink, PartyPopper } from "lucide-react";
 
+import { bookingUrlFor, browserOrigin, pickAppUrl } from "@/lib/app-url";
 import { formatDuration, formatPrice } from "@/lib/format";
 
 import type { SetupBusiness } from "./setup-flow";
@@ -26,7 +27,21 @@ export function SetupDoneStep({
   onFinish: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const liveUrl = `${appUrl.replace(/\/$/, "")}/${business.slug}`;
+
+  // The server already resolved this from the request, so `appUrl` is normally
+  // right. This is the last line of defence for the case that actually reached
+  // an owner: a deploy where the origin still resolved to localhost.
+  //
+  // `useSyncExternalStore` rather than an effect: it is built for exactly this
+  // shape — a value the server cannot know, with an explicit server snapshot —
+  // so there is no hydration mismatch and no setState inside an effect.
+  const origin = useSyncExternalStore(
+    () => () => {},
+    browserOrigin,
+    () => null,
+  );
+
+  const liveUrl = bookingUrlFor(pickAppUrl(appUrl, origin), business.slug);
 
   async function copy() {
     try {

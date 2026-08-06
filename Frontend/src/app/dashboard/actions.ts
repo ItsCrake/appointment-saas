@@ -16,13 +16,15 @@ import {
 } from "@/db/queries";
 import { requireWritable } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
+import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import {
   enqueueBookingNotifications,
   enqueueCancellationNotifications,
 } from "@/lib/notifications/enqueue";
 import { normalizePhone } from "@/lib/validation";
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+export type ActionResult =
+  { ok: true; warning?: string } | { ok: false; error: string };
 
 const manualBookingSchema = z.object({
   serviceId: z.uuid("יש לבחור שירות"),
@@ -74,13 +76,41 @@ export async function createManualBookingAction(
       cancelToken: randomUUID(),
     });
 
+    // A walk-in booked over the phone usually has a number and no email, and
+    // email is the only channel with a live provider today. That combination
+    // silently queued nothing at all, which is what alpha testers saw as "the
+    // client never got a confirmation". It is now reported rather than hidden.
+    let queued: string[] = [];
     try {
-      await enqueueBookingNotifications({ db, business, appointment });
+      queued = await enqueueBookingNotifications({ db, business, appointment });
+
+      // Send now instead of on the next cron tick. The outbox still owns
+      // durability — the row stays pending and the daily run retries it — but
+      // an owner standing in front of the client should not have to explain
+      // that the confirmation arrives tomorrow morning.
+      if (queued.length > 0) {
+        await dispatchDueNotifications(db, {
+          appointmentId: appointment.id,
+          limit: 10,
+        });
+      }
     } catch (error) {
+      // Never fails the booking. The appointment exists, and the outbox row
+      // survives for the cron to pick up.
       reportError("dashboard.manualBooking.notify", error, {
         businessId: business.id,
       });
     }
+
+    revalidatePath("/dashboard");
+    revalidatePath(`/${business.slug}`);
+
+    return queued.includes("booking_confirmation")
+      ? { ok: true }
+      : {
+          ok: true,
+          warning: "התור נקבע, אך לא נשלח אישור ללקוח: לא הוזנה כתובת אימייל.",
+        };
   } catch (error) {
     if (error instanceof SlotTakenError) {
       return { ok: false, error: "יש כבר תור שחופף למועד הזה" };
@@ -91,10 +121,6 @@ export async function createManualBookingAction(
     });
     return { ok: false, error: "אירעה שגיאה ביצירת התור" };
   }
-
-  revalidatePath("/dashboard");
-  revalidatePath(`/${business.slug}`);
-  return { ok: true };
 }
 
 const statusSchema = z.enum(["confirmed", "cancelled", "completed", "no_show"]);

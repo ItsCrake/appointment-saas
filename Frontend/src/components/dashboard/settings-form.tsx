@@ -145,6 +145,8 @@ export function SettingsForm({ business }: { business: Business }) {
               min={0}
               max={120}
               value={form.bufferMin}
+
+              onFocus={(e) => e.target.select()}
               onChange={(e) => set("bufferMin", e.target.value)}
               className={`${FIELD} tabular-nums`}
             />
@@ -160,6 +162,8 @@ export function SettingsForm({ business }: { business: Business }) {
               min={0}
               max={168}
               value={form.cancelWindowHours}
+
+              onFocus={(e) => e.target.select()}
               onChange={(e) => set("cancelWindowHours", e.target.value)}
               className={`${FIELD} tabular-nums`}
             />
@@ -184,6 +188,8 @@ export function SettingsForm({ business }: { business: Business }) {
               min={0}
               max={168}
               value={form.reminderHoursBefore}
+
+              onFocus={(e) => e.target.select()}
               onChange={(e) => set("reminderHoursBefore", e.target.value)}
               className={`${FIELD} tabular-nums`}
             />

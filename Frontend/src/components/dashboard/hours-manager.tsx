@@ -117,6 +117,7 @@ export function HoursManager({
                       <div key={index} className="flex items-center gap-2">
                         <input
                           type="time"
+                          dir="ltr"
                           aria-label={`${label} — שעת התחלה`}
                           value={shift.startTime}
                           onChange={(e) =>
@@ -127,6 +128,7 @@ export function HoursManager({
                         <span className="text-xs text-neutral-400">עד</span>
                         <input
                           type="time"
+                          dir="ltr"
                           aria-label={`${label} — שעת סיום`}
                           value={shift.endTime}
                           onChange={(e) =>
@@ -258,6 +260,7 @@ function TimeOffSection({
             </span>
             <input
               type="time"
+              dir="ltr"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
               className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800"
@@ -269,6 +272,7 @@ function TimeOffSection({
             </span>
             <input
               type="time"
+              dir="ltr"
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
               className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800"

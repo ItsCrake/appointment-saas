@@ -90,6 +90,7 @@ export function SetupHoursStep({
                     <div key={index} className="flex items-center gap-2">
                       <input
                         type="time"
+                        dir="ltr"
                         aria-label={`${label} — שעת התחלה`}
                         value={shift.startTime}
                         onChange={(e) =>
@@ -100,6 +101,7 @@ export function SetupHoursStep({
                       <span className="text-xs text-neutral-400">עד</span>
                       <input
                         type="time"
+                        dir="ltr"
                         aria-label={`${label} — שעת סיום`}
                         value={shift.endTime}
                         onChange={(e) =>

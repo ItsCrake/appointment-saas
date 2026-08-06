@@ -66,7 +66,11 @@ export function ManualBookingDialog({
       });
 
       if (result.ok) {
-        toast("התור נוסף ליומן");
+        // A booking with no reachable client is still a booking, so this is a
+        // warning rather than an error — but it is said out loud. Silently
+        // sending nothing is what made owners think confirmations were broken.
+        if (result.warning) toast(result.warning, "error");
+        else toast("התור נוסף ליומן והאישור נשלח ללקוח");
         onCreated();
       } else {
         setError(result.error);
@@ -157,6 +161,7 @@ export function ManualBookingDialog({
               <input
                 id="mb-time"
                 type="time"
+                dir="ltr"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
                 className={`${FIELD} tabular-nums`}

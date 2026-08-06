@@ -12,12 +12,35 @@ export type DraftService = {
   priceCents: number;
 };
 
+/**
+ * Numeric fields are edited as **strings**, not numbers.
+ *
+ * A number-backed input cannot hold "empty": clearing it yields `Number("")`,
+ * which is `0`, so the field springs back to a zero the owner then has to
+ * select and delete before every entry. Keeping the raw text lets the field be
+ * genuinely blank while it is being typed into, and it is parsed once on
+ * submit. `selectOnFocus` below covers the other half — landing in a field
+ * that already reads "30" and typing replaces it instead of making "300".
+ */
+type DraftRow = {
+  name: string;
+  /** Minutes, as typed. */
+  duration: string;
+  /** Shekels, as typed. Converted to agorot on submit. */
+  price: string;
+};
+
 /** Editable starting point — nobody should face an empty form here. */
-const TEMPLATES: DraftService[] = [
-  { name: "תספורת גבר", durationMin: 30, priceCents: 7000 },
-  { name: "תספורת ילד", durationMin: 20, priceCents: 6000 },
-  { name: "עיצוב זקן", durationMin: 15, priceCents: 3000 },
+const TEMPLATES: DraftRow[] = [
+  { name: "תספורת גבר", duration: "30", price: "70" },
+  { name: "תספורת ילד", duration: "20", price: "60" },
+  { name: "עיצוב זקן", duration: "15", price: "30" },
 ];
+
+/** Selects the whole value so the first keystroke replaces it. */
+function selectOnFocus(event: React.FocusEvent<HTMLInputElement>) {
+  event.target.select();
+}
 
 const FIELD =
   "h-10 w-full rounded-lg border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
@@ -39,17 +62,17 @@ export function SetupServicesStep({
   onSubmit: (services: DraftService[]) => void;
 }) {
   // Returning to this step shows what was already saved, not the templates.
-  const [drafts, setDrafts] = useState<DraftService[]>(
+  const [drafts, setDrafts] = useState<DraftRow[]>(
     existing.length > 0
       ? existing.map((s) => ({
           name: s.name,
-          durationMin: s.durationMin,
-          priceCents: s.priceCents,
+          duration: String(s.durationMin),
+          price: String(s.priceCents / 100),
         }))
       : TEMPLATES,
   );
 
-  function update(index: number, patch: Partial<DraftService>) {
+  function update(index: number, patch: Partial<DraftRow>) {
     setDrafts((prev) =>
       prev.map((draft, i) => (i === index ? { ...draft, ...patch } : draft)),
     );
@@ -60,10 +83,16 @@ export function SetupServicesStep({
   }
 
   function add() {
-    setDrafts((prev) => [
-      ...prev,
-      { name: "", durationMin: 30, priceCents: 5000 },
-    ]);
+    setDrafts((prev) => [...prev, { name: "", duration: "30", price: "50" }]);
+  }
+
+  /** Parsed once, here. A blank field is 0 at this point and nowhere earlier. */
+  function toServices(): DraftService[] {
+    return drafts.map((draft) => ({
+      name: draft.name,
+      durationMin: Number(draft.duration) || 0,
+      priceCents: Math.round((Number(draft.price) || 0) * 100),
+    }));
   }
 
   const alreadySaved = new Set(existing.map((s) => s.name.trim()));
@@ -105,12 +134,12 @@ export function SetupServicesStep({
                 </span>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={5}
                   max={600}
-                  value={draft.durationMin}
-                  onChange={(e) =>
-                    update(index, { durationMin: Number(e.target.value) })
-                  }
+                  value={draft.duration}
+                  onFocus={selectOnFocus}
+                  onChange={(e) => update(index, { duration: e.target.value })}
                   className={`${FIELD} tabular-nums`}
                 />
               </label>
@@ -120,13 +149,11 @@ export function SetupServicesStep({
                 </span>
                 <input
                   type="number"
+                  inputMode="decimal"
                   min={0}
-                  value={draft.priceCents / 100}
-                  onChange={(e) =>
-                    update(index, {
-                      priceCents: Math.round(Number(e.target.value) * 100),
-                    })
-                  }
+                  value={draft.price}
+                  onFocus={selectOnFocus}
+                  onChange={(e) => update(index, { price: e.target.value })}
                   className={`${FIELD} tabular-nums`}
                 />
               </label>
@@ -147,8 +174,8 @@ export function SetupServicesStep({
                 </>
               ) : (
                 <>
-                  {formatDuration(draft.durationMin)} ·{" "}
-                  {formatPrice(draft.priceCents)}
+                  {formatDuration(Number(draft.duration) || 0)} ·{" "}
+                  {formatPrice(Math.round((Number(draft.price) || 0) * 100))}
                 </>
               )}
             </p>
@@ -168,7 +195,9 @@ export function SetupServicesStep({
       <div className="mt-5 flex gap-2">
         <button
           type="button"
-          onClick={() => onSubmit(drafts.filter((d) => d.name.trim()))}
+          onClick={() =>
+            onSubmit(toServices().filter((service) => service.name.trim()))
+          }
           disabled={pending}
           className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
         >

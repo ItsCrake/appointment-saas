@@ -44,9 +44,13 @@ export type DispatchSummary = {
  */
 export async function dispatchDueNotifications(
   db: Database,
-  { now = new Date(), limit = 50 }: { now?: Date; limit?: number } = {},
+  {
+    now = new Date(),
+    limit = 50,
+    appointmentId,
+  }: { now?: Date; limit?: number; appointmentId?: string } = {},
 ): Promise<DispatchSummary> {
-  const due = await listDueNotifications(db, now, limit);
+  const due = await listDueNotifications(db, now, limit, appointmentId);
   const summary: DispatchSummary = {
     considered: due.length,
     sent: 0,

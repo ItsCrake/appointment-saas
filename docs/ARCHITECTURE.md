@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 293 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 324 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -268,12 +268,41 @@ by the server; `createBookingAction` re-derives duration from the stored
 service and re-runs availability before inserting. The exclusion constraint
 settles any remaining race.
 
+**The public origin is resolved, not assumed.** `lib/app-url.ts` is pure and
+free of `next/headers`, so the same rule runs on the server, in a client
+component and in a test. `NEXT_PUBLIC_APP_URL` wins — it is the only value that
+is also correct inside a notification email, where there is no request to
+inspect — **except when it says localhost and the request plainly did not**.
+That combination is a misconfigured deploy rather than an instruction, and
+honouring it is what put `http://localhost:3000/[slug]` on a link an owner
+handed to a customer. A runtime origin never overrides a real configured
+domain, so a preview deployment cannot rewrite the canonical one.
+
+Cron-sent mail has no request to fall back to, so `NEXT_PUBLIC_APP_URL` remains
+the only source there. `check:env --production` already fails when it is unset
+or still points at localhost, which is what keeps that path honest.
+
 **Notifications use a transactional outbox.** Messages are written to
 `notifications` first and dispatched by `/api/cron/notifications` (scheduled in
 `vercel.json`, guarded by `CRON_SECRET`). Rationale: a provider outage delays
 rather than loses; `dedupe_key` prevents double-sends; and the dispatcher
 re-checks appointment state before sending, so a reminder for a
 since-cancelled appointment is skipped rather than delivered.
+
+**A manual booking dispatches inline.** `dispatchDueNotifications` takes an
+optional `appointmentId`, and the dashboard's manual-booking action calls it
+straight after enqueueing. The outbox still owns durability — the row stays
+pending and the daily run retries it — but an owner standing in front of a
+client should not have to explain that the confirmation arrives tomorrow
+morning. A failure there never fails the booking.
+
+> **The manual-booking bug was not a missing call.** The action always
+> enqueued. The problem is that a walk-in booked over the phone has a number
+> and no email, and email is the only channel with a live provider today, so
+> `clientDelivery()` resolved to nothing and queued nothing at all. That is
+> now surfaced to the owner as a warning on the success toast instead of
+> looking like a broken confirmation. It resolves properly once Twilio is
+> configured and the SMS branch can take phone-only clients.
 
 **Dispatch cadence is the outbox's one hard constraint.** Confirmations and
 owner alerts are enqueued with `scheduledFor: now`, so a client sees them only
@@ -685,6 +714,20 @@ is what stops that recurring. Same teal-700 rule as the marketing surface.
 Appointment status colours live in `StatusChip` only: confirmed teal, pending
 amber, cancelled rose, no-show slate, completed emerald. The label is always
 rendered beside the colour, so status never depends on hue alone.
+
+**Numeric fields are edited as strings, and select on focus.** A number-backed
+input cannot hold "empty": clearing it yields `Number("")`, which is `0`, so
+the field springs back to a zero the owner has to delete before every entry.
+Typing into a string draft that already reads `0` is worse still — it produces
+`05`, because nothing coerces it away until submit. Both halves are needed:
+string state so the field can genuinely be blank, and `select()` on focus so
+the first keystroke replaces what is there. Parsing happens once, on submit.
+
+**Time inputs carry `dir="ltr"`.** The page is RTL, and on Android the native
+time picker anchors to the input's direction — in RTL it opened clipped by the
+viewport with the confirm button off-screen. A time is `HH:MM` in every locale,
+so forcing LTR on the field costs nothing and is what keeps the picker on
+screen.
 
 **Navigation breakpoints are paired at `md` on purpose.** The desktop sidebar
 is `md:block` and the mobile bottom bar is `md:hidden`. Moving the bottom bar

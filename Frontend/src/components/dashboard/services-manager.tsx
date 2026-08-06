@@ -366,8 +366,14 @@ function Input({
       </span>
       <input
         type={type}
+        inputMode={type === "number" ? "decimal" : undefined}
         value={value}
         placeholder={placeholder}
+        // Typing into a field that already reads "0" otherwise produces "05":
+        // the draft is held as a string, so nothing coerces it away, and the
+        // owner has to select and delete the zero on every single entry.
+        // Selecting on focus makes the first keystroke replace it.
+        onFocus={type === "number" ? (e) => e.target.select() : undefined}
         onChange={(e) => onChange(e.target.value)}
         className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
       />

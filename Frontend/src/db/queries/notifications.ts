@@ -20,11 +20,18 @@ export async function enqueueNotification(
   return row ?? null;
 }
 
-/** Pending rows that are due, joined to everything a template needs. */
+/**
+ * Pending rows that are due, joined to everything a template needs.
+ *
+ * `appointmentId` narrows the sweep to one booking, which is what lets a
+ * just-created appointment have its confirmation sent inline instead of
+ * waiting for the next cron tick.
+ */
 export async function listDueNotifications(
   db: Database,
   now: Date,
   limit = 50,
+  appointmentId?: string,
 ) {
   return db
     .select({
@@ -39,6 +46,9 @@ export async function listDueNotifications(
       and(
         eq(notifications.status, "pending"),
         lte(notifications.scheduledFor, now),
+        ...(appointmentId
+          ? [eq(notifications.appointmentId, appointmentId)]
+          : []),
       ),
     )
     .orderBy(asc(notifications.scheduledFor))
