@@ -32,7 +32,7 @@ async function seed() {
         // Stand-in until Supabase Auth is wired up in Phase 3.
         ownerUserId: randomUUID(),
         slug: DEMO_SLUG,
-        name: "מספרת רון",
+        name: "מספרת ברקאי",
         description: "מספרה לגברים בלב תל אביב. תספורות, עיצוב זקן וטיפוח.",
         phone: "050-1234567",
         address: "דיזנגוף 100, תל אביב",

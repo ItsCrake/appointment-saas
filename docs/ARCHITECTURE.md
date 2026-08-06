@@ -574,20 +574,24 @@ hero's dark panel therefore carries `lg:order-2` to sit on the visual left
 while staying first in the DOM, where its `<h1>` belongs. Below `lg` the split
 stacks and the mockup is dropped rather than shrunk.
 
-**The ink half is a layer, not a grid cell.** A grid cell cannot bleed past its
-own track, which is what made the seam a hard line. It is absolutely positioned
-and feathered with a `mask-image`, so it dissolves into the paper beneath and
-carries the canvas with it — the bubbles fade out with the panel rather than
-stopping dead at an invisible boundary.
+**The split is structural: two crisp grid cells meeting on one edge.** An
+earlier pass feathered the seam with a `mask-image` so the ink dissolved into
+the paper. It read as a smudge rather than a transition, and it has been
+removed — the only mask left in the hero is the dot texture inside the mockup
+card.
 
-The mask geometry is load-bearing and was set by measurement: the ink runs to
-52% of the section and is solid to 41.6%, so the fade band sits between them.
-The wordmark spans 9–41% and never reaches it; the light column's body copy
-starts at ~65% and clears it entirely. **Body text must never land on the tail
-of that gradient**, where a grey tint quietly costs it contrast. Mobile uses the
-same idea rotated: a 12rem top band fading below the wordmark row and above the
-copy. Both directions are physical, not logical, because the panel is
-positioned by where it *looks* and the page is RTL.
+**The scroll cue is anchored to the section, not to a panel.** It used to live
+inside the copy column, which is vertically centred, so as that column grew the
+cue cut straight through the demo button. At the section's own bottom edge it
+has nothing to collide with: on desktop it sits at the panel seam, while the
+copy column's content begins ~90px to its side. It is mid-grey for that reason
+— black on one side of it, white on the other.
+
+**The showcase card sheds its summary row under 820px of viewport height.** The
+hero is capped at 70% of the screen, so on a 1280x700 laptop the full card does
+not fit beside the copy and the actions: content overflowed the section and
+pushed the headline up underneath the header. The agenda is what sells the
+product, so the three summary figures are what give way.
 
 `hero-particles.tsx` is a Canvas client leaf drawing **hollow stroked bubbles**,
 varied in size, drifting upward with a sine sway and a slow radius pulse. Size
@@ -727,10 +731,11 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   dunning mail through the outbox, and a read-only dashboard for frozen
   tenants with mechanically-verified action coverage
 - `/dashboard/billing` — plan, status, grace deadline and invoice history
-- Landing page rebuilt monochrome: 70/30 above-the-fold split, feathered
-  ink/paper hero with a Canvas bubble field and the typed wordmark, one accent
+- Landing page rebuilt monochrome: 70/30 above-the-fold split, a crisp 50/50
+  ink/paper hero with a Canvas bubble field and the typed wordmark, the agenda
+  preview presented in a brand-gradient card with glass tiles, one accent
   gradient reserved for active and primary states, soft geometry throughout,
-  and a gradient closing banner with glass tiles
+  and a gradient closing banner
 
 **Not built**
 

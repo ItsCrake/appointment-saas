@@ -256,7 +256,7 @@ describe("cancellation flow", () => {
 describe("templates", () => {
   const context = {
     kind: "booking_confirmation" as const,
-    businessName: "מספרת רון",
+    businessName: "מספרת ברקאי",
     businessPhone: "050-1234567",
     businessAddress: "דיזנגוף 100",
     businessTimezone: "Asia/Jerusalem",

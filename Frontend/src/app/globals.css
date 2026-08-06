@@ -274,47 +274,12 @@ body {
   animation: scroll-hint 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-/* ---------------------------------------------------------------------------
-   Hero ink panel.
+/* The hero's two halves are plain grid cells again. The feathered mask that
+   used to blend them read as a smudge rather than a transition, so the split
+   is structural: two crisp panels meeting on one edge, no blending. */
 
-   The dark half is its own absolutely-positioned layer rather than a grid
-   cell, so its inner edge can be feathered with a mask and dissolve into the
-   paper underneath. A grid cell cannot bleed past its own track, which is what
-   made the old seam a hard line.
-
-   The mask carries the canvas with it, so the bubbles fade out with the panel
-   instead of stopping dead at an invisible boundary.
-
-   Mobile is a top band fading downward; desktop is a left column fading to the
-   right. Both are physical directions on purpose: the panel is positioned by
-   where it *looks*, and the page is RTL, so logical properties would flip it.
---------------------------------------------------------------------------- */
-.hero-ink {
-  position: absolute;
-  inset: 0 0 auto 0;
-  /* Taller than the wordmark row (11rem) so the fade happens *below* the
-     wordmark and *above* the body copy, never behind either. */
-  height: 12rem;
-  background-color: #09090b;
-  -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
-}
-
-@media (min-width: 1024px) {
-  .hero-ink {
-    inset: 0 auto 0 0;
-    /* Solid to ~41.6% of the section, fading out by 52%. The light column's
-       text begins at ~54% once its padding is counted, so body copy never
-       lands on the tail of the gradient, where a grey tint would quietly cost
-       it contrast. The wordmark is centred at 25% and never reaches the fade. */
-    width: 52%;
-    height: auto;
-    -webkit-mask-image: linear-gradient(to right, #000 80%, transparent 100%);
-    mask-image: linear-gradient(to right, #000 80%, transparent 100%);
-  }
-}
-
-/* Tech grid for the CTA banner. A pattern, not an image request. */
+/* Tech grid for the CTA banner and the hero's mockup card. A pattern, not an
+   image request. */
 .dot-matrix {
   background-image: radial-gradient(
     circle,

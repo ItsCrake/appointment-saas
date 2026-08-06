@@ -89,10 +89,10 @@ describe("setup step 1 — business details", () => {
     expect(await isSlugTaken(db, "ron-barber", business.id)).toBe(false);
 
     const updated = await updateBusiness(db, business.id, {
-      name: "מספרת רון החדשה",
+      name: "מספרת ברקאי החדשה",
       slug: "ron-barber",
     });
-    expect(updated?.name).toBe("מספרת רון החדשה");
+    expect(updated?.name).toBe("מספרת ברקאי החדשה");
   });
 
   it("still blocks a slug another business already holds", async () => {

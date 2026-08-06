@@ -3,9 +3,9 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CtaBanner } from "@/components/marketing/cta-banner";
-import { DashboardMockup } from "@/components/marketing/dashboard-mockup";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { HeroParticles } from "@/components/marketing/hero-particles";
+import { MockupShowcase } from "@/components/marketing/mockup-showcase";
 import { PricingTable } from "@/components/marketing/pricing-table";
 import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
 import { BRAND, BRAND_MARK } from "@/lib/brand";
@@ -130,42 +130,42 @@ export default function LandingPage() {
             beneath it occupies the remaining 30% and peeks above the fold. The
             floor stops it collapsing on a short laptop, where 70% of 500px
             would crush the mockup. */}
-        <section className="relative h-[calc((100dvh-4rem)*0.7)] min-h-[30rem] overflow-hidden bg-white lg:min-h-[28rem] dark:bg-zinc-900">
-          {/* The ink half is its own layer, not a grid cell, so its inner edge
-              can be feathered with a mask and dissolve into the paper beneath.
-              A grid cell cannot bleed past its own track, which is exactly what
-              made the previous seam a hard line. The mask carries the canvas
-              with it, so the bubbles fade out with the panel. */}
-          <div aria-hidden className="hero-ink pointer-events-none">
-            <HeroParticles className="absolute inset-0 h-full w-full" />
-          </div>
-
-          <div className="relative grid h-full grid-cols-1 grid-rows-[11rem_1fr] lg:grid-cols-2 lg:grid-rows-1">
+        <section className="relative h-[calc((100dvh-4rem)*0.7)] min-h-[32rem] lg:min-h-[30rem]">
+          {/* Two crisp panels meeting on one edge. The feathered mask that used
+              to blend them read as a smudge rather than a transition, so the
+              split is structural again: real grid cells, no blending. */}
+          <div className="grid h-full grid-cols-1 grid-rows-[10rem_1fr] lg:grid-cols-2 lg:grid-rows-1">
             {/* Visual left on desktop, top on mobile. */}
-            <div className="flex items-center justify-center lg:order-2">
-              <TypewriterLogo className="px-6 text-center" />
+            <div className="relative overflow-hidden bg-zinc-950 lg:order-2">
+              <HeroParticles className="absolute inset-0 h-full w-full" />
+              <div className="relative flex h-full items-center justify-center">
+                <TypewriterLogo className="px-6 text-center" />
+              </div>
             </div>
 
-            {/* Visual right on desktop, below on mobile. */}
-            <div className="relative flex flex-col justify-center px-6 py-8 sm:px-10 lg:order-1 lg:px-12 xl:px-16">
-              <div className="mx-auto w-full max-w-lg">
-                <p className="max-w-[38ch] text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-300">
+            {/* Visual right on desktop, below on mobile. No extra bottom
+                clearance is reserved for the scroll cue: the cue is centred on
+                the *section*, which on desktop is the panel seam, while this
+                column's content starts ~90px to its side. They cannot collide
+                horizontally, and the reserved strip only squeezed the card. */}
+            <div className="flex flex-col justify-center bg-white px-6 py-8 sm:px-10 lg:order-1 lg:px-12 xl:px-14 dark:bg-zinc-900">
+              <div className="mx-auto w-full max-w-md">
+                <p className="text-base leading-relaxed text-zinc-600 dark:text-zinc-300">
                   עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בעצמם, והיומן
                   מתמלא בלי חורים ובלי טלפונים.
                 </p>
 
-                {/* A scaled render of the real agenda, not a screenshot of one.
-                  Hidden below lg: at phone width it shrinks to unreadable and
-                  only pushes the actions off screen. */}
-                <div className="mt-8 hidden lg:block">
-                  <DashboardMockup />
+                {/* Hidden below lg: at phone width the agenda shrinks to
+                    unreadable and only pushes the actions off screen. */}
+                <div className="mt-5 hidden lg:block">
+                  <MockupShowcase />
                 </div>
 
                 {/* Width, never flex, controls the mobile stack. `flex-1` inside
-                  a flex-col parent sizes the *cross axis*, which silently beat
-                  `h-12` and squashed both buttons to 20px: under the 44px
-                  minimum touch target, and invisible in a desktop-only check. */}
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                    a flex-col parent sizes the *cross axis*, which silently beat
+                    `h-12` and squashed both buttons to 20px: under the 44px
+                    minimum touch target, and invisible in a desktop-only check. */}
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   <Link
                     href="/dashboard/setup"
                     className={`${btnPrimary} h-12 w-full sm:w-auto`}
@@ -181,18 +181,20 @@ export default function LandingPage() {
                   </Link>
                 </div>
               </div>
-
-              {/* The peek below is deliberate, and this says so. A hairline that
-                draws downward and retracts, with no label and no wheel icon:
-                the movement is the whole message. */}
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 bottom-5 mx-auto hidden h-10 w-px rounded-full bg-zinc-300 lg:block dark:bg-zinc-700"
-              >
-                <span className="animate-scroll-hint block h-full w-full rounded-full bg-zinc-950 dark:bg-zinc-100" />
-              </span>
             </div>
           </div>
+
+          {/* Anchored to the SECTION, not to a panel. Living inside the
+              vertically-centred copy column is what let it cut through the
+              demo button; at the section's own bottom edge it has nothing to
+              collide with. Mid-grey because on desktop it lands exactly on the
+              seam, with black one side and white the other. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-4 left-1/2 hidden h-9 w-px -translate-x-1/2 rounded-full bg-zinc-400/60 lg:block"
+          >
+            <span className="animate-scroll-hint block h-full w-full rounded-full bg-zinc-500" />
+          </span>
         </section>
 
         {/* PEEK TARGET — the 30% below the fold. Full-bleed ink band, so what
@@ -209,7 +211,7 @@ export default function LandingPage() {
                   אפשר לראות איך זה נראה ללקוח
                 </span>
                 <span className="mt-3 block text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-                  עמוד ההדגמה של מספרת רון פתוח לכולם. קבעו בו תור אמיתי,
+                  עמוד ההדגמה של מספרת ברקאי פתוח לכולם. קבעו בו תור אמיתי,
                   מהטלפון, בפחות מדקה.
                 </span>
               </span>

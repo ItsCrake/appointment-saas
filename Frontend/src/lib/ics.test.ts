@@ -6,7 +6,7 @@ const base = {
   uid: "abc-123@appointment-saas",
   startsAt: "2026-07-31T09:00:00.000Z",
   endsAt: "2026-07-31T09:30:00.000Z",
-  title: "תספורת גבר — מספרת רון",
+  title: "תספורת גבר, מספרת ברקאי",
 };
 
 describe("buildIcs", () => {
