@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 import { getSupabaseConfig } from "./config";
+import { hardenCookieOptions } from "./cookies";
 
 /** Returns null when auth is not configured yet, rather than throwing. */
 export async function createSupabaseServerClient() {
@@ -18,7 +19,7 @@ export async function createSupabaseServerClient() {
       setAll(cookiesToSet) {
         try {
           for (const { name, value, options } of cookiesToSet) {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, hardenCookieOptions(options));
           }
         } catch {
           // Called from a Server Component, where cookies are read-only.

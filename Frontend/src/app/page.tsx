@@ -332,6 +332,24 @@ export default function LandingPage() {
             >
               כניסה לבעלי עסקים
             </Link>
+            <Link
+              href="/legal/terms"
+              className="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
+            >
+              תנאי שימוש
+            </Link>
+            <Link
+              href="/legal/privacy"
+              className="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
+            >
+              פרטיות
+            </Link>
+            <Link
+              href="/accessibility"
+              className="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
+            >
+              נגישות
+            </Link>
           </nav>
         </div>
       </footer>

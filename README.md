@@ -200,6 +200,9 @@ Run from `Frontend/`.
 | `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, freeze |
 | `/master/live`            | super admin   | Global booking feed across all tenants          |
 | `/master/alerts`          | super admin   | Churn risk, expiring trials, failed sends       |
+| `/legal/terms`            | public        | Terms, refunds, subscription, communications    |
+| `/legal/privacy`          | public        | Privacy, retention, deletion rights, cookies    |
+| `/accessibility`          | public        | Israeli accessibility statement (AA)            |
 | `/api/cron/notifications` | `CRON_SECRET` | Dispatches the outbox on a schedule             |
 
 `/dashboard/*` and `/b/*` send `X-Robots-Tag: noindex` and
@@ -213,7 +216,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 324 unit tests, build
+npm run verify     # env, lint, types, 337 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 

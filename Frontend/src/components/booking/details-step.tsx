@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { AlertCircle, Clock, Loader2, Tag } from "lucide-react";
 
+import { ConsentNote } from "@/components/ui/consent-note";
 import type { Slot } from "@/lib/availability";
 import { formatDuration, formatFullDateTime, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -238,9 +239,12 @@ export function DetailsStep({
           )}
         </button>
 
-        <p className="pb-2 text-center text-xs text-neutral-400">
-          בקביעת התור אתם מאשרים קבלת הודעות בנוגע לתור זה.
-        </p>
+        <div className="space-y-1.5 pb-2 text-center">
+          <p className="text-xs text-neutral-400">
+            בקביעת התור אתם מאשרים קבלת הודעות בנוגע לתור זה.
+          </p>
+          <ConsentNote action="קביעת תור" />
+        </div>
       </form>
     </section>
   );

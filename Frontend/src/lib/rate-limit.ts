@@ -34,6 +34,29 @@ export const BOOKING_RULES = {
   phoneDaily: { scope: "booking:phone:d", limit: 5, windowMs: DAY_MS },
 } as const satisfies Record<string, RateLimitRule>;
 
+/**
+ * Credential endpoints. Tighter than the booking rules, because the thing
+ * being protected is an account rather than a calendar.
+ *
+ * Two identifiers, for the same reason bookings use two: the IP rule stops one
+ * host hammering, and the per-identity rule survives a rotating IP pool, which
+ * is what a real credential-stuffing run uses. The identity rule is keyed on a
+ * *hash* of the email — see `authIdentifier` — so the counter table never
+ * becomes a list of who tried to sign in.
+ *
+ * Sign-up is separate and stricter: a burst of sign-ups from one address is
+ * either abuse or a mistake, never a person who forgot their password.
+ */
+export const AUTH_RULES = {
+  signInIp: { scope: "auth:signin:ip", limit: 10, windowMs: 15 * MINUTE_MS },
+  signInIdentity: {
+    scope: "auth:signin:id",
+    limit: 5,
+    windowMs: 15 * MINUTE_MS,
+  },
+  signUpIp: { scope: "auth:signup:ip", limit: 5, windowMs: HOUR_MS },
+} as const satisfies Record<string, RateLimitRule>;
+
 /** Slot lookups are cheap but hammering them is still a DoS vector. */
 export const SLOTS_RULE: RateLimitRule = {
   scope: "slots:ip:h",

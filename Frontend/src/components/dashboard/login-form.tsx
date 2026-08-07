@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Loader2 } from "lucide-react";
 
 import { signInAction, signUpAction } from "@/app/login/actions";
+import { ConsentNote } from "@/components/ui/consent-note";
+import { PASSWORD_RULES } from "@/lib/auth-validation";
 import { cn } from "@/lib/utils";
 
 type Mode = "signin" | "signup";
@@ -109,8 +111,31 @@ export function LoginForm({ next }: { next?: string }) {
             onChange={(e) => setPassword(e.target.value)}
             className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           />
+          {/* The rules are rendered from the same constant the server
+              validates against, and tick live, so the reader is never told
+              "invalid password" without being shown which rule failed. */}
           {mode === "signup" ? (
-            <p className="mt-1.5 text-xs text-neutral-500">לפחות 8 תווים</p>
+            <ul className="mt-2 space-y-1">
+              {PASSWORD_RULES.map((rule) => {
+                const met = rule.test(password);
+                return (
+                  <li
+                    key={rule.id}
+                    className={`flex items-center gap-1.5 text-xs ${
+                      met
+                        ? "text-emerald-700 dark:text-emerald-400"
+                        : "text-neutral-500"
+                    }`}
+                  >
+                    <Check
+                      className={`size-3 shrink-0 ${met ? "opacity-100" : "opacity-30"}`}
+                      aria-hidden
+                    />
+                    {rule.label}
+                  </li>
+                );
+              })}
+            </ul>
           ) : null}
         </div>
 
@@ -150,6 +175,11 @@ export function LoginForm({ next }: { next?: string }) {
             "יצירת חשבון"
           )}
         </button>
+
+        <ConsentNote
+          action={mode === "signin" ? "התחברות" : "הרשמה"}
+          className="text-center"
+        />
       </form>
     </div>
   );

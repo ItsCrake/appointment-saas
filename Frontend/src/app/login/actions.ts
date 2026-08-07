@@ -3,13 +3,17 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { reportError } from "@/lib/observability";
+import { db } from "@/db";
+import {
+  authIdentifier,
+  signInSchema,
+  signUpSchema,
+} from "@/lib/auth-validation";
+import { reportError, reportWarning } from "@/lib/observability";
+import { AUTH_RULES, rateLimitMessage } from "@/lib/rate-limit";
+import { enforceRateLimits } from "@/lib/rate-limit-guard";
+import { getClientIp } from "@/lib/request-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-const credentialsSchema = z.object({
-  email: z.email("כתובת אימייל לא תקינה"),
-  password: z.string().min(8, "הסיסמה חייבת להכיל לפחות 8 תווים"),
-});
 
 /**
  * Supabase errors are not guaranteed to carry a usable `message` — a transport
@@ -47,17 +51,64 @@ const TRANSPORT_FAILURE =
   "לא הצלחנו להגיע לשרת ההזדהות של Supabase. נסו שוב בעוד רגע.";
 
 export type AuthResult =
-  { ok: false; error: string } | { ok: true; message?: string };
+  | { ok: false; error: string; rateLimited?: true }
+  | { ok: true; message?: string };
+
+/**
+ * Brute-force guard for the credential endpoints.
+ *
+ * Server Actions are not HTTP handlers, so there is no status line to set —
+ * the "429" lives in the payload as `rateLimited`, and the caller renders it.
+ * The route handlers that *do* return a status use the same rules.
+ *
+ * Fails **open**, like the booking guard: a counter table that is unreachable
+ * must not be able to lock every customer out of their own account.
+ */
+async function guardAuth(
+  rules: {
+    rule: (typeof AUTH_RULES)[keyof typeof AUTH_RULES];
+    identifier: string;
+  }[],
+  scope: string,
+): Promise<AuthResult | null> {
+  const result = await enforceRateLimits(db, rules);
+  if (result.allowed) return null;
+
+  reportWarning(scope, "auth rate limit tripped", {
+    rule: result.rule.scope,
+    retryAfterSeconds: result.decision.retryAfterSeconds,
+  });
+
+  return {
+    ok: false,
+    rateLimited: true,
+    error: rateLimitMessage(result.decision),
+  };
+}
 
 export async function signInAction(
   email: string,
   password: string,
   next?: string,
 ): Promise<AuthResult> {
-  const parsed = credentialsSchema.safeParse({ email, password });
+  const parsed = signInSchema.safeParse({ email, password });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0].message };
   }
+
+  // Counted before the credentials are checked, so a wrong guess costs the
+  // attacker budget whether or not the account exists.
+  const limited = await guardAuth(
+    [
+      { rule: AUTH_RULES.signInIp, identifier: await getClientIp() },
+      {
+        rule: AUTH_RULES.signInIdentity,
+        identifier: authIdentifier(parsed.data.email),
+      },
+    ],
+    "auth.signIn.ratelimit",
+  );
+  if (limited) return limited;
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
@@ -90,10 +141,18 @@ export async function signUpAction(
   email: string,
   password: string,
 ): Promise<AuthResult> {
-  const parsed = credentialsSchema.safeParse({ email, password });
+  // The strict schema: strength is enforced when a password is *chosen*, never
+  // when it is used. See `lib/auth-validation.ts`.
+  const parsed = signUpSchema.safeParse({ email, password });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0].message };
   }
+
+  const limited = await guardAuth(
+    [{ rule: AUTH_RULES.signUpIp, identifier: await getClientIp() }],
+    "auth.signUp.ratelimit",
+  );
+  if (limited) return limited;
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) {

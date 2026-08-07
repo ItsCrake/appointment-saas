@@ -317,6 +317,49 @@ body {
   transform: rotate(var(--tilt, 0deg));
 }
 
+/* ---------------------------------------------------------------------------
+   Accessibility widget preferences, set as attributes on <html>.
+
+   Kept here rather than in the component so they apply to every surface at
+   once, including the tenant-branded booking page, without any component
+   needing to know the widget exists.
+--------------------------------------------------------------------------- */
+
+/* Raises text and border contrast without repainting the whole palette: the
+   page stays recognisable, which matters for a user switching it on mid-task. */
+[data-a11y-contrast] {
+  --a11y-ink: #000;
+}
+
+[data-a11y-contrast] body {
+  color: var(--a11y-ink);
+}
+
+[data-a11y-contrast] :is(p, span, li, dd, dt, label, a) {
+  color: var(--a11y-ink) !important;
+}
+
+[data-a11y-contrast] :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--a11y-ink);
+  outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-a11y-contrast] {
+    --a11y-ink: #fff;
+  }
+}
+
+/* The explicit opt-out, for someone whose OS preference is not set but who
+   still needs the movement to stop. */
+[data-a11y-still] *,
+[data-a11y-still] *::before,
+[data-a11y-still] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
 /* Top-edge navigation bar. Transform only, so it composites on the GPU and
    never lays out. The travel is 300% because the bar is a third of the track:
    -100% starts it fully off the leading edge, 300% clears the trailing one. */

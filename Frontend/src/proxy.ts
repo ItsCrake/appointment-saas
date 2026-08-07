@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 import { getSupabaseConfig } from "@/lib/supabase/config";
+import { hardenCookieOptions } from "@/lib/supabase/cookies";
 
 /**
  * Refreshes the auth cookie on every dashboard request and bounces anonymous
@@ -31,7 +32,10 @@ export async function proxy(request: NextRequest) {
         }
         response = NextResponse.next({ request });
         for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
+          // Same hardening as the server client. This is the path that
+          // actually refreshes the session on most requests, so a weaker
+          // cookie written here would undo the other one.
+          response.cookies.set(name, value, hardenCookieOptions(options));
         }
       },
     },

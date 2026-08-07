@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 324 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 337 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -798,6 +798,86 @@ Slots are grouped into morning / afternoon / evening by
 rendered in the business timezone by the availability engine, so grouping needs
 no timezone maths of its own and cannot disagree with the time on the button.
 Empty periods are dropped rather than rendered as bare headings.
+
+## Auth hardening
+
+**Session cookies are `httpOnly`, and that is enforced here rather than
+inherited.** `lib/supabase/cookies.ts` declares the five flags once and spreads
+them *after* whatever `@supabase/ssr` sends, so the library cannot weaken them.
+Both writers — the server client and `proxy.ts`, which is the one that actually
+refreshes on most requests — go through it, because two copies would drift.
+
+`httpOnly` is the flag that matters: it puts the session out of reach of
+`document.cookie`, so an XSS bug cannot read the token and walk off with the
+account. It is safe because **nothing in this app reads the session from the
+browser** — every check runs on the server. The browser Supabase client was
+deleted for the same reason: it was already unused, and leaving it invited a
+future client-side auth path that these flags would then break confusingly.
+
+There is no token in `localStorage` or `sessionStorage` anywhere in the
+codebase, and `getCurrentUser()` uses `getUser()` rather than `getSession()`,
+so the identity is revalidated against the auth server instead of trusted from
+a cookie.
+
+**Credential endpoints are rate limited** by `AUTH_RULES`, on two identifiers
+for the same reason bookings use two: an IP rule stops one host hammering, and
+a per-identity rule survives the rotating IP pool a real credential-stuffing
+run uses. The identity key is a **hash** of the email — otherwise the counter
+table becomes a list of everyone who ever mistyped a password, a list worth
+stealing created as a side effect of defending against theft. Counting happens
+*before* credentials are checked, so a wrong guess costs budget whether or not
+the account exists.
+
+> Server Actions are not HTTP handlers, so there is no status line to set. The
+> "429" travels in the payload as `rateLimited`. Like the booking guard, it
+> **fails open**: an unreachable counter table must not lock every customer out
+> of their own account.
+
+**Password strength applies at sign-up only.** Enforcing it on sign-in would
+lock out anyone who registered before the policy and leaks the policy to
+someone who has not guessed a valid password. Length carries most of the value,
+so the character classes are mild — a rule demanding symbols and mixed case
+mostly produces `Password1!` and a sticky note. Hebrew letters count, because
+the audience types Hebrew. `PASSWORD_RULES` drives both the live UI hints and
+the schema, and a test asserts the two agree: a form that ticks every box on a
+password the server then rejects is worse than no hint.
+
+## Legal surface
+
+`/legal/terms`, `/legal/privacy` and `/accessibility` are static prerenders
+built from `lib/legal-content.ts`. Copy lives as data for the same reason the
+pricing tiers do — it can be reviewed without touching a component, and the
+figures in it are pulled from the constants that actually govern behaviour
+(`TRIAL_DAYS`, `GRACE_DAYS`, `PRICING_TIERS`) rather than retyped. A refund
+window quoted in prose that disagrees with the code is worse than no document.
+
+> ⚠️ **The legal text is a template and has not been reviewed by a lawyer.**
+> It was written to be structurally complete and consistent with what the
+> software does. It must be reviewed by an Israeli lawyer before the platform
+> takes real money. `LEGAL_ENTITY` still has placeholder registration and
+> address fields, and the clauses most likely to need changing are the refund
+> terms and anything touching חוק הגנת הפרטיות and תיקון 13.
+
+**Consent is implicit, under the button.** No blocking checkbox: for a booking
+there is no account and no ongoing relationship, and a required tickbox in
+front of a one-minute flow costs completions without adding meaningful consent.
+`ConsentNote` is one component so the wording cannot drift between the two
+places it appears — two slightly different consent sentences is exactly what
+undermines the claim that consent was given.
+
+**The cookie banner stores its answer in `localStorage`, not a cookie**, which
+is the deliberate opposite of the session rule: it is a UI preference with no
+security meaning, and keeping it client-side keeps it out of every request
+header. The site uses strictly necessary cookies only, so it is a notice rather
+than a gate, and there is no reject button because there is nothing optional to
+switch off. A refuse button that disables nothing would be theatre.
+
+**The accessibility widget is deliberately small** — text scale, contrast,
+stop-motion. The overlay products that bolt on a screen-reader emulator are
+widely criticised for interfering with the assistive software a user already
+has. Preferences are attributes on `<html>` read by `globals.css`, and are
+never sent to the server: a record of who needs high contrast is
+health-adjacent information there is no reason to hold.
 
 ## Observability
 
