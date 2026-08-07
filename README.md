@@ -54,12 +54,15 @@ cancellations / no-shows.
 .
 ├── Frontend/          the entire application — there is no separate backend tier
 │   ├── src/
-│   │   ├── app/       routes: /, /[slug], /b/[token], /dashboard/*, /master/*, /login, /api/cron
+│   │   ├── app/       routes: /, /[slug], /b/[token], /dashboard/*, /master/*,
+│   │   │              /login, /legal/*, /accessibility, /api/cron
 │   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
 │   │   ├── db/        schema, migrations, queries/ (repository layer), scripts
 │   │   │              queries/admin.ts — the only cross-tenant queries
-│   │   ├── lib/       availability, notifications/, stats, rate limiting, env, ics
-│   │   │              branding, plans, platform-metrics, super-admin, impersonation
+│   │   ├── lib/       availability, notifications/, billing/, entitlements, stats
+│   │   │              rate limiting, auth-validation, app-url, env, ics
+│   │   │              branding, plans, legal-content, platform-metrics
+│   │   │              super-admin, impersonation, supabase/
 │   │   ├── test/      PGlite harness + factories
 │   │   └── proxy.ts   auth redirect guard (Next 16 deprecates middleware.ts)
 │   ├── e2e/           Playwright specs
@@ -256,11 +259,12 @@ Run `npm run check:env -- --production` before every deploy.
 
 ## Status
 
-Feature-complete through **Phase 7** (super-admin console), plus **stage 8a**
-of the billing milestone. Shipped since the MVP: per-business branding,
-subscription plans and pricing, the Bazman brand rollout, `/master`, a
-two-tier plan line whose entitlements are enforced server-side, and a
-monochrome rebuild of the landing page.
+Feature-complete through **Phase 7** (super-admin console) and **stages 8a–8c**
+of the billing milestone. Shipped since the MVP: per-business branding, a
+two-tier plan line with server-enforced entitlements, the full subscription
+lifecycle, a payment adapter behind a console provider, a monochrome rebuild of
+the landing page, a navigation-performance pass, auth hardening, and the
+Israeli legal surface.
 
 > The landing page is now a monochrome surface with a single violet-to-blue
 > accent gradient, while `/login`, `/dashboard/*` and `/master` still use the
@@ -280,9 +284,26 @@ company**, plus its webhook. Until one exists the console provider refuses in
 production, so nothing can be marked paid without money moving. Stages 8d–8e —
 see [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#phase-8--billing-in-progress).
 
-Still not built: payments/deposits, multi-staff resources, Google Calendar
-sync, recurring appointments, custom domains, service image upload (needs
-Supabase Storage), Sentry.
+Still not built: a real payment provider and its webhook (8d), the per-tenant
+cost model (8e), client deposits, multi-staff resources, Google Calendar sync,
+recurring appointments, custom domains, service image upload (needs Supabase
+Storage), Sentry.
+
+### Before this goes live
+
+Four things are known-outstanding and none of them are code:
+
+1. **Apply migration `0012`.** It has never been run against any database.
+   `npm run db:migrate`. Without it the whole billing lifecycle is inert.
+2. **Have a lawyer review the legal text.** `/legal/*` and `/accessibility`
+   are engineer-written templates, and `LEGAL_ENTITY` in
+   `lib/legal-content.ts` still carries placeholder ח.פ. and address fields.
+3. **Open a Twilio account**, or drop the SMS line from the Pro tier in
+   `lib/plans.ts`. `check:env --production` fails without the credentials,
+   because a tier that *sells* SMS must not deploy onto a provider that
+   silently delivers nothing.
+4. **Pick a payment provider** (Stripe, or an Israeli one with native
+   חשבונית מס). Only `getBillingProvider()` needs to learn the new name.
 
 > **Deploy note:** the Pro tier sells SMS reminders, so
 > `check:env --production` now requires Twilio credentials. Without a Twilio

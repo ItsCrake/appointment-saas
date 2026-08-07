@@ -24,15 +24,22 @@ Actions and route handlers _are_ the backend.
 
 ```
 Frontend/src/
-  app/            routes: /[slug], /b/[token], /dashboard/*, /master/*, /login, /api/cron
+  app/            routes: /[slug], /b/[token], /dashboard/*, /master/*, /login,
+                  /legal/*, /accessibility, /api/cron
+                  loading.tsx beside every dynamic route (see Navigation feedback)
   components/     booking/ (public), dashboard/ (owner), marketing/ (landing),
-                  master/ (platform console), ui/
+                  master/ (platform console), ui/ (cross-surface primitives)
   db/             schema, migrations, queries/ (repository layer), scripts
   lib/            availability, notifications/, stats, cancellation, env, ics
                   slot-periods (slot grouping), branding (theme/gallery/reviews)
-                  plans + landing-content (pricing and landing copy as data)
+                  plans + landing-content + legal-content (copy as data)
+                  entitlements (what a tier buys), billing/ (lifecycle, sweep,
+                  activate, provider adapter)
+                  auth-validation (password rules + hashed rate-limit key)
+                  app-url (which origin a shareable link uses)
                   brand (the wordmark, one place), platform-metrics (MRR etc.)
                   super-admin + master-session + impersonation (/master access)
+                  supabase/ (server client + forced cookie flags)
   test/           PGlite harness + factories
   proxy.ts        auth redirect guard (NOT middleware.ts — see below)
 ```
@@ -918,7 +925,12 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 ## Feature status
 
-**Done (Phases 0–7, bar the production deploy itself)**
+**Done (Phases 0–7 and billing stages 8a–8c, bar the production deploy)**
+
+> **Migration `0012` has never been applied to any database.** Everything the
+> billing lifecycle does is inert until `npm run db:migrate` runs against
+> production. This is the single highest-priority outstanding item.
+
 
 - Public booking: 3-step flow, no client login, `.ics` download, self-service
   cancellation at `/b/[token]` within the business's cancel window
@@ -953,6 +965,16 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   preview presented in a brand-gradient card with glass tiles, one accent
   gradient reserved for active and primary states, soft geometry throughout,
   and a gradient closing banner
+- Payment adapter: `BillingProvider` resolved at call time, a console provider
+  that refuses in production, `activateSubscription` as the single activation
+  path, and checkout/cycle-change UI
+- Navigation performance: `loading.tsx` on every dynamic route, which is what
+  restores prefetching, plus a Suspense-driven top progress bar and
+  `useLinkStatus` indicators
+- Auth hardening: forced `httpOnly` session cookies, rate-limited credential
+  endpoints keyed on a hashed identity, sign-up password strength
+- Legal surface: `/legal/terms`, `/legal/privacy`, `/accessibility`, a cookie
+  notice, implicit consent under the primary CTAs, and an accessibility widget
 
 **Not built**
 
@@ -969,6 +991,14 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Sentry — `reportError` is the single call site to wire it into
 - E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
   suite, not through a browser
+- **Legal review.** `/legal/*` and `/accessibility` are engineer-written
+  templates and `LEGAL_ENTITY` still holds placeholder registration and address
+  fields. They must be reviewed by an Israeli lawyer before real money moves.
+- Password reset. Supabase can send the email, but no `/login` flow calls it,
+  so an owner who forgets a password currently has no self-service route.
+- The teal/monochrome split: `/` is monochrome while `/login`, `/dashboard/*`
+  and `/master` are still teal, so the marketing site and the app look like two
+  products. Deliberate scope, to be resolved in one pass.
 - SMS/WhatsApp are code-complete but **unproven — no Twilio account yet**. The
   routing is wired (`clientDelivery()` picks SMS for Pro), so the only thing
   between a Pro tenant and real SMS is credentials. `check:env --production`

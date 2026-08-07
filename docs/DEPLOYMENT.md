@@ -67,14 +67,25 @@ pointing at production:
 npm --prefix Frontend run db:migrate
 ```
 
-Verify afterwards that RLS is on for all seven tables and that no policy is
+> ⚠️ **Migration `0012` has never been applied to any database.** It widens the
+> subscription status set, rewrites retired `business` plan rows up to `pro`,
+> and creates `subscription_events` and `invoices`. Until it runs, the entire
+> billing lifecycle is inert: no trial lapses, nothing is ever frozen, and
+> `/dashboard/billing` cannot read its own tables.
+
+Verify afterwards that RLS is on for all nine tables and that no policy is
 reachable by `anon` — the anon key is public, and RLS is the only thing
 standing between tenants:
 
 ```sql
--- Expect 7 rows, all rls_enabled = true.
+-- Expect 9 rows, all rls_enabled = true.
 select tablename, rowsecurity as rls_enabled
 from pg_tables where schemaname = 'public' order by tablename;
+
+-- Expect exactly one row: invoices / SELECT. Owners read their invoices and
+-- never write them; anything else here means someone can mark themselves paid.
+select tablename, cmd from pg_policies
+where schemaname = 'public' and tablename = 'invoices';
 
 -- Expect ZERO rows.
 select tablename, policyname, roles from pg_policies
