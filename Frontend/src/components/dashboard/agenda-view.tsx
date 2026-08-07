@@ -70,7 +70,7 @@ export function AgendaView({
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl bg-neutral-200/70 p-0.5 dark:bg-neutral-800">
+        <div className="flex rounded-xl bg-zinc-200/70 p-0.5 dark:bg-zinc-800">
           {(["day", "week"] as const).map((value) => (
             <Link
               key={value}
@@ -79,8 +79,8 @@ export function AgendaView({
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                 view === value
-                  ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
-                  : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200",
+                  ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
               )}
             >
               {value === "day" ? "יום" : "שבוע"}
@@ -105,7 +105,7 @@ export function AgendaView({
         {selectedDate !== today ? (
           <Link
             href={`/dashboard?view=${view}`}
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300"
+            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
           >
             היום
           </Link>
@@ -116,7 +116,7 @@ export function AgendaView({
           onClick={() =>
             setDialogDate(view === "week" ? days[0] : selectedDate)
           }
-          className="ms-auto inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-neutral-800"
+          className="ms-auto inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-800"
         >
           <Plus className="size-4" aria-hidden />
           תור ידני
@@ -130,26 +130,23 @@ export function AgendaView({
           return (
             <section key={day}>
               <div className="mb-2 flex items-baseline justify-between gap-2">
-                <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {day === today ? "היום" : `יום ${weekdayLabel(day)}`}
-                  <span className="ms-2 text-xs font-normal text-neutral-400">
+                  <span className="ms-2 text-xs font-normal text-zinc-400">
                     {dayOfMonth(day)}/{month(day)}
                   </span>
                 </h2>
                 {dayAppointments.length > 0 ? (
-                  <span className="text-xs text-neutral-400">
+                  <span className="text-xs text-zinc-400">
                     {dayAppointments.length} תורים
                   </span>
                 ) : null}
               </div>
 
               {dayAppointments.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-200 bg-white/50 px-4 py-8 text-center dark:border-neutral-800 dark:bg-neutral-900/40">
-                  <CalendarOff
-                    className="size-5 text-neutral-300"
-                    aria-hidden
-                  />
-                  <p className="text-xs text-neutral-500">אין תורים ביום זה</p>
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-200 bg-white/50 px-4 py-8 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <CalendarOff className="size-5 text-zinc-300" aria-hidden />
+                  <p className="text-xs text-zinc-500">אין תורים ביום זה</p>
 
                   {/*
                     Without this an owner whose bookings are all days away sees
@@ -175,7 +172,7 @@ export function AgendaView({
                   <button
                     type="button"
                     onClick={() => setDialogDate(day)}
-                    className="text-xs font-semibold text-neutral-900 underline underline-offset-4 dark:text-neutral-100"
+                    className="text-xs font-semibold text-zinc-900 underline underline-offset-4 dark:text-zinc-100"
                   >
                     הוספת תור ידני
                   </button>
@@ -219,7 +216,7 @@ function ArrowLink({
     <Link
       href={href}
       aria-label={label}
-      className="rounded-lg border border-neutral-200 bg-white p-2 text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+      className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
     >
       {icon}
     </Link>

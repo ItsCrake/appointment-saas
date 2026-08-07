@@ -12,7 +12,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
     <section aria-labelledby="reviews-heading" className="px-5 pt-8">
       <h2
         id="reviews-heading"
-        className="mb-3 text-base font-semibold text-neutral-900 dark:text-neutral-100"
+        className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-100"
       >
         מה הלקוחות אומרים
       </h2>
@@ -23,7 +23,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
         </p>
         <div>
           <Stars value={average} />
-          <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+          <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
             {reviews.length} חוות דעת
           </p>
         </div>
@@ -33,15 +33,15 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
         {reviews.map((review) => (
           <li
             key={review.id}
-            className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+            className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
           >
             <div className="flex items-baseline justify-between gap-3">
-              <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {review.clientName}
               </p>
               <time
                 dateTime={review.date}
-                className="shrink-0 text-xs text-neutral-400 tabular-nums"
+                className="shrink-0 text-xs text-zinc-400 tabular-nums"
               >
                 {review.date.split("-").reverse().join("/")}
               </time>
@@ -52,7 +52,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
             </div>
 
             {review.comment ? (
-              <p className="mt-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                 {review.comment}
               </p>
             ) : null}
@@ -83,7 +83,7 @@ function Stars({ value, size = "md" }: { value: number; size?: "sm" | "md" }) {
             size === "sm" ? "size-3.5" : "size-4",
             star <= Math.round(value)
               ? "fill-amber-400 text-amber-400"
-              : "fill-neutral-200 text-neutral-200 dark:fill-neutral-700 dark:text-neutral-700",
+              : "fill-zinc-200 text-zinc-200 dark:fill-zinc-700 dark:text-zinc-700",
           )}
         />
       ))}

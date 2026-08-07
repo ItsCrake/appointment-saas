@@ -67,16 +67,16 @@ export default async function AgendaPage({ searchParams }: PageProps) {
     <div>
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
             היומן
           </h1>
-          <p className="mt-0.5 text-sm text-neutral-500">{business.name}</p>
+          <p className="mt-0.5 text-sm text-zinc-500">{business.name}</p>
         </div>
 
         <Link
           href={`/${business.slug}`}
           target="_blank"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           <ExternalLink className="size-3.5" aria-hidden />
           עמוד ההזמנות

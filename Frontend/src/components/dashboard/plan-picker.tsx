@@ -56,7 +56,7 @@ export function PlanPicker({
       <div
         role="radiogroup"
         aria-label="מחזור חיוב"
-        className="inline-flex items-center rounded-full border border-neutral-300 p-1 dark:border-neutral-700"
+        className="inline-flex items-center rounded-full border border-zinc-300 p-1 dark:border-zinc-700"
       >
         {BILLING_CYCLES.map((value) => (
           <button
@@ -67,10 +67,10 @@ export function PlanPicker({
             onClick={() => setCycle(value)}
             className={cn(
               "inline-flex h-8 items-center rounded-full px-4 text-xs font-semibold transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
+              "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
               cycle === value
-                ? "bg-teal-700 text-white"
-                : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100",
+                ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
+                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
             )}
           >
             {CYCLE_LABEL[value]}
@@ -91,31 +91,31 @@ export function PlanPicker({
               className={cn(
                 "flex flex-col rounded-2xl border p-5",
                 isCurrent
-                  ? "border-teal-700 ring-1 ring-teal-700"
-                  : "border-neutral-200 dark:border-neutral-800",
+                  ? "border-zinc-950 ring-1 ring-zinc-950 dark:border-zinc-50 dark:ring-zinc-50"
+                  : "border-zinc-200 dark:border-zinc-800",
               )}
             >
               <div className="flex items-baseline justify-between gap-2">
-                <h3 className="font-bold text-neutral-900 dark:text-neutral-50">
+                <h3 className="font-bold text-zinc-900 dark:text-zinc-50">
                   {tier.name}
                 </h3>
                 {isCurrent ? (
-                  <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800 dark:bg-teal-950 dark:text-teal-200">
+                  <span className="rounded-full bg-[image:var(--brand-gradient)] px-2.5 py-1 text-[10px] font-bold text-white">
                     המסלול שלכם
                   </span>
                 ) : null}
               </div>
 
               <p className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-2xl font-bold text-neutral-900 tabular-nums dark:text-neutral-50">
+                <span className="text-2xl font-bold text-zinc-900 tabular-nums dark:text-zinc-50">
                   {formatPrice(price)}
                 </span>
-                <span className="text-xs text-neutral-500">
+                <span className="text-xs text-zinc-500">
                   {cycle === "yearly" ? "לשנה" : "לחודש"}
                 </span>
               </p>
               {cycle === "yearly" ? (
-                <p className="mt-0.5 text-[11px] text-teal-800 dark:text-teal-300">
+                <p className="mt-0.5 text-[11px] font-medium text-zinc-500">
                   חיסכון {yearlySavingsPercent(tier)}%
                 </p>
               ) : null}
@@ -124,10 +124,10 @@ export function PlanPicker({
                 {tier.features.map((feature) => (
                   <li
                     key={feature}
-                    className="flex items-start gap-2 text-xs text-neutral-600 dark:text-neutral-400"
+                    className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400"
                   >
                     <Check
-                      className="mt-0.5 size-3.5 shrink-0 text-teal-700 dark:text-teal-400"
+                      className="mt-0.5 size-3.5 shrink-0 text-zinc-950 dark:text-zinc-50"
                       aria-hidden
                     />
                     {feature}
@@ -141,11 +141,11 @@ export function PlanPicker({
                 disabled={isPending || !live}
                 className={cn(
                   "mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none",
+                  "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-white",
                   "disabled:cursor-not-allowed disabled:opacity-50",
                   isCurrent
-                    ? "border border-neutral-300 text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                    : "bg-teal-700 text-white hover:bg-teal-800",
+                    ? "border border-zinc-300 text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    : "bg-[image:var(--brand-gradient)] text-white transition-opacity hover:opacity-90",
                 )}
               >
                 {busy ? (
@@ -161,7 +161,7 @@ export function PlanPicker({
       {!live ? (
         // Said once, here, rather than letting every disabled button be its own
         // little mystery.
-        <p className="mt-4 text-xs leading-relaxed text-neutral-500">
+        <p className="mt-4 text-xs leading-relaxed text-zinc-500">
           תשלום מקוון עדיין אינו מחובר, ולכן הכפתורים מושבתים. לשינוי מסלול צרו
           קשר ונטפל בזה ידנית.
         </p>

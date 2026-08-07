@@ -54,7 +54,7 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
       <div className="relative mb-4">
         <Search
           aria-hidden
-          className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400"
+          className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400"
         />
         <label htmlFor="client-search" className="sr-only">
           חיפוש לקוח
@@ -72,7 +72,7 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
             type="button"
             onClick={() => setQuery("")}
             aria-label="ניקוי החיפוש"
-            className="absolute end-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-neutral-400 transition-colors hover:text-neutral-700 dark:hover:text-neutral-200"
+            className="absolute end-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
           >
             <X className="size-4" />
           </button>
@@ -80,7 +80,7 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
       </div>
 
       {/* Announced, so a screen reader learns the list shrank as they type. */}
-      <p aria-live="polite" className="mb-3 text-xs text-neutral-500">
+      <p aria-live="polite" className="mb-3 text-xs text-zinc-500">
         {query
           ? `${filtered.length} מתוך ${clients.length} לקוחות`
           : `${clients.length} לקוחות`}
@@ -97,7 +97,7 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
           {/* Desktop: a real table. */}
           <div className={cn("hidden overflow-hidden md:block", cardClass)}>
             <table className="w-full text-start text-sm">
-              <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-800/50">
+              <thead className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50">
                 <tr>
                   <Th>שם</Th>
                   <Th>טלפון</Th>
@@ -106,21 +106,21 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                   <Th>פעולות</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {filtered.map((client) => (
                   <tr
                     key={client.clientPhone}
-                    className="transition-colors hover:bg-teal-50/40 dark:hover:bg-neutral-800/40"
+                    className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                   >
                     <Td>
-                      <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
                         {client.clientName}
                       </span>
                     </Td>
                     <Td>
                       <span
                         dir="ltr"
-                        className="text-neutral-600 tabular-nums dark:text-neutral-400"
+                        className="text-zinc-600 tabular-nums dark:text-zinc-400"
                       >
                         {client.clientPhone}
                       </span>
@@ -129,7 +129,7 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                       <span className="tabular-nums">{client.bookings}</span>
                     </Td>
                     <Td>
-                      <span className="text-neutral-500 tabular-nums">
+                      <span className="text-zinc-500 tabular-nums">
                         {client.lastVisitDate}
                       </span>
                     </Td>
@@ -148,16 +148,16 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
               <li key={client.clientPhone} className={cn("p-4", cardClass)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">
+                    <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
                       {client.clientName}
                     </p>
-                    <p className="mt-0.5 text-xs text-neutral-500">
+                    <p className="mt-0.5 text-xs text-zinc-500">
                       {client.bookings} תורים · ביקור אחרון{" "}
                       {client.lastVisitDate}
                     </p>
                     <p
                       dir="ltr"
-                      className="mt-0.5 text-start text-xs text-neutral-400 tabular-nums"
+                      className="mt-0.5 text-start text-xs text-zinc-400 tabular-nums"
                     >
                       {client.clientPhone}
                     </p>
@@ -183,7 +183,7 @@ function ContactShortcuts({ client }: { client: DirectoryClient }) {
       <a
         href={`tel:${client.clientPhone}`}
         aria-label={`התקשרות ל${client.clientName}`}
-        className="inline-flex size-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-600 transition-colors hover:border-teal-700 hover:text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none dark:border-neutral-700 dark:text-neutral-400 dark:hover:text-teal-300"
+        className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition-colors hover:border-zinc-950 hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-100 dark:hover:text-zinc-50 dark:focus-visible:ring-white"
       >
         <Phone className="size-4" aria-hidden />
       </a>
@@ -192,7 +192,7 @@ function ContactShortcuts({ client }: { client: DirectoryClient }) {
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`וואטסאפ ל${client.clientName}`}
-        className="inline-flex size-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-600 transition-colors hover:border-teal-700 hover:text-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none dark:border-neutral-700 dark:text-neutral-400 dark:hover:text-teal-300"
+        className="inline-flex size-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition-colors hover:border-zinc-950 hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-100 dark:hover:text-zinc-50 dark:focus-visible:ring-white"
       >
         <MessageCircle className="size-4" aria-hidden />
       </a>

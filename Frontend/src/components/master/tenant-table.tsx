@@ -88,7 +88,7 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
       <div className="relative mb-4">
         <Search
           aria-hidden
-          className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+          className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"
         />
         <label htmlFor="tenant-search" className="sr-only">
           חיפוש עסק
@@ -103,7 +103,7 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
         />
       </div>
 
-      <p aria-live="polite" className="mb-3 text-xs text-slate-500">
+      <p aria-live="polite" className="mb-3 text-xs text-zinc-500">
         {query
           ? `${filtered.length} מתוך ${tenants.length}`
           : `${tenants.length} עסקים`}
@@ -112,7 +112,7 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
       {notice ? (
         <p
           role="status"
-          className="mb-3 rounded-lg bg-teal-950/60 px-3 py-2 text-xs text-teal-300"
+          className="mb-3 rounded-lg bg-emerald-950/60 px-3 py-2 text-xs text-emerald-300"
         >
           {notice}
         </p>
@@ -134,7 +134,7 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
       ) : (
         <div className={cn("overflow-x-auto", panel)}>
           <table className="w-full min-w-[900px] text-start text-sm">
-            <thead className="border-b border-slate-800 text-xs text-slate-500">
+            <thead className="border-b border-zinc-800 text-xs text-zinc-500">
               <tr>
                 <Th>עסק</Th>
                 <Th>בעלים</Th>
@@ -145,32 +145,32 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                 <Th>פעולות</Th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/70">
+            <tbody className="divide-y divide-zinc-800/70">
               {filtered.map((t) => {
                 const busy = pendingId === t.id;
                 return (
                   <tr
                     key={t.id}
-                    className="transition-colors hover:bg-slate-800/30"
+                    className="transition-colors hover:bg-zinc-800/30"
                   >
                     <Td>
-                      <span className="block font-medium text-slate-100">
+                      <span className="block font-medium text-zinc-100">
                         {t.name}
                       </span>
                       <span
                         dir="ltr"
-                        className="block text-[11px] text-slate-500"
+                        className="block text-[11px] text-zinc-500"
                       >
                         /{t.slug}
                       </span>
                     </Td>
                     <Td>
-                      <span dir="ltr" className="text-xs text-slate-400">
+                      <span dir="ltr" className="text-xs text-zinc-400">
                         {t.ownerEmail ?? "—"}
                       </span>
                     </Td>
                     <Td>
-                      <span className="text-xs text-slate-400 tabular-nums">
+                      <span className="text-xs text-zinc-400 tabular-nums">
                         {t.createdLabel}
                       </span>
                     </Td>
@@ -185,14 +185,14 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                           "text-xs tabular-nums",
                           t.trialUrgent
                             ? "font-semibold text-amber-300"
-                            : "text-slate-400",
+                            : "text-zinc-400",
                         )}
                       >
                         {t.trialLabel}
                       </span>
                     </Td>
                     <Td>
-                      <span className="text-xs text-slate-300 tabular-nums">
+                      <span className="text-xs text-zinc-300 tabular-nums">
                         {t.bookings}
                       </span>
                     </Td>

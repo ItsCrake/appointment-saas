@@ -190,7 +190,7 @@ Run from `Frontend/`.
 
 | Route                     | Access        | Notes                                           |
 | ------------------------- | ------------- | ----------------------------------------------- |
-| `/`                       | public        | Marketing landing page, static, no DB, monochrome |
+| `/`                       | public        | Marketing landing page, static, no DB           |
 | `/[slug]`                 | public        | Booking flow: service → date & time → details   |
 | `/b/[token]`              | token         | Self-service cancellation, `noindex`            |
 | `/login`                  | public        | Owner sign-in / sign-up                         |
@@ -227,6 +227,12 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 npm run verify     # env, lint, types, 355 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
+
+> **Two E2E specs are currently red**, and were before the most recent work —
+> a stale selector in `e2e/helpers.ts` and an unknown slug answering 200 rather
+> than 404. `npm run verify` does not run Playwright and is unaffected. Both
+> are described in
+> [ARCHITECTURE.md](docs/ARCHITECTURE.md#feature-status).
 
 Unit tests run against **PGlite applying the real migration files**, so the
 exclusion constraint, enum casts and RLS policies are genuinely exercised
@@ -268,14 +274,16 @@ Feature-complete through **Phase 7** (super-admin console) and **stages 8a–8c*
 of the billing milestone. Shipped since the MVP: per-business branding, a
 two-tier plan line with server-enforced entitlements, the full subscription
 lifecycle, a payment adapter behind a console provider, a monochrome rebuild of
-the landing page, a navigation-performance pass, auth hardening, and the
-Israeli legal surface.
+the landing page, a navigation-performance pass, auth hardening, the Israeli
+legal surface, self-service password reset, and one palette across the product.
 
-> The landing page is now a monochrome surface with a single violet-to-blue
-> accent gradient, while `/login`, `/dashboard/*` and `/master` still use the
-> teal chrome. The two look like different products until that is reconciled in
-> one pass. See
-> [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-landing-page-is-monochrome-plus-one-gradient-nothing-else-is).
+> **The whole product now runs on one palette.** Teal is gone from `/login`,
+> `/dashboard/*` and `/master`, and `neutral` and `slate` were collapsed into
+> `zinc`, so the marketing site and the app are no longer two different-looking
+> products. Ink carries every primary action and the violet-to-blue gradient is
+> reserved for what is *active* or *recommended*. Per-business `--accent` on
+> `/[slug]` is untouched — that is the tenant's identity, not the platform's.
+> See [ARCHITECTURE.md](docs/ARCHITECTURE.md#one-palette-one-ramp).
 
 **The milestone in progress is billing.** Plans are enforced and the lifecycle
 runs: a trial hands over the full Pro product, a lapsed trial drops to

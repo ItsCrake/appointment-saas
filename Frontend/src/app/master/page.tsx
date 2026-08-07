@@ -50,8 +50,8 @@ export default async function MasterOverviewPage() {
   return (
     <div>
       <header className="mb-5">
-        <h1 className="text-xl font-bold text-slate-50">סקירת פלטפורמה</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h1 className="text-xl font-bold text-zinc-50">סקירת פלטפורמה</h1>
+        <p className="mt-0.5 text-sm text-zinc-500">
           מצב כל העסקים במערכת, בזמן אמת
         </p>
       </header>
@@ -69,7 +69,7 @@ export default async function MasterOverviewPage() {
               label="עסקים פעילים"
               value={String(breakdown.active)}
               hint={`${breakdown.total} סה״כ · ${breakdown.trialing} בניסיון`}
-              tone="teal"
+              tone="brand"
             />
             <MetricCard
               icon={<Wallet className="size-3.5" aria-hidden />}
@@ -77,7 +77,7 @@ export default async function MasterOverviewPage() {
               value={formatPrice(mrr)}
               // Nothing bills yet, so the wording never says "revenue".
               hint={`${formatPrice(pipeline)} נוספים בצנרת הניסיון`}
-              tone="teal"
+              tone="brand"
             />
             <MetricCard
               icon={<Percent className="size-3.5" aria-hidden />}
@@ -103,7 +103,7 @@ export default async function MasterOverviewPage() {
             />
           </div>
 
-          <h2 className="mt-8 mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <h2 className="mt-8 mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-300">
             <TrendingUp className="size-4" aria-hidden />
             דופק המערכת — תורים שנקבעו
           </h2>
@@ -127,7 +127,7 @@ export default async function MasterOverviewPage() {
           </div>
 
           <p
-            className={`${panel} mt-6 p-4 text-xs leading-relaxed text-slate-500`}
+            className={`${panel} mt-6 p-4 text-xs leading-relaxed text-zinc-500`}
           >
             ההכנסה מחושבת לפי המסלול שנבחר בכל עסק. אין עדיין חיוב בפועל — המספר
             מייצג את הפוטנציאל של הרשימה הנוכחית, לא כסף שנגבה.

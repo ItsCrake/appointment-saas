@@ -35,7 +35,7 @@ export function ResetPasswordForm() {
       <div>
         <label
           htmlFor="new-password"
-          className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+          className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
         >
           סיסמה חדשה
         </label>
@@ -56,7 +56,7 @@ export function ResetPasswordForm() {
       <div>
         <label
           htmlFor="confirm-password"
-          className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+          className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
         >
           אימות סיסמה
         </label>
@@ -89,7 +89,7 @@ export function ResetPasswordForm() {
         )}
       </button>
 
-      <p className="text-center text-[11px] leading-relaxed text-neutral-500">
+      <p className="text-center text-[11px] leading-relaxed text-zinc-500">
         לאחר השמירה תנותקו מכל שאר המכשירים המחוברים לחשבון.
       </p>
     </form>

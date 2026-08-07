@@ -38,8 +38,8 @@ export default async function MasterBusinessesPage() {
   return (
     <div>
       <header className="mb-5">
-        <h1 className="text-xl font-bold text-slate-50">עסקים</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h1 className="text-xl font-bold text-zinc-50">עסקים</h1>
+        <p className="mt-0.5 text-sm text-zinc-500">
           חיפוש, כניסת תמיכה, הארכת ניסיון והקפאה
         </p>
       </header>

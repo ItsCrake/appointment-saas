@@ -43,7 +43,7 @@ function selectOnFocus(event: React.FocusEvent<HTMLInputElement>) {
 }
 
 const FIELD =
-  "h-10 w-full rounded-lg border border-neutral-200 bg-white px-2.5 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
+  "h-10 w-full rounded-lg border border-zinc-200 bg-white px-2.5 text-sm text-zinc-900 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";
 
 export function SetupServicesStep({
   existing,
@@ -99,7 +99,7 @@ export function SetupServicesStep({
 
   return (
     <div>
-      <p className="mb-4 rounded-xl bg-neutral-50 px-4 py-3 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+      <p className="mb-4 rounded-xl bg-zinc-50 px-4 py-3 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
         התחלנו עם שלוש הצעות נפוצות. ערכו, מחקו או הוסיפו — אפשר לשנות מתי
         שתרצו.
       </p>
@@ -108,7 +108,7 @@ export function SetupServicesStep({
         {drafts.map((draft, index) => (
           <li
             key={index}
-            className="rounded-2xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
+            className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
           >
             <div className="mb-2 flex items-center gap-2">
               <input
@@ -121,7 +121,7 @@ export function SetupServicesStep({
                 type="button"
                 onClick={() => remove(index)}
                 aria-label="הסרת שירות"
-                className="shrink-0 rounded-lg border border-neutral-200 p-2 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-neutral-700"
+                className="shrink-0 rounded-lg border border-zinc-200 p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-zinc-700"
               >
                 <Trash2 className="size-4" />
               </button>
@@ -129,7 +129,7 @@ export function SetupServicesStep({
 
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-[11px] text-neutral-500">
+                <span className="mb-1 block text-[11px] text-zinc-500">
                   דקות
                 </span>
                 <input
@@ -144,7 +144,7 @@ export function SetupServicesStep({
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-[11px] text-neutral-500">
+                <span className="mb-1 block text-[11px] text-zinc-500">
                   מחיר ₪
                 </span>
                 <input
@@ -164,7 +164,7 @@ export function SetupServicesStep({
                 "mt-2 flex items-center gap-1.5 text-[11px]",
                 alreadySaved.has(draft.name.trim())
                   ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-neutral-400",
+                  : "text-zinc-400",
               )}
             >
               {alreadySaved.has(draft.name.trim()) ? (
@@ -186,7 +186,7 @@ export function SetupServicesStep({
       <button
         type="button"
         onClick={add}
-        className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-300 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         <Plus className="size-4" aria-hidden />
         שירות נוסף
@@ -199,7 +199,7 @@ export function SetupServicesStep({
             onSubmit(toServices().filter((service) => service.name.trim()))
           }
           disabled={pending}
-          className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+          className="h-12 flex-1 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
         >
           המשך לשעות
         </button>
@@ -207,7 +207,7 @@ export function SetupServicesStep({
           type="button"
           onClick={onBack}
           disabled={pending}
-          className="h-12 rounded-xl border border-neutral-300 px-5 text-sm font-semibold text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300"
+          className="h-12 rounded-xl border border-zinc-300 px-5 text-sm font-semibold text-zinc-700 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300"
         >
           חזרה
         </button>

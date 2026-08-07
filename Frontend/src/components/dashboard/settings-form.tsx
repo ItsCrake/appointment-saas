@@ -82,7 +82,7 @@ export function SettingsForm({ business }: { business: Business }) {
           hint="שינוי הכתובת ישבור קישורים ישנים שכבר שיתפתם."
         >
           <div className="flex items-center gap-2" dir="ltr">
-            <span className="shrink-0 text-sm text-neutral-400">/</span>
+            <span className="shrink-0 text-sm text-zinc-400">/</span>
             <input
               id="slug"
               value={form.slug}
@@ -94,7 +94,7 @@ export function SettingsForm({ business }: { business: Business }) {
               target="_blank"
               rel="noreferrer"
               aria-label="פתיחת עמוד ההזמנות"
-              className="shrink-0 rounded-lg border border-neutral-200 p-2.5 text-neutral-500 hover:text-neutral-900 dark:border-neutral-700"
+              className="shrink-0 rounded-lg border border-zinc-200 p-2.5 text-zinc-500 hover:text-zinc-900 dark:border-zinc-700"
             >
               <ExternalLink className="size-4" />
             </a>
@@ -170,7 +170,7 @@ export function SettingsForm({ business }: { business: Business }) {
           </Field>
         </div>
 
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-zinc-500">
           אזור זמן: <span className="font-medium">{business.timezone}</span>
         </p>
       </Section>
@@ -224,7 +224,7 @@ export function SettingsForm({ business }: { business: Business }) {
       <button
         type="submit"
         disabled={pending}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60 md:w-auto md:px-8"
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60 md:w-auto md:px-8"
       >
         {pending ? (
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -236,7 +236,7 @@ export function SettingsForm({ business }: { business: Business }) {
 }
 
 const FIELD =
-  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
+  "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";
 
 function Section({
   title,
@@ -246,8 +246,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-      <h2 className="mb-4 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+    <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 className="mb-4 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         {title}
       </h2>
       <div className="space-y-4">{children}</div>
@@ -270,12 +270,12 @@ function Field({
     <div>
       <label
         htmlFor={htmlFor}
-        className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400"
+        className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
       >
         {label}
       </label>
       {children}
-      {hint ? <p className="mt-1.5 text-xs text-neutral-400">{hint}</p> : null}
+      {hint ? <p className="mt-1.5 text-xs text-zinc-400">{hint}</p> : null}
     </div>
   );
 }

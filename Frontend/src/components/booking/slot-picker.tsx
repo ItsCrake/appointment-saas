@@ -49,11 +49,11 @@ export function SlotPicker({
               <section key={period} aria-labelledby={`period-${period}`}>
                 <h3
                   id={`period-${period}`}
-                  className="mb-2.5 flex items-center gap-2 text-xs font-semibold tracking-wide text-neutral-500 uppercase"
+                  className="mb-2.5 flex items-center gap-2 text-xs font-semibold tracking-wide text-zinc-500 uppercase"
                 >
                   <Icon className={cn("size-4", tint)} aria-hidden />
                   {label}
-                  <span className="font-normal text-neutral-400 tabular-nums">
+                  <span className="font-normal text-zinc-400 tabular-nums">
                     ({periodSlots.length})
                   </span>
                 </h3>
@@ -79,7 +79,7 @@ export function SlotPicker({
                           "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
                           active
                             ? "border-(--accent) bg-(--accent) text-(--accent-contrast) shadow-sm"
-                            : "border-neutral-200 bg-white text-neutral-800 hover:border-(--accent) hover:shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
+                            : "border-zinc-200 bg-white text-zinc-800 hover:border-(--accent) hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200",
                         )}
                       >
                         {slot.label}
@@ -123,17 +123,17 @@ function SlotSkeleton() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-300 px-4 py-12 text-center dark:border-neutral-700">
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-300 px-4 py-12 text-center dark:border-zinc-700">
       <div
         aria-hidden
-        className="mb-1 flex size-11 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800"
+        className="mb-1 flex size-11 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800"
       >
-        <CalendarOff className="size-5 text-neutral-400" />
+        <CalendarOff className="size-5 text-zinc-400" />
       </div>
-      <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+      <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
         אין מועדים פנויים ביום זה
       </p>
-      <p className="max-w-xs text-xs leading-relaxed text-neutral-500">
+      <p className="max-w-xs text-xs leading-relaxed text-zinc-500">
         נסו לבחור יום אחר בסרגל התאריכים למעלה — בדרך כלל יש מקום תוך
         יום-יומיים.
       </p>

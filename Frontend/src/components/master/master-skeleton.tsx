@@ -21,21 +21,21 @@ export function MasterSkeleton({
       <RouteProgress />
 
       <div className="mb-5 space-y-2">
-        <div className="h-6 w-44 rounded-lg bg-slate-800" />
-        <div className="h-4 w-60 rounded-md bg-slate-800/70" />
+        <div className="h-6 w-44 rounded-lg bg-zinc-800" />
+        <div className="h-4 w-60 rounded-md bg-zinc-800/70" />
       </div>
 
       {cards > 0 ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {Array.from({ length: cards }).map((_, i) => (
-            <div key={i} className="h-24 rounded-xl bg-slate-800/70" />
+            <div key={i} className="h-24 rounded-xl bg-zinc-800/70" />
           ))}
         </div>
       ) : null}
 
       <div className="mt-6 space-y-2">
         {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className="h-14 rounded-xl bg-slate-800/60" />
+          <div key={i} className="h-14 rounded-xl bg-zinc-800/60" />
         ))}
       </div>
 

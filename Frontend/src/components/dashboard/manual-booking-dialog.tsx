@@ -83,15 +83,15 @@ export function ManualBookingDialog({
       <Backdrop onClose={onClose}>
         <div
           ref={dialogRef}
-          className="w-full max-w-md rounded-2xl bg-white p-6 text-center dark:bg-neutral-900"
+          className="w-full max-w-md rounded-2xl bg-white p-6 text-center dark:bg-zinc-900"
         >
-          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">
             צריך להגדיר לפחות שירות אחד לפני הוספת תור ידני.
           </p>
           <button
             type="button"
             onClick={onClose}
-            className="mt-4 h-10 w-full rounded-xl border border-neutral-300 text-sm font-semibold dark:border-neutral-700"
+            className="mt-4 h-10 w-full rounded-xl border border-zinc-300 text-sm font-semibold dark:border-zinc-700"
           >
             סגירה
           </button>
@@ -107,12 +107,12 @@ export function ManualBookingDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="manual-booking-title"
-        className="animate-step max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900"
+        className="animate-step max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-zinc-900"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2
             id="manual-booking-title"
-            className="text-base font-bold text-neutral-900 dark:text-neutral-100"
+            className="text-base font-bold text-zinc-900 dark:text-zinc-100"
           >
             תור ידני
           </h2>
@@ -120,13 +120,13 @@ export function ManualBookingDialog({
             type="button"
             onClick={onClose}
             aria-label="סגירה"
-            className="rounded-lg p-1 text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+            className="rounded-lg p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             <X className="size-5" />
           </button>
         </div>
 
-        <p className="mb-4 rounded-lg bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:bg-neutral-800">
+        <p className="mb-4 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800">
           תור ידני נוצר גם מחוץ לשעות הפעילות. חפיפה עם תור קיים תיחסם.
         </p>
 
@@ -226,7 +226,7 @@ export function ManualBookingDialog({
             <button
               type="submit"
               disabled={pending}
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
             >
               {pending ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -237,7 +237,7 @@ export function ManualBookingDialog({
               type="button"
               onClick={onClose}
               disabled={pending}
-              className="h-11 rounded-xl border border-neutral-300 px-4 text-sm font-semibold text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300"
+              className="h-11 rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-700 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300"
             >
               ביטול
             </button>
@@ -249,7 +249,7 @@ export function ManualBookingDialog({
 }
 
 const FIELD =
-  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
+  "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";
 
 function Backdrop({
   children,
@@ -281,7 +281,7 @@ function Field({
 }) {
   return (
     <label className="block" htmlFor={htmlFor}>
-      <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+      <span className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
         {label}
       </span>
       {children}

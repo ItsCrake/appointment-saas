@@ -35,7 +35,7 @@ export default async function LoginPage({ searchParams }: PageProps) {
       subtitle={
         <>
           ניהול התורים, השירותים ושעות הפעילות ב־{BRAND_MARK.stem}
-          <span className="text-teal-600 dark:text-teal-400">
+          <span className="bg-[image:var(--brand-gradient)] bg-clip-text text-transparent">
             {BRAND_MARK.dot}
           </span>
         </>

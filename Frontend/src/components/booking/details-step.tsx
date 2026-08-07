@@ -66,15 +66,15 @@ export function DetailsStep({
     <section aria-labelledby="details-heading" className="px-5">
       <h2
         id="details-heading"
-        className="mb-4 text-base font-semibold text-neutral-900 dark:text-neutral-100"
+        className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100"
       >
         הפרטים שלכם
       </h2>
 
       {/* Summary of what is being booked, so nobody confirms blind. The time is
           the largest thing on the card — it is what people double-check. */}
-      <div className="mb-6 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
-        <div className="flex items-center justify-between gap-3 bg-neutral-900 px-4 py-3 text-white dark:bg-neutral-100 dark:text-neutral-900">
+      <div className="mb-6 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center justify-between gap-3 bg-zinc-900 px-4 py-3 text-white dark:bg-zinc-100 dark:text-zinc-900">
           <span className="min-w-0 truncate text-sm font-semibold">
             {service.name}
           </span>
@@ -83,7 +83,7 @@ export function DetailsStep({
           </span>
         </div>
 
-        <dl className="space-y-1.5 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">
+        <dl className="space-y-1.5 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <div className="flex items-center gap-2">
             <dt className="sr-only">מועד</dt>
             <Clock className="size-4 shrink-0" aria-hidden />
@@ -95,7 +95,7 @@ export function DetailsStep({
             <dt className="sr-only">מחיר ומשך</dt>
             <Tag className="size-4 shrink-0" aria-hidden />
             <dd>
-              <span className="font-semibold text-neutral-900 dark:text-neutral-100">
+              <span className="font-semibold text-zinc-900 dark:text-zinc-100">
                 {formatPrice(service.priceCents, service.currency)}
               </span>{" "}
               · {formatDuration(service.durationMin)}
@@ -240,7 +240,7 @@ export function DetailsStep({
         </button>
 
         <div className="space-y-1.5 pb-2 text-center">
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-zinc-400">
             בקביעת התור אתם מאשרים קבלת הודעות בנוגע לתור זה.
           </p>
           <ConsentNote action="קביעת תור" />
@@ -252,12 +252,12 @@ export function DetailsStep({
 
 function inputClass(invalid: boolean) {
   return cn(
-    "h-12 w-full rounded-xl border bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400",
-    "focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent",
-    "dark:bg-neutral-900 dark:text-neutral-100 dark:focus:ring-neutral-100",
+    "h-12 w-full rounded-xl border bg-white px-4 text-base text-zinc-900 placeholder:text-zinc-400",
+    "focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent",
+    "dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100",
     invalid
       ? "border-red-400 focus:ring-red-500"
-      : "border-neutral-200 dark:border-neutral-800",
+      : "border-zinc-200 dark:border-zinc-800",
   );
 }
 
@@ -276,7 +276,7 @@ function Field({
     <div>
       <label
         htmlFor={htmlFor}
-        className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+        className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
       >
         {label}
       </label>

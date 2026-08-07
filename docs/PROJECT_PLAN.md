@@ -232,10 +232,10 @@ appointments
 
 - [x] Per-business branding: accent theme, hero image/video, gallery with lightbox, owner-entered reviews (`0009`). _(Theme is a `data-accent` attribute plus CSS custom properties — Tailwind cannot emit a class from a runtime value. Every swatch is WCAG AA verified.)_
 - [x] Landing page rebuilt: split hero, animated `Bazman.` / `בזמן.` wordmark, dashboard mockup, pricing table with a monthly/yearly toggle, FAQ accordion. _(`/` stays a static prerender; the toggle and accordion are client islands.)_
-  - [x] **Rebuilt again after stage 8a.** Monochrome base, 70/30 above-the-fold split, feathered ink/paper hero: a Canvas field of hollow drifting bubbles and the typed wordmark on ink, the agenda preview and the actions on paper. One accent gradient (violet into blue) reserved for active and primary states, soft geometry throughout, and a gradient closing banner with a dot matrix, a warm flare and floating glass tiles. Teal is gone from `/` and still present on `/login`, `/dashboard/*` and `/master` — a known, deliberate inconsistency to resolve in one pass. See [ARCHITECTURE.md](ARCHITECTURE.md#the-landing-page-is-monochrome-plus-one-gradient-nothing-else-is).
+  - [x] **Rebuilt again after stage 8a.** Monochrome base, 70/30 above-the-fold split, feathered ink/paper hero: a Canvas field of hollow drifting bubbles and the typed wordmark on ink, the agenda preview and the actions on paper. One accent gradient (violet into blue) reserved for active and primary states, soft geometry throughout, and a gradient closing banner with a dot matrix, a warm flare and floating glass tiles. Teal was gone from `/` and still present on `/login`, `/dashboard/*` and `/master` — since closed by the palette reconciliation below. See [ARCHITECTURE.md](ARCHITECTURE.md#one-palette-one-ramp).
 - [x] Subscription plans recorded on the tenant (`0010`) and selectable during onboarding, which is now five steps.
 - [x] Global rename to **Bazman / בזמן**, with the name centralised in `lib/brand.ts`.
-- [x] Dashboard overhaul: shared teal chrome, mobile bottom nav, revenue and new-client stats, clients search with call/WhatsApp shortcuts.
+- [x] Dashboard overhaul: shared chrome (teal at the time, monochrome since), mobile bottom nav, revenue and new-client stats, clients search with call/WhatsApp shortcuts.
 - [x] **Super-admin command center at `/master`** — four tabs (סקירה / עסקים / פעילות בלייב / התראות) over `db/queries/admin.ts`.
   - [x] Access by `SUPER_ADMIN_EMAILS` env roster. Fails closed: an empty or unset roster denies everyone. A column was rejected — super-admin is a property of a _user_, and users live in Supabase's `auth.users`, which this app must not alter.
   - [x] Guarded in the layout, in every page **and** in every action. A layout alone is not a boundary: a client navigation between tabs reuses it without re-running it.
@@ -415,6 +415,39 @@ reset your password" since launch, pointing at a flow that did not exist.
 > the recovery template must use `{{ .TokenHash }}`, and custom SMTP must be
 > configured or resets are throttled to a handful an hour project-wide. See
 > [DEPLOYMENT.md](DEPLOYMENT.md#4-supabase-auth).
+
+#### Palette reconciliation ✅
+
+`/` was rebuilt monochrome in Phase 7 and the app was left teal, so signing up
+walked a visitor out of one product and into another. Resolved in one pass, as
+the note promised, rather than drifting further.
+
+- [x] **Teal removed from the codebase.** The production CSS bundle contains
+      the string zero times. `/login`, all of `/dashboard/*` and `/master`.
+- [x] **Three grey ramps became one.** 819 `neutral-*` uses (dashboard, booking,
+      shared UI) and 83 `slate-*` uses (`/master`) swept to `zinc`, which is
+      what `/` already used. A card on the dashboard and a card on the landing
+      page are now the same colour rather than nearly the same colour.
+- [x] Primary actions are solid ink and invert wholesale in dark mode —
+      **contrast is the accent** when there is no accent hue. Measured on
+      `/login`: 19.06:1 both schemes, 19.9:1 secondary link, 10.44:1 field label.
+- [x] `--brand-gradient` reserved for *active* or *recommended*: the current nav
+      item, the current setup step, the recommended tier, the upgrade path, the
+      wordmark stop. White on its three stops measures 7.10 / 6.29 / 6.70.
+- [x] `btnAccent` added **separate from** `btnPrimary`, so a save button can
+      never become a gradient. That is how an accent turns into a theme.
+- [x] Six hand-rolled buttons and inputs pulled onto the shared tokens instead
+      of being recoloured in place — a recolour would have left the same copies
+      to drift again.
+- [x] `StatusChip` keeps amber / rose / emerald: those are **semantic**, read
+      without a legend, and greying them would delete information. Only
+      `confirmed` moved, teal → indigo, the gradient's mid stop.
+- [x] Per-business `--accent` on `/[slug]` deliberately untouched. Verified in
+      a browser that the demo tenant still renders its own cyan.
+
+> The brand ramp is the *platform's* identity and `--accent` is the *tenant's*.
+> Conflating them would have repainted every customer's booking page as a side
+> effect of a marketing decision.
 
 #### 8d — The payment provider *(needs the provider decision)*
 

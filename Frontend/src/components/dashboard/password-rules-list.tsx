@@ -22,9 +22,7 @@ export function PasswordRulesList({ value }: { value: string }) {
           <li
             key={rule.id}
             className={`flex items-center gap-1.5 text-xs ${
-              met
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-neutral-500"
+              met ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-500"
             }`}
           >
             <Check

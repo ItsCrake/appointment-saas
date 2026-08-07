@@ -77,10 +77,10 @@ export function HoursManager({
   return (
     <div className="space-y-8">
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+        <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           שעות שבועיות
         </h2>
-        <p className="mb-4 text-xs text-neutral-500">
+        <p className="mb-4 text-xs text-zinc-500">
           יום ללא משמרות נחשב סגור. שתי משמרות באותו יום יוצרות הפסקה ביניהן.
         </p>
 
@@ -93,16 +93,16 @@ export function HoursManager({
             return (
               <li
                 key={label}
-                className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+                className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                     {label}
                   </span>
                   <button
                     type="button"
                     onClick={() => addShift(weekday)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                    className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
                   >
                     <Plus className="size-3" aria-hidden />
                     משמרת
@@ -110,7 +110,7 @@ export function HoursManager({
                 </div>
 
                 {dayShifts.length === 0 ? (
-                  <p className="text-xs text-neutral-400">סגור</p>
+                  <p className="text-xs text-zinc-400">סגור</p>
                 ) : (
                   <div className="space-y-2">
                     {dayShifts.map(({ shift, index }) => (
@@ -123,9 +123,9 @@ export function HoursManager({
                           onChange={(e) =>
                             updateShift(index, { startTime: e.target.value })
                           }
-                          className="h-10 flex-1 rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800"
+                          className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-800"
                         />
-                        <span className="text-xs text-neutral-400">עד</span>
+                        <span className="text-xs text-zinc-400">עד</span>
                         <input
                           type="time"
                           dir="ltr"
@@ -134,13 +134,13 @@ export function HoursManager({
                           onChange={(e) =>
                             updateShift(index, { endTime: e.target.value })
                           }
-                          className="h-10 flex-1 rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800"
+                          className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-800"
                         />
                         <button
                           type="button"
                           onClick={() => removeShift(index)}
                           aria-label="הסרת משמרת"
-                          className="rounded-lg border border-neutral-200 p-2 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-neutral-700"
+                          className="rounded-lg border border-zinc-200 p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-zinc-700"
                         >
                           <Trash2 className="size-4" />
                         </button>
@@ -174,7 +174,7 @@ export function HoursManager({
           type="button"
           onClick={save}
           disabled={pending}
-          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
         >
           {pending ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -234,28 +234,28 @@ function TimeOffSection({
 
   return (
     <section>
-      <h2 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+      <h2 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         חסימות וחופשות
       </h2>
-      <p className="mb-4 text-xs text-neutral-500">
+      <p className="mb-4 text-xs text-zinc-500">
         חוסם מועדים בתאריך מסוים מבלי לשנות את השעות הקבועות.
       </p>
 
-      <div className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="grid grid-cols-3 gap-2">
           <label className="col-span-3 block">
-            <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            <span className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               תאריך
             </span>
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+              className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            <span className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               משעה
             </span>
             <input
@@ -263,11 +263,11 @@ function TimeOffSection({
               dir="ltr"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
-              className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800"
+              className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-800"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            <span className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               עד שעה
             </span>
             <input
@@ -275,11 +275,11 @@ function TimeOffSection({
               dir="ltr"
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
-              className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800"
+              className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-800"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            <span className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               סיבה
             </span>
             <input
@@ -287,7 +287,7 @@ function TimeOffSection({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="חופשה"
-              className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+              className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
             />
           </label>
         </div>
@@ -302,7 +302,7 @@ function TimeOffSection({
           type="button"
           onClick={add}
           disabled={pending}
-          className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 text-sm font-semibold text-neutral-800 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-200"
+          className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 text-sm font-semibold text-zinc-800 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200"
         >
           {pending ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -320,14 +320,14 @@ function TimeOffSection({
           return (
             <li
               key={entry.id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900"
+              className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900"
             >
               <div className="min-w-0">
-                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                   {from.date} · {from.time}–{to.time}
                 </p>
                 {entry.reason ? (
-                  <p className="truncate text-xs text-neutral-500">
+                  <p className="truncate text-xs text-zinc-500">
                     {entry.reason}
                   </p>
                 ) : null}
@@ -337,7 +337,7 @@ function TimeOffSection({
                 onClick={() => remove(entry.id)}
                 disabled={pending}
                 aria-label="מחיקת חסימה"
-                className="shrink-0 rounded-lg border border-neutral-200 p-2 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:border-neutral-700"
+                className="shrink-0 rounded-lg border border-zinc-200 p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:border-zinc-700"
               >
                 <Trash2 className="size-4" />
               </button>
@@ -347,7 +347,7 @@ function TimeOffSection({
       </ul>
 
       {entries.length === 0 ? (
-        <p className="mt-3 rounded-xl border border-dashed border-neutral-200 px-4 py-8 text-center text-xs text-neutral-500 dark:border-neutral-800">
+        <p className="mt-3 rounded-xl border border-dashed border-zinc-200 px-4 py-8 text-center text-xs text-zinc-500 dark:border-zinc-800">
           אין חסימות עתידיות
         </p>
       ) : null}

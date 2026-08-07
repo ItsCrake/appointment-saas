@@ -37,7 +37,7 @@ export function ForgotPasswordForm() {
     return (
       <div className="space-y-4">
         <FormAlert tone="success">{notice}</FormAlert>
-        <p className="text-center text-xs leading-relaxed text-neutral-500">
+        <p className="text-center text-xs leading-relaxed text-zinc-500">
           לא הגיע כלום?{" "}
           <button
             type="button"
@@ -59,7 +59,7 @@ export function ForgotPasswordForm() {
       <div>
         <label
           htmlFor="reset-email"
-          className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+          className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
         >
           אימייל
         </label>
@@ -93,7 +93,7 @@ export function ForgotPasswordForm() {
         )}
       </button>
 
-      <p className="text-center text-xs text-neutral-500">
+      <p className="text-center text-xs text-zinc-500">
         נזכרתם?{" "}
         <Link href="/login" className={authLinkClass}>
           חזרה להתחברות

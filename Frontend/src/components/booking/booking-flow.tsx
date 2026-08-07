@@ -173,7 +173,7 @@ export function BookingFlow({ slug, business, services }: Props) {
           <button
             type="button"
             onClick={back}
-            className="-me-2 inline-flex items-center gap-1 rounded-lg py-1 pe-2 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none dark:hover:text-neutral-100"
+            className="-me-2 inline-flex items-center gap-1 rounded-lg py-1 pe-2 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:hover:text-zinc-100"
           >
             <ChevronRight className="size-4" aria-hidden />
             חזרה

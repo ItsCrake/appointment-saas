@@ -71,10 +71,10 @@ export function SetupDoneStep({
         </p>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <p
           dir="ltr"
-          className="mb-3 truncate rounded-lg bg-neutral-50 px-3 py-2.5 text-start text-sm font-medium text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200"
+          className="mb-3 truncate rounded-lg bg-zinc-50 px-3 py-2.5 text-start text-sm font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
         >
           {liveUrl}
         </p>
@@ -83,7 +83,7 @@ export function SetupDoneStep({
           <button
             type="button"
             onClick={copy}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-neutral-300 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             {copied ? (
               <>
@@ -101,7 +101,7 @@ export function SetupDoneStep({
             href={`/${business.slug}`}
             target="_blank"
             rel="noreferrer"
-            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-neutral-300 px-4 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             <ExternalLink className="size-4" aria-hidden />
             תצוגה
@@ -109,14 +109,14 @@ export function SetupDoneStep({
         </div>
       </div>
 
-      <ul className="mt-4 space-y-1.5 rounded-2xl border border-neutral-200 bg-white p-4 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+      <ul className="mt-4 space-y-1.5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">
         {services.map((service) => (
           <li
             key={service.id}
-            className="flex items-center justify-between gap-3 text-neutral-700 dark:text-neutral-300"
+            className="flex items-center justify-between gap-3 text-zinc-700 dark:text-zinc-300"
           >
             <span className="truncate">{service.name}</span>
-            <span className="shrink-0 text-xs text-neutral-500 tabular-nums">
+            <span className="shrink-0 text-xs text-zinc-500 tabular-nums">
               {formatDuration(service.durationMin)} ·{" "}
               {formatPrice(service.priceCents)}
             </span>
@@ -128,7 +128,7 @@ export function SetupDoneStep({
         type="button"
         onClick={onFinish}
         disabled={pending}
-        className="mt-5 h-12 w-full rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+        className="mt-5 h-12 w-full rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
       >
         כניסה ללוח הניהול
       </button>

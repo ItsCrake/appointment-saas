@@ -47,7 +47,7 @@ export function LoginForm({ next }: { next?: string }) {
       <div
         role="tablist"
         aria-label="מצב כניסה"
-        className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1 dark:bg-neutral-800"
+        className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800"
       >
         {(
           [
@@ -67,10 +67,10 @@ export function LoginForm({ next }: { next?: string }) {
             }}
             className={cn(
               "h-9 rounded-lg text-sm font-semibold transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
+              "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
               mode === value
-                ? "bg-white text-teal-800 shadow-sm dark:bg-neutral-900 dark:text-teal-300"
-                : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200",
+                ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
             )}
           >
             {label}
@@ -82,7 +82,7 @@ export function LoginForm({ next }: { next?: string }) {
         <div>
           <label
             htmlFor="email"
-            className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+            className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
           >
             אימייל
           </label>
@@ -102,7 +102,7 @@ export function LoginForm({ next }: { next?: string }) {
           <div className="mb-1.5 flex items-baseline justify-between gap-3">
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+              className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
               סיסמה
             </label>

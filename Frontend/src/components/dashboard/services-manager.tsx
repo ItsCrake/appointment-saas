@@ -14,6 +14,8 @@ import {
 import { formatDuration, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { btnPrimary } from "./ui";
+
 type Service = {
   id: string;
   name: string;
@@ -182,22 +184,22 @@ export function ServicesManager({ services }: { services: Service[] }) {
         <button
           type="button"
           onClick={startCreate}
-          className="mb-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white transition-colors hover:bg-teal-800"
+          className={cn(btnPrimary, "mb-4 w-full")}
         >
           <Plus className="size-4" aria-hidden />
           שירות חדש
         </button>
       ) : (
-        <div className="mb-4 rounded-2xl border border-neutral-300 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900">
+        <div className="mb-4 rounded-2xl border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">
               {editingId ? "עריכת שירות" : "שירות חדש"}
             </h2>
             <button
               type="button"
               onClick={close}
               aria-label="סגירה"
-              className="rounded-lg p-1 text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+              className="rounded-lg p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
             >
               <X className="size-4" />
             </button>
@@ -241,18 +243,18 @@ export function ServicesManager({ services }: { services: Service[] }) {
                 onChange={(v) => setDraft({ ...draft, sortOrder: v })}
               />
             </div>
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-zinc-400">
               מרווח ריק = שימוש בברירת המחדל של העסק. 0 = ללא מרווח.
             </p>
 
-            <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
+            <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
               <input
                 type="checkbox"
                 checked={draft.isActive}
                 onChange={(e) =>
                   setDraft({ ...draft, isActive: e.target.checked })
                 }
-                className="size-4 rounded border-neutral-300"
+                className="size-4 rounded border-zinc-300"
               />
               מוצג בעמוד ההזמנות
             </label>
@@ -267,7 +269,7 @@ export function ServicesManager({ services }: { services: Service[] }) {
               type="button"
               onClick={save}
               disabled={pending}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
             >
               {pending ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -283,21 +285,21 @@ export function ServicesManager({ services }: { services: Service[] }) {
           <li
             key={service.id}
             className={cn(
-              "rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900",
+              "rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900",
               !service.isActive && "opacity-60",
             )}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold text-neutral-900 dark:text-neutral-100">
+                <p className="font-semibold text-zinc-900 dark:text-zinc-100">
                   {service.name}
                 </p>
                 {service.description ? (
-                  <p className="mt-0.5 truncate text-xs text-neutral-500">
+                  <p className="mt-0.5 truncate text-xs text-zinc-500">
                     {service.description}
                   </p>
                 ) : null}
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-zinc-500">
                   {formatDuration(service.durationMin)} ·{" "}
                   {formatPrice(service.priceCents, service.currency)}
                   {!service.isActive ? " · מוסתר" : ""}
@@ -338,7 +340,7 @@ export function ServicesManager({ services }: { services: Service[] }) {
       </ul>
 
       {services.length === 0 && !formOpen ? (
-        <p className="rounded-2xl border border-dashed border-neutral-200 px-4 py-12 text-center text-sm text-neutral-500 dark:border-neutral-800">
+        <p className="rounded-2xl border border-dashed border-zinc-200 px-4 py-12 text-center text-sm text-zinc-500 dark:border-zinc-800">
           עדיין אין שירותים. הוסיפו את הראשון.
         </p>
       ) : null}
@@ -361,7 +363,7 @@ function Input({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+      <span className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
         {label}
       </span>
       <input
@@ -375,7 +377,7 @@ function Input({
         // Selecting on focus makes the first keystroke replace it.
         onFocus={type === "number" ? (e) => e.target.select() : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+        className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-transparent focus:ring-2 focus:ring-zinc-950 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-white"
       />
     </label>
   );
@@ -402,10 +404,10 @@ function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        "rounded-lg border border-neutral-200 p-2 text-neutral-500 transition-colors disabled:opacity-50 dark:border-neutral-700",
+        "rounded-lg border border-zinc-200 p-2 text-zinc-500 transition-colors disabled:opacity-50 dark:border-zinc-700",
         danger
           ? "hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-          : "hover:bg-neutral-50 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100",
+          : "hover:bg-zinc-50 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
       )}
     >
       {children}

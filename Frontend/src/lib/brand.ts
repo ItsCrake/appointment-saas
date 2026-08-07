@@ -23,8 +23,12 @@ export const BRAND = {
 } as const;
 
 /**
- * The mark is rendered as `Bazman` + a teal `.` in several places. Splitting
- * it here keeps the two halves from drifting apart in the markup.
+ * The mark is rendered as `Bazman` + an accented `.` in several places.
+ * Splitting it here keeps the two halves from drifting apart in the markup.
+ *
+ * The stop used to be teal on `/login` and `/master` and gradient on `/`.
+ * Every surface now paints it with `--brand-gradient`, which is the whole
+ * reason the split exists: one mark, one accent, three places to render it.
  */
 export const BRAND_MARK = {
   stem: "Bazman",

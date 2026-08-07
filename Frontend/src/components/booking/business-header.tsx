@@ -67,7 +67,7 @@ export function BusinessHeader({
               and keeps the logo readable over an arbitrary photo. */}
           <div
             aria-hidden
-            className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-white dark:to-neutral-950"
+            className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-white dark:to-zinc-950"
           />
         </div>
       ) : null}
@@ -86,32 +86,32 @@ export function BusinessHeader({
             alt=""
             className={cn(
               "mx-auto mb-4 size-20 rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10",
-              hasHero && "ring-4 ring-white dark:ring-neutral-950",
+              hasHero && "ring-4 ring-white dark:ring-zinc-950",
             )}
           />
         ) : (
           <div
             aria-hidden
             className={cn(
-              "mx-auto mb-4 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-neutral-800 to-neutral-950 text-2xl font-bold text-white shadow-sm dark:from-neutral-100 dark:to-neutral-300 dark:text-neutral-900",
-              hasHero && "ring-4 ring-white dark:ring-neutral-950",
+              "mx-auto mb-4 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-zinc-800 to-zinc-950 text-2xl font-bold text-white shadow-sm dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900",
+              hasHero && "ring-4 ring-white dark:ring-zinc-950",
             )}
           >
             {name.trim().charAt(0)}
           </div>
         )}
 
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
           {name}
         </h1>
 
         {description ? (
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             {description}
           </p>
         ) : null}
 
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-neutral-500">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-zinc-500">
           {address ? (
             <span className="inline-flex items-center gap-1.5">
               <MapPin className="size-3.5 shrink-0" aria-hidden />
@@ -122,7 +122,7 @@ export function BusinessHeader({
           {phone ? (
             <a
               href={`tel:${phone}`}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors hover:bg-neutral-100 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <Phone className="size-3.5 shrink-0" aria-hidden />
               <span dir="ltr">{phone}</span>

@@ -26,6 +26,8 @@ import {
 } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
+import { btnPrimary } from "./ui";
+
 type Props = {
   initial: {
     themeColor: ThemeColor;
@@ -37,7 +39,7 @@ type Props = {
 };
 
 const inputClass =
-  "h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 ";
+  "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 ";
 
 export function AppearanceForm({ initial }: Props) {
   const [themeColor, setThemeColor] = useState<ThemeColor>(initial.themeColor);
@@ -139,10 +141,10 @@ export function AppearanceForm({ initial }: Props) {
               data-accent={colour}
               className={cn(
                 "flex flex-col items-center gap-1.5 rounded-xl border p-2.5 transition-all active:scale-95",
-                "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none",
+                "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
                 themeColor === colour
                   ? "border-(--accent) ring-1 ring-(--accent)"
-                  : "border-neutral-200 hover:border-neutral-400 dark:border-neutral-800",
+                  : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800",
               )}
             >
               <span className="relative flex size-7 items-center justify-center rounded-full bg-(--accent)">
@@ -154,15 +156,15 @@ export function AppearanceForm({ initial }: Props) {
                   />
                 ) : null}
               </span>
-              <span className="text-[11px] font-medium text-neutral-600 dark:text-neutral-400">
+              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
                 {THEME_LABELS[colour]}
               </span>
             </button>
           ))}
         </div>
 
-        <div className="mt-4 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
-          <p className="mb-2 text-xs text-neutral-500">תצוגה מקדימה</p>
+        <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+          <p className="mb-2 text-xs text-zinc-500">תצוגה מקדימה</p>
           <div className="flex items-center gap-2">
             <span className="flex h-9 items-center rounded-lg bg-(--accent) px-3 text-xs font-semibold text-(--accent-contrast)">
               אישור וקביעת התור
@@ -203,7 +205,7 @@ export function AppearanceForm({ initial }: Props) {
                 "h-9 flex-1 rounded-lg border text-xs font-semibold transition-colors",
                 heroMediaType === type
                   ? "border-(--accent) bg-(--accent) text-(--accent-contrast)"
-                  : "border-neutral-200 text-neutral-600 hover:border-neutral-400 dark:border-neutral-800 dark:text-neutral-400",
+                  : "border-zinc-200 text-zinc-600 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400",
               )}
             >
               {type === "image" ? "תמונה" : "וידאו"}
@@ -215,13 +217,13 @@ export function AppearanceForm({ initial }: Props) {
               setHeroMediaUrl("");
               setHeroMediaType("");
             }}
-            className="h-9 rounded-lg border border-neutral-200 px-3 text-xs font-semibold text-neutral-500 transition-colors hover:border-neutral-400 dark:border-neutral-800"
+            className="h-9 rounded-lg border border-zinc-200 px-3 text-xs font-semibold text-zinc-500 transition-colors hover:border-zinc-400 dark:border-zinc-800"
           >
             ניקוי
           </button>
         </div>
 
-        <p className="mt-2 text-xs text-neutral-500">
+        <p className="mt-2 text-xs text-zinc-500">
           וידאו מתנגן מושתק ובלולאה. מומלץ קובץ קצר וקל.
         </p>
       </Section>
@@ -252,7 +254,7 @@ export function AppearanceForm({ initial }: Props) {
           <button
             type="button"
             onClick={addGalleryImage}
-            className="flex h-11 shrink-0 items-center gap-1 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white transition-colors hover:bg-teal-800"
+            className={cn(btnPrimary, "shrink-0 px-4")}
           >
             <Plus className="size-4" aria-hidden />
             הוספה
@@ -260,7 +262,7 @@ export function AppearanceForm({ initial }: Props) {
         </div>
 
         {gallery.length === 0 ? (
-          <p className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-neutral-300 px-4 py-6 text-xs text-neutral-500 dark:border-neutral-700">
+          <p className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-xs text-zinc-500 dark:border-zinc-700">
             <ImageIcon className="size-4 shrink-0" aria-hidden />
             עדיין לא הוספתם תמונות
           </p>
@@ -269,17 +271,17 @@ export function AppearanceForm({ initial }: Props) {
             {gallery.map((url, index) => (
               <li
                 key={`${url}-${index}`}
-                className="flex items-center gap-2 rounded-xl border border-neutral-200 p-2 dark:border-neutral-800"
+                className="flex items-center gap-2 rounded-xl border border-zinc-200 p-2 dark:border-zinc-800"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- owner-supplied remote host */}
                 <img
                   src={url}
                   alt=""
-                  className="size-12 shrink-0 rounded-lg bg-neutral-100 object-cover dark:bg-neutral-800"
+                  className="size-12 shrink-0 rounded-lg bg-zinc-100 object-cover dark:bg-zinc-800"
                 />
                 <span
                   dir="ltr"
-                  className="min-w-0 flex-1 truncate text-start text-xs text-neutral-500"
+                  className="min-w-0 flex-1 truncate text-start text-xs text-zinc-500"
                 >
                   {url}
                 </span>
@@ -317,7 +319,7 @@ export function AppearanceForm({ initial }: Props) {
         description="עדויות לקוחות שיוצגו בתחתית עמוד ההזמנות"
       >
         {reviews.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-neutral-300 px-4 py-6 text-center text-xs text-neutral-500 dark:border-neutral-700">
+          <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
             אין עדיין חוות דעת
           </p>
         ) : (
@@ -325,7 +327,7 @@ export function AppearanceForm({ initial }: Props) {
             {reviews.map((review) => (
               <li
                 key={review.id}
-                className="space-y-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800"
+                className="space-y-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800"
               >
                 <div className="flex gap-2">
                   <input
@@ -371,14 +373,14 @@ export function AppearanceForm({ initial }: Props) {
                       aria-checked={review.rating === value}
                       aria-label={`${value} כוכבים`}
                       onClick={() => patchReview(review.id, { rating: value })}
-                      className="rounded p-0.5 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:outline-none"
+                      className="rounded p-0.5 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white"
                     >
                       <Star
                         className={cn(
                           "size-5 transition-colors",
                           value <= review.rating
                             ? "fill-amber-400 text-amber-400"
-                            : "fill-neutral-200 text-neutral-200 dark:fill-neutral-700 dark:text-neutral-700",
+                            : "fill-zinc-200 text-zinc-200 dark:fill-zinc-700 dark:text-zinc-700",
                         )}
                         aria-hidden
                       />
@@ -404,7 +406,7 @@ export function AppearanceForm({ initial }: Props) {
         <button
           type="button"
           onClick={addReview}
-          className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 text-sm font-semibold text-neutral-600 transition-colors hover:border-neutral-500 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-400"
+          className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-300 text-sm font-semibold text-zinc-600 transition-colors hover:border-zinc-500 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400"
         >
           <Plus className="size-4" aria-hidden />
           הוספת חוות דעת
@@ -435,7 +437,7 @@ export function AppearanceForm({ initial }: Props) {
         type="button"
         onClick={save}
         disabled={saving}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white transition-colors hover:bg-teal-800 disabled:opacity-60"
+        className={cn(btnPrimary, "h-12 w-full")}
       >
         {saving ? (
           <>
@@ -460,11 +462,11 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-      <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
         {title}
       </h2>
-      <p className="mt-0.5 mb-3 text-xs text-neutral-500">{description}</p>
+      <p className="mt-0.5 mb-3 text-xs text-zinc-500">{description}</p>
       {children}
     </section>
   );
@@ -490,10 +492,10 @@ function IconButton({
       disabled={disabled}
       aria-label={label}
       className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-lg border border-neutral-200 transition-colors disabled:opacity-30 dark:border-neutral-800",
+        "flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 transition-colors disabled:opacity-30 dark:border-zinc-800",
         destructive
           ? "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
-          : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800",
+          : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800",
       )}
     >
       {children}

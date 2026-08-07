@@ -610,13 +610,9 @@ Two rules hold the rest together:
   dark mode the paper half becomes `zinc-900` against the `zinc-950` half so
   the split survives instead of collapsing into a single black rectangle.
 
-> **Teal is not gone from the platform.** `/login`, `/dashboard/*` and
-> `/master` still use the teal chrome described under
-> [Dashboard chrome](#dashboard-chrome), and `BRAND_MARK` is still rendered
-> with a teal stop on those surfaces. The landing page and the app now look
-> like two different products. That is a real inconsistency and it is
-> deliberate scope, not an oversight: the brief covered `/`. Whichever way it
-> is resolved, it should be resolved in one pass rather than drifting.
+> **Teal is now gone from the entire product**, and the rules above are the
+> whole platform's rules rather than this page's. See
+> [One palette, one ramp](#one-palette-one-ramp).
 
 Per-business `--accent` is unrelated to either and is untouched: `/[slug]` is
 tenant-branded and still uses the custom properties from `lib/branding.ts`.
@@ -753,17 +749,73 @@ called from whatever renders the `<form>`. Disabling on submit is not only
 feedback — a form action posted twice runs twice, and "nothing happened so I
 clicked again" is precisely what was reported.
 
-## Dashboard chrome
+## One palette, one ramp
+
+The landing page was rebuilt monochrome while `/login`, `/dashboard/*` and
+`/master` kept a teal chrome, so a visitor who signed up walked out of one
+product and into another. That split is closed: **there is no teal anywhere in
+the codebase**, and the production CSS bundle contains the string zero times.
+
+Three ramps became one. `zinc` is the only grey — `neutral` (dashboard and
+booking, 819 uses) and `slate` (`/master`) are both gone, so a card on
+`/dashboard` and a card on `/` are now the same colour rather than nearly the
+same colour.
+
+**In a system with no accent hue, contrast is the accent.** Every primary
+action is solid ink (`zinc-950`) on paper and inverts wholesale in dark mode.
+Measured in-browser on `/login`: 19.06:1 on the primary button in both schemes,
+19.9:1 on a secondary link, 10.44:1 on a field label.
+
+`--brand-gradient` stays the single exception and is spent only where `/`
+spends it — on something **active or recommended**:
+
+| Surface                        | What carries the gradient          |
+| ------------------------------ | ---------------------------------- |
+| Dashboard sidebar & bottom bar | the current route, one item at a time |
+| Setup flow                     | the current step only; completed steps go quiet |
+| Plan picker / setup plan step  | the "recommended" badge and the upgrade action |
+| Settings                       | the branding upsell — the one thing being recommended |
+| `BRAND_MARK` stop              | every surface, via `bg-clip-text`  |
+
+White on the three gradient stops measures 7.10 / 6.29 / 6.70 — the same worst
+case the landing page documents, because it is literally the same variable.
+
+Geometry follows the landing scale: pill for anything interactive, `rounded-2xl`
+for a card inside a page. **Text inputs are the one documented departure**, at
+`rounded-xl`: a pill field wastes its horizontal ends and, in RTL, drops the
+caret against a curve. A button is a target; a field is a container for content.
 
 `components/dashboard/ui.tsx` holds every shared control — `btnPrimary`,
-`btnSecondary`, `inputClass`, `cardClass`, `StatusChip`, `EmptyState`,
-`SkeletonRows`, `PageHeader`. Each manager previously styled its own buttons
-and focus rings, which is how they drifted apart; one definition per control
-is what stops that recurring. Same teal-700 rule as the marketing surface.
+`btnAccent`, `btnSecondary`, `btnDanger`, `inputClass`, `cardClass`,
+`StatusChip`, `EmptyState`, `SkeletonRows`, `PageHeader`. Each manager
+previously styled its own buttons and focus rings, which is how they drifted
+apart; the reconciliation pulled six more hand-rolled buttons onto the shared
+tokens rather than merely recolouring them, since a recolour would have left
+the same six copies to drift again.
 
-Appointment status colours live in `StatusChip` only: confirmed teal, pending
-amber, cancelled rose, no-show slate, completed emerald. The label is always
+`btnAccent` is deliberately separate from `btnPrimary`: it is for the one
+action on a screen being *recommended* rather than merely available. Making
+save buttons gradient is exactly how an accent becomes a theme.
+
+### The four semantic hues that survived
+
+Appointment status colours live in `StatusChip` only — pending amber, cancelled
+rose, no-show zinc, completed emerald — and they are **not** brand colour.
+Amber-for-waiting is read without a legend, and flattening it to grey would
+delete information from the screen an owner scans fastest. The label is always
 rendered beside the colour, so status never depends on hue alone.
+
+Only `confirmed` moved, from teal to **indigo** — the gradient's mid stop —
+because a confirmed appointment is the *active* thing in the list, which is
+what the brand ramp is for. `/master` uses indigo the same way, for a paying
+tenant and the MRR metric.
+
+> **`--accent` is untouched and unrelated.** `/[slug]` is tenant-branded: the
+> owner's chosen swatch still drives the public booking page through the custom
+> properties in `lib/branding.ts`. A tenant who picked cyan still gets cyan.
+> The brand ramp is the *platform's* identity; `--accent` is the *tenant's*, and
+> conflating them would have meant repainting every customer's booking page as
+> a side effect of a marketing decision.
 
 **Numeric fields are edited as strings, and select on focus.** A number-backed
 input cannot hold "empty": clearing it yields `Number("")`, which is `0`, so
@@ -1045,6 +1097,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   other sessions on success
 - Legal surface: `/legal/terms`, `/legal/privacy`, `/accessibility`, a cookie
   notice, implicit consent under the primary CTAs, and an accessibility widget
+- One palette across the whole product: teal removed everywhere, `neutral` and
+  `slate` collapsed into `zinc`, the brand gradient reserved for active and
+  recommended states, and six hand-rolled buttons pulled onto the shared
+  tokens — see [One palette, one ramp](#one-palette-one-ramp)
 
 **Not built**
 
@@ -1061,12 +1117,22 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Sentry — `reportError` is the single call site to wire it into
 - E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
   suite, not through a browser
+- **Two Playwright specs are red, and were before this work** (`npm run verify`
+  is unaffected — it does not run them):
+  - `booking-flow` and `error-fallbacks` both wait on
+    `getByRole("radiogroup", { name: "בחירת שעה" })`. That name exists only in
+    `e2e/`, never in `src/`: the slot picker was rewritten in `761790e` to
+    group slots into morning/afternoon/evening, each labelled by its own period
+    heading, and the helper was never updated.
+  - `error-fallbacks` also expects **404** for an unknown slug and gets **200**.
+    The `not-found` page renders correctly; only the status is wrong. Verified
+    against `0c12087` — it reproduces on entirely pre-reconciliation code, in
+    dev *and* in a production build. This one is a real defect rather than a
+    stale selector: `README.md` lists "an unknown slug returns 404" as a
+    post-deploy check, and a soft 404 is what gets an empty page indexed.
 - **Legal review.** `/legal/*` and `/accessibility` are engineer-written
   templates and `LEGAL_ENTITY` still holds placeholder registration and address
   fields. They must be reviewed by an Israeli lawyer before real money moves.
-- The teal/monochrome split: `/` is monochrome while `/login`, `/dashboard/*`
-  and `/master` are still teal, so the marketing site and the app look like two
-  products. Deliberate scope, to be resolved in one pass.
 - SMS/WhatsApp are code-complete but **unproven — no Twilio account yet**. The
   routing is wired (`clientDelivery()` picks SMS for Pro), so the only thing
   between a Pro tenant and real SMS is credentials. `check:env --production`

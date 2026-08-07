@@ -87,7 +87,7 @@ function ToastItem({
       className={cn(
         "animate-step pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-xl px-4 py-3 text-sm font-medium shadow-lg",
         toast.tone === "success"
-          ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
           : "bg-red-600 text-white",
       )}
     >

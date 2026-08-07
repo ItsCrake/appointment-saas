@@ -16,7 +16,7 @@ const WEEKDAYS = [
 ] as const;
 
 const TIME_FIELD =
-  "h-10 flex-1 rounded-lg border border-neutral-200 bg-white px-2 text-sm tabular-nums dark:border-neutral-700 dark:bg-neutral-800";
+  "h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-800";
 
 export function SetupHoursStep({
   shifts: initial,
@@ -52,7 +52,7 @@ export function SetupHoursStep({
 
   return (
     <div>
-      <p className="mb-4 rounded-xl bg-neutral-50 px-4 py-3 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+      <p className="mb-4 rounded-xl bg-zinc-50 px-4 py-3 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
         התחלנו עם ראשון–חמישי, 09:00–17:00. יום ללא משמרות נחשב סגור, ושתי
         משמרות באותו יום יוצרות הפסקה ביניהן. אזור זמן: {timezone}
       </p>
@@ -66,16 +66,16 @@ export function SetupHoursStep({
           return (
             <li
               key={label}
-              className="rounded-2xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
+              className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
             >
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {label}
                 </span>
                 <button
                   type="button"
                   onClick={() => addShift(weekday)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400"
+                  className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400"
                 >
                   <Plus className="size-3" aria-hidden />
                   משמרת
@@ -83,7 +83,7 @@ export function SetupHoursStep({
               </div>
 
               {dayShifts.length === 0 ? (
-                <p className="text-xs text-neutral-400">סגור</p>
+                <p className="text-xs text-zinc-400">סגור</p>
               ) : (
                 <div className="space-y-2">
                   {dayShifts.map(({ shift, index }) => (
@@ -98,7 +98,7 @@ export function SetupHoursStep({
                         }
                         className={TIME_FIELD}
                       />
-                      <span className="text-xs text-neutral-400">עד</span>
+                      <span className="text-xs text-zinc-400">עד</span>
                       <input
                         type="time"
                         dir="ltr"
@@ -113,7 +113,7 @@ export function SetupHoursStep({
                         type="button"
                         onClick={() => remove(index)}
                         aria-label="הסרת משמרת"
-                        className="rounded-lg border border-neutral-200 p-2 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-neutral-700"
+                        className="rounded-lg border border-zinc-200 p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-zinc-700"
                       >
                         <Trash2 className="size-4" />
                       </button>
@@ -131,7 +131,7 @@ export function SetupHoursStep({
           type="button"
           onClick={() => onSubmit(shifts)}
           disabled={pending}
-          className="h-12 flex-1 rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+          className="h-12 flex-1 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
         >
           המשך לסיום
         </button>
@@ -139,7 +139,7 @@ export function SetupHoursStep({
           type="button"
           onClick={onBack}
           disabled={pending}
-          className="h-12 rounded-xl border border-neutral-300 px-5 text-sm font-semibold text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300"
+          className="h-12 rounded-xl border border-zinc-300 px-5 text-sm font-semibold text-zinc-700 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300"
         >
           חזרה
         </button>

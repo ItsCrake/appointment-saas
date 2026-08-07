@@ -22,12 +22,12 @@ export function ConsentNote({
   className?: string;
 }) {
   return (
-    <p className={`text-[11px] leading-relaxed text-neutral-500 ${className}`}>
+    <p className={`text-[11px] leading-relaxed text-zinc-500 ${className}`}>
       בלחיצה על {action}, הנך מסכים ל
       <Link
         href="/legal/terms"
         target="_blank"
-        className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
+        className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
       >
         תנאי השימוש
       </Link>{" "}
@@ -35,7 +35,7 @@ export function ConsentNote({
       <Link
         href="/legal/privacy"
         target="_blank"
-        className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
+        className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
       >
         מדיניות הפרטיות
       </Link>

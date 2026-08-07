@@ -18,10 +18,10 @@ export default async function HoursPage() {
   return (
     <div>
       <header className="mb-6">
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
           שעות פעילות
         </h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
+        <p className="mt-0.5 text-sm text-zinc-500">
           שעות קבועות וחסימות חד-פעמיות ({business.timezone})
         </p>
       </header>

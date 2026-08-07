@@ -53,11 +53,11 @@ export function DateTimeStep({
       <div className="mb-4 flex items-baseline justify-between gap-3">
         <h2
           id="datetime-heading"
-          className="text-base font-semibold text-neutral-900 dark:text-neutral-100"
+          className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
         >
           בחרו מועד
         </h2>
-        <p className="text-xs text-neutral-500">{monthLabel(selectedDate)}</p>
+        <p className="text-xs text-zinc-500">{monthLabel(selectedDate)}</p>
       </div>
 
       {/* Horizontal day strip — thumb-friendly and avoids a full calendar on
@@ -86,14 +86,14 @@ export function DateTimeStep({
                 "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
                 active
                   ? "border-(--accent) bg-(--accent) text-(--accent-contrast) shadow-md"
-                  : "border-neutral-200 bg-white text-neutral-700 hover:border-(--accent) hover:shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300",
+                  : "border-zinc-200 bg-white text-zinc-700 hover:border-(--accent) hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300",
               )}
               onClick={() => onSelectDate(date)}
             >
               <span
                 className={cn(
                   "text-[11px] font-medium",
-                  active ? "opacity-80" : "text-neutral-500",
+                  active ? "opacity-80" : "text-zinc-500",
                 )}
               >
                 {relative}

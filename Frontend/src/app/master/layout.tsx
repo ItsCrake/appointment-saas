@@ -27,26 +27,28 @@ export default async function MasterLayout({
   const admin = await requireSuperAdmin();
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur">
+    <div dir="rtl" className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-5">
           <div className="flex items-center gap-3">
-            <Link href="/master" className="font-bold text-slate-50">
+            <Link href="/master" className="font-bold text-zinc-50">
               {BRAND_MARK.stem}
-              <span className="text-teal-400">{BRAND_MARK.dot}</span>
+              <span className="bg-[image:var(--brand-gradient)] bg-clip-text text-transparent">
+                {BRAND_MARK.dot}
+              </span>
             </Link>
-            <span className="rounded-md bg-slate-800 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+            <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-400 uppercase">
               Command Center
             </span>
           </div>
 
           <div className="flex items-center gap-3">
-            <span dir="ltr" className="text-xs text-slate-500">
+            <span dir="ltr" className="text-xs text-zinc-500">
               {admin.email}
             </span>
             <Link
               href="/dashboard"
-              className="text-xs font-medium text-slate-400 transition-colors hover:text-teal-300"
+              className="text-xs font-medium text-zinc-400 transition-colors hover:text-white"
             >
               ליציאה →
             </Link>

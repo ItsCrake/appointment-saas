@@ -113,16 +113,16 @@ function Card({
       className={cn(
         "rounded-2xl border p-4 transition-colors",
         tone === "accent"
-          ? "border-teal-200 bg-teal-50/60 dark:border-teal-900 dark:bg-teal-950/30"
-          : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900",
+          ? "border-indigo-200 bg-indigo-50/60 dark:border-indigo-900 dark:bg-indigo-950/30"
+          : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900",
       )}
     >
       <dt
         className={cn(
           "flex items-center gap-1.5 text-xs font-medium",
           tone === "accent"
-            ? "text-teal-800 dark:text-teal-300"
-            : "text-neutral-500",
+            ? "text-indigo-800 dark:text-indigo-300"
+            : "text-zinc-500",
         )}
       >
         {icon}
@@ -134,12 +134,12 @@ function Card({
             "mt-1.5 block text-2xl leading-none font-bold tabular-nums",
             tone === "warn"
               ? "text-amber-600 dark:text-amber-400"
-              : "text-neutral-900 dark:text-neutral-50",
+              : "text-zinc-900 dark:text-zinc-50",
           )}
         >
           {value}
         </span>
-        <span className="mt-1 block text-[11px] text-neutral-400">{hint}</span>
+        <span className="mt-1 block text-[11px] text-zinc-400">{hint}</span>
       </dd>
     </div>
   );

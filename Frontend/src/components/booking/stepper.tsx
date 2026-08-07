@@ -11,7 +11,7 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
           read as progress, a filling bar does. */}
       <div
         aria-hidden
-        className="relative mb-2 h-1 rounded-full bg-neutral-200 dark:bg-neutral-800"
+        className="relative mb-2 h-1 rounded-full bg-zinc-200 dark:bg-zinc-800"
       >
         <div
           className="h-full rounded-full bg-(--accent) transition-[width] duration-300 ease-out"
@@ -42,7 +42,7 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
                     "bg-(--accent) text-(--accent-contrast) ring-2 ring-(--accent-soft-border)",
                   !done &&
                     !active &&
-                    "bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500",
+                    "bg-zinc-200 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500",
                 )}
               >
                 {done ? <Check className="size-3" aria-hidden /> : step}
@@ -51,10 +51,10 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
                 className={cn(
                   "text-xs font-medium transition-colors",
                   active
-                    ? "text-neutral-900 dark:text-neutral-100"
+                    ? "text-zinc-900 dark:text-zinc-100"
                     : done
-                      ? "text-neutral-500"
-                      : "text-neutral-400",
+                      ? "text-zinc-500"
+                      : "text-zinc-400",
                 )}
               >
                 {label}

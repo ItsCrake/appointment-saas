@@ -83,32 +83,32 @@ export default async function BillingPage() {
       <div className={`${cardClass} p-5`}>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-zinc-500">
               {trialing ? "המסלול בתקופת הניסיון" : "המסלול הנוכחי"}
             </p>
-            <p className="mt-0.5 text-lg font-bold text-neutral-900 dark:text-neutral-50">
+            <p className="mt-0.5 text-lg font-bold text-zinc-900 dark:text-zinc-50">
               {tier ? `מסלול ${tier.name}` : "חינמי"}
               {trialing ? " (Pro)" : ""}
             </p>
           </div>
-          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
             {STATUS_LABEL[status] ?? status}
           </span>
         </div>
 
-        <dl className="mt-5 grid gap-4 border-t border-neutral-200 pt-4 sm:grid-cols-2 dark:border-neutral-800">
+        <dl className="mt-5 grid gap-4 border-t border-zinc-200 pt-4 sm:grid-cols-2 dark:border-zinc-800">
           {tier ? (
             <div>
-              <dt className="text-xs text-neutral-500">
+              <dt className="text-xs text-zinc-500">
                 {trialing ? "המחיר בתום הניסיון" : "מחיר"}
               </dt>
-              <dd className="mt-0.5 text-sm font-semibold text-neutral-900 tabular-nums dark:text-neutral-100">
+              <dd className="mt-0.5 text-sm font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">
                 {formatPrice(
                   business.billingCycle === "yearly"
                     ? tier.yearlyCents
                     : tier.monthlyCents,
                 )}
-                <span className="font-normal text-neutral-500">
+                <span className="font-normal text-zinc-500">
                   {business.billingCycle === "yearly" ? " לשנה" : " לחודש"}
                 </span>
               </dd>
@@ -117,12 +117,12 @@ export default async function BillingPage() {
 
           {trialing && business.trialEndsAt ? (
             <div>
-              <dt className="text-xs text-neutral-500">
+              <dt className="text-xs text-zinc-500">
                 {trialDaysLeft === 0
                   ? "הניסיון מסתיים היום"
                   : `נותרו ${trialDaysLeft} ימי ניסיון`}
               </dt>
-              <dd className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              <dd className="mt-0.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {formatDate(business.trialEndsAt, business.timezone)}
               </dd>
             </div>
@@ -130,7 +130,7 @@ export default async function BillingPage() {
 
           {status === "past_due" && graceEndsAt ? (
             <div>
-              <dt className="text-xs text-neutral-500">
+              <dt className="text-xs text-zinc-500">
                 עמוד ההזמנות ייסגר בתאריך
               </dt>
               <dd className="mt-0.5 text-sm font-semibold text-rose-700 dark:text-rose-300">
@@ -141,10 +141,10 @@ export default async function BillingPage() {
 
           {business.currentPeriodEnd ? (
             <div>
-              <dt className="text-xs text-neutral-500">
+              <dt className="text-xs text-zinc-500">
                 {business.cancelAtPeriodEnd ? "המנוי יסתיים" : "החידוש הבא"}
               </dt>
-              <dd className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              <dd className="mt-0.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {formatDate(business.currentPeriodEnd, business.timezone)}
               </dd>
             </div>
@@ -170,7 +170,7 @@ export default async function BillingPage() {
         ) : null}
       </div>
 
-      <h2 className="mt-8 mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+      <h2 className="mt-8 mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
         {trialing ? "בחירת מסלול להמשך" : "שינוי מסלול"}
       </h2>
       <PlanPicker
@@ -179,7 +179,7 @@ export default async function BillingPage() {
         live={billingLive}
       />
 
-      <h2 className="mt-8 mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+      <h2 className="mt-8 mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
         חשבוניות
       </h2>
 
@@ -191,7 +191,7 @@ export default async function BillingPage() {
         />
       ) : (
         <ul
-          className={`${cardClass} divide-y divide-neutral-200 dark:divide-neutral-800`}
+          className={`${cardClass} divide-y divide-zinc-200 dark:divide-zinc-800`}
         >
           {invoices.map((invoice) => (
             <li
@@ -199,10 +199,10 @@ export default async function BillingPage() {
               className="flex items-center justify-between gap-3 px-4 py-3"
             >
               <span className="min-w-0">
-                <span className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {formatPrice(invoice.amountCents)}
                 </span>
-                <span className="block text-xs text-neutral-500">
+                <span className="block text-xs text-zinc-500">
                   {formatDate(invoice.issuedAt, business.timezone)}
                 </span>
               </span>
@@ -211,7 +211,7 @@ export default async function BillingPage() {
                   href={invoice.hostedUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-700 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
                 >
                   צפייה
                   <ExternalLink className="size-3.5" aria-hidden />
@@ -223,7 +223,7 @@ export default async function BillingPage() {
       )}
 
       {!entitlements.customBranding ? (
-        <p className="mt-6 text-xs leading-relaxed text-neutral-500">
+        <p className="mt-6 text-xs leading-relaxed text-zinc-500">
           במסלול המקצועי נכללים עיצוב מותאם לעמוד ההזמנות, גלריה, חוות דעת
           ותזכורות SMS.
         </p>

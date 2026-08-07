@@ -43,7 +43,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
       className="animate-step px-5 pb-8"
       aria-labelledby="confirm-heading"
     >
-      <div className="rounded-3xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-6 text-center dark:border-emerald-900 dark:from-emerald-950/40 dark:to-neutral-950">
+      <div className="rounded-3xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-6 text-center dark:border-emerald-900 dark:from-emerald-950/40 dark:to-zinc-950">
         <div
           aria-hidden
           className="mx-auto mb-3 flex size-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-600/25"
@@ -62,15 +62,15 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
         </p>
 
         {/* The date and time, large. This is the one fact worth remembering. */}
-        <p className="mt-4 text-2xl font-bold text-neutral-900 tabular-nums dark:text-neutral-50">
+        <p className="mt-4 text-2xl font-bold text-zinc-900 tabular-nums dark:text-zinc-50">
           {when.time}
         </p>
-        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
           יום {when.weekday}, {when.date}
         </p>
       </div>
 
-      <dl className="mt-4 divide-y divide-neutral-200 rounded-2xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
+      <dl className="mt-4 divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
         <Row
           icon={<CalendarCheck className="size-4" aria-hidden />}
           label="שירות"
@@ -102,20 +102,20 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
           rather than a quiet text link. */}
       <Link
         href={`/b/${appointment.cancelToken}`}
-        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-neutral-300 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
       >
         <ShieldCheck className="size-4" aria-hidden />
         צפייה או ביטול התור
       </Link>
 
-      <p className="mt-2.5 text-center text-xs leading-relaxed text-neutral-500">
+      <p className="mt-2.5 text-center text-xs leading-relaxed text-zinc-500">
         שמרו את הקישור הזה — דרכו תוכלו לבטל את התור בעצמכם.
       </p>
 
       <button
         type="button"
         onClick={onBookAnother}
-        className="mt-4 h-12 w-full rounded-xl text-sm font-semibold text-neutral-500 transition-colors hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none dark:hover:text-neutral-100"
+        className="mt-4 h-12 w-full rounded-xl text-sm font-semibold text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:hover:text-zinc-100"
       >
         קביעת תור נוסף
       </button>
@@ -134,11 +134,11 @@ function Row({
 }) {
   return (
     <div className="flex items-start gap-3 px-4 py-3.5">
-      <dt className="flex min-w-20 items-center gap-2 text-sm text-neutral-500">
+      <dt className="flex min-w-20 items-center gap-2 text-sm text-zinc-500">
         {icon}
         {label}
       </dt>
-      <dd className="flex-1 text-sm text-neutral-900 dark:text-neutral-100">
+      <dd className="flex-1 text-sm text-zinc-900 dark:text-zinc-100">
         {children}
       </dd>
     </div>

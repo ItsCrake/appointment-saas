@@ -14,10 +14,10 @@ export default async function ServicesPage() {
   return (
     <div>
       <header className="mb-6">
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
           שירותים
         </h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
+        <p className="mt-0.5 text-sm text-zinc-500">
           השירותים המוצגים בעמוד ההזמנות שלכם
         </p>
       </header>

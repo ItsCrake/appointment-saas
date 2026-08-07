@@ -38,10 +38,15 @@ export function MasterTabs() {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "inline-flex h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium whitespace-nowrap transition-colors",
-                  "focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:outline-none",
+                  "focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none",
+                  // On ink there is no lighter step left to promote the active
+                  // tab with, so the text carries the contrast and the rule
+                  // carries the accent — indigo, the gradient's mid stop. A
+                  // literal gradient on a 2px underline reads as a rendering
+                  // artefact at this size.
                   active
-                    ? "border-teal-400 text-teal-300"
-                    : "border-transparent text-slate-400 hover:text-slate-100",
+                    ? "border-indigo-400 text-white"
+                    : "border-transparent text-zinc-400 hover:text-zinc-100",
                 )}
               >
                 <Icon className="size-4 shrink-0" aria-hidden />

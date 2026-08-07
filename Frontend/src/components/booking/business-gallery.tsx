@@ -49,7 +49,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
     <section aria-labelledby="gallery-heading" className="px-5 pt-8">
       <h2
         id="gallery-heading"
-        className="mb-3 text-base font-semibold text-neutral-900 dark:text-neutral-100"
+        className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-100"
       >
         מהעבודות שלנו
       </h2>
@@ -61,7 +61,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
               type="button"
               onClick={() => setOpenAt(index)}
               aria-label={`הגדלת תמונה ${index + 1} מתוך ${count}`}
-              className="group block aspect-square w-full overflow-hidden rounded-xl bg-neutral-100 transition-all duration-150 hover:shadow-md focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 dark:bg-neutral-800"
+              className="group block aspect-square w-full overflow-hidden rounded-xl bg-zinc-100 transition-all duration-150 hover:shadow-md focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 dark:bg-zinc-800"
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time */}
               <img

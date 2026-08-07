@@ -30,11 +30,11 @@ export default async function MasterAlertsPage() {
   return (
     <div>
       <header className="mb-5">
-        <h1 className="flex items-center gap-2 text-xl font-bold text-slate-50">
+        <h1 className="flex items-center gap-2 text-xl font-bold text-zinc-50">
           <TriangleAlert className="size-5 text-amber-400" aria-hidden />
           התראות וחריגות
         </h1>
-        <p className="mt-0.5 text-sm text-slate-500">מה דורש תשומת לב עכשיו</p>
+        <p className="mt-0.5 text-sm text-zinc-500">מה דורש תשומת לב עכשיו</p>
       </header>
 
       {quiet ? (
@@ -118,10 +118,10 @@ function Section({
 
   return (
     <section className="mb-6">
-      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
+      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-300">
         {icon}
         {title}
-        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400 tabular-nums">
+        <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400 tabular-nums">
           {count}
         </span>
       </h2>
@@ -144,10 +144,10 @@ function Row({
   return (
     <li className={`${panel} flex items-center gap-3 px-4 py-3`}>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-slate-100">
+        <span className="block truncate text-sm font-medium text-zinc-100">
           {title}
         </span>
-        <span dir="ltr" className="block truncate text-[11px] text-slate-500">
+        <span dir="ltr" className="block truncate text-[11px] text-zinc-500">
           {slug}
         </span>
       </span>

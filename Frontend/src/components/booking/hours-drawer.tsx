@@ -75,7 +75,7 @@ export function HoursDrawer({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       >
         <CalendarDays className="size-3.5 shrink-0" aria-hidden />
         שעות פעילות
@@ -95,17 +95,17 @@ export function HoursDrawer({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="animate-sheet relative w-full max-w-lg rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl dark:bg-neutral-900"
+            className="animate-sheet relative w-full max-w-lg rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl dark:bg-zinc-900"
           >
             <div
               aria-hidden
-              className="mx-auto mt-3 h-1 w-10 rounded-full bg-neutral-300 dark:bg-neutral-700"
+              className="mx-auto mt-3 h-1 w-10 rounded-full bg-zinc-300 dark:bg-zinc-700"
             />
 
             <div className="flex items-center justify-between px-5 pt-4 pb-2">
               <h2
                 id={titleId}
-                className="text-base font-bold text-neutral-900 dark:text-neutral-100"
+                className="text-base font-bold text-zinc-900 dark:text-zinc-100"
               >
                 שעות פעילות
               </h2>
@@ -114,13 +114,13 @@ export function HoursDrawer({
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="סגירה"
-                className="-me-2 rounded-lg p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:outline-none dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                className="-me-2 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               >
                 <X className="size-5" aria-hidden />
               </button>
             </div>
 
-            <dl className="max-h-[60vh] divide-y divide-neutral-100 overflow-y-auto px-5 pb-6 dark:divide-neutral-800">
+            <dl className="max-h-[60vh] divide-y divide-zinc-100 overflow-y-auto px-5 pb-6 dark:divide-zinc-800">
               {week.map(({ weekday, shifts }) => {
                 const isToday = weekday === todayWeekday;
 
@@ -136,13 +136,13 @@ export function HoursDrawer({
                       className={cn(
                         "flex items-center gap-2",
                         isToday
-                          ? "text-neutral-900 dark:text-neutral-100"
-                          : "text-neutral-600 dark:text-neutral-400",
+                          ? "text-zinc-900 dark:text-zinc-100"
+                          : "text-zinc-600 dark:text-zinc-400",
                       )}
                     >
                       {WEEKDAYS[weekday]}
                       {isToday ? (
-                        <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-neutral-100 dark:text-neutral-900">
+                        <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
                           היום
                         </span>
                       ) : null}
@@ -152,8 +152,8 @@ export function HoursDrawer({
                       className={cn(
                         "text-end tabular-nums",
                         shifts.length === 0
-                          ? "text-neutral-400"
-                          : "text-neutral-900 dark:text-neutral-100",
+                          ? "text-zinc-400"
+                          : "text-zinc-900 dark:text-zinc-100",
                       )}
                     >
                       {shifts.length === 0 ? (

@@ -12,6 +12,8 @@ import {
 } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
+import { btnPrimary, btnSecondary } from "./ui";
+
 type Props = {
   selected: PlanType;
   pending: boolean;
@@ -24,10 +26,10 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
 
   return (
     <div>
-      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+      <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
         בחירת מסלול
       </h2>
-      <p className="mt-1 mb-4 text-sm text-neutral-500">
+      <p className="mt-1 mb-4 text-sm text-zinc-500">
         {TRIAL_DAYS} ימי ניסיון בחינם בכל המסלולים. לא נבקש כרטיס אשראי, ואפשר
         לשנות מסלול בכל שלב.
       </p>
@@ -45,35 +47,35 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
                 onClick={() => setPlan(tier.id)}
                 className={cn(
                   "w-full rounded-2xl border bg-white p-4 text-start transition-all active:scale-[0.99]",
-                  "focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none",
-                  "dark:bg-neutral-900",
+                  "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-white",
+                  "dark:bg-zinc-900",
                   active
-                    ? "border-teal-700 ring-1 ring-teal-700"
-                    : "border-neutral-200 hover:border-teal-600 dark:border-neutral-800",
+                    ? "border-zinc-950 ring-1 ring-zinc-950 dark:border-zinc-50 dark:ring-zinc-50"
+                    : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600",
                 )}
               >
                 <span className="flex items-start justify-between gap-3">
                   <span className="min-w-0">
                     <span className="flex items-center gap-2">
-                      <span className="font-semibold text-neutral-900 dark:text-neutral-100">
+                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">
                         {tier.name}
                       </span>
                       {tier.highlighted ? (
-                        <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-800 dark:bg-teal-950 dark:text-teal-200">
+                        <span className="rounded-full bg-[image:var(--brand-gradient)] px-2.5 py-1 text-[10px] font-bold text-white">
                           מומלץ
                         </span>
                       ) : null}
                     </span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-neutral-500">
+                    <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">
                       {tier.tagline}
                     </span>
                   </span>
 
                   <span className="shrink-0 text-end">
-                    <span className="block font-bold text-neutral-900 tabular-nums dark:text-neutral-100">
+                    <span className="block font-bold text-zinc-900 tabular-nums dark:text-zinc-100">
                       {formatPrice(tier.monthlyCents)}
                     </span>
-                    <span className="block text-[11px] text-neutral-500">
+                    <span className="block text-[11px] text-zinc-500">
                       לחודש
                     </span>
                   </span>
@@ -83,10 +85,10 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
                   {tier.features.slice(0, 3).map((feature) => (
                     <span
                       key={feature}
-                      className="inline-flex items-center gap-1 text-[11px] text-neutral-600 dark:text-neutral-400"
+                      className="inline-flex items-center gap-1 text-[11px] text-zinc-600 dark:text-zinc-400"
                     >
                       <Check
-                        className="size-3 shrink-0 text-teal-700 dark:text-teal-400"
+                        className="size-3 shrink-0 text-zinc-950 dark:text-zinc-50"
                         aria-hidden
                       />
                       {feature}
@@ -94,7 +96,7 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
                   ))}
                 </span>
 
-                <span className="mt-2 block text-[11px] text-teal-800 dark:text-teal-300">
+                <span className="mt-2 block text-[11px] font-medium text-zinc-500">
                   בחיוב שנתי חוסכים {yearlySavingsPercent(tier)}%
                 </span>
               </button>
@@ -108,7 +110,7 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
           type="button"
           onClick={onBack}
           disabled={pending}
-          className="h-12 rounded-xl border border-neutral-300 px-5 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          className={cn(btnSecondary, "h-12")}
         >
           חזרה
         </button>
@@ -116,7 +118,7 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
           type="button"
           onClick={() => onSubmit(plan)}
           disabled={pending}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white shadow-sm transition-all hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] disabled:opacity-60"
+          className={cn(btnPrimary, "h-12 flex-1")}
         >
           המשך
           <ArrowLeft className="size-4" aria-hidden />
@@ -124,7 +126,7 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
       </div>
 
       {/* Said plainly rather than buried: nothing is charged at this point. */}
-      <p className="mt-3 text-center text-[11px] leading-relaxed text-neutral-400">
+      <p className="mt-3 text-center text-[11px] leading-relaxed text-zinc-400">
         לא מתבצע חיוב עכשיו. נציג יצור קשר לפני תום תקופת הניסיון.
       </p>
     </div>

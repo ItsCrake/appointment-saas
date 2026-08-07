@@ -190,7 +190,7 @@ export default async function BusinessPage({ params }: PageProps) {
       />
 
       {services.length === 0 ? (
-        <p className="px-5 py-16 text-center text-sm text-neutral-500">
+        <p className="px-5 py-16 text-center text-sm text-zinc-500">
           העסק עדיין לא הגדיר שירותים לקביעת תור.
         </p>
       ) : (
@@ -217,7 +217,7 @@ export default async function BusinessPage({ params }: PageProps) {
       <BusinessGallery images={gallery} />
       <BusinessReviews reviews={reviews} />
 
-      <footer className="mt-auto px-5 py-8 text-center text-xs text-neutral-400">
+      <footer className="mt-auto px-5 py-8 text-center text-xs text-zinc-400">
         מופעל על ידי {BRAND.name}
       </footer>
     </div>

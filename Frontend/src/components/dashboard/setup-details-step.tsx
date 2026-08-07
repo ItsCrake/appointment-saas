@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { SetupBusiness } from "./setup-flow";
 
 const FIELD =
-  "h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100";
+  "h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 text-base text-zinc-900 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100";
 
 /** Turns "מספרת ברקאי" into a usable latin slug suggestion, or nothing. */
 function suggestSlug(name: string) {
@@ -47,7 +47,7 @@ export function SetupDetailsStep({
       className="space-y-4"
     >
       <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+        <span className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           שם העסק
         </span>
         <input
@@ -59,11 +59,11 @@ export function SetupDetailsStep({
       </label>
 
       <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+        <span className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           כתובת עמוד ההזמנות
         </span>
         <div className="flex items-center gap-1" dir="ltr">
-          <span className="shrink-0 text-sm text-neutral-400">/</span>
+          <span className="shrink-0 text-sm text-zinc-400">/</span>
           <input
             value={slug}
             onChange={(e) => {
@@ -74,13 +74,13 @@ export function SetupDetailsStep({
             className={`${FIELD} text-start`}
           />
         </div>
-        <span className="mt-1.5 block text-xs text-neutral-500">
+        <span className="mt-1.5 block text-xs text-zinc-500">
           אותיות באנגלית, מספרים ומקפים בלבד. זה הקישור שתשתפו עם לקוחות.
         </span>
       </label>
 
       <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+        <span className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
           טלפון (לא חובה)
         </span>
         <input
@@ -96,7 +96,7 @@ export function SetupDetailsStep({
       <button
         type="submit"
         disabled={pending}
-        className="h-12 w-full rounded-xl bg-neutral-900 text-sm font-semibold text-white disabled:opacity-60"
+        className="h-12 w-full rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
       >
         המשך לשירותים
       </button>

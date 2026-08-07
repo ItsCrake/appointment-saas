@@ -96,10 +96,10 @@ export function SetupFlow({
   return (
     <div>
       <header className="mb-6 text-center">
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
+        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
           {step === "done" ? "הכול מוכן!" : `ברוכים הבאים ל${BRAND.name}`}
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-zinc-500">
           {step === "done"
             ? "עמוד ההזמנות שלכם באוויר"
             : "חמישה שלבים קצרים. אפשר לשנות הכול אחר כך."}
@@ -119,10 +119,13 @@ export function SetupFlow({
                 aria-current={active ? "step" : undefined}
                 className={cn(
                   "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  // Only the current step carries the gradient — one active
+                  // thing at a time, as on `/`. Completed steps go quiet
+                  // rather than competing with it for attention.
                   done &&
-                    "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200",
-                  active && "bg-teal-700 text-white",
-                  !done && !active && "text-neutral-400",
+                    "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+                  active && "bg-[image:var(--brand-gradient)] text-white",
+                  !done && !active && "text-zinc-400",
                 )}
               >
                 {done ? <Check className="size-3" aria-hidden /> : null}
@@ -133,7 +136,7 @@ export function SetupFlow({
                   aria-hidden
                   className={cn(
                     "h-px w-3",
-                    done ? "bg-teal-600" : "bg-neutral-200 dark:bg-neutral-800",
+                    done ? "bg-zinc-400" : "bg-zinc-200 dark:bg-zinc-800",
                   )}
                 />
               ) : null}
@@ -207,7 +210,7 @@ export function SetupFlow({
       </div>
 
       {pending ? (
-        <p className="mt-4 flex items-center justify-center gap-2 text-xs text-neutral-500">
+        <p className="mt-4 flex items-center justify-center gap-2 text-xs text-zinc-500">
           <Loader2 className="size-3.5 animate-spin" aria-hidden />
           שומר…
         </p>
