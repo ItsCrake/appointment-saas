@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  authRedirectOrigin,
   bookingUrlFor,
   isLocalOrigin,
   originFromHeaders,
@@ -83,6 +84,55 @@ describe("isLocalOrigin", () => {
   it("returns false for something that is not a URL", () => {
     expect(isLocalOrigin("bazman.app")).toBe(false);
     expect(isLocalOrigin("")).toBe(false);
+  });
+});
+
+describe("authRedirectOrigin", () => {
+  it("uses the configured origin and ignores the request entirely", () => {
+    // The opposite of pickAppUrl on purpose. Supabase only honours a
+    // redirect_to that is on its allow-list, and that list is written against
+    // the canonical domain — a preview URL is not on it, so honouring the
+    // request here is what drops the user on the home page.
+    expect(
+      authRedirectOrigin("https://bazman.app", "https://preview.vercel.app"),
+    ).toEqual({ origin: "https://bazman.app", fromRequestHeader: false });
+  });
+
+  it("does not promote a request header even when the env says localhost", () => {
+    // pickAppUrl deliberately *does* override localhost from the request, to
+    // rescue a share link. Doing the same here would build a password-reset
+    // link out of a header an attacker can forge.
+    expect(
+      authRedirectOrigin("http://localhost:3000", "https://attacker.example"),
+    ).toEqual({ origin: "http://localhost:3000", fromRequestHeader: false });
+  });
+
+  it("falls back to the request origin only when nothing is configured", () => {
+    // Local development. `check:env --production` refuses to deploy without
+    // the variable, and the caller logs a warning when this branch is taken.
+    expect(authRedirectOrigin(null, "http://localhost:3000")).toEqual({
+      origin: "http://localhost:3000",
+      fromRequestHeader: true,
+    });
+    expect(authRedirectOrigin("  ", "https://bazman.app")).toEqual({
+      origin: "https://bazman.app",
+      fromRequestHeader: true,
+    });
+  });
+
+  it("strips a trailing slash so the callback URL has no double slash", () => {
+    // `https://bazman.app//auth/confirm` is a different path to Supabase's
+    // allow-list matcher, and to Next's router.
+    expect(authRedirectOrigin("https://bazman.app/", null).origin).toBe(
+      "https://bazman.app",
+    );
+  });
+
+  it("builds the exact callback the allow-list has to contain", () => {
+    const { origin } = authRedirectOrigin("https://bazman.app", null);
+    expect(`${origin}/auth/confirm?next=/login/reset`).toBe(
+      "https://bazman.app/auth/confirm?next=/login/reset",
+    );
   });
 });
 

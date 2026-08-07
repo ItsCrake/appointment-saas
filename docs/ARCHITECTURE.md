@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 355 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 368 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -38,7 +38,8 @@ Frontend/src/
                   activate, provider adapter)
                   auth-validation (password rules + hashed rate-limit key)
                   safe-redirect (open-redirect guard for a `next` in a query)
-                  app-url (which origin a shareable link uses)
+                  app-url (which origin a shareable link uses — and, in
+                    authRedirectOrigin, the stricter rule an emailed one uses)
                   brand (the wordmark, one place), platform-metrics (MRR etc.)
                   super-admin + master-session + impersonation (/master access)
                   supabase/ (server client + forced cookie flags)
@@ -928,6 +929,22 @@ demand. It is keyed on the same `authIdentifier` hash as sign-in, so defending
 the mailbox does not create a list of who asked. A test asserts it is tighter
 than the sign-in budget.
 
+**The reset link's origin is pinned to `NEXT_PUBLIC_APP_URL`, and this is the
+one place `pickAppUrl` must not be used.** That function rescues a *share* link
+from a stale env var by falling back to the origin the request arrived on.
+Applied here it does two bad things. Supabase only honours a `redirect_to` that
+matches its Redirect URLs allow-list, and a header-derived origin — a preview
+deployment, a bare IP, anything behind a different proxy — is not on that list,
+so Supabase silently discards the destination and sends the user to the project
+Site URL instead: the reported bug where a reset link lands on `/`. And building
+a password-reset link out of `Host` / `x-forwarded-host` is the classic
+reset-poisoning shape, where an attacker triggers a reset for someone else's
+address with a forged header and the victim gets a genuine email pointing at the
+attacker's host. `authRedirectOrigin()` therefore takes the configured origin
+outright and never promotes a header into an emailed link; the request origin is
+used only when nothing is configured at all, which `check:env --production`
+already refuses to deploy, and the caller logs a warning when it happens.
+
 **`/auth/confirm` handles both link shapes, and that is not belt-and-braces.**
 Supabase mints either a `token_hash` (redeemed with `verifyOtp`, works on any
 device) or a PKCE `code` (redeemed with `exchangeCodeForSession`, works only in
@@ -946,6 +963,14 @@ genuinely signs the victim in and *then* forwards them, so it arrives from the
 real domain, authenticates, and lands wherever the attacker wrote — which is far
 more convincing than a plain phishing link. `signInAction` now uses the same
 function with a `/dashboard` prefix instead of its own inline check.
+
+**The session is written onto the response the callback returns**, not into the
+ambient `cookies()` store with the redirect signalled by throwing. The thrown
+form leaves the cookie writes depending on the framework flushing a mutated
+store onto a thrown redirect — an implementation detail to stake a *single-use*
+token on. If it ever fails to flush, the token is spent and the owner sees "this
+link is invalid" with no way to tell why. `route.test.ts` asserts the cookies
+are on the 307 itself, which is the seam that actually broke.
 
 **A completed reset signs out every other session** (`scope: "others"`). Reset is
 the remedy for "somebody may have my password", so it has to evict whoever that

@@ -132,22 +132,81 @@ real businesses exist, treat that button as destructive.
 
 ## 4. Supabase Auth
 
-- **Authentication → URL Configuration → Site URL**: set to `NEXT_PUBLIC_APP_URL`.
-- Add `https://<your-domain>/**` to the redirect allow-list.
+### 4.0 URL Configuration — get this wrong and every emailed link goes to `/`
+
+**Authentication → URL Configuration.** Two fields, and they do different jobs:
+
+| Field            | Value                                                              |
+| ---------------- | ------------------------------------------------------------------ |
+| **Site URL**     | `https://<your-domain>` — no trailing slash, no path               |
+| **Redirect URLs** | `https://<your-domain>/**` (add one line per origin, see below)   |
+
+> ### The failure this prevents
+>
+> **Site URL is the fallback, not the destination.** Supabase only honours a
+> `redirect_to` that matches an entry in **Redirect URLs**. When it does not
+> match, Supabase does not error and does not warn — it silently sends the user
+> to the **Site URL** instead. The user clicks a reset link and lands on the
+> home page, the token is spent, and nothing anywhere says why.
+>
+> **That is the whole diagnostic.** If a reset link drops someone on `/`, the
+> destination was rejected by the allow-list. Check the three origins below
+> agree before looking at anything in the application.
+
+Three values must name the **same origin**, and a domain change breaks all
+three at once:
+
+1. `NEXT_PUBLIC_APP_URL` in Vercel — the app builds the reset link from this
+   and **only** this (see [ARCHITECTURE.md](ARCHITECTURE.md#password-reset)).
+2. **Redirect URLs** in Supabase — must match that link.
+3. **Site URL** in Supabase — where a rejected link lands, so make it somewhere
+   sensible even when everything else is right.
+
+Add every origin that will ever send a reset, each on its own line:
+
+```
+https://<your-domain>/**
+https://www.<your-domain>/**
+http://localhost:3000/**
+```
+
+`**` matches across path separators, so one line per origin covers
+`/auth/confirm?next=/login/reset` and every other callback. If you prefer to be
+narrow, the exact URL the app sends is:
+
+```
+https://<your-domain>/auth/confirm?next=/login/reset
+```
+
+> **`www` and the apex are different origins to this allow-list.** If Vercel
+> serves both and `NEXT_PUBLIC_APP_URL` names one, a visitor who typed the other
+> is still fine — the app builds the link from the env var, not from the host
+> they arrived on, precisely so the link always matches the allow-list. Listing
+> both is belt and braces for the day someone changes the env var.
+>
+> **Preview deployments will not work**, and that is deliberate. Every preview
+> gets a fresh `*.vercel.app` hostname that cannot be pre-allow-listed, so a
+> reset requested from a preview builds a link to the production domain. Test
+> password reset against production or locally, never on a preview.
+
 - **Authentication → Providers → Email**: decide whether to keep email
   confirmation on. It is on by default; the signup flow handles that case and
   tells the user to check their inbox.
 
-### Password reset needs two settings, and both bite silently
+### Password reset needs two more settings, and both bite silently
 
 **a. Point the recovery template at `{{ .TokenHash }}`.**
 **Authentication → Emails → Reset Password**, change the link to:
 
 ```html
-<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=%2Flogin%2Freset">
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/login/reset">
   איפוס הסיסמה
 </a>
 ```
+
+Note this one builds the URL from `{{ .SiteURL }}` — the template renders the
+link itself rather than going through `redirect_to`, so **Site URL** has to be
+the real domain for it to work, which is the other reason §4.0 matters.
 
 The default template sends `{{ .ConfirmationURL }}`, which comes back as a PKCE
 `code`. That code can only be redeemed by the browser that *asked* for the
@@ -179,6 +238,18 @@ nothing, and the app cannot tell — the send succeeded as far as it knows.
 Reset links expire after one hour and are single-use. Both facts are stated on
 screen, because "I clicked it twice" is otherwise indistinguishable from a
 broken link.
+
+### If a reset link misbehaves, in the order worth checking
+
+| Symptom                                   | Cause                                                                        |
+| ----------------------------------------- | ---------------------------------------------------------------------------- |
+| Lands on **`/`**                          | `redirect_to` rejected → fell back to Site URL. §4.0: the three origins disagree. |
+| Lands on **`/login/forgot?error=link`**   | The callback *was* reached and the token was refused — expired, already used, or the link was opened in a different browser while the template still sends a PKCE `code`. Fix with §a. |
+| Lands on **`/login/reset`** saying the link is invalid | The exchange succeeded but no session arrived. Check `Set-Cookie` on the 307 from `/auth/confirm`. |
+| **No email at all**                       | §b — Supabase's built-in SMTP is throttled project-wide.                     |
+
+The distinction between the first two rows is the useful one: `/` means the
+request never reached this application, so nothing in the code can be at fault.
 
 ## 5. Cron
 

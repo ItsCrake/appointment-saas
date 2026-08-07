@@ -1,10 +1,11 @@
-import { redirect } from "next/navigation";
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 import { reportWarning } from "@/lib/observability";
 import { safeRedirectPath } from "@/lib/safe-redirect";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseConfig } from "@/lib/supabase/config";
+import { hardenCookieOptions } from "@/lib/supabase/cookies";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,16 @@ export const dynamic = "force-dynamic";
  * where request and click happen in one browser, and fails for the very common
  * real case. `docs/DEPLOYMENT.md` covers pointing the template at
  * `{{ .TokenHash }}` so the cross-device shape is what actually gets sent.
+ *
+ * > **The session cookies are written onto the response this handler returns,
+ * > not into the ambient `cookies()` store.** The earlier version built the
+ * > client from `next/headers` and signalled the redirect by throwing, which
+ * > left the cookie writes depending on the framework flushing a mutated store
+ * > onto a thrown redirect. That is an implementation detail to lean on for the
+ * > one request that carries a single-use token: if it ever fails to flush, the
+ * > token is spent and the owner lands on a page that says the link is invalid,
+ * > with no way to tell why. Attaching them to an explicit `NextResponse` is
+ * > the documented `@supabase/ssr` route-handler pattern and removes the doubt.
  */
 
 /** Link types this app issues. Anything else is refused rather than relayed. */
@@ -51,10 +62,37 @@ export async function GET(request: NextRequest) {
   // Never trust the destination from the query — see `lib/safe-redirect.ts`.
   // A link that genuinely signs the victim in and *then* forwards them
   // off-origin is far more convincing than an ordinary phishing link.
+  //
+  // The default matters as much as the guard: if Supabase drops the `next`
+  // parameter (it rewrites `redirect_to` on its way through), the owner still
+  // arrives at the reset form rather than somewhere arbitrary.
   const next = safeRedirectPath(params.get("next"), "/login/reset");
 
-  const supabase = await createSupabaseServerClient();
-  if (!supabase) redirect("/login/forgot?error=unconfigured");
+  /** Route handlers must return an absolute `Location`. */
+  const redirectTo = (path: string) =>
+    NextResponse.redirect(new URL(path, request.nextUrl.origin));
+
+  const config = getSupabaseConfig();
+  if (!config) return redirectTo("/login/forgot?error=unconfigured");
+
+  // Built up front so `setAll` has somewhere to put the session. This is the
+  // response returned on success, carrying the cookies with it.
+  const success = redirectTo(next);
+
+  const supabase = createServerClient(config.url, config.anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        for (const { name, value, options } of cookiesToSet) {
+          // Same hardening as every other writer, so the session minted from a
+          // recovery link is no weaker than one minted by signing in.
+          success.cookies.set(name, value, hardenCookieOptions(options));
+        }
+      },
+    },
+  });
 
   let failure: string | null = null;
 
@@ -79,11 +117,11 @@ export async function GET(request: NextRequest) {
       reason: failure,
       linkShape: tokenHash ? "token_hash" : code ? "code" : "none",
     });
-    redirect("/login/forgot?error=link");
+    // A fresh response, deliberately: whatever partial cookie state the failed
+    // exchange wrote onto `success` is dropped rather than carried to a page
+    // that would then look half-signed-in.
+    return redirectTo("/login/forgot?error=link");
   }
 
-  // Outside the branch above so it is never caught by an error path: redirect()
-  // signals by throwing, and the session cookies written by the exchange are
-  // flushed onto that response.
-  redirect(next);
+  return success;
 }

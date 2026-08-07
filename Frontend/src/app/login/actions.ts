@@ -4,7 +4,11 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { db } from "@/db";
-import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
+import {
+  authRedirectOrigin,
+  configuredAppUrl,
+  originFromHeaders,
+} from "@/lib/app-url";
 import {
   authIdentifier,
   newPasswordSchema,
@@ -265,18 +269,29 @@ export async function requestPasswordResetAction(
     };
   }
 
-  // The same origin rule share links use. A reset link built from a stale
-  // `NEXT_PUBLIC_APP_URL` is the localhost bug all over again, except here the
-  // dead link is the only way back into the account.
+  // NOT the share-link rule. `authRedirectOrigin` pins this to
+  // `NEXT_PUBLIC_APP_URL` and never promotes a request header into an emailed
+  // link — see the note on that function for both reasons.
   const requestHeaders = await headers();
-  const appUrl = pickAppUrl(
+  const { origin, fromRequestHeader } = authRedirectOrigin(
     configuredAppUrl(),
     originFromHeaders((name) => requestHeaders.get(name)),
   );
 
+  if (fromRequestHeader) {
+    // Only reachable with NEXT_PUBLIC_APP_URL unset, which
+    // `check:env --production` refuses to deploy. Worth a line in the log
+    // anyway: it is the difference between a working reset and a link that
+    // dumps the owner on the home page.
+    reportWarning("auth.resetRequest", "NEXT_PUBLIC_APP_URL unset", { origin });
+  }
+
   const result = await supabase.auth
     .resetPasswordForEmail(parsed.data.email, {
-      redirectTo: `${appUrl}/auth/confirm?next=%2Flogin%2Freset`,
+      // Unencoded slashes on purpose: they are legal in a query *value*, and
+      // this is the string that has to be recognisable in the Supabase
+      // Redirect URLs allow-list, which is read and pasted by a human.
+      redirectTo: `${origin}/auth/confirm?next=/login/reset`,
     })
     .catch((thrown: unknown) => {
       reportAuthFailure("auth.resetRequest", thrown);

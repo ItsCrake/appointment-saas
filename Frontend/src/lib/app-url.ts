@@ -78,3 +78,45 @@ export function browserOrigin(): string | null {
 export function bookingUrlFor(appUrl: string, slug: string): string {
   return `${normaliseOrigin(appUrl)}/${slug}`;
 }
+
+/**
+ * The origin an **emailed auth link** must come back to.
+ *
+ * Deliberately *not* `pickAppUrl`. That function exists to rescue a share link
+ * from a stale `NEXT_PUBLIC_APP_URL` by falling back to the origin the request
+ * arrived on, which is right for a link an owner hands to a customer and wrong
+ * for this, twice over:
+ *
+ * 1. **Supabase only honours a `redirect_to` on its Redirect URLs allow-list.**
+ *    That list is configured against the canonical domain. A request-derived
+ *    origin — a Vercel preview URL, a bare IP, anything behind a different
+ *    proxy — is not on it, so Supabase silently discards the destination and
+ *    sends the user to the project's Site URL instead. The reported symptom of
+ *    "the reset link lands on the home page" is exactly that fallback.
+ * 2. **The origin comes from a request header.** Building a password-reset link
+ *    out of `Host`/`x-forwarded-host` is the classic reset-poisoning shape: an
+ *    attacker triggers a reset for someone else's address with a forged header,
+ *    and the victim receives a genuine email whose link points at the
+ *    attacker's host, handing over the token on click. Supabase's allow-list
+ *    happens to blunt this, but a defence that only works because a third party
+ *    is configured correctly is not a defence worth relying on.
+ *
+ * So the configured origin wins outright, and there is no promotion path from a
+ * header to an emailed link. `runtimeOrigin` is used only when nothing is
+ * configured at all — a local-development convenience, and the caller reports
+ * it, because `check:env --production` already refuses to deploy without the
+ * variable set to a non-localhost value.
+ */
+export function authRedirectOrigin(
+  configured: string | null | undefined,
+  runtimeOrigin: string | null | undefined,
+): { origin: string; fromRequestHeader: boolean } {
+  const env = configured ? normaliseOrigin(configured) : "";
+  if (env) return { origin: env, fromRequestHeader: false };
+
+  const runtime = runtimeOrigin ? normaliseOrigin(runtimeOrigin) : "";
+  return {
+    origin: runtime || "http://localhost:3000",
+    fromRequestHeader: true,
+  };
+}

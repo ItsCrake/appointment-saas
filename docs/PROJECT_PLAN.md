@@ -411,6 +411,28 @@ reset your password" since launch, pointing at a flow that did not exist.
       component instead of a copy in each password form.
 - [x] 18 new unit tests; `npm run verify` green at 355.
 
+**Production fix, after testing on the live domain.** Reset links landed on `/`
+instead of the reset form.
+
+- [x] **Root cause: the link never reached the app.** Supabase honours a
+      `redirect_to` only when it matches its **Redirect URLs** allow-list, and
+      silently falls back to **Site URL** when it does not. Landing on `/` is
+      that fallback, so the three origins — `NEXT_PUBLIC_APP_URL`, Redirect
+      URLs, Site URL — had disagreed since the domain changed.
+      [DEPLOYMENT.md §4.0](DEPLOYMENT.md#40-url-configuration--get-this-wrong-and-every-emailed-link-goes-to-) now spells all three out with a symptom table.
+- [x] `authRedirectOrigin()` replaces `pickAppUrl` for the emailed link. The
+      share-link rule promotes the request origin when the env var is stale,
+      which here produces a `redirect_to` that is *not* on the allow-list —
+      one way to reach exactly this bug — and builds a password-reset link out
+      of a request header, which is the classic reset-poisoning shape.
+- [x] `/auth/confirm` writes the session onto the `NextResponse` it returns
+      instead of mutating the ambient cookie store and throwing. The old form
+      staked a single-use token on the framework flushing a mutated store onto
+      a thrown redirect.
+- [x] `route.test.ts` — 8 tests over the callback, including that the session
+      cookies are on the 307 itself and that a rejected link carries none.
+- [x] 13 more tests; `npm run verify` green at 368.
+
 > Two Supabase dashboard settings are load-bearing and both fail silently:
 > the recovery template must use `{{ .TokenHash }}`, and custom SMTP must be
 > configured or resets are throttled to a handful an hour project-wide. See
