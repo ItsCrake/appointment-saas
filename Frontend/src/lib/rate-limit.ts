@@ -46,6 +46,14 @@ export const BOOKING_RULES = {
  *
  * Sign-up is separate and stricter: a burst of sign-ups from one address is
  * either abuse or a mistake, never a person who forgot their password.
+ *
+ * **The reset rules protect a different thing.** Sign-in limits exist to make
+ * guessing expensive; a reset request cannot be guessed at all — it sends mail
+ * to an address the requester may not own. So `resetIdentity` is a *mailbox*
+ * defence: without it this app is a free way to drop a password-reset email
+ * into someone's inbox on demand, over and over, from an anonymous form. Three
+ * an hour is more than a forgetful owner needs and far less than a nuisance
+ * campaign wants.
  */
 export const AUTH_RULES = {
   signInIp: { scope: "auth:signin:ip", limit: 10, windowMs: 15 * MINUTE_MS },
@@ -55,6 +63,8 @@ export const AUTH_RULES = {
     windowMs: 15 * MINUTE_MS,
   },
   signUpIp: { scope: "auth:signup:ip", limit: 5, windowMs: HOUR_MS },
+  resetIp: { scope: "auth:reset:ip", limit: 5, windowMs: HOUR_MS },
+  resetIdentity: { scope: "auth:reset:id", limit: 3, windowMs: HOUR_MS },
 } as const satisfies Record<string, RateLimitRule>;
 
 /** Slot lookups are cheap but hammering them is still a DoS vector. */

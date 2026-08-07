@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, Check, CheckCircle2, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Loader2 } from "lucide-react";
 
 import { signInAction, signUpAction } from "@/app/login/actions";
 import { ConsentNote } from "@/components/ui/consent-note";
-import { PASSWORD_RULES } from "@/lib/auth-validation";
+import { FormAlert } from "@/components/ui/form-alert";
 import { cn } from "@/lib/utils";
+
+import { authLinkClass } from "./auth-shell";
+import { PasswordRulesList } from "./password-rules-list";
+import { btnPrimary, inputClass } from "./ui";
 
 type Mode = "signin" | "signup";
 
@@ -34,6 +39,8 @@ export function LoginForm({ next }: { next?: string }) {
     if (!result.ok) setError(result.error);
     else if (result.message) setNotice(result.message);
   }
+
+  const field = cn(inputClass, "h-12 px-4 text-base");
 
   return (
     <div>
@@ -87,17 +94,29 @@ export function LoginForm({ next }: { next?: string }) {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+            className={field}
           />
         </div>
 
         <div>
-          <label
-            htmlFor="password"
-            className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-          >
-            סיסמה
-          </label>
+          <div className="mb-1.5 flex items-baseline justify-between gap-3">
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+            >
+              סיסמה
+            </label>
+            {/* Sign-in only. Offering "forgot password" beside a field someone
+                is *choosing* reads as an instruction to abandon the form. */}
+            {mode === "signin" ? (
+              <Link
+                href="/login/forgot"
+                className={cn(authLinkClass, "text-xs")}
+              >
+                שכחתם סיסמה?
+              </Link>
+            ) : null}
+          </div>
           <input
             id="password"
             type="password"
@@ -109,60 +128,21 @@ export function LoginForm({ next }: { next?: string }) {
             }
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-start text-base text-neutral-900 focus:border-transparent focus:ring-2 focus:ring-teal-700 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
+            className={field}
           />
           {/* The rules are rendered from the same constant the server
               validates against, and tick live, so the reader is never told
               "invalid password" without being shown which rule failed. */}
-          {mode === "signup" ? (
-            <ul className="mt-2 space-y-1">
-              {PASSWORD_RULES.map((rule) => {
-                const met = rule.test(password);
-                return (
-                  <li
-                    key={rule.id}
-                    className={`flex items-center gap-1.5 text-xs ${
-                      met
-                        ? "text-emerald-700 dark:text-emerald-400"
-                        : "text-neutral-500"
-                    }`}
-                  >
-                    <Check
-                      className={`size-3 shrink-0 ${met ? "opacity-100" : "opacity-30"}`}
-                      aria-hidden
-                    />
-                    {rule.label}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
+          {mode === "signup" ? <PasswordRulesList value={password} /> : null}
         </div>
 
-        {error ? (
-          <p
-            role="alert"
-            className="flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300"
-          >
-            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
-            {error}
-          </p>
-        ) : null}
-
-        {notice ? (
-          <p
-            role="status"
-            className="flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-          >
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
-            {notice}
-          </p>
-        ) : null}
+        {error ? <FormAlert tone="error">{error}</FormAlert> : null}
+        {notice ? <FormAlert tone="success">{notice}</FormAlert> : null}
 
         <button
           type="submit"
           disabled={pending}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white shadow-sm transition-all hover:bg-teal-800 hover:shadow-md focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] disabled:opacity-60 disabled:active:scale-100"
+          className={cn(btnPrimary, "h-12 w-full")}
         >
           {pending ? (
             <>

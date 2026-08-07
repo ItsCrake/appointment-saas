@@ -44,6 +44,23 @@ export const signInSchema = z.object({
   password: z.string().min(1, "יש להזין סיסמה").max(72),
 });
 
+/** A reset request needs nothing but an address. */
+export const resetRequestSchema = z.object({ email: emailSchema });
+
+/**
+ * Choosing a replacement password, so the **strength rules apply** — this is
+ * the sign-up case, not the sign-in one. The confirmation field is validated
+ * here rather than in the component so the rule survives a form rewrite: a
+ * mistyped new password on an account whose old one is already forgotten
+ * locks the owner out of the very flow they came to use.
+ */
+export const newPasswordSchema = z
+  .object({ password: passwordSchema, confirm: z.string() })
+  .refine((value) => value.password === value.confirm, {
+    path: ["confirm"],
+    message: "הסיסמאות אינן תואמות",
+  });
+
 /** The checks a UI hint can render, in the order they are listed to a reader. */
 export const PASSWORD_RULES = [
   {

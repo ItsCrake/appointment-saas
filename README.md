@@ -55,12 +55,14 @@ cancellations / no-shows.
 ├── Frontend/          the entire application — there is no separate backend tier
 │   ├── src/
 │   │   ├── app/       routes: /, /[slug], /b/[token], /dashboard/*, /master/*,
-│   │   │              /login, /legal/*, /accessibility, /api/cron
+│   │   │              /login, /login/forgot, /login/reset, /auth/confirm,
+│   │   │              /legal/*, /accessibility, /api/cron
 │   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
 │   │   ├── db/        schema, migrations, queries/ (repository layer), scripts
 │   │   │              queries/admin.ts — the only cross-tenant queries
 │   │   ├── lib/       availability, notifications/, billing/, entitlements, stats
-│   │   │              rate limiting, auth-validation, app-url, env, ics
+│   │   │              rate limiting, auth-validation, safe-redirect, app-url,
+│   │   │              env, ics
 │   │   │              branding, plans, legal-content, platform-metrics
 │   │   │              super-admin, impersonation, supabase/
 │   │   ├── test/      PGlite harness + factories
@@ -192,6 +194,9 @@ Run from `Frontend/`.
 | `/[slug]`                 | public        | Booking flow: service → date & time → details   |
 | `/b/[token]`              | token         | Self-service cancellation, `noindex`            |
 | `/login`                  | public        | Owner sign-in / sign-up                         |
+| `/login/forgot`           | public        | Request a password-reset link, `noindex`        |
+| `/login/reset`            | recovery link | Choose a new password, `noindex`                |
+| `/auth/confirm`           | emailed token | Turns a recovery link into a session            |
 | `/dashboard`              | owner         | Day & week agenda, stats, manual booking        |
 | `/dashboard/services`     | owner         | Services CRUD                                   |
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
@@ -219,7 +224,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 337 unit tests, build
+npm run verify     # env, lint, types, 355 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
@@ -283,6 +288,11 @@ What is missing is **an implementation of that adapter that talks to a payment
 company**, plus its webhook. Until one exists the console provider refuses in
 production, so nothing can be marked paid without money moving. Stages 8d–8e —
 see [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#phase-8--billing-in-progress).
+
+Owners can now recover a forgotten password themselves — `/login/forgot` →
+emailed link → `/login/reset`. Two Supabase dashboard settings make it work
+properly in production; both fail quietly if skipped, and both are in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#4-supabase-auth).
 
 Still not built: a real payment provider and its webhook (8d), the per-tenant
 cost model (8e), client deposits, multi-staff resources, Google Calendar sync,

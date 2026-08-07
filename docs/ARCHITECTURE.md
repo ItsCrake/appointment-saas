@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 337 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 355 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -25,6 +25,7 @@ Actions and route handlers _are_ the backend.
 ```
 Frontend/src/
   app/            routes: /[slug], /b/[token], /dashboard/*, /master/*, /login,
+                  /login/forgot, /login/reset, /auth/confirm,
                   /legal/*, /accessibility, /api/cron
                   loading.tsx beside every dynamic route (see Navigation feedback)
   components/     booking/ (public), dashboard/ (owner), marketing/ (landing),
@@ -36,6 +37,7 @@ Frontend/src/
                   entitlements (what a tier buys), billing/ (lifecycle, sweep,
                   activate, provider adapter)
                   auth-validation (password rules + hashed rate-limit key)
+                  safe-redirect (open-redirect guard for a `next` in a query)
                   app-url (which origin a shareable link uses)
                   brand (the wordmark, one place), platform-metrics (MRR etc.)
                   super-admin + master-session + impersonation (/master access)
@@ -840,14 +842,79 @@ the account exists.
 > **fails open**: an unreachable counter table must not lock every customer out
 > of their own account.
 
-**Password strength applies at sign-up only.** Enforcing it on sign-in would
-lock out anyone who registered before the policy and leaks the policy to
-someone who has not guessed a valid password. Length carries most of the value,
-so the character classes are mild — a rule demanding symbols and mixed case
-mostly produces `Password1!` and a sticky note. Hebrew letters count, because
-the audience types Hebrew. `PASSWORD_RULES` drives both the live UI hints and
-the schema, and a test asserts the two agree: a form that ticks every box on a
-password the server then rejects is worse than no hint.
+**Password strength applies when a password is *chosen*, never when it is
+used.** That is sign-up and password reset; sign-in is deliberately exempt,
+because enforcing it there would lock out anyone who registered before the
+policy and leaks the policy to someone who has not guessed a valid password.
+Length carries most of the value, so the character classes are mild — a rule
+demanding symbols and mixed case mostly produces `Password1!` and a sticky note.
+Hebrew letters count, because the audience types Hebrew. `PASSWORD_RULES` drives
+both the live UI hints and the schema, and a test asserts the two agree: a form
+that ticks every box on a password the server then rejects is worse than no hint.
+
+### Password reset
+
+Three surfaces and one route handler: `/login/forgot` asks for an address,
+`/auth/confirm` turns the emailed link into a session, `/login/reset` chooses
+the new password.
+
+**The request action says exactly one thing, always.** Registered or not,
+throttled by Supabase or not — the same sentence. A response that varies with
+whether the address has an account turns a public form into a membership
+oracle: point it at a list of addresses, read the answers, and you have a list
+of people who run a business here *and* are worth phishing with a convincing
+Bazman email. The accepted cost is that a mistyped address is told to check an
+inbox that stays empty. The one exception is a transport failure, which says
+nothing about the address and is reported honestly — telling an owner mail is on
+its way when the request never reached Supabase is its own kind of lie.
+
+**The reset rate limits protect a mailbox, not a password.** Sign-in limits make
+guessing expensive; a reset cannot be guessed at all, because it sends mail to
+an address the requester may not own. Without `resetIdentity` this app is an
+anonymous button that drops a password-reset email into somebody's inbox on
+demand. It is keyed on the same `authIdentifier` hash as sign-in, so defending
+the mailbox does not create a list of who asked. A test asserts it is tighter
+than the sign-in budget.
+
+**`/auth/confirm` handles both link shapes, and that is not belt-and-braces.**
+Supabase mints either a `token_hash` (redeemed with `verifyOtp`, works on any
+device) or a PKCE `code` (redeemed with `exchangeCodeForSession`, works only in
+the browser that requested the reset, because the verifier is a cookie there).
+Which one arrives is decided by an email template in the Supabase dashboard, not
+by this code. Handling only the PKCE shape is the trap: it passes every local
+test, where request and click happen in one browser, and fails the extremely
+common phone-request / laptop-click case. See
+[DEPLOYMENT.md](DEPLOYMENT.md#password-reset-needs-two-settings-and-both-bite-silently).
+
+**The `next` parameter is validated before it is followed.** `lib/safe-redirect.ts`
+rejects absolute URLs, protocol-relative `//host`, backslashes (some browsers
+normalise them into the authority) and control characters that could forge a
+`Location` header. This matters more here than on an ordinary redirect: the link
+genuinely signs the victim in and *then* forwards them, so it arrives from the
+real domain, authenticates, and lands wherever the attacker wrote — which is far
+more convincing than a plain phishing link. `signInAction` now uses the same
+function with a `/dashboard` prefix instead of its own inline check.
+
+**A completed reset signs out every other session** (`scope: "others"`). Reset is
+the remedy for "somebody may have my password", so it has to evict whoever that
+was; `others` rather than `global` keeps the session that just did the work,
+because signing an owner out of their own recovery is a strange reward for
+finishing it. It is best-effort — the password is already changed by then, and
+failing the action would tell the owner it had not worked.
+
+> **Reset mail does not use the outbox.** Supabase Auth sends it directly, so
+> `RESEND_API_KEY` and the notification pipeline have nothing to do with it and
+> the dispatcher's cadence does not delay it. The corollary is that Supabase's
+> own SMTP has to be configured, or resets die at a handful per hour across the
+> whole project with no signal on this side.
+
+> **A signed-in owner reaching `/login/reset` can change their password without
+> entering the old one.** The gate is "is there a session", because a recovery
+> link mints a full one — a "this came from a recovery link" marker would look
+> like a second factor while gating a door that is already open. Requiring
+> re-authentication for the signed-in case is a product decision (Supabase has a
+> setting for it) and is deliberately not taken here; the page is not linked
+> from anywhere inside the dashboard.
 
 ## Legal surface
 
@@ -973,6 +1040,9 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   `useLinkStatus` indicators
 - Auth hardening: forced `httpOnly` session cookies, rate-limited credential
   endpoints keyed on a hashed identity, sign-up password strength
+- Self-service password reset: `/login/forgot`, `/auth/confirm`, `/login/reset`
+  — enumeration-safe, mailbox-rate-limited, open-redirect guarded, and evicting
+  other sessions on success
 - Legal surface: `/legal/terms`, `/legal/privacy`, `/accessibility`, a cookie
   notice, implicit consent under the primary CTAs, and an accessibility widget
 
@@ -994,8 +1064,6 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - **Legal review.** `/legal/*` and `/accessibility` are engineer-written
   templates and `LEGAL_ENTITY` still holds placeholder registration and address
   fields. They must be reviewed by an Israeli lawyer before real money moves.
-- Password reset. Supabase can send the email, but no `/login` flow calls it,
-  so an owner who forgets a password currently has no self-service route.
 - The teal/monochrome split: `/` is monochrome while `/login`, `/dashboard/*`
   and `/master` are still teal, so the marketing site and the app look like two
   products. Deliberate scope, to be resolved in one pass.

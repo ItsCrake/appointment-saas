@@ -138,6 +138,48 @@ real businesses exist, treat that button as destructive.
   confirmation on. It is on by default; the signup flow handles that case and
   tells the user to check their inbox.
 
+### Password reset needs two settings, and both bite silently
+
+**a. Point the recovery template at `{{ .TokenHash }}`.**
+**Authentication → Emails → Reset Password**, change the link to:
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=%2Flogin%2Freset">
+  איפוס הסיסמה
+</a>
+```
+
+The default template sends `{{ .ConfirmationURL }}`, which comes back as a PKCE
+`code`. That code can only be redeemed by the browser that *asked* for the
+reset, because the verifier lives in a cookie there. Request the reset on a
+phone, open the mail on a laptop, and it fails — which is a very common way to
+read email and an almost impossible bug to reproduce in development, where both
+halves happen in one browser.
+
+`/auth/confirm` accepts **both** shapes, so nothing breaks if you skip this. You
+simply keep the same-device-only limitation until you make the change.
+
+**b. Configure custom SMTP.** **Project Settings → Authentication → SMTP.**
+Supabase's built-in sender is rate-limited to a handful of messages per hour
+across the whole project and is explicitly not for production. Reset mail does
+**not** go through this app's outbox or `RESEND_API_KEY` — Supabase Auth sends it
+directly — so point Supabase's SMTP at the same Resend account:
+
+| Field    | Value                                                   |
+| -------- | ------------------------------------------------------- |
+| Host     | `smtp.resend.com`                                       |
+| Port     | `465`                                                   |
+| Username | `resend`                                                |
+| Password | your `RESEND_API_KEY`                                   |
+| Sender   | the address in `NOTIFICATIONS_FROM_EMAIL`               |
+
+Without this, an owner who forgets their password on a busy morning gets
+nothing, and the app cannot tell — the send succeeded as far as it knows.
+
+Reset links expire after one hour and are single-use. Both facts are stated on
+screen, because "I clicked it twice" is otherwise indistinguishable from a
+broken link.
+
 ## 5. Cron
 
 `vercel.json` schedules `/api/cron/notifications` at `0 8 * * *` — 08:00 **UTC**,
@@ -212,3 +254,9 @@ Then, against the deployed site:
 - `/sitemap.xml` lists active businesses
 - `/login` shows the sign-in form, not the "not configured" notice
 - a test booking creates rows in `appointments` and `notifications`
+- `/login/forgot` accepts an address and returns the same notice for a
+  registered and an unregistered one — if they differ, the enumeration guard
+  has regressed
+- the reset mail actually arrives (this proves custom SMTP, not just the app),
+  and its link opens `/login/reset` **in a different browser** from the one that
+  requested it — that is the check for §4a

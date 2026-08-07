@@ -31,6 +31,12 @@ const nextConfig: NextConfig = {
       { source: "/:path*", headers: SECURITY_HEADERS },
       { source: "/b/:path*", headers: PRIVATE_HEADERS },
       { source: "/dashboard/:path*", headers: PRIVATE_HEADERS },
+      // Credential surfaces. `/login/reset` renders the owner's own address
+      // and is reached by a single-use link, so `no-store` matters here for
+      // the same reason it does on `/b/` — a cached copy outlives the token.
+      { source: "/login", headers: PRIVATE_HEADERS },
+      { source: "/login/:path*", headers: PRIVATE_HEADERS },
+      { source: "/auth/:path*", headers: PRIVATE_HEADERS },
       {
         source: "/api/:path*",
         headers: [{ key: "Cache-Control", value: "no-store" }],

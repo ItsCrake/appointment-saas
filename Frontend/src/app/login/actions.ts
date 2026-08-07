@@ -1,11 +1,14 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { z } from "zod";
 
 import { db } from "@/db";
+import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
 import {
   authIdentifier,
+  newPasswordSchema,
+  resetRequestSchema,
   signInSchema,
   signUpSchema,
 } from "@/lib/auth-validation";
@@ -13,6 +16,7 @@ import { reportError, reportWarning } from "@/lib/observability";
 import { AUTH_RULES, rateLimitMessage } from "@/lib/rate-limit";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
 import { getClientIp } from "@/lib/request-context";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
@@ -134,7 +138,9 @@ export async function signInAction(
     return { ok: false, error: "אימייל או סיסמה שגויים" };
   }
 
-  redirect(next && next.startsWith("/dashboard") ? next : "/dashboard");
+  // Narrowed to the dashboard: sign-in only ever returns someone to where the
+  // proxy bounced them from, so anything wider is more than the feature needs.
+  redirect(safeRedirectPath(next, "/dashboard", "/dashboard"));
 }
 
 export async function signUpAction(
@@ -203,4 +209,164 @@ export async function signOutAction() {
   const supabase = await createSupabaseServerClient();
   await supabase?.auth.signOut();
   redirect("/login");
+}
+
+/* -------------------------------------------------------------------------- */
+/* Password reset                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one thing this action ever says.
+ *
+ * Registered or not, rate-limited by Supabase or not, accepted or rejected —
+ * the reader gets this sentence. Anything that varies with whether the address
+ * has an account turns a public form into a membership oracle: point it at a
+ * list of addresses, read the responses, learn who runs a business here. That
+ * is worth more to an attacker than it sounds, because the answer is also a
+ * list of people worth phishing with a convincing Bazman email.
+ *
+ * The cost is real and accepted: someone who mistypes their address is told to
+ * check an inbox that will stay empty. The alternative tells strangers the
+ * truth about every address they try.
+ */
+const RESET_SENT_NOTICE =
+  "אם קיים חשבון עם הכתובת הזו, שלחנו אליו קישור לאיפוס סיסמה. " +
+  "הקישור תקף לשעה אחת. בדקו גם בתיקיית הספאם.";
+
+export async function requestPasswordResetAction(
+  email: string,
+): Promise<AuthResult> {
+  const parsed = resetRequestSchema.safeParse({ email });
+  // A malformed address is the one thing worth saying plainly: it cannot
+  // belong to anybody, so saying so discloses nothing.
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  // Counted before anything is sent, and keyed on a hash of the address — the
+  // identity rule is what stops this form being used to bomb someone's inbox.
+  const limited = await guardAuth(
+    [
+      { rule: AUTH_RULES.resetIp, identifier: await getClientIp() },
+      {
+        rule: AUTH_RULES.resetIdentity,
+        identifier: authIdentifier(parsed.data.email),
+      },
+    ],
+    "auth.resetRequest.ratelimit",
+  );
+  if (limited) return limited;
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return {
+      ok: false,
+      error: "איפוס סיסמה אינו מוגדר. חסרים מפתחות Supabase.",
+    };
+  }
+
+  // The same origin rule share links use. A reset link built from a stale
+  // `NEXT_PUBLIC_APP_URL` is the localhost bug all over again, except here the
+  // dead link is the only way back into the account.
+  const requestHeaders = await headers();
+  const appUrl = pickAppUrl(
+    configuredAppUrl(),
+    originFromHeaders((name) => requestHeaders.get(name)),
+  );
+
+  const result = await supabase.auth
+    .resetPasswordForEmail(parsed.data.email, {
+      redirectTo: `${appUrl}/auth/confirm?next=%2Flogin%2Freset`,
+    })
+    .catch((thrown: unknown) => {
+      reportAuthFailure("auth.resetRequest", thrown);
+      return null;
+    });
+
+  // A transport failure is not an enumeration signal — it says nothing about
+  // the address — so it is the one case worth reporting honestly. Claiming an
+  // email was sent when the request never reached Supabase would leave the
+  // owner waiting on mail that was never going to arrive.
+  if (!result) return { ok: false, error: TRANSPORT_FAILURE };
+
+  if (result.error) {
+    // Logged, never shown. Supabase's own per-address throttle answers
+    // differently for a known address than an unknown one, so surfacing this
+    // would reintroduce exactly the disclosure the generic notice prevents.
+    reportAuthFailure("auth.resetRequest", result.error);
+  }
+
+  return { ok: true, message: RESET_SENT_NOTICE };
+}
+
+/**
+ * Completes the reset. The caller must already hold the session minted by
+ * `/auth/confirm` from the emailed link — that link is the credential here,
+ * which is why no current password is asked for.
+ *
+ * Deliberately **not** rate limited: there is nothing to guess. Reaching this
+ * action at all requires a valid session, and the budget that guards getting
+ * one is spent in `requestPasswordResetAction`. A limit here would only be able
+ * to lock a legitimate owner out midway through their own recovery.
+ */
+export async function updatePasswordAction(
+  password: string,
+  confirm: string,
+): Promise<AuthResult> {
+  // The strict schema: a password is being *chosen*, so strength applies —
+  // the same rule sign-up uses, from the same constant the form renders hints
+  // from.
+  const parsed = newPasswordSchema.safeParse({ password, confirm });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return {
+      ok: false,
+      error: "איפוס סיסמה אינו מוגדר. חסרים מפתחות Supabase.",
+    };
+  }
+
+  // getUser(), not getSession(): the identity is revalidated against the auth
+  // server rather than trusted from a cookie, exactly as everywhere else.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      ok: false,
+      error: "הקישור פג או שאינו תקף. בקשו קישור חדש לאיפוס הסיסמה.",
+    };
+  }
+
+  const result = await supabase.auth
+    .updateUser({ password: parsed.data.password })
+    .catch((thrown: unknown) => {
+      reportAuthFailure("auth.updatePassword", thrown);
+      return null;
+    });
+
+  if (!result) return { ok: false, error: TRANSPORT_FAILURE };
+
+  if (result.error) {
+    reportAuthFailure("auth.updatePassword", result.error);
+    // Safe to surface: the reader already holds a session for this account, so
+    // there is nothing left to disclose to them about it.
+    return { ok: false, error: describeAuthError(result.error) };
+  }
+
+  // A reset is the remedy for "somebody may have my password", so it has to
+  // evict whoever that was. `others` keeps the session that just did the reset
+  // — signing the owner out of their own recovery would be a strange reward
+  // for completing it.
+  await supabase.auth.signOut({ scope: "others" }).catch((thrown: unknown) => {
+    // Best effort. The password is already changed, which is the part that
+    // matters; failing the action here would tell the owner it did not work.
+    reportAuthFailure("auth.updatePassword.signOutOthers", thrown);
+  });
+
+  redirect("/dashboard");
 }

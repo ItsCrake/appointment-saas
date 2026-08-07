@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { pruneExpiredRateLimits } from "@/db/queries/rate-limits";
 import type { Database } from "@/db/types";
 import {
+  AUTH_RULES,
   BOOKING_RULES,
   buildRateLimitKey,
   decide,
@@ -10,6 +11,7 @@ import {
   rateLimitMessage,
   type RateLimitRule,
 } from "@/lib/rate-limit";
+import { authIdentifier } from "@/lib/auth-validation";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
 import { looksAutomated, MIN_HUMAN_FILL_MS } from "@/lib/validation";
 import { createTestDb } from "@/test/pglite";
@@ -119,6 +121,112 @@ describe("looksAutomated", () => {
     expect(looksAutomated({ elapsedMs: MIN_HUMAN_FILL_MS + 1 }).automated).toBe(
       false,
     );
+  });
+});
+
+describe("AUTH_RULES reset limits", () => {
+  it("keeps every scope distinct, so no two rules share a counter", () => {
+    const scopes = Object.values(AUTH_RULES).map((rule) => rule.scope);
+    expect(new Set(scopes).size).toBe(scopes.length);
+  });
+
+  it("limits a reset request harder than a sign-in attempt", () => {
+    // Sign-in limits make guessing expensive. A reset cannot be guessed at
+    // all — it sends mail to a third party — so the identity budget has to be
+    // the tighter of the two or this form becomes an inbox-bombing tool.
+    expect(AUTH_RULES.resetIdentity.limit).toBeLessThan(
+      AUTH_RULES.signInIdentity.limit,
+    );
+  });
+});
+
+describe("reset rate limiting end to end", () => {
+  let harness: Awaited<ReturnType<typeof createTestDb>>;
+  let db: Database;
+
+  beforeAll(async () => {
+    harness = await createTestDb();
+    db = harness.db;
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  beforeEach(async () => {
+    await harness.pg.exec("TRUNCATE rate_limits");
+  });
+
+  it("stops repeated resets aimed at one address", async () => {
+    const target = authIdentifier("victim@example.com");
+
+    for (let i = 0; i < AUTH_RULES.resetIdentity.limit; i++) {
+      const result = await enforceRateLimits(
+        db,
+        [{ rule: AUTH_RULES.resetIdentity, identifier: target }],
+        NOW,
+      );
+      expect(result.allowed).toBe(true);
+    }
+
+    const blocked = await enforceRateLimits(
+      db,
+      [{ rule: AUTH_RULES.resetIdentity, identifier: target }],
+      NOW,
+    );
+    expect(blocked.allowed).toBe(false);
+  });
+
+  it("stores no readable address, even while defending one", async () => {
+    // The counter table must not become a list of who asked for a reset —
+    // the same reasoning as the sign-in identity key.
+    await enforceRateLimits(
+      db,
+      [
+        {
+          rule: AUTH_RULES.resetIdentity,
+          identifier: authIdentifier("owner@example.com"),
+        },
+      ],
+      NOW,
+    );
+
+    const rows = await harness.pg.query<{ key: string }>(
+      "SELECT key FROM rate_limits",
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].key).not.toContain("owner");
+    expect(rows.rows[0].key).not.toContain("@");
+  });
+
+  it("counts a rotating IP pool against the same address", async () => {
+    // The reason there are two rules: an attacker changing IP still spends
+    // the identity budget belonging to the mailbox they are targeting.
+    const target = authIdentifier("victim@example.com");
+
+    for (let i = 0; i < AUTH_RULES.resetIdentity.limit; i++) {
+      await enforceRateLimits(
+        db,
+        [
+          { rule: AUTH_RULES.resetIp, identifier: `10.0.0.${i}` },
+          { rule: AUTH_RULES.resetIdentity, identifier: target },
+        ],
+        NOW,
+      );
+    }
+
+    const blocked = await enforceRateLimits(
+      db,
+      [
+        { rule: AUTH_RULES.resetIp, identifier: "10.0.0.99" },
+        { rule: AUTH_RULES.resetIdentity, identifier: target },
+      ],
+      NOW,
+    );
+    expect(blocked.allowed).toBe(false);
+    if (!blocked.allowed) {
+      expect(blocked.rule.scope).toBe(AUTH_RULES.resetIdentity.scope);
+    }
   });
 });
 

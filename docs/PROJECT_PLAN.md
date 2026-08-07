@@ -384,6 +384,38 @@ Four issues from real business owners testing the product.
 - [x] `SubmitButton` (`useFormStatus`) for the two form-action buttons that had
       no pending state. The rest already had `useTransition` guards.
 
+#### Password reset ✅
+
+The gap an owner could not work around: forgetting a password meant losing the
+account, because there is no support inbox and impersonation deliberately mints
+no session for the owner. `signUpAction` had been telling people to "sign in or
+reset your password" since launch, pointing at a flow that did not exist.
+
+- [x] `/login/forgot` → emailed link → `/auth/confirm` → `/login/reset`, reusing
+      `AUTH_RULES`, `authIdentifier` and the sign-up strength rules rather than
+      restating any of them.
+- [x] **One response, always.** A reply that varies with whether the address is
+      registered turns the form into a membership oracle. Only a transport
+      failure is reported honestly, because it says nothing about the address.
+- [x] `resetIdentity` rate limit, tighter than sign-in's, keyed on the hashed
+      address. It guards a *mailbox*: a reset cannot be guessed, so the abuse
+      case is using this form to bomb someone else's inbox.
+- [x] `/auth/confirm` accepts **both** the `token_hash` and PKCE `code` link
+      shapes. PKCE alone only works in the browser that asked for the reset,
+      which passes every local test and fails the phone-then-laptop case.
+- [x] `lib/safe-redirect.ts` — open-redirect guard on `next`, shared with
+      `signInAction`. The link authenticates before it forwards, which is what
+      makes an unchecked destination worth more than an ordinary phishing link.
+- [x] Success signs out all other sessions (`scope: "others"`).
+- [x] Auth surfaces share one `AuthShell`, and `PasswordRulesList` is now one
+      component instead of a copy in each password form.
+- [x] 18 new unit tests; `npm run verify` green at 355.
+
+> Two Supabase dashboard settings are load-bearing and both fail silently:
+> the recovery template must use `{{ .TokenHash }}`, and custom SMTP must be
+> configured or resets are throttled to a handful an hour project-wide. See
+> [DEPLOYMENT.md](DEPLOYMENT.md#4-supabase-auth).
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

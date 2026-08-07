@@ -50,6 +50,13 @@ const EXEMPT: Record<string, string> = {
   "login/actions.ts:signInAction": "auth entry point",
   "login/actions.ts:signUpAction": "auth entry point",
   "login/actions.ts:signOutAction": "auth entry point",
+  // Reset request is anonymous by necessity — the whole point is that the
+  // caller cannot sign in. Guarded by AUTH_RULES instead.
+  "login/actions.ts:requestPasswordResetAction": "auth entry point",
+  // The emailed link is the credential, and it writes to auth.users rather
+  // than to any tenant table, so a business write gate has nothing to say
+  // about it. It re-checks the session itself via getUser().
+  "login/actions.ts:updatePasswordAction": "auth entry point",
 
   // Only ever removes access, and requiring the role to *stop* impersonating
   // would strand an admin whose roster entry changed mid-session.

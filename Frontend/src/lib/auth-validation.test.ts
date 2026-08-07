@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   authIdentifier,
+  newPasswordSchema,
   PASSWORD_RULES,
   passwordSchema,
+  resetRequestSchema,
   signInSchema,
   signUpSchema,
 } from "@/lib/auth-validation";
@@ -90,6 +92,59 @@ describe("signUpSchema", () => {
     expect(
       signUpSchema.safeParse({ email: "a@b.co", password: "abcdefg1" }).success,
     ).toBe(true);
+  });
+});
+
+describe("resetRequestSchema", () => {
+  it("takes an address and nothing else", () => {
+    expect(
+      resetRequestSchema.safeParse({ email: "owner@example.com" }).success,
+    ).toBe(true);
+    expect(resetRequestSchema.safeParse({ email: "nope" }).success).toBe(false);
+  });
+});
+
+describe("newPasswordSchema", () => {
+  it("applies the same strength rules sign-up does", () => {
+    // A password is being *chosen* here, so this is the sign-up case rather
+    // than the sign-in one. Reusing the constant is what keeps them equal.
+    const weak = { password: "abcdefgh", confirm: "abcdefgh" };
+    expect(newPasswordSchema.safeParse(weak).success).toBe(false);
+
+    const strong = { password: "bazman12", confirm: "bazman12" };
+    expect(newPasswordSchema.safeParse(strong).success).toBe(true);
+    expect(signUpSchema.safeParse({ email: "a@b.co", ...strong }).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects a mismatched confirmation, and says which field is wrong", () => {
+    // The owner reaching this form has already forgotten one password. A typo
+    // they cannot see would lock them out of the flow they came to use.
+    const result = newPasswordSchema.safeParse({
+      password: "bazman12",
+      confirm: "bazman13",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(["confirm"]);
+      expect(result.error.issues[0].message).toContain("תואמות");
+    }
+  });
+
+  it("reports the strength failure before the mismatch", () => {
+    // Both are wrong here. Naming the weak password first is the useful order:
+    // fixing the confirmation alone would still be rejected.
+    const result = newPasswordSchema.safeParse({
+      password: "abc",
+      confirm: "xyz",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(["password"]);
+    }
   });
 });
 
