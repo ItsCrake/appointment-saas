@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 
 import { db } from "@/db";
 import {
@@ -9,6 +9,7 @@ import {
   configuredAppUrl,
   originFromHeaders,
 } from "@/lib/app-url";
+import { isAlreadyRegistered, isRateLimited } from "@/lib/auth-errors";
 import {
   authIdentifier,
   newPasswordSchema,
@@ -62,6 +63,53 @@ export type AuthResult =
   | { ok: false; error: string; rateLimited?: true }
   | { ok: true; message?: string };
 
+/** What a reader is told when something failed that we did not anticipate. */
+const UNEXPECTED_FAILURE =
+  "משהו השתבש אצלנו. נסו שוב בעוד רגע, ואם זה חוזר — כתבו לנו.";
+
+/**
+ * One sentence for both shapes of "this address already has an account", so the
+ * reader cannot tell which project setting is in force — and, more usefully,
+ * gets pointed at the two things that actually help.
+ */
+const ALREADY_REGISTERED =
+  "כתובת האימייל כבר רשומה במערכת. התחברו עם הסיסמה הקיימת, או אפסו אותה.";
+
+/**
+ * Turns any unhandled throw into a typed `AuthResult`.
+ *
+ * A Server Action that throws does not return a result the caller can read, and
+ * the reply the browser gets instead is not the action's — it is whatever the
+ * platform serves for a crashed function, which is HTML. The client is parsing
+ * the action's serialised reply, so it reports
+ * `Unexpected token '<', "<!DOCTYPE "`, which tells the reader nothing and told
+ * us nothing either.
+ *
+ * **`unstable_rethrow` first, always.** `redirect()` signals success by
+ * throwing a `NEXT_REDIRECT` error, so a plain `catch` here would swallow every
+ * successful sign-in and turn it into "something went wrong" — the exact bug a
+ * blanket try/catch around these actions would introduce. This lets the
+ * framework's own control-flow errors through untouched and keeps only the
+ * genuine ones.
+ *
+ * This is the *last* line, not the only one: `@/db` no longer throws at import,
+ * which is what made the module unloadable in the first place, and the forms
+ * catch a failed action call on the client for the case where the function
+ * never runs at all.
+ */
+async function typedFailure(
+  scope: string,
+  run: () => Promise<AuthResult>,
+): Promise<AuthResult> {
+  try {
+    return await run();
+  } catch (thrown) {
+    unstable_rethrow(thrown);
+    reportAuthFailure(scope, thrown);
+    return { ok: false, error: UNEXPECTED_FAILURE };
+  }
+}
+
 /**
  * Brute-force guard for the credential endpoints.
  *
@@ -94,7 +142,7 @@ async function guardAuth(
   };
 }
 
-export async function signInAction(
+async function signIn(
   email: string,
   password: string,
   next?: string,
@@ -147,10 +195,7 @@ export async function signInAction(
   redirect(safeRedirectPath(next, "/dashboard", "/dashboard"));
 }
 
-export async function signUpAction(
-  email: string,
-  password: string,
-): Promise<AuthResult> {
+async function signUp(email: string, password: string): Promise<AuthResult> {
   // The strict schema: strength is enforced when a password is *chosen*, never
   // when it is used. See `lib/auth-validation.ts`.
   const parsed = signUpSchema.safeParse({ email, password });
@@ -182,6 +227,25 @@ export async function signUpAction(
 
   if (result.error) {
     reportAuthFailure("auth.signUp", result.error);
+
+    // The duplicate-email case, second of the two shapes Supabase uses for it
+    // (the other is below). Which one arrives depends on a project setting, so
+    // both are handled or a re-registration reads as an unexplained failure.
+    if (isAlreadyRegistered(result.error)) {
+      return { ok: false, error: ALREADY_REGISTERED };
+    }
+
+    if (isRateLimited(result.error)) {
+      return {
+        ok: false,
+        rateLimited: true,
+        error: "יותר מדי נסיונות הרשמה. נסו שוב בעוד כמה דקות.",
+      };
+    }
+
+    // `describeAuthError` returns Supabase's own English text, which is fine
+    // for a genuinely unexpected rejection an owner will quote to us, and is
+    // why the recognised cases above are handled before it.
     return { ok: false, error: describeAuthError(result.error) };
   }
 
@@ -192,10 +256,7 @@ export async function signUpAction(
   // error. Without this branch it falls through to "check your inbox" — an
   // email that never arrives, for an account that already exists.
   if (data.user && (data.user.identities?.length ?? 0) === 0) {
-    return {
-      ok: false,
-      error: "כתובת האימייל כבר רשומה. התחברו או אפסו סיסמה.",
-    };
+    return { ok: false, error: ALREADY_REGISTERED };
   }
 
   // With email confirmation on, Supabase returns a user but no session.
@@ -209,9 +270,56 @@ export async function signUpAction(
   redirect("/dashboard");
 }
 
+/* -------------------------------------------------------------------------- */
+/* Exported actions — every one of them returns, none of them throws.          */
+/* -------------------------------------------------------------------------- */
+
+export async function signInAction(
+  email: string,
+  password: string,
+  next?: string,
+): Promise<AuthResult> {
+  return typedFailure("auth.signIn.unhandled", () =>
+    signIn(email, password, next),
+  );
+}
+
+export async function signUpAction(
+  email: string,
+  password: string,
+): Promise<AuthResult> {
+  return typedFailure("auth.signUp.unhandled", () => signUp(email, password));
+}
+
+export async function requestPasswordResetAction(
+  email: string,
+): Promise<AuthResult> {
+  return typedFailure("auth.resetRequest.unhandled", () =>
+    requestPasswordReset(email),
+  );
+}
+
+export async function updatePasswordAction(
+  password: string,
+  confirm: string,
+): Promise<AuthResult> {
+  return typedFailure("auth.updatePassword.unhandled", () =>
+    updatePassword(password, confirm),
+  );
+}
+
 export async function signOutAction() {
-  const supabase = await createSupabaseServerClient();
-  await supabase?.auth.signOut();
+  try {
+    const supabase = await createSupabaseServerClient();
+    await supabase?.auth.signOut();
+  } catch (thrown) {
+    unstable_rethrow(thrown);
+    // Sign-out is best effort: a failure to reach Supabase must not strand the
+    // reader on a page they are trying to leave. The cookie is cleared by the
+    // redirect target's own session check either way.
+    reportAuthFailure("auth.signOut", thrown);
+  }
+
   redirect("/login");
 }
 
@@ -237,9 +345,7 @@ const RESET_SENT_NOTICE =
   "אם קיים חשבון עם הכתובת הזו, שלחנו אליו קישור לאיפוס סיסמה. " +
   "הקישור תקף לשעה אחת. בדקו גם בתיקיית הספאם.";
 
-export async function requestPasswordResetAction(
-  email: string,
-): Promise<AuthResult> {
+async function requestPasswordReset(email: string): Promise<AuthResult> {
   const parsed = resetRequestSchema.safeParse({ email });
   // A malformed address is the one thing worth saying plainly: it cannot
   // belong to anybody, so saying so discloses nothing.
@@ -248,14 +354,18 @@ export async function requestPasswordResetAction(
   }
 
   // Counted before anything is sent, and keyed on a hash of the address — the
-  // identity rule is what stops this form being used to bomb someone's inbox.
+  // identity rules are what stop this form being used to bomb someone's inbox.
+  //
+  // `resetCooldown` is listed first deliberately: it is the tightest, so it is
+  // the one a repeat click hits, and it answers identically for a registered
+  // and an unregistered address. Reaching Supabase's own per-address throttle
+  // instead would produce an answer that only a *real* address can trigger.
+  const identity = authIdentifier(parsed.data.email);
   const limited = await guardAuth(
     [
+      { rule: AUTH_RULES.resetCooldown, identifier: identity },
       { rule: AUTH_RULES.resetIp, identifier: await getClientIp() },
-      {
-        rule: AUTH_RULES.resetIdentity,
-        identifier: authIdentifier(parsed.data.email),
-      },
+      { rule: AUTH_RULES.resetIdentity, identifier: identity },
     ],
     "auth.resetRequest.ratelimit",
   );
@@ -305,10 +415,36 @@ export async function requestPasswordResetAction(
   if (!result) return { ok: false, error: TRANSPORT_FAILURE };
 
   if (result.error) {
-    // Logged, never shown. Supabase's own per-address throttle answers
-    // differently for a known address than an unknown one, so surfacing this
-    // would reintroduce exactly the disclosure the generic notice prevents.
     reportAuthFailure("auth.resetRequest", result.error);
+
+    // **Do not claim an email was sent when Supabase refused to send one.**
+    // Returning the cheerful notice here is what made the reported bug silent:
+    // the reader was told to check their inbox, no mail ever arrived, and the
+    // only record was a log line nobody was reading.
+    //
+    // Saying so is safe *because* `resetCooldown` runs first. A per-address
+    // throttle can only answer for an address that exists, so it would be a
+    // disclosure — but that throttle is now unreachable, since our own minute
+    // is at least as tight as Supabase's and is spent before the call. What
+    // survives to here is the project-wide email cap, which is the same for
+    // every address and therefore discloses nothing.
+    if (isRateLimited(result.error)) {
+      return {
+        ok: false,
+        rateLimited: true,
+        error:
+          "מערכת הדיוור עמוסה כרגע ולא הצלחנו לשלוח את הקישור. " +
+          "נסו שוב בעוד כמה דקות.",
+      };
+    }
+
+    // Anything else Supabase rejected — a malformed address it dislikes, a
+    // disabled provider, a project misconfiguration. The reader learns the
+    // attempt failed without learning anything about the address.
+    return {
+      ok: false,
+      error: "לא הצלחנו לשלוח את הקישור כרגע. נסו שוב בעוד רגע.",
+    };
   }
 
   return { ok: true, message: RESET_SENT_NOTICE };
@@ -324,7 +460,7 @@ export async function requestPasswordResetAction(
  * one is spent in `requestPasswordResetAction`. A limit here would only be able
  * to lock a legitimate owner out midway through their own recovery.
  */
-export async function updatePasswordAction(
+async function updatePassword(
   password: string,
   confirm: string,
 ): Promise<AuthResult> {

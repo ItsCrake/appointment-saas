@@ -65,6 +65,26 @@ export const AUTH_RULES = {
   signUpIp: { scope: "auth:signup:ip", limit: 5, windowMs: HOUR_MS },
   resetIp: { scope: "auth:reset:ip", limit: 5, windowMs: HOUR_MS },
   resetIdentity: { scope: "auth:reset:id", limit: 3, windowMs: HOUR_MS },
+  /**
+   * One request per address per minute, and it exists to **beat Supabase to
+   * the refusal**.
+   *
+   * Supabase applies its own per-address throttle of roughly a minute between
+   * recovery emails. When it fires, `resetPasswordForEmail` returns an error
+   * and no mail is sent — but the reader had already been told a link was on
+   * its way, so the failure was completely silent. That was the reported bug.
+   *
+   * Refusing here first makes the answer uniform: this counter knows nothing
+   * about whether the address is registered, so an unknown address and a real
+   * one are throttled identically. Supabase's own throttle could only ever
+   * answer for a real one, which is why it must not be the thing the reader
+   * hears from.
+   */
+  resetCooldown: {
+    scope: "auth:reset:cooldown",
+    limit: 1,
+    windowMs: MINUTE_MS,
+  },
 } as const satisfies Record<string, RateLimitRule>;
 
 /** Slot lookups are cheap but hammering them is still a DoS vector. */

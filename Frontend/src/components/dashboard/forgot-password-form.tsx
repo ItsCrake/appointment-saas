@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { requestPasswordResetAction } from "@/app/login/actions";
 import { FormAlert } from "@/components/ui/form-alert";
+import { callAuthAction } from "@/lib/call-action";
 import { cn } from "@/lib/utils";
 
 import { authLinkClass } from "./auth-shell";
@@ -23,7 +24,9 @@ export function ForgotPasswordForm() {
     setError(undefined);
     setNotice(undefined);
 
-    const result = await requestPasswordResetAction(email);
+    const result = await callAuthAction(() =>
+      requestPasswordResetAction(email),
+    );
 
     setPending(false);
     if (!result.ok) setError(result.error);

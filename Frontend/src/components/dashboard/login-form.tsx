@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { signInAction, signUpAction } from "@/app/login/actions";
 import { ConsentNote } from "@/components/ui/consent-note";
+import { callAuthAction } from "@/lib/call-action";
 import { FormAlert } from "@/components/ui/form-alert";
 import { cn } from "@/lib/utils";
 
@@ -30,10 +31,11 @@ export function LoginForm({ next }: { next?: string }) {
     setNotice(undefined);
 
     // On success these redirect, so control does not return here.
-    const result =
+    const result = await callAuthAction(() =>
       mode === "signin"
-        ? await signInAction(email, password, next)
-        : await signUpAction(email, password);
+        ? signInAction(email, password, next)
+        : signUpAction(email, password),
+    );
 
     setPending(false);
     if (!result.ok) setError(result.error);

@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 368 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 376 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -1023,12 +1023,92 @@ header. The site uses strictly necessary cookies only, so it is a notice rather
 than a gate, and there is no reject button because there is nothing optional to
 switch off. A refuse button that disables nothing would be theatre.
 
+**The accessibility button is draggable, because every corner is the wrong
+corner on some screen.** Pinned to the bottom-left it sat on top of the mobile
+tab bar and covered a control the owner needs; a fixed element cannot know what
+is underneath it. `useDraggableCorner` persists a position per browser, and
+three details carry it: a movement threshold so a drag does not also fire the
+button's click, pointer events so touch needs no second code path, and clamping
+**on read** — a position saved on a desktop would otherwise put the handle
+off-screen on a phone, where it is both unreachable and unmovable, which is
+worse than the collision it was moved to avoid. The default position now clears
+the tab bar (`bottom-20` under `md`) so the drag is a preference rather than a
+repair.
+
 **The accessibility widget is deliberately small** — text scale, contrast,
 stop-motion. The overlay products that bolt on a screen-reader emulator are
 widely criticised for interfering with the assistive software a user already
 has. Preferences are attributes on `<html>` read by `globals.css`, and are
 never sent to the server: a record of who needs high contrast is
 health-adjacent information there is no reason to hold.
+
+## Why a Server Action returned HTML
+
+The reported symptom was `Unexpected token '<', "<!DOCTYPE "... is not valid
+JSON` on sign-up. That string is never thrown by application code: it is the
+client trying to parse a Server Action's serialised reply and finding an error
+*page*. It means the function did not return — so nothing inside the action's
+own error handling could have caught it.
+
+Two causes, both fixed, plus a backstop for the ones that remain:
+
+**`@/db` threw at module scope.** It validated `DATABASE_URL` and called
+`postgres()` at import. Any database misconfiguration therefore made the module
+**unloadable**, and every importer died with it — including the auth actions,
+which need the database only for a rate-limit counter they are explicitly
+willing to skip. The connection is now opened on first use behind a `Proxy`, so
+the same misconfiguration surfaces as a thrown error *inside* a query, where
+`enforceRateLimits` already fails open.
+
+**The rate-limit guard could hang.** Failing open only helps if it happens in
+time. A pooler that accepts the socket and then stalls produces no error to
+catch, so the guard held the request until the platform's own timeout — and a
+Vercel 504 is an HTML page, the same unparseable reply reached a different way.
+`enforceRateLimits` now carries a 3-second budget across all its rules and a
+`connect_timeout` on the pool. Skipping a counter is the outcome this module
+already accepts; it may as well be reached deliberately.
+
+**`typedFailure` wraps every exported auth action.** It converts an unhandled
+throw into `{ ok: false, error }`. The critical detail is `unstable_rethrow`
+first: `redirect()` signals success *by throwing* `NEXT_REDIRECT`, so a plain
+try/catch here would swallow every successful sign-in and report it as a
+failure — which is exactly what a blanket try/catch around these actions
+introduces if written the obvious way.
+
+**`callAuthAction` catches on the client.** The three fixes above all assume the
+action ran. A cold start that times out, or a deploy that lands mid-session and
+invalidates the action id, fails outside it entirely. The forms catch the
+rejected call and render Hebrew, which is what guarantees that string cannot
+reach a business owner again.
+
+> **A `"use server"` file may only export async functions.** `isRateLimited` and
+> `isAlreadyRegistered` live in `lib/auth-errors.ts` for that reason — exporting
+> a plain predicate from the actions module breaks the whole module at runtime,
+> which is the *same failure class* this section is about and looks identical
+> from the browser.
+
+### Duplicate sign-up has two shapes
+
+Supabase reports an already-registered address one of two ways depending on
+whether the project has enumeration protection on: a 200 with a user whose
+`identities` array is empty, or a 422 saying so. **Both are handled**, because a
+project setting decides which arrives and handling one leaves the other reading
+as an unexplained failure.
+
+### Reset throttling is ours, not Supabase's
+
+`resetPasswordForEmail` returning a rate-limit error used to be logged and
+swallowed, and the reader still got "check your inbox" — a completely silent
+failure, and the reported bug. Two changes:
+
+- **`resetCooldown`** — one request per hashed address per minute, checked
+  first, so our refusal beats Supabase's. That matters because our counter knows
+  nothing about whether the address is registered, so it answers identically for
+  a real address and an unknown one. Supabase's per-address throttle can only
+  ever answer for a real one, which is why it must not be what the reader hears.
+- A Supabase throttle that still gets through is surfaced. Safe *because* of the
+  cooldown: what survives is the project-wide email cap, which is the same for
+  every address and therefore discloses nothing.
 
 ## Observability
 

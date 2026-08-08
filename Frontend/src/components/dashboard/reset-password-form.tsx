@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 
 import { updatePasswordAction } from "@/app/login/actions";
 import { FormAlert } from "@/components/ui/form-alert";
+import { callAuthAction } from "@/lib/call-action";
 import { cn } from "@/lib/utils";
 
 import { PasswordRulesList } from "./password-rules-list";
@@ -22,7 +23,9 @@ export function ResetPasswordForm() {
     setError(undefined);
 
     // On success this redirects to /dashboard, so control does not return.
-    const result = await updatePasswordAction(password, confirm);
+    const result = await callAuthAction(() =>
+      updatePasswordAction(password, confirm),
+    );
 
     setPending(false);
     if (!result.ok) setError(result.error);

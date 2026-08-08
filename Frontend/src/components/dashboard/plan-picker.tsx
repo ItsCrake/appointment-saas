@@ -53,10 +53,12 @@ export function PlanPicker({
 
   return (
     <div>
+      {/* `flex` rather than `inline-flex`, so the two options share the row
+          evenly at 320px instead of the second one overflowing the pill. */}
       <div
         role="radiogroup"
         aria-label="מחזור חיוב"
-        className="inline-flex items-center rounded-full border border-zinc-300 p-1 dark:border-zinc-700"
+        className="flex w-full max-w-xs items-center rounded-full border border-zinc-300 p-1 sm:inline-flex sm:w-auto dark:border-zinc-700"
       >
         {BILLING_CYCLES.map((value) => (
           <button
@@ -66,7 +68,7 @@ export function PlanPicker({
             aria-checked={cycle === value}
             onClick={() => setCycle(value)}
             className={cn(
-              "inline-flex h-8 items-center rounded-full px-4 text-xs font-semibold transition-colors",
+              "inline-flex h-8 flex-1 items-center justify-center rounded-full px-4 text-xs font-semibold whitespace-nowrap transition-colors sm:flex-none",
               "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
               cycle === value
                 ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"

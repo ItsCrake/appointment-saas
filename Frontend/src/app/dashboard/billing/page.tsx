@@ -202,7 +202,9 @@ export default async function BillingPage() {
                 <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {formatPrice(invoice.amountCents)}
                 </span>
-                <span className="block text-xs text-zinc-500">
+                {/* `dateStyle: long` produces a wide Hebrew date. Without the
+                    wrap it pushed the link off a 360px screen. */}
+                <span className="block text-xs break-words text-zinc-500">
                   {formatDate(invoice.issuedAt, business.timezone)}
                 </span>
               </span>
@@ -211,7 +213,7 @@ export default async function BillingPage() {
                   href={invoice.hostedUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                  className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
                 >
                   צפייה
                   <ExternalLink className="size-3.5" aria-hidden />

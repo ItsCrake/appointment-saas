@@ -312,6 +312,35 @@ describe("enforceRateLimits", () => {
     }
   });
 
+  it("fails open when the store is slow, not just when it throws", async () => {
+    // The reported crash had a second route: a pooler that accepts the socket
+    // and then stalls produces no error to catch, so the guard used to hold the
+    // request until the *platform* timed out — and a Vercel timeout is an HTML
+    // page, which a Server Action caller cannot parse. Failing open has to
+    // happen in time to be worth anything.
+    const stalled = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: () => ({
+            returning: () => new Promise(() => {}),
+          }),
+        }),
+      }),
+    } as unknown as Database;
+
+    const started = Date.now();
+    const result = await enforceRateLimits(
+      stalled,
+      [{ rule: ipRule, identifier: "slow" }],
+      NOW,
+    );
+
+    expect(result.allowed).toBe(true);
+    // Well inside any serverless budget, and nowhere near the 30s test timeout
+    // it would hit if the deadline were not there at all.
+    expect(Date.now() - started).toBeLessThan(6_000);
+  });
+
   it("fails open when the store is unreachable", async () => {
     // A booking must not be refused because a counter table is broken.
     const broken = {
