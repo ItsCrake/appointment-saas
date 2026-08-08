@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -8,10 +9,12 @@ import {
   CreditCard,
   Loader2,
   LogOut,
+  MoreHorizontal,
   Scissors,
   Settings,
   UserRound,
   Users,
+  X,
 } from "lucide-react";
 
 import { signOutAction } from "@/app/login/actions";
@@ -30,8 +33,19 @@ const LINKS = [
   { href: "/dashboard/settings", label: "הגדרות", icon: Settings },
 ] as const;
 
-/** The bottom bar only fits four; the rest live in the sidebar. */
+/** The bottom bar only fits four before the labels start truncating. */
 const MOBILE_LINKS = LINKS.slice(0, 4);
+
+/**
+ * Everything the bottom bar could not take, **derived rather than listed**.
+ *
+ * That is the point. These two constants used to be a slice and a sidebar, and
+ * the sidebar is `md:block` — so adding `/dashboard/staff` made it reachable on
+ * a desktop and invisible on a phone, with nothing anywhere to notice. Deriving
+ * the overflow from the same array means a new link can be added to `LINKS` and
+ * is guaranteed to appear in exactly one of the two places.
+ */
+const SECONDARY_LINKS = LINKS.slice(MOBILE_LINKS.length);
 
 /**
  * Covers the gap the route fallback cannot: the moment between the click and
@@ -51,6 +65,156 @@ function LinkSpinner() {
         pending ? "opacity-100" : "opacity-0",
       )}
     />
+  );
+}
+
+/**
+ * The mobile overflow menu.
+ *
+ * A bottom sheet rather than a dropdown from the header, for the same reason
+ * the booking page's hours drawer is one: the trigger is at the top of a phone
+ * and the thumb is at the bottom, so a menu that opens *downward from the
+ * trigger* puts every item in the hardest part of the screen to reach.
+ *
+ * It closes on navigation — `pathname` changing is the signal, which also
+ * covers a back gesture — on Escape, and on a backdrop tap.
+ */
+function MoreSheet({ isActive }: { isActive: (href: string) => boolean }) {
+  const pathname = usePathname();
+  const titleId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * The route the sheet was opened on, rather than a boolean.
+   *
+   * Open-ness is then *derived*: the sheet is open only while the path has not
+   * moved, so navigating closes it with no effect and no cleanup — including
+   * for a back gesture or a redirect, which a click handler would miss. An
+   * effect that reset a boolean would also be a `setState` in an effect body,
+   * which is exactly the cascading render the lint rule is there to stop.
+   */
+  const [openedAt, setOpenedAt] = useState<string | null>(null);
+  const open = openedAt === pathname;
+
+  const close = useCallback(() => setOpenedAt(null), []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    // Locked, or the page scrolls behind the sheet on iOS.
+    const { overflow } = document.body.style;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    closeRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, close]);
+
+  // Marked when a page *inside* the sheet is the current one, so the trigger
+  // does not read as inert while it holds the active route.
+  const holdsCurrentPage = SECONDARY_LINKS.some((link) => isActive(link.href));
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpenedAt(pathname)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="עוד"
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+          "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
+          holdsCurrentPage
+            ? "bg-[image:var(--brand-gradient)] text-white"
+            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+        )}
+      >
+        <MoreHorizontal className="size-4" aria-hidden />
+        עוד
+      </button>
+
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <button
+            type="button"
+            aria-label="סגירה"
+            tabIndex={-1}
+            onClick={close}
+            className="animate-fade absolute inset-0 cursor-default bg-black/40"
+          />
+
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            className="animate-sheet relative w-full max-w-lg rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl dark:bg-zinc-900"
+          >
+            <div
+              aria-hidden
+              className="mx-auto mt-3 h-1 w-10 rounded-full bg-zinc-300 dark:bg-zinc-700"
+            />
+
+            <div className="flex items-center justify-between px-5 pt-4 pb-2">
+              <h2
+                id={titleId}
+                className="text-base font-bold text-zinc-900 dark:text-zinc-100"
+              >
+                עוד
+              </h2>
+              <button
+                ref={closeRef}
+                type="button"
+                onClick={close}
+                aria-label="סגירה"
+                className="-me-2 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
+
+            <ul className="px-3 pb-2">
+              {SECONDARY_LINKS.map(({ href, label, icon: Icon }) => (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    aria-current={isActive(href) ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-3 rounded-2xl px-3 py-3.5 text-sm font-medium transition-colors",
+                      isActive(href)
+                        ? "bg-[image:var(--brand-gradient)] text-white"
+                        : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                    )}
+                  >
+                    <Icon className="size-5 shrink-0" aria-hidden />
+                    {label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+              <form action={signOutAction}>
+                <SubmitButton
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/40"
+                  pendingLabel="מתנתק…"
+                >
+                  <LogOut className="size-5 shrink-0" aria-hidden />
+                  התנתקות
+                </SubmitButton>
+              </form>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -122,30 +286,11 @@ export function DashboardNav() {
         </form>
       </nav>
 
-      {/* Mobile: settings + sign-out in a compact top bar. */}
-      <div className="flex items-center justify-end gap-1 border-b border-zinc-200 bg-white px-3 py-2 md:hidden dark:border-zinc-800 dark:bg-zinc-900">
-        <Link
-          href="/dashboard/settings"
-          aria-label="הגדרות"
-          aria-current={isActive("/dashboard/settings") ? "page" : undefined}
-          className={cn(
-            "rounded-lg p-2 transition-colors",
-            isActive("/dashboard/settings")
-              ? "text-zinc-950 dark:text-zinc-50"
-              : "text-zinc-400",
-          )}
-        >
-          <Settings className="size-5" />
-        </Link>
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            aria-label="התנתקות"
-            className="rounded-lg p-2 text-zinc-400 transition-colors hover:text-red-600"
-          >
-            <LogOut className="size-5" />
-          </button>
-        </form>
+      {/* Mobile: one entry point to everything the bottom bar cannot hold.
+          Sign-out moved inside it — a destructive action sitting one stray
+          thumb away from the header is not where it belongs. */}
+      <div className="flex items-center justify-end border-b border-zinc-200 bg-white px-3 py-2 md:hidden dark:border-zinc-800 dark:bg-zinc-900">
+        <MoreSheet isActive={isActive} />
       </div>
 
       {/* Mobile: fixed bottom bar, thumb-reachable. */}

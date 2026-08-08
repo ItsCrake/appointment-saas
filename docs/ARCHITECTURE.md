@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 433 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 438 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -1040,6 +1040,40 @@ screen.
 is `md:block` and the mobile bottom bar is `md:hidden`. Moving the bottom bar
 to `sm:hidden` without also moving the sidebar would leave 640–768px with no
 navigation at all.
+
+### Every dashboard page must be reachable on a phone
+
+The bottom bar takes four links — more than that and the labels truncate — and
+the sidebar that held the rest is `md:block`. So adding `/dashboard/staff` made
+it reachable on a desktop and **invisible on a phone**, with nothing in the type
+system, the build or the suite to notice. An owner running the shop from their
+pocket simply could not get to it.
+
+Two changes, and the second is the one that matters:
+
+- A **"עוד" bottom sheet** in the mobile header holds the overflow. A sheet
+  rather than a dropdown for the same reason the booking page's hours drawer is
+  one: the trigger is at the top of a phone and the thumb is at the bottom, so a
+  menu opening *downward from the trigger* puts every item in the hardest part
+  of the screen to reach. Sign-out moved inside it — a destructive action one
+  stray thumb from the header is not where it belongs.
+- **`SECONDARY_LINKS` is derived, not listed**: `LINKS.slice(MOBILE_LINKS.length)`.
+  A hand-written second array could drift from the first and put a link in both
+  places or in neither, which is the same bug wearing a different hat.
+
+`nav-coverage.test.ts` reads the nav as source text — the module imports a
+`"use server"` file and cannot be loaded in a test environment — and fails the
+build when a `/dashboard/*` page is absent from `LINKS`. Routes that legitimately
+belong outside it sit in a `NOT_IN_NAV` map with a stated reason, and a second
+test fails if an entry there goes stale. Verified by removing `/dashboard/staff`
+from `LINKS` and confirming it named it.
+
+> The sheet's open state is **derived from the pathname**, not a boolean: it
+> stores the route it was opened on and is open only while the path has not
+> moved. Navigation therefore closes it with no effect and no cleanup, including
+> for a back gesture or a redirect that a click handler would miss — and it
+> avoids a `setState` inside an effect body, which is the cascading render the
+> `set-state-in-effect` rule exists to stop.
 
 ## Public booking components
 
