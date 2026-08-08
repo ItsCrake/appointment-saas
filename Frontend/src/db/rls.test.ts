@@ -11,6 +11,8 @@ const TABLES = [
   // RLS is on with no policy at all — nothing but the app connection reads it.
   "rate_limits",
   "services",
+  "staff",
+  "staff_schedules",
   // Same posture as rate_limits, for a different reason: it holds raw provider
   // payloads that can carry billing addresses and card metadata, and an owner
   // has no reason to read the webhook stream at all.

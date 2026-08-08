@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 376 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 416 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -49,7 +49,7 @@ Frontend/src/
 
 ## Database
 
-Nine tables. Seven are tenant-scoped by `business_id`; `rate_limits` is not,
+Eleven tables. Seven are tenant-scoped by `business_id`; `rate_limits` is not,
 and `subscription_events` only optionally is.
 
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
@@ -74,6 +74,103 @@ and `subscription_events` only optionally is.
 
 Migrations `0000`–`0012` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
+
+## Multi-staff
+
+Eleven tables now. `staff` and `staff_schedules` arrived in `0013`, and
+`appointments.staff_id` with them.
+
+**One binary question, asked once.** `businesses.has_multiple_staff` is the
+answer to "האם יש יותר מנותן שירות אחד בעסק?". False hides the concept
+everywhere — no picker in the booking flow, no manager in the dashboard — and
+the tenant's single staff row silently takes every appointment. An explicit
+column rather than `count(staff) > 1`, because an owner must be able to answer
+*yes* before adding anyone, and to collapse back without deleting people who
+hold history.
+
+**Every business has at least one staff row, and that is an invariant, not a
+convention.** `appointments.staff_id` is NOT NULL and the exclusion constraint
+keys on it, so a business without one cannot take a booking at all. `0013`
+backfilled every existing tenant; `createBusiness()` writes one for every new
+tenant, in the repository layer rather than in the setup action so a second
+creation path cannot forget. The test factory mirrors it, or the suite would be
+exercising a state the schema forbids.
+
+**No schedule rows means "inherit the business hours".** That default is what
+keeps the feature free for a shop that does not need it: a single-staff tenant
+never fills in a staff schedule, and the backfill did not have to generate a row
+per weekday per tenant to be correct.
+
+### The guard was rekeyed, in an order that never leaves it absent
+
+```sql
+-- 0013
+EXCLUDE USING gist (business_id WITH =, staff_id WITH =,
+                    tstzrange(starts_at, ends_at, '[)') WITH &&)
+  WHERE (status NOT IN ('cancelled', 'completed', 'no_show'))
+```
+
+The migration **adds the new constraint while the old one still stands**, then
+drops the old one. Dropping first would open a window in which two clients
+racing for the same slot could both win, and both being briefly active is safe
+because the old one is strictly stricter.
+
+**The predicate is inverted, and that is load-bearing.** It used to list the
+statuses that *hold* a slot; it now lists the ones that *release* it. Identical
+today. The difference is `0014`: a new enum value cannot be **referenced** in
+the same transaction that adds it, and Drizzle runs every pending migration in
+one transaction — so a predicate naming `pending_deposit` would fail on any
+database applying both at once. Worse, PGlite executes statement by statement
+and would have passed, so the suite would have proved the opposite of
+production. Stated as "not terminal", the deposit statuses are covered the
+moment they exist, without `0014` mentioning them.
+
+Anything added later that should *release* a slot has to be listed — which
+fails toward over-holding rather than double-booking.
+
+`BLOCKING_STATUSES` is **derived** from the same rule rather than written out,
+or availability would ignore a `pending_deposit` appointment the database still
+blocks: the UI would offer a slot and the insert would refuse it.
+
+### Availability is a layer over the engine, not a rewrite of it
+
+`computeStaffSlots()` runs the existing `computeSlots()` **once per staff
+member** and unions the results. Every hard-won rule in that function — the
+block-sized step, the re-anchoring cursor, the two-sided buffer, DST — applies
+per person unchanged, and the headline property falls out with no new logic:
+
+> an appointment at 09:20 for one provider leaves 09:20 open for another
+
+because each call only ever sees that person's own busy list. Expressing this
+*inside* `computeSlots` would have meant teaching the cursor walk about resource
+sets, which is where the subtle bugs live.
+
+The returned list is the union — a time is offered if at least one person is
+free — and each slot carries the ids that were free at it. So the staff list
+shown at step 3 comes from the same computation that offered the time at step 2
+and cannot disagree with it. `createBookingAction` re-derives it server-side and
+**refuses** a requested provider who is not in that list rather than silently
+substituting one, which would book a client with the wrong person.
+
+Time off stays business-wide: it is a closure of the shop. Per-person absence is
+not built.
+
+## Deposits — schema only, nothing enabled
+
+`0014` adds `pending_deposit` and `pending_approval`, tenant configuration
+(`deposit_enabled` defaulting to **false**, manual Bit/PayBox fields, gateway
+handles) and per-appointment state. **No UI reads any of it.** It exists now for
+the reason 8a taught: the database learns a value before the code writes one,
+and a status the enum does not know is a constraint violation at the worst
+possible moment.
+
+The deposit amount is a flat sum in agorot, never a percentage — the manual flow
+asks a human to transfer a specific number through Bit, and "30% of ₪180" is not
+a number people type correctly.
+
+`db/staff-constraint.test.ts` asserts that both new statuses hold their slot,
+because the mechanism is now indirect enough to be worth proving rather than
+reasoning about.
 
 ### Two constraints that carry real weight
 

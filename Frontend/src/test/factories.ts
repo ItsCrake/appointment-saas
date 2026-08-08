@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { sql } from "drizzle-orm";
 
+import { listActiveStaff } from "@/db/queries/staff";
 import {
   appointments,
   businesses,
   services,
+  staff,
   timeOff,
   workingHours,
 } from "@/db/schema";
@@ -50,6 +52,12 @@ export async function createBusiness(
     })
     .returning();
 
+  // Mirrors `createBusiness` in the repository layer: every business has at
+  // least one staff member, or it cannot take a booking at all. A factory that
+  // skipped this would build a tenant that cannot exist in production, and the
+  // suite would be testing a state the schema forbids.
+  await db.insert(staff).values({ businessId: row.id, name: row.name });
+
   return row;
 }
 
@@ -89,6 +97,31 @@ export async function createShift(
   return row;
 }
 
+/**
+ * Every business has at least one staff member, so the factory creates one on
+ * demand rather than making every existing test pass an id it does not care
+ * about. Tests that *are* about staff pass `staffId` explicitly.
+ */
+export async function createStaff(
+  db: Database,
+  businessId: string,
+  overrides: Partial<typeof staff.$inferInsert> = {},
+) {
+  const [row] = await db
+    .insert(staff)
+    .values({ businessId, name: "נותן שירות", ...overrides })
+    .returning();
+
+  return row;
+}
+
+async function defaultStaffId(db: Database, businessId: string) {
+  const existing = await listActiveStaff(db, businessId);
+  if (existing.length > 0) return existing[0].id;
+  const created = await createStaff(db, businessId);
+  return created.id;
+}
+
 export async function createAppointment(
   db: Database,
   businessId: string,
@@ -102,6 +135,7 @@ export async function createAppointment(
     .values({
       businessId,
       serviceId,
+      staffId: overrides.staffId ?? (await defaultStaffId(db, businessId)),
       startsAt,
       endsAt,
       clientName: "דני",

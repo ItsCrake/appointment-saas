@@ -81,7 +81,9 @@ describe("GET /auth/confirm", () => {
   it("carries the session cookies on the redirect it returns", async () => {
     verifyOtp.mockResolvedValue({ error: null });
 
-    const response = await call("?token_hash=abc&type=recovery&next=/login/reset");
+    const response = await call(
+      "?token_hash=abc&type=recovery&next=/login/reset",
+    );
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(`${ORIGIN}/login/reset`);

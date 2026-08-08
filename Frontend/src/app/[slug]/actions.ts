@@ -11,7 +11,12 @@ import {
   getService,
   SlotTakenError,
 } from "@/db/queries";
-import { getAvailableSlots, type Slot } from "@/lib/availability";
+import {
+  getAvailableSlots,
+  getAvailableSlotsWithStaff,
+  staffAvailableAt,
+  type Slot,
+} from "@/lib/availability";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError, reportWarning } from "@/lib/observability";
 import { BOOKING_RULES, rateLimitMessage, SLOTS_RULE } from "@/lib/rate-limit";
@@ -131,6 +136,7 @@ export async function createBookingAction(
     slug,
     serviceId,
     startsAt,
+    staffId: requestedStaffId,
     clientName,
     clientPhone,
     clientEmail,
@@ -193,14 +199,16 @@ export async function createBookingAction(
   // Re-validate against live availability, using the business-local calendar
   // date of the requested instant.
   const localDate = formatInTimeZone(start, businessRow.timezone, "yyyy-MM-dd");
-  const slots = await getAvailableSlots(db, {
+  const slots = await getAvailableSlotsWithStaff(db, {
     businessId,
     serviceId,
     date: localDate,
   });
 
-  const stillFree = slots.some((s) => s.startsAt === start.toISOString());
-  if (!stillFree) {
+  // Who is genuinely free at the requested instant, re-derived here rather than
+  // trusted from the request. The client's pick is a preference.
+  const freeStaff = staffAvailableAt(slots, start.toISOString());
+  if (freeStaff.length === 0) {
     return {
       ok: false,
       code: "SLOT_TAKEN",
@@ -208,10 +216,30 @@ export async function createBookingAction(
     };
   }
 
+  /**
+   * A requested provider is honoured only if they are in that list. Falling
+   * back to the first free one when the request names someone who is not would
+   * silently book a client with the wrong person; refusing is the honest
+   * answer, and the client is sent back to pick again.
+   *
+   * With no request at all — a single-staff tenant, or "anyone" — the first
+   * free provider takes it, in the display order `listActiveStaff` fixes.
+   */
+  if (requestedStaffId && !freeStaff.includes(requestedStaffId)) {
+    return {
+      ok: false,
+      code: "SLOT_TAKEN",
+      error: "נותן השירות שנבחר כבר אינו פנוי במועד הזה. בחרו שוב.",
+    };
+  }
+
+  const staffId = requestedStaffId ?? freeStaff[0];
+
   try {
     const appointment = await createAppointment(db, {
       businessId,
       serviceId,
+      staffId,
       startsAt: start,
       endsAt: end,
       status: "confirmed",

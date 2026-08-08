@@ -1,13 +1,28 @@
 import { and, asc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
 
-import { appointments, businesses, type AppointmentStatus } from "../schema";
+import {
+  appointments,
+  appointmentStatus,
+  businesses,
+  TERMINAL_STATUSES,
+  type AppointmentStatus,
+} from "../schema";
 import type { Database } from "../types";
 
-/** Statuses that occupy a slot. Cancelled/no-show free the time again. */
-export const BLOCKING_STATUSES = [
-  "pending",
-  "confirmed",
-] as const satisfies readonly AppointmentStatus[];
+/**
+ * Statuses that occupy a slot. Cancelled, completed and no-show free the time.
+ *
+ * **Derived, not listed.** This has to agree exactly with the exclusion
+ * constraint's predicate, and 0013 states that predicate as "not one of the
+ * terminal statuses" so it could cover the deposit statuses 0014 adds without
+ * naming them. Writing this list out by hand would mean availability ignoring a
+ * `pending_deposit` appointment that the database still blocks — the UI would
+ * offer a slot and the insert would then refuse it, which is the worst of both.
+ */
+export const BLOCKING_STATUSES = appointmentStatus.enumValues.filter(
+  (status): status is AppointmentStatus =>
+    !(TERMINAL_STATUSES as readonly string[]).includes(status),
+);
 
 /**
  * Appointments overlapping [from, to). An appointment that starts before the

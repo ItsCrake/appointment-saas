@@ -7,6 +7,10 @@ import {
   listTimeOffInRange,
   listWorkingHoursForWeekday,
 } from "@/db/queries";
+import {
+  listActiveStaff,
+  listStaffSchedulesForWeekday,
+} from "@/db/queries/staff";
 import type { Database } from "@/db/types";
 
 const MINUTE_MS = 60_000;
@@ -215,6 +219,103 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
   return slots.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
+/* -------------------------------------------------------------------------- */
+/* Multi-staff                                                                */
+/* -------------------------------------------------------------------------- */
+
+export type StaffAvailability = {
+  id: string;
+  /**
+   * This person's shifts for the requested weekday. **Empty means "inherit the
+   * business hours"**, which is what lets a single-staff shop — and any staff
+   * member who simply works the shop's hours — never touch a schedule.
+   */
+  shifts: AvailabilityShift[];
+  /** Only *this* person's appointments. */
+  appointments: BusyInterval[];
+};
+
+/** A slot, plus who could actually take it. */
+export type SlotWithStaff = Slot & { staffIds: string[] };
+
+export type ComputeStaffSlotsInput = Omit<
+  ComputeSlotsInput,
+  "shifts" | "appointments"
+> & {
+  /** Business-wide hours, used by any staff member with no schedule rows. */
+  businessShifts: AvailabilityShift[];
+  staff: StaffAvailability[];
+};
+
+/**
+ * Availability across a team.
+ *
+ * Deliberately a *layer over* `computeSlots` rather than a rewrite of it. Every
+ * hard-won rule in that function — the block-sized step, the re-anchoring
+ * cursor, the buffer on both sides, DST — applies per person unchanged, and
+ * running it once per staff member is what makes the headline property true
+ * without any new logic:
+ *
+ * > an appointment booked at 09:20 for one person leaves 09:20 open for another
+ *
+ * because each call only ever sees that person's own busy list. Trying to
+ * express this inside `computeSlots` would have meant teaching the cursor walk
+ * about resource sets, which is where the subtle bugs live.
+ *
+ * The returned list is the **union** across staff, which is what the booking
+ * flow shows at step 2: a time is offered if at least one person is free. Each
+ * slot carries the ids that were free at it, which is what step 3 picks from —
+ * so the staff list a client sees is derived from the same computation that
+ * offered them the time, and cannot disagree with it.
+ *
+ * Time off stays business-wide: it is a closure of the shop, and per-person
+ * absence is not built. See ARCHITECTURE.md.
+ */
+export function computeStaffSlots(
+  input: ComputeStaffSlotsInput,
+): SlotWithStaff[] {
+  const { businessShifts, staff, ...common } = input;
+
+  const merged = new Map<string, SlotWithStaff>();
+
+  for (const member of staff) {
+    const shifts = member.shifts.length > 0 ? member.shifts : businessShifts;
+    if (shifts.length === 0) continue;
+
+    const slots = computeSlots({
+      ...common,
+      shifts,
+      appointments: member.appointments,
+    });
+
+    for (const slot of slots) {
+      const existing = merged.get(slot.startsAt);
+      if (existing) {
+        existing.staffIds.push(member.id);
+      } else {
+        merged.set(slot.startsAt, { ...slot, staffIds: [member.id] });
+      }
+    }
+  }
+
+  return [...merged.values()].sort((a, b) =>
+    a.startsAt.localeCompare(b.startsAt),
+  );
+}
+
+/**
+ * Who can take a given start time, from a computed list.
+ *
+ * Reads from the same array the client was shown rather than recomputing, so
+ * the answer at step 3 cannot contradict the offer at step 2.
+ */
+export function staffAvailableAt(
+  slots: SlotWithStaff[],
+  startsAt: string,
+): string[] {
+  return slots.find((slot) => slot.startsAt === startsAt)?.staffIds ?? [];
+}
+
 export type GetAvailableSlotsArgs = {
   businessId: string;
   serviceId: string;
@@ -229,12 +330,16 @@ export type GetAvailableSlotsArgs = {
  * slots — it only echoes back a `startsAt` produced here, which the booking
  * action re-validates.
  *
+ * Returns slots **with the staff who can take each one**, because the booking
+ * flow needs both from one computation: offering a time and then listing who is
+ * free at it must never be two answers that can disagree.
+ *
  * Takes the db handle explicitly so tests can pass a PGlite instance.
  */
-export async function getAvailableSlots(
+export async function getAvailableSlotsWithStaff(
   db: Database,
   { businessId, serviceId, date, now = new Date() }: GetAvailableSlotsArgs,
-): Promise<Slot[]> {
+): Promise<SlotWithStaff[]> {
   const [business, service] = await Promise.all([
     getBusinessById(db, businessId),
     getService(db, businessId, serviceId),
@@ -243,12 +348,20 @@ export async function getAvailableSlots(
   if (!business || !business.isActive) return [];
   if (!service || !service.isActive) return [];
 
-  const shifts = await listWorkingHoursForWeekday(
+  const weekday = weekdayOf(date);
+  const businessShifts = await listWorkingHoursForWeekday(
     db,
     businessId,
-    weekdayOf(date),
+    weekday,
   );
-  if (shifts.length === 0) return [];
+
+  const team = await listActiveStaff(db, businessId);
+  // A tenant with every provider deactivated takes no bookings. Returning an
+  // empty list is right — and is why the dashboard refuses to deactivate the
+  // last one.
+  if (team.length === 0) return [];
+
+  const staffIds = team.map((member) => member.id);
 
   // Widen the fetch window by a day on each side: a shift near midnight can
   // reach outside the local day once converted to UTC.
@@ -256,19 +369,58 @@ export async function getAvailableSlots(
   const from = new Date(dayStart.getTime() - DAY_MS);
   const to = new Date(dayStart.getTime() + 2 * DAY_MS);
 
-  const [appointments, timeOff] = await Promise.all([
+  const [appointments, timeOff, schedules] = await Promise.all([
     listAppointmentsInRange(db, businessId, from, to),
     listTimeOffInRange(db, businessId, from, to),
+    listStaffSchedulesForWeekday(db, staffIds, weekday),
   ]);
 
-  return computeSlots({
+  // One pass each, rather than a query per staff member: a team of ten would
+  // otherwise be twenty round trips for one day of a booking page.
+  const shiftsByStaff = new Map<string, AvailabilityShift[]>();
+  for (const row of schedules) {
+    const list = shiftsByStaff.get(row.staffId) ?? [];
+    list.push({
+      startTime: row.startTime,
+      endTime: row.endTime,
+      isClosed: false,
+    });
+    shiftsByStaff.set(row.staffId, list);
+  }
+
+  const busyByStaff = new Map<string, BusyInterval[]>();
+  for (const appointment of appointments) {
+    const list = busyByStaff.get(appointment.staffId) ?? [];
+    list.push(appointment);
+    busyByStaff.set(appointment.staffId, list);
+  }
+
+  return computeStaffSlots({
     business,
     durationMin: service.durationMin,
     serviceBufferMin: service.bufferMin,
-    shifts,
-    appointments,
+    businessShifts,
+    staff: team.map((member) => ({
+      id: member.id,
+      shifts: shiftsByStaff.get(member.id) ?? [],
+      appointments: busyByStaff.get(member.id) ?? [],
+    })),
     timeOff,
     date,
     now,
   });
+}
+
+/**
+ * The times only, for callers that do not care who is free.
+ *
+ * Kept as its own export so the public slot endpoint and every existing test
+ * read the same shape they always did; the staff-aware list is a superset.
+ */
+export async function getAvailableSlots(
+  db: Database,
+  args: GetAvailableSlotsArgs,
+): Promise<Slot[]> {
+  const slots = await getAvailableSlotsWithStaff(db, args);
+  return slots.map(({ staffIds: _staffIds, ...slot }) => slot);
 }

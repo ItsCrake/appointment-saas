@@ -14,6 +14,7 @@ import {
   SlotTakenError,
   updateAppointmentStatus,
 } from "@/db/queries";
+import { getDefaultStaff, getStaff } from "@/db/queries/staff";
 import { requireWritable } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
@@ -28,6 +29,8 @@ export type ActionResult =
 
 const manualBookingSchema = z.object({
   serviceId: z.uuid("יש לבחור שירות"),
+  /** Omitted by a single-staff tenant; the sole provider is resolved server-side. */
+  staffId: z.uuid("נותן שירות לא תקין").optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "תאריך לא תקין"),
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "שעה לא תקינה"),
   clientName: z.string().trim().min(2, "יש להזין שם").max(80),
@@ -50,11 +53,33 @@ export async function createManualBookingAction(
   }
 
   const { business } = await requireWritable();
-  const { serviceId, date, time, clientName, clientPhone, clientEmail, notes } =
-    parsed.data;
+  const {
+    serviceId,
+    staffId: requestedStaffId,
+    date,
+    time,
+    clientName,
+    clientPhone,
+    clientEmail,
+    notes,
+  } = parsed.data;
 
   const service = await getService(db, business.id, serviceId);
   if (!service) return { ok: false, error: "השירות לא נמצא" };
+
+  /**
+   * The owner may book anyone, including outside that person's posted hours —
+   * this action skips the availability engine on purpose. What it cannot do is
+   * book a provider who belongs to another tenant, so the id is resolved
+   * through the business rather than trusted.
+   */
+  const assigned = requestedStaffId
+    ? await getStaff(db, business.id, requestedStaffId)
+    : await getDefaultStaff(db, business.id);
+
+  if (!assigned) {
+    return { ok: false, error: "נותן השירות לא נמצא" };
+  }
 
   // The owner types local wall-clock time; the column stores UTC.
   const startsAt = fromZonedTime(`${date}T${time}:00`, business.timezone);
@@ -64,6 +89,7 @@ export async function createManualBookingAction(
     const appointment = await createAppointment(db, {
       businessId: business.id,
       serviceId,
+      staffId: assigned.id,
       startsAt,
       endsAt,
       status: "confirmed",

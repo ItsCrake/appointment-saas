@@ -90,6 +90,13 @@ export const bookingInputSchema = clientDetailsSchema.extend({
   startsAt: z
     .string()
     .refine((v) => !Number.isNaN(Date.parse(v)), "מועד לא תקין"),
+  /**
+   * Who the client picked at step 3. Optional, and treated as a *preference*
+   * rather than an instruction: the server re-derives who is actually free at
+   * the chosen time and refuses a choice that is not among them. A single-staff
+   * tenant never sends it, and the server resolves the only provider itself.
+   */
+  staffId: z.uuid("מזהה נותן שירות לא תקין").optional(),
 });
 
 export type BookingInput = z.infer<typeof bookingInputSchema>;

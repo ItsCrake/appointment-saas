@@ -1,6 +1,6 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 
-import { businesses } from "../schema";
+import { businesses, staff } from "../schema";
 import type { Database } from "../types";
 
 export async function getBusinessById(db: Database, businessId: string) {
@@ -61,11 +61,25 @@ export async function isSlugTaken(
   return Boolean(row);
 }
 
+/**
+ * Creates the business **and its first staff member**, which is not optional.
+ *
+ * `appointments.staff_id` is NOT NULL and the exclusion constraint keys on it,
+ * so a business with no staff row cannot take a booking at all. Migration 0013
+ * backfilled every tenant that existed; this is the same guarantee for every
+ * tenant created since, and it belongs here rather than in the setup action so
+ * a second creation path cannot forget it.
+ *
+ * The staff member is named after the business for the same reason the
+ * backfill did: there is no owner name in this schema, and a recognisable
+ * label beats a placeholder in a picker the owner will rename anyway.
+ */
 export async function createBusiness(
   db: Database,
   values: typeof businesses.$inferInsert,
 ) {
   const [row] = await db.insert(businesses).values(values).returning();
+  await db.insert(staff).values({ businessId: row.id, name: row.name });
   return row;
 }
 

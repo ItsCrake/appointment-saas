@@ -21,13 +21,27 @@ import { relations } from "drizzle-orm";
  * naive `time` values that are interpreted in the business timezone.
  */
 
+/**
+ * `pending_deposit` and `pending_approval` (0014) exist for the deposit flow,
+ * which is **not enabled anywhere in the UI**. Nothing writes them yet.
+ *
+ * Both are non-terminal, so the double-booking guard holds their slots without
+ * naming them: 0013 states the predicate as "not one of the terminal statuses"
+ * rather than listing the ones that hold. See `0014_deposit_infrastructure.sql`
+ * for why it could not have been written the other way round.
+ */
 export const appointmentStatus = pgEnum("appointment_status", [
   "pending",
   "confirmed",
   "cancelled",
   "completed",
   "no_show",
+  "pending_deposit",
+  "pending_approval",
 ]);
+
+/** The statuses that release a slot. Mirrors the exclusion predicate in 0013. */
+export const TERMINAL_STATUSES = ["cancelled", "completed", "no_show"] as const;
 
 export const notificationChannel = pgEnum("notification_channel", [
   "email",
@@ -194,6 +208,51 @@ export const businesses = pgTable("businesses", {
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   /** Set when an owner cancels but has already paid through the period. */
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+
+  /* ---- Multi-staff (0013). ---------------------------------------------- */
+
+  /**
+   * The answer to the one question setup asks: "האם יש יותר מנותן שירות אחד
+   * בעסק?". False hides staff selection everywhere — dashboard and booking
+   * flow both — and the tenant's single backfilled staff row takes every
+   * appointment silently.
+   *
+   * An explicit column rather than `count(staff) > 1`, because an owner has to
+   * be able to answer *yes* before adding anyone, and to collapse back to a
+   * single provider without deleting people who hold history.
+   */
+  hasMultipleStaff: boolean("has_multiple_staff").notNull().default(false),
+
+  /* ---- Deposits (0014). Schema only — no UI reads any of this. ---------- */
+
+  depositEnabled: boolean("deposit_enabled").notNull().default(false),
+  /** `manual` (Bit / PayBox, confirmed by eye) | `gateway`. */
+  depositMode: varchar("deposit_mode", { length: 20 })
+    .notNull()
+    .default("manual"),
+  /**
+   * A flat sum in agorot, never a percentage. The manual flow asks a human to
+   * transfer a specific number through Bit, and "30% of ₪180" is not a number
+   * people type correctly.
+   */
+  depositAmountCents: integer("deposit_amount_cents").notNull().default(0),
+  /** Where a Bit transfer goes. */
+  depositBitPhone: text("deposit_bit_phone"),
+  /** PayBox, or anything else that publishes a payment URL. */
+  depositPaymentUrl: text("deposit_payment_url"),
+  depositInstructions: text("deposit_instructions"),
+  /** Opaque gateway handles, never parsed — same posture as the billing side. */
+  depositProvider: text("deposit_provider"),
+  depositProviderAccountId: text("deposit_provider_account_id"),
+
+  /* ---- Social profiles (0015). ------------------------------------------ */
+
+  socialInstagram: text("social_instagram"),
+  socialFacebook: text("social_facebook"),
+  socialTiktok: text("social_tiktok"),
+  /** A phone number, not a URL — `lib/social-links.ts` builds the wa.me link. */
+  socialWhatsapp: text("social_whatsapp"),
+  websiteUrl: text("website_url"),
 });
 
 /**
@@ -296,6 +355,74 @@ export const services = pgTable(
   (t) => [index("services_business_active_idx").on(t.businessId, t.isActive)],
 );
 
+/**
+ * Service providers. Every business has at least one — created with the
+ * business, and backfilled for existing tenants by 0013 — so `staff_id` on an
+ * appointment is never null and the exclusion constraint always has something
+ * to key on.
+ *
+ * A tenant that answers "no" to `hasMultipleStaff` keeps exactly this one row
+ * and never sees the concept again: the booking flow skips the picker and the
+ * dashboard hides the manager. The row still exists, which is what lets that
+ * answer be changed later without a data migration.
+ */
+export const staff = pgTable(
+  "staff",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Optional, e.g. "ספר בכיר". */
+    title: text("title"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * Deactivate rather than delete. The FK from appointments is RESTRICT, so
+     * anyone who has ever taken a booking cannot be removed at all — their
+     * history is the reason.
+     */
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("staff_business_active_idx").on(t.businessId, t.isActive)],
+);
+
+/**
+ * Per-staff weekly hours.
+ *
+ * **No rows means "inherit the business hours"**, and that default is what
+ * keeps the feature free for a shop that does not need it: a single-staff
+ * tenant never fills this in, and 0013's backfill did not have to generate a
+ * row per weekday per tenant to be correct.
+ *
+ * No `business_id` of its own — scoped through `staff`, so a schedule cannot be
+ * separated from the person it belongs to.
+ */
+export const staffSchedules = pgTable(
+  "staff_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "cascade" }),
+    /** 0 = Sunday .. 6 = Saturday. */
+    weekday: smallint("weekday").notNull(),
+    startTime: time("start_time").notNull(),
+    endTime: time("end_time").notNull(),
+  },
+  (t) => [
+    unique("staff_schedules_staff_weekday_start_key").on(
+      t.staffId,
+      t.weekday,
+      t.startTime,
+    ),
+    index("staff_schedules_staff_weekday_idx").on(t.staffId, t.weekday),
+  ],
+);
+
 /** Weekly recurring template. Multiple rows per weekday = split shifts. */
 export const workingHours = pgTable(
   "working_hours",
@@ -347,6 +474,14 @@ export const appointments = pgTable(
     serviceId: uuid("service_id")
       .notNull()
       .references(() => services.id, { onDelete: "restrict" }),
+    /**
+     * Who is taking this appointment (0013). Never null: every business has at
+     * least one staff row, and the exclusion constraint keys on this column —
+     * a null would silently opt a row out of the double-booking guard.
+     */
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => staff.id, { onDelete: "restrict" }),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     /** Derived from the service duration at booking time. */
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
@@ -364,9 +499,23 @@ export const appointments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+
+    /* ---- Deposits (0014). Not enabled anywhere in the UI. -------------- */
+
+    /** Snapshot, like `priceCents`: this booking's terms must not move. */
+    depositAmountCents: integer("deposit_amount_cents").notNull().default(0),
+    /** When the *client* claimed to have transferred it. A claim, not a payment. */
+    depositClaimedAt: timestamp("deposit_claimed_at", { withTimezone: true }),
+    /** When the owner, or a gateway webhook, confirmed it. */
+    depositConfirmedAt: timestamp("deposit_confirmed_at", {
+      withTimezone: true,
+    }),
+    /** Gateway transaction id, or whatever the client offered as proof. */
+    depositReference: text("deposit_reference"),
   },
   (t) => [
     index("appointments_business_starts_idx").on(t.businessId, t.startsAt),
+    index("appointments_staff_starts_idx").on(t.staffId, t.startsAt),
     index("appointments_reminder_idx").on(t.startsAt, t.reminderSentAt),
   ],
 );
@@ -448,6 +597,23 @@ export const businessesRelations = relations(businesses, ({ many }) => ({
   workingHours: many(workingHours),
   timeOff: many(timeOff),
   appointments: many(appointments),
+  staff: many(staff),
+}));
+
+export const staffRelations = relations(staff, ({ one, many }) => ({
+  business: one(businesses, {
+    fields: [staff.businessId],
+    references: [businesses.id],
+  }),
+  schedules: many(staffSchedules),
+  appointments: many(appointments),
+}));
+
+export const staffSchedulesRelations = relations(staffSchedules, ({ one }) => ({
+  staff: one(staff, {
+    fields: [staffSchedules.staffId],
+    references: [staff.id],
+  }),
 }));
 
 export const servicesRelations = relations(services, ({ one, many }) => ({
@@ -481,6 +647,10 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
     fields: [appointments.serviceId],
     references: [services.id],
   }),
+  staff: one(staff, {
+    fields: [appointments.staffId],
+    references: [staff.id],
+  }),
 }));
 
 export type Business = typeof businesses.$inferSelect;
@@ -489,6 +659,10 @@ export type Service = typeof services.$inferSelect;
 export type NewService = typeof services.$inferInsert;
 export type WorkingHour = typeof workingHours.$inferSelect;
 export type NewWorkingHour = typeof workingHours.$inferInsert;
+export type Staff = typeof staff.$inferSelect;
+export type NewStaff = typeof staff.$inferInsert;
+export type StaffSchedule = typeof staffSchedules.$inferSelect;
+export type NewStaffSchedule = typeof staffSchedules.$inferInsert;
 export type TimeOff = typeof timeOff.$inferSelect;
 export type NewTimeOff = typeof timeOff.$inferInsert;
 export type Appointment = typeof appointments.$inferSelect;
