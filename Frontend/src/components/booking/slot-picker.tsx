@@ -2,7 +2,7 @@
 
 import { CalendarOff, Moon, Sun, Sunrise } from "lucide-react";
 
-import type { Slot } from "@/lib/availability";
+import type { SlotWithStaff } from "@/lib/availability";
 import { groupSlotsByPeriod, type SlotPeriod } from "@/lib/slot-periods";
 import { cn } from "@/lib/utils";
 
@@ -16,11 +16,11 @@ const PERIODS: Record<
 };
 
 type Props = {
-  slots: Slot[];
+  slots: SlotWithStaff[];
   loading: boolean;
   error?: string;
-  selectedSlot?: Slot;
-  onSelectSlot: (slot: Slot) => void;
+  selectedSlot?: SlotWithStaff;
+  onSelectSlot: (slot: SlotWithStaff) => void;
 };
 
 export function SlotPicker({

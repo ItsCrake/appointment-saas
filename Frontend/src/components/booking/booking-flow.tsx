@@ -8,7 +8,7 @@ import {
   fetchSlotsAction,
   type BookingConfirmation,
 } from "@/app/[slug]/actions";
-import type { Slot } from "@/lib/availability";
+import type { SlotWithStaff } from "@/lib/availability";
 import { dateRange, todayInTimezone } from "@/lib/format";
 import type { ClientDetails } from "@/lib/validation";
 
@@ -16,8 +16,9 @@ import { Confirmation } from "./confirmation";
 import { DateTimeStep } from "./datetime-step";
 import { DetailsStep } from "./details-step";
 import { ServiceStep } from "./service-step";
+import { StaffStep } from "./staff-step";
 import { Stepper } from "./stepper";
-import type { BookingBusiness, BookingService } from "./types";
+import type { BookingBusiness, BookingService, BookingStaff } from "./types";
 
 /** How many days the picker offers at once, capped by the business horizon. */
 const VISIBLE_DAYS = 21;
@@ -26,22 +27,34 @@ type Props = {
   slug: string;
   business: BookingBusiness;
   services: BookingService[];
+  /** Active providers, in display order. One entry for a single-staff shop. */
+  staff: BookingStaff[];
 };
 
-export function BookingFlow({ slug, business, services }: Props) {
+/**
+ * `"staff"` sits between choosing a time and entering details, but the Stepper
+ * still shows three: picking who performs the service is part of choosing the
+ * appointment, not a fourth thing to do. A four-wide stepper that appeared only
+ * for some tenants would also make the flow look longer than it is.
+ */
+type Step = 1 | 2 | "staff" | 3;
+
+export function BookingFlow({ slug, business, services, staff }: Props) {
   const today = todayInTimezone(business.timezone);
   const dates = dateRange(
     today,
     Math.max(1, Math.min(VISIBLE_DAYS, business.maxAdvanceDays + 1)),
   );
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<Step>(1);
   const [service, setService] = useState<BookingService>();
   const [date, setDate] = useState(today);
-  const [slot, setSlot] = useState<Slot>();
+  const [slot, setSlot] = useState<SlotWithStaff>();
+  /** `null` is an explicit "anyone"; `undefined` is "not asked, or not chosen". */
+  const [staffId, setStaffId] = useState<string | null>();
   const [startedAt, setStartedAt] = useState<number | null>(null);
 
-  const [slots, setSlots] = useState<Slot[]>([]);
+  const [slots, setSlots] = useState<SlotWithStaff[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string>();
 
@@ -97,19 +110,54 @@ export function BookingFlow({ slug, business, services }: Props) {
     if (service) void loadSlots(service.id, next);
   }
 
-  function selectSlot(next: Slot) {
+  /** Providers free at a given slot, resolved against the roster for names. */
+  function freeStaffFor(next: SlotWithStaff) {
+    return staff.filter((member) => next.staffIds.includes(member.id));
+  }
+
+  function selectSlot(next: SlotWithStaff) {
     setSlot(next);
     setSubmitError(undefined);
+
+    const free = freeStaffFor(next);
+
+    /**
+     * The staff step asks a question only when there is one to ask. A
+     * single-staff tenant, or a time only one person can take, resolves
+     * silently — the client never learns the concept exists, which is the whole
+     * point of the binary setup question.
+     */
+    if (!business.hasMultipleStaff || free.length <= 1) {
+      setStaffId(free[0]?.id ?? null);
+      setStep(3);
+      // Event handler, so Date.now() is legitimate here. Measuring from slot
+      // choice rather than form mount also matches what we actually care about:
+      // how long a person spent on the final step.
+      setStartedAt(Date.now());
+      return;
+    }
+
+    setStaffId(undefined);
+    setStep("staff");
+  }
+
+  function selectStaff(next: string | null) {
+    setStaffId(next);
     setStep(3);
-    // Event handler, so Date.now() is legitimate here. Measuring from slot
-    // choice rather than form mount also matches what we actually care about:
-    // how long a person spent on the final step.
     setStartedAt(Date.now());
   }
 
   function back() {
     setSubmitError(undefined);
-    setStep((s) => (s === 3 ? 2 : 1));
+    setStep((s) => {
+      if (s === 3) {
+        // Back from the details form returns to the staff question when there
+        // was one, and to the time grid when there was not.
+        const free = slot ? freeStaffFor(slot) : [];
+        return business.hasMultipleStaff && free.length > 1 ? "staff" : 2;
+      }
+      return s === "staff" ? 2 : 1;
+    });
   }
 
   async function submit(details: ClientDetails) {
@@ -123,6 +171,9 @@ export function BookingFlow({ slug, business, services }: Props) {
       slug,
       serviceId: service.id,
       startsAt: slot.startsAt,
+      // `null` — the explicit "anyone" — is sent as absent, which is what the
+      // server reads as "pick the first free provider".
+      staffId: staffId ?? undefined,
     });
 
     setSubmitting(false);
@@ -150,6 +201,7 @@ export function BookingFlow({ slug, business, services }: Props) {
     setConfirmation(undefined);
     setService(undefined);
     setSlot(undefined);
+    setStaffId(undefined);
     setDate(today);
     setSlots([]);
     setSubmitError(undefined);
@@ -166,9 +218,11 @@ export function BookingFlow({ slug, business, services }: Props) {
 
   return (
     <div ref={headingRef}>
-      <Stepper current={step} />
+      {/* The staff question belongs to "choosing the appointment", so it shows
+          as step 2 on the rail rather than adding a fourth marker. */}
+      <Stepper current={step === "staff" ? 2 : step} />
 
-      {step > 1 ? (
+      {step !== 1 ? (
         <div className="px-5 pb-3">
           <button
             type="button"
@@ -203,6 +257,15 @@ export function BookingFlow({ slug, business, services }: Props) {
             selectedSlot={slot}
             onSelectDate={selectDate}
             onSelectSlot={selectSlot}
+          />
+        ) : null}
+
+        {step === "staff" && slot ? (
+          <StaffStep
+            staff={freeStaffFor(slot)}
+            timeLabel={slot.label}
+            selectedId={staffId}
+            onSelect={selectStaff}
           />
         ) : null}
 

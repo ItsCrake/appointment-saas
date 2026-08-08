@@ -11,6 +11,8 @@ import {
   listServices,
   listWorkingHours,
 } from "@/db/queries";
+import { listActiveStaff } from "@/db/queries/staff";
+import { buildSocialLinks } from "@/lib/social-links";
 import {
   parseGallery,
   parseReviews,
@@ -127,9 +129,10 @@ export default async function BusinessPage({ params }: PageProps) {
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) notFound();
 
-  const [services, hours] = await Promise.all([
+  const [services, hours, team] = await Promise.all([
     listServices(db, business.id),
     listWorkingHours(db, business.id),
+    listActiveStaff(db, business.id),
   ]);
 
   // The demo shop's address, phone and prices are invented. Publishing them as
@@ -187,6 +190,16 @@ export default async function BusinessPage({ params }: PageProps) {
         ).getUTCDay()}
         heroMediaUrl={business.heroMediaUrl}
         heroMediaType={heroMediaType}
+        // Validated on read like every other owner-supplied column: a value
+        // written past the app by a seed or psql must not produce a broken
+        // link, so anything that does not parse simply yields no icon.
+        socialLinks={buildSocialLinks({
+          instagram: business.socialInstagram,
+          facebook: business.socialFacebook,
+          tiktok: business.socialTiktok,
+          whatsapp: business.socialWhatsapp,
+          website: business.websiteUrl,
+        })}
       />
 
       {services.length === 0 ? (
@@ -201,7 +214,15 @@ export default async function BusinessPage({ params }: PageProps) {
             name: business.name,
             timezone: business.timezone,
             maxAdvanceDays: business.maxAdvanceDays,
+            hasMultipleStaff: business.hasMultipleStaff,
           }}
+          // The roster is only ever used to put names on ids the availability
+          // engine returned, so nothing here decides who is bookable.
+          staff={team.map((member) => ({
+            id: member.id,
+            name: member.name,
+            title: member.title,
+          }))}
           services={services.map((s) => ({
             id: s.id,
             name: s.name,

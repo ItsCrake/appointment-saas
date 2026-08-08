@@ -12,10 +12,9 @@ import {
   SlotTakenError,
 } from "@/db/queries";
 import {
-  getAvailableSlots,
   getAvailableSlotsWithStaff,
   staffAvailableAt,
-  type Slot,
+  type SlotWithStaff,
 } from "@/lib/availability";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError, reportWarning } from "@/lib/observability";
@@ -29,7 +28,7 @@ import {
 } from "@/lib/validation";
 
 export type SlotsResult =
-  { ok: true; slots: Slot[] } | { ok: false; error: string };
+  { ok: true; slots: SlotWithStaff[] } | { ok: false; error: string };
 
 /**
  * Availability for one day. Called from the client on every date change, so it
@@ -52,7 +51,10 @@ export async function fetchSlotsAction(
   if (!business) return { ok: false, error: "העסק לא נמצא" };
 
   try {
-    const slots = await getAvailableSlots(db, {
+    // Returns who is free at each time as well as the time itself, so the
+    // staff picker reads from the same computation that offered the slot and
+    // cannot disagree with it.
+    const slots = await getAvailableSlotsWithStaff(db, {
       businessId: business.id,
       serviceId,
       date,

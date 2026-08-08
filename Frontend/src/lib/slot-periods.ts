@@ -19,7 +19,10 @@ export function slotPeriod(label: string): SlotPeriod {
   return "morning";
 }
 
-export type SlotGroup = { period: SlotPeriod; slots: Slot[] };
+export type SlotGroup<T extends Slot = Slot> = {
+  period: SlotPeriod;
+  slots: T[];
+};
 
 const ORDER = ["morning", "afternoon", "evening"] as const;
 
@@ -27,8 +30,10 @@ const ORDER = ["morning", "afternoon", "evening"] as const;
  * Chronological, and **non-empty groups only** — a shop that never opens in the
  * morning should not show an empty "morning" heading.
  */
-export function groupSlotsByPeriod(slots: Slot[]): SlotGroup[] {
-  const buckets = new Map<SlotPeriod, Slot[]>();
+export function groupSlotsByPeriod<T extends Slot>(slots: T[]): SlotGroup<T>[] {
+  // Generic so a slot carrying more than the base shape — the staff free at it,
+  // for instance — keeps that information through the grouping.
+  const buckets = new Map<SlotPeriod, T[]>();
 
   for (const slot of slots) {
     const period = slotPeriod(slot.label);

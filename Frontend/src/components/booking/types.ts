@@ -3,6 +3,15 @@ export type BookingBusiness = {
   name: string;
   timezone: string;
   maxAdvanceDays: number;
+  /** When false the staff step never renders and the sole provider is implicit. */
+  hasMultipleStaff: boolean;
+};
+
+/** A provider, as the public picker needs them. No ids beyond the one. */
+export type BookingStaff = {
+  id: string;
+  name: string;
+  title: string | null;
 };
 
 export type BookingService = {

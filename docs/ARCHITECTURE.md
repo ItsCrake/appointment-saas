@@ -152,6 +152,34 @@ and cannot disagree with it. `createBookingAction` re-derives it server-side and
 **refuses** a requested provider who is not in that list rather than silently
 substituting one, which would book a client with the wrong person.
 
+### Booking flow: the time first, the person second
+
+Step 2 offers every time **anyone** can do; step 3 asks who, from the people
+free at the one time already chosen. Asking who first would filter the calendar
+by someone the client has no opinion about, and hide times another provider
+could have taken.
+
+The staff step is a state between choosing a time and entering details, but the
+Stepper still shows three: picking a provider is part of choosing the
+appointment, not a fourth thing to do, and a four-wide rail that appeared only
+for some tenants would make the flow look longer than it is.
+
+**It asks only when there is a question.** A single-staff tenant, or a time only
+one person can take, resolves silently — the client never learns the concept
+exists, which is what the binary setup question is for.
+
+**Nothing is preselected.** A preselected name is the failure mode worth
+avoiding: a client who does not read carefully books a specific person without
+meaning to. "מי שפנוי ראשון" is offered as an explicit choice rather than as a
+default, and travels to the server as an *absent* `staffId`.
+
+The picker is rendered from the chosen slot's own `staffIds`, not from the
+roster — the roster only supplies names for ids the engine already returned. So
+the list cannot contain someone the availability computation did not offer.
+`createBookingAction` then re-derives it server-side and **refuses** a requested
+provider who is not free, rather than substituting one: silently booking a
+client with the wrong barber is worse than an error they can act on.
+
 ### Time off comes in two kinds, and they compose
 
 `0016` adds a nullable `time_off.staff_id`. NULL keeps the original meaning —

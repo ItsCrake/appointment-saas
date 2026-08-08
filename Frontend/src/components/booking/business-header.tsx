@@ -1,9 +1,11 @@
 import { MapPin, Phone } from "lucide-react";
 
 import type { HeroMediaType } from "@/lib/branding";
+import type { SocialLink } from "@/lib/social-links";
 import { cn } from "@/lib/utils";
 
 import { HoursDrawer } from "./hours-drawer";
+import { SocialRow } from "./social-row";
 import type { BookingHours } from "./types";
 
 type Props = {
@@ -12,6 +14,8 @@ type Props = {
   logoUrl: string | null;
   address: string | null;
   phone: string | null;
+  /** Already parsed and validated; an empty array renders nothing. */
+  socialLinks: SocialLink[];
   hours: BookingHours[];
   /** 0 = Sunday, resolved in the business timezone by the server. */
   todayWeekday: number;
@@ -30,6 +34,7 @@ export function BusinessHeader({
   logoUrl,
   address,
   phone,
+  socialLinks,
   hours,
   todayWeekday,
   heroMediaUrl,
@@ -130,6 +135,13 @@ export function BusinessHeader({
           ) : null}
 
           <HoursDrawer hours={hours} todayWeekday={todayWeekday} />
+        </div>
+
+        {/* Under the contact row rather than beside it: these are the only
+            outbound links on a page whose job is to keep someone here until
+            they have booked, so they sit below the reasons to stay. */}
+        <div className="flex justify-center">
+          <SocialRow links={socialLinks} />
         </div>
       </div>
     </header>

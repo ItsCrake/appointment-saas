@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { AlertCircle } from "lucide-react";
 
-import type { Slot } from "@/lib/availability";
+import type { SlotWithStaff } from "@/lib/availability";
 import { dayOfMonth, monthLabel, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -14,15 +14,15 @@ type Props = {
   /** The first entry of `dates`; used to label "today" and "tomorrow". */
   today: string;
   selectedDate: string;
-  slots: Slot[];
+  slots: SlotWithStaff[];
   loading: boolean;
   /** A slot *fetch* failure — the picker has nothing to show. */
   error?: string;
   /** A previous *booking* failure. Slots below are still valid and selectable. */
   notice?: string;
-  selectedSlot?: Slot;
+  selectedSlot?: SlotWithStaff;
   onSelectDate: (date: string) => void;
-  onSelectSlot: (slot: Slot) => void;
+  onSelectSlot: (slot: SlotWithStaff) => void;
 };
 
 export function DateTimeStep({

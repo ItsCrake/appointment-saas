@@ -457,5 +457,11 @@ export async function getAvailableSlots(
   args: GetAvailableSlotsArgs,
 ): Promise<Slot[]> {
   const slots = await getAvailableSlotsWithStaff(db, args);
-  return slots.map(({ staffIds: _staffIds, ...slot }) => slot);
+  // Rebuilt field by field rather than by rest-destructuring, so adding a
+  // property to `SlotWithStaff` cannot leak it into the narrower shape.
+  return slots.map((slot) => ({
+    startsAt: slot.startsAt,
+    endsAt: slot.endsAt,
+    label: slot.label,
+  }));
 }
