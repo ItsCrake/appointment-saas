@@ -3,6 +3,10 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 
 import { AppearanceForm } from "@/components/dashboard/appearance-form";
+import {
+  DepositSettingsForm,
+  SocialLinksForm,
+} from "@/components/dashboard/profile-extras-form";
 import { SettingsForm } from "@/components/dashboard/settings-form";
 import { btnAccent } from "@/components/dashboard/ui";
 import {
@@ -72,6 +76,46 @@ export default async function SettingsPage() {
         ) : (
           <BrandingUpsell />
         )}
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+          רשתות חברתיות
+        </h2>
+        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+          קישורים שיופיעו בעמוד ההזמנות
+        </p>
+
+        <SocialLinksForm
+          initial={{
+            instagram: business.socialInstagram ?? "",
+            facebook: business.socialFacebook ?? "",
+            tiktok: business.socialTiktok ?? "",
+            whatsapp: business.socialWhatsapp ?? "",
+            website: business.websiteUrl ?? "",
+          }}
+        />
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+          מקדמה
+        </h2>
+        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+          תשלום מראש לשריון התור
+        </p>
+
+        <DepositSettingsForm
+          initial={{
+            enabled: business.depositEnabled,
+            mode: business.depositMode === "gateway" ? "gateway" : "manual",
+            // The column is agorot; the form speaks shekels.
+            amount: Math.round(business.depositAmountCents / 100),
+            bitPhone: business.depositBitPhone ?? "",
+            paymentUrl: business.depositPaymentUrl ?? "",
+            instructions: business.depositInstructions ?? "",
+          }}
+        />
       </div>
     </div>
   );

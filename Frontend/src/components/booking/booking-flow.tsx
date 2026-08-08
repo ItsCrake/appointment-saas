@@ -15,6 +15,7 @@ import type { ClientDetails } from "@/lib/validation";
 import { Confirmation } from "./confirmation";
 import { DateTimeStep } from "./datetime-step";
 import { DetailsStep } from "./details-step";
+import { OnlyStaffStep } from "./only-staff-step";
 import { ServiceStep } from "./service-step";
 import { StaffStep } from "./staff-step";
 import { Stepper } from "./stepper";
@@ -32,12 +33,13 @@ type Props = {
 };
 
 /**
- * `"staff"` sits between choosing a time and entering details, but the Stepper
- * still shows three: picking who performs the service is part of choosing the
- * appointment, not a fourth thing to do. A four-wide stepper that appeared only
- * for some tenants would also make the flow look longer than it is.
+ * `"staff"` and `"only"` sit between choosing a time and entering details —
+ * pick from several free providers, or acknowledge the one free provider — but
+ * the Stepper still shows three. Picking who performs the service is part of
+ * choosing the appointment, not a fourth thing to do, and a rail that grew a
+ * marker only for some tenants would make the flow look longer than it is.
  */
-type Step = 1 | 2 | "staff" | 3;
+type Step = 1 | 2 | "staff" | "only" | 3;
 
 export function BookingFlow({ slug, business, services, staff }: Props) {
   const today = todayInTimezone(business.timezone);
@@ -110,25 +112,45 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
     if (service) void loadSlots(service.id, next);
   }
 
+  /**
+   * Whether this tenant has a staff question at all.
+   *
+   * Both halves matter. `hasMultipleStaff` is the owner's answer to the setup
+   * question, and `staff.length > 1` is whether it is currently true — an owner
+   * who flipped the toggle before adding anybody would otherwise get a "only X
+   * is available" card on every single slot, which says nothing.
+   */
+  const multiStaff = business.hasMultipleStaff && staff.length > 1;
+
   /** Providers free at a given slot, resolved against the roster for names. */
   function freeStaffFor(next: SlotWithStaff) {
     return staff.filter((member) => next.staffIds.includes(member.id));
+  }
+
+  /** Where a chosen slot sends the client, given who is free at it. */
+  function stepAfterSlot(next: SlotWithStaff): Step {
+    if (!multiStaff) return 3;
+    return freeStaffFor(next).length > 1 ? "staff" : "only";
   }
 
   function selectSlot(next: SlotWithStaff) {
     setSlot(next);
     setSubmitError(undefined);
 
-    const free = freeStaffFor(next);
+    const destination = stepAfterSlot(next);
 
     /**
-     * The staff step asks a question only when there is one to ask. A
-     * single-staff tenant, or a time only one person can take, resolves
-     * silently — the client never learns the concept exists, which is the whole
-     * point of the binary setup question.
+     * A single-staff tenant resolves silently — the client never learns the
+     * concept exists, which is the whole point of the binary setup question.
+     *
+     * A tenant that *does* have a team never skips silently, even when only one
+     * person is free. Being quietly assigned somebody is the thing worth
+     * avoiding: the client came to a shop with several barbers and has no way to
+     * tell they were given the only one left, or that a different time would
+     * have offered a choice.
      */
-    if (!business.hasMultipleStaff || free.length <= 1) {
-      setStaffId(free[0]?.id ?? null);
+    if (destination === 3) {
+      setStaffId(freeStaffFor(next)[0]?.id ?? null);
       setStep(3);
       // Event handler, so Date.now() is legitimate here. Measuring from slot
       // choice rather than form mount also matches what we actually care about:
@@ -138,7 +160,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
     }
 
     setStaffId(undefined);
-    setStep("staff");
+    setStep(destination);
   }
 
   function selectStaff(next: string | null) {
@@ -147,16 +169,29 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
     setStartedAt(Date.now());
   }
 
+  /** "Proceed with X" from the sole-provider card. */
+  function acceptOnlyStaff(staffMemberId: string) {
+    setStaffId(staffMemberId);
+    setStep(3);
+    setStartedAt(Date.now());
+  }
+
+  /** "Choose a different time" — back to the grid, with the slot released. */
+  function chooseAnotherTime() {
+    setSlot(undefined);
+    setStaffId(undefined);
+    setStep(2);
+  }
+
   function back() {
     setSubmitError(undefined);
     setStep((s) => {
       if (s === 3) {
-        // Back from the details form returns to the staff question when there
-        // was one, and to the time grid when there was not.
-        const free = slot ? freeStaffFor(slot) : [];
-        return business.hasMultipleStaff && free.length > 1 ? "staff" : 2;
+        // Back from the details form returns to whichever question was asked,
+        // and straight to the grid when none was.
+        return slot ? stepAfterSlot(slot) : 2;
       }
-      return s === "staff" ? 2 : 1;
+      return s === "staff" || s === "only" ? 2 : 1;
     });
   }
 
@@ -220,7 +255,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
     <div ref={headingRef}>
       {/* The staff question belongs to "choosing the appointment", so it shows
           as step 2 on the rail rather than adding a fourth marker. */}
-      <Stepper current={step === "staff" ? 2 : step} />
+      <Stepper current={step === "staff" || step === "only" ? 2 : step} />
 
       {step !== 1 ? (
         <div className="px-5 pb-3">
@@ -257,6 +292,15 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
             selectedSlot={slot}
             onSelectDate={selectDate}
             onSelectSlot={selectSlot}
+          />
+        ) : null}
+
+        {step === "only" && slot && freeStaffFor(slot)[0] ? (
+          <OnlyStaffStep
+            staff={freeStaffFor(slot)[0]}
+            timeLabel={slot.label}
+            onProceed={() => acceptOnlyStaff(freeStaffFor(slot)[0].id)}
+            onChooseAnotherTime={chooseAnotherTime}
           />
         ) : null}
 

@@ -200,6 +200,7 @@ Run from `Frontend/`.
 | `/dashboard`              | owner         | Day & week agenda, stats, manual booking        |
 | `/dashboard/services`     | owner         | Services CRUD                                   |
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
+| `/dashboard/staff`        | owner         | Team, per-staff hours, per-staff time off       |
 | `/dashboard/clients`      | owner         | Derived from booking history                    |
 | `/dashboard/settings`     | owner         | Business profile and booking rules              |
 | `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
@@ -224,7 +225,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 425 unit tests, build
+npm run verify     # env, lint, types, 433 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 

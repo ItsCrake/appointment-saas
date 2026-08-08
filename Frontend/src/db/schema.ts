@@ -376,6 +376,17 @@ export const staff = pgTable(
     name: text("name").notNull(),
     /** Optional, e.g. "ספר בכיר". */
     title: text("title"),
+    /**
+     * Contact for the owner's own use (0017). Not a login, and nothing
+     * dispatches to it — the notification outbox addresses clients, not staff.
+     */
+    phone: text("phone"),
+    /**
+     * Calendar swatch *name*, never a hex value — Tailwind cannot build a class
+     * from a runtime value. `lib/staff-colors.ts` is the source of truth for
+     * which names are legal; the stylesheet decides what they look like.
+     */
+    color: varchar("color", { length: 20 }).notNull().default("slate"),
     sortOrder: integer("sort_order").notNull().default(0),
     /**
      * Deactivate rather than delete. The FK from appointments is RESTRICT, so

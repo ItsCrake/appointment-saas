@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 425 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 433 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -164,9 +164,23 @@ Stepper still shows three: picking a provider is part of choosing the
 appointment, not a fourth thing to do, and a four-wide rail that appeared only
 for some tenants would make the flow look longer than it is.
 
-**It asks only when there is a question.** A single-staff tenant, or a time only
-one person can take, resolves silently — the client never learns the concept
-exists, which is what the binary setup question is for.
+**A one-person shop resolves silently; a team shop never does.** With
+`hasMultipleStaff` off — or exactly one active provider — the client never
+learns the concept exists, which is what the binary setup question is for. But a
+shop that genuinely has a team gets a card even when only one person is free at
+the chosen time:
+
+> בשעה 09:30 פנוי/ה רק יוסי — [להמשיך עם יוסי] [בחירת מועד אחר]
+
+Skipping straight to the details form there is the obvious implementation and
+the wrong one. The client came somewhere with several barbers; being quietly
+handed the only one left is a decision made *for* them that they cannot see, and
+they have no way to tell that a different time would have offered a choice. One
+tap buys that nobody discovers who they are booked with on arrival.
+
+Both halves of the condition matter — `hasMultipleStaff` **and** more than one
+active provider. An owner who flips the toggle before adding anybody would
+otherwise get "only X is available" on every slot, which says nothing.
 
 **Nothing is preselected.** A preselected name is the failure mode worth
 avoiding: a client who does not read carefully books a specific person without
@@ -211,11 +225,48 @@ their weekly hours — a permanent change used to describe a one-off.
 > `ON DELETE CASCADE` here, unlike the appointments FK: an absence is not
 > history, so it should go with the person rather than outlive them.
 
+### Managing a team (`/dashboard/staff`)
+
+CRUD over the roster, each person's weekly override, and time off for one person
+or the whole shop. Three rules worth stating:
+
+- **There is no delete.** `appointments.staff_id` is `ON DELETE RESTRICT`, so
+  anyone who has taken a booking cannot be removed at all — their history is the
+  reason. Deactivating is the operation that actually exists.
+- **The last active provider cannot be deactivated.** A tenant with none takes
+  no bookings: availability returns an empty list for every day and the public
+  page silently stops working with nothing to explain it. The action refuses,
+  because it is the only place that can say why.
+- **An empty schedule is a valid answer, not an unsaved form.** It means "works
+  the business hours" — the default everyone starts on, and what keeps a shop
+  whose team share hours from filling in seven rows per person. The save button
+  says so rather than looking like a no-op.
+
+The per-person editor allows one shift per weekday, unlike the business hours
+editor which supports split shifts. A per-person override exists to say "Yossi
+works mornings"; offering a second shift per day would mostly produce empty
+fields.
+
+`staff.color` (0017) is a swatch **name**, never a hex value — the same
+reasoning as `businesses.theme_color`. Tailwind cannot build a class from a
+runtime value, so a stored `#7c3aed` is a colour the agenda cannot render and
+cannot guarantee is legible. `lib/staff-colors.ts` owns which names are legal
+and validates on read; the stylesheet owns what they look like. `staff.phone` is
+for the owner's own use — nothing dispatches to it.
+
 ## Deposits — schema only, nothing enabled
 
 `0014` adds `pending_deposit` and `pending_approval`, tenant configuration
 (`deposit_enabled` defaulting to **false**, manual Bit/PayBox fields, gateway
-handles) and per-appointment state. **No UI reads any of it.** It exists now for
+handles) and per-appointment state.
+
+`/dashboard/settings` can now configure it, and says plainly on screen that the
+feature is not live yet. **Nothing in the booking flow reads any of it** — no
+appointment is created with `pending_deposit`, and turning the switch on changes
+nothing a client can see. Hiding the section until the flow exists would leave
+an owner enabling it later with no idea what it does; showing it *unlabelled*
+would be worse still, because a switch that appears to work and does not is how
+trust in every other switch goes. It exists now for
 the reason 8a taught: the database learns a value before the code writes one,
 and a status the enum does not know is a constraint violation at the worst
 possible moment.

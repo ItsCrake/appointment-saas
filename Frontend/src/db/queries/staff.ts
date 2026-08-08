@@ -92,7 +92,13 @@ export async function listSchedulesForStaff(db: Database, staffId: string) {
 
 export async function createStaff(
   db: Database,
-  values: { businessId: string; name: string; title?: string | null },
+  values: {
+    businessId: string;
+    name: string;
+    title?: string | null;
+    phone?: string | null;
+    color?: string;
+  },
 ) {
   const [row] = await db
     .insert(staff)
@@ -100,6 +106,8 @@ export async function createStaff(
       businessId: values.businessId,
       name: values.name,
       title: values.title ?? null,
+      phone: values.phone ?? null,
+      ...(values.color ? { color: values.color } : {}),
     })
     .returning();
 
@@ -113,6 +121,8 @@ export async function updateStaff(
   patch: {
     name?: string;
     title?: string | null;
+    phone?: string | null;
+    color?: string;
     isActive?: boolean;
     sortOrder?: number;
   },

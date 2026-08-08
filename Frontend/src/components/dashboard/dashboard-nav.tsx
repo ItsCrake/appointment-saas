@@ -10,6 +10,7 @@ import {
   LogOut,
   Scissors,
   Settings,
+  UserRound,
   Users,
 } from "lucide-react";
 
@@ -22,11 +23,14 @@ const LINKS = [
   { href: "/dashboard/services", label: "שירותים", icon: Scissors },
   { href: "/dashboard/hours", label: "שעות", icon: Clock },
   { href: "/dashboard/clients", label: "לקוחות", icon: Users },
+  // After clients on purpose: the bottom bar takes the first four, and an
+  // owner reaches for their client list far more often than for the roster.
+  { href: "/dashboard/staff", label: "צוות", icon: UserRound },
   { href: "/dashboard/billing", label: "חיוב", icon: CreditCard },
   { href: "/dashboard/settings", label: "הגדרות", icon: Settings },
 ] as const;
 
-/** The bottom bar only fits four; billing and settings live in the sidebar. */
+/** The bottom bar only fits four; the rest live in the sidebar. */
 const MOBILE_LINKS = LINKS.slice(0, 4);
 
 /**
