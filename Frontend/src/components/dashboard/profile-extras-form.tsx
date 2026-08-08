@@ -5,13 +5,61 @@ import { Info } from "lucide-react";
 
 import {
   saveDepositSettingsAction,
+  saveLogoAction,
   saveSocialLinksAction,
   type ProfileActionResult,
 } from "@/app/dashboard/settings/profile-actions";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
+import { ImageUpload } from "./image-upload";
 import { btnPrimary, cardClass, inputClass } from "./ui";
+
+/**
+ * The logo, which saves itself.
+ *
+ * Every other form on this page batches its fields behind a Save button. This
+ * one has a single value, and a Save button under one image is a step whose
+ * only possible outcome is being forgotten — so picking a file *is* the save,
+ * and the toast is the confirmation.
+ *
+ * Optimistic in one direction only: the preview switches immediately, and a
+ * failed write puts the previous value back rather than leaving a picture on
+ * screen that is not in the database.
+ */
+export function LogoForm({ initial }: { initial: string | null }) {
+  const { toast } = useToast();
+  const [value, setValue] = useState(initial);
+  const [pending, startTransition] = useTransition();
+
+  function save(next: string | null) {
+    const previous = value;
+    setValue(next);
+
+    startTransition(async () => {
+      const result: ProfileActionResult = await saveLogoAction(next);
+      if (result.ok) {
+        toast(result.message ?? "נשמר", "success");
+      } else {
+        setValue(previous);
+        toast(result.error, "error");
+      }
+    });
+  }
+
+  return (
+    <div className={cn(cardClass, "p-5")}>
+      <ImageUpload
+        kind="logo"
+        value={value}
+        onChange={save}
+        disabled={pending}
+        hint="מוצג בראש עמוד ההזמנות. תמונה מרובעת תיראה הכי טוב. נשמר מיד."
+        removeLabel="הסרת הלוגו"
+      />
+    </div>
+  );
+}
 
 export type SocialValues = {
   instagram: string;

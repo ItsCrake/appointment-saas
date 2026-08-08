@@ -35,12 +35,21 @@ export function OnlyStaffStep({
     <section className="px-5">
       <div className="rounded-2xl border border-(--accent-soft-border) bg-(--accent-soft) p-5">
         <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-(--accent) text-(--accent-contrast)"
-          >
-            <User className="size-5" />
-          </span>
+          {staff.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time
+            <img
+              src={staff.imageUrl}
+              alt=""
+              className="size-11 shrink-0 rounded-full object-cover ring-2 ring-(--accent)"
+            />
+          ) : (
+            <span
+              aria-hidden
+              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-(--accent) text-(--accent-contrast)"
+            >
+              <User className="size-5" />
+            </span>
+          )}
           <div className="min-w-0">
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
               בשעה {timeLabel} פנוי/ה רק {staff.name}

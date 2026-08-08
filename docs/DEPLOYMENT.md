@@ -37,6 +37,7 @@ Preview. `.env.local` is not deployed.
 | `TWILIO_ACCOUNT_SID`            | twilio.com → Console → Account SID. **Newly required in production** — see below.                                                                              |
 | `TWILIO_AUTH_TOKEN`             | twilio.com → Console → Auth Token.                                                                                                                             |
 | `TWILIO_SMS_FROM`               | twilio.com → Phone Numbers, in E.164. Without it, Pro tenants silently fall back to email reminders.                                                            |
+| `SUPABASE_SERVICE_ROLE_KEY`     | Supabase → Project Settings → API → **service_role**. Signs the upload URLs owners send images to. **Never expose it to the browser.** See §3.1.                |
 
 Both connection strings contain a `[YOUR-PASSWORD]` placeholder — replace it,
 brackets included. `check:env` fails if the brackets survive.
@@ -56,7 +57,6 @@ brackets included. `check:env` fails if the brackets survive.
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TWILIO_WHATSAPP_FROM`      | The WhatsApp channel stays on the console provider. Genuinely optional: reminders are never auto-routed to WhatsApp, because a business-initiated message needs a Meta-approved template. |
 | `SUPER_ADMIN_EMAILS`        | `/master` denies everyone. The console is unreachable, which is the safe default — set it only when you want it.                                                                            |
-| `SUPABASE_SERVICE_ROLE_KEY` | `npm run db:claim` cannot resolve an email to a user id; pass the uuid instead. Never expose this key to the browser.                                                                       |
 
 ## 3. Database
 
@@ -129,6 +129,44 @@ Once `0008` is applied, removing a user in **Authentication → Users** cascades
 to their business and every appointment, client name and phone number under it.
 There is no prompt and no undo. Delete test accounts freely before launch; once
 real businesses exist, treat that button as destructive.
+
+## 3.1 Storage — one command, once per project
+
+Owners upload logos, banners, gallery images and staff portraits. That needs a
+bucket, and **the bucket is not created by a migration**: Supabase Storage lives
+in a `storage` schema that the PGlite test database does not have, so a
+migration referencing it would break every test in the suite.
+
+With `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SUPABASE_URL` set:
+
+```bash
+npm --prefix Frontend run storage:setup
+```
+
+It is idempotent — safe to re-run, and re-running is how you repair a bucket
+that was created by hand in the dashboard without limits. It creates
+`business-media` as **public-read**, capped at **5MB**, restricted to
+`image/jpeg, image/png, image/webp, image/avif, image/gif`.
+
+Those two bucket settings are the only size and type checks that actually
+_enforce_ anything. The browser and the server action check the same rules first
+to produce a fast, readable error, but both are skippable by a crafted request.
+
+Public-read is deliberate: every one of these images is already displayed on an
+unauthenticated booking page, so a signed read URL would protect nothing and
+would expire inside a link meant to be shareable.
+
+There are **no write policies to create**. Nothing ever authenticates to this
+bucket as a user — uploads arrive on a signed URL minted server-side after the
+same `requireWritable()` check every other dashboard mutation runs.
+
+**Symptoms of skipping this step**
+
+| What the owner sees                                     | Cause                                        |
+| ------------------------------------------------------- | -------------------------------------------- |
+| "העלאת קבצים לא מוגדרת עדיין בשרת"                      | `SUPABASE_SERVICE_ROLE_KEY` is not set        |
+| "לא הצלחנו להתחיל את ההעלאה" on every attempt           | key is set, bucket was never created          |
+| Upload reaches 100% then fails                          | bucket exists but has no `file_size_limit` / wrong mime list — re-run the command |
 
 ## 4. Supabase Auth
 

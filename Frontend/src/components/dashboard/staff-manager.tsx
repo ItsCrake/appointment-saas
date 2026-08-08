@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { STAFF_COLORS, staffSwatch, type StaffColor } from "@/lib/staff-colors";
 import { cn } from "@/lib/utils";
 
+import { ImageUpload } from "./image-upload";
 import {
   btnDanger,
   btnPrimary,
@@ -33,6 +34,7 @@ export type StaffRow = {
   title: string | null;
   phone: string | null;
   color: string;
+  imageUrl: string | null;
   isActive: boolean;
   /** Empty means "works the business hours". */
   shifts: { weekday: number; startTime: string; endTime: string }[];
@@ -53,6 +55,8 @@ type Draft = {
   title: string;
   phone: string;
   color: StaffColor;
+  /** Empty means no portrait; the picker falls back to a monogram. */
+  imageUrl: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -60,6 +64,7 @@ const EMPTY_DRAFT: Draft = {
   title: "",
   phone: "",
   color: "slate",
+  imageUrl: "",
 };
 
 export function StaffManager({
@@ -215,6 +220,16 @@ function StaffFields({
 }) {
   return (
     <div className="space-y-3">
+      {/* First, because it is the field an owner recognises the person by, and
+          it is the one that shows up on the public page. */}
+      <ImageUpload
+        kind="staff"
+        value={draft.imageUrl || null}
+        onChange={(url) => onChange({ ...draft, imageUrl: url ?? "" })}
+        hint="תופיע בבחירת נותן השירות בעמוד ההזמנות. נשמרת בלחיצה על שמירה."
+        removeLabel="הסרת התמונה"
+      />
+
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
@@ -320,6 +335,7 @@ function StaffCard({
     title: member.title ?? "",
     phone: member.phone ?? "",
     color: (member.color as StaffColor) ?? "slate",
+    imageUrl: member.imageUrl ?? "",
   });
 
   const swatch = staffSwatch(member.color);
@@ -352,10 +368,43 @@ function StaffCard({
   return (
     <div>
       <div className="flex items-start gap-3">
+        {/* The calendar swatch survives in both states — as the monogram's
+            surface when there is no portrait, and as a badge when there is.
+            It is the colour this person's appointments carry on the agenda,
+            so losing it to a photo would cost real information. */}
         <span
-          aria-hidden
-          className={cn("mt-1 size-3 shrink-0 rounded-full", swatch.dot)}
-        />
+          className={cn(
+            "relative mt-0.5 shrink-0",
+            !member.isActive && "opacity-50",
+          )}
+        >
+          {member.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- owner-supplied host, unknown at build time
+            <img
+              src={member.imageUrl}
+              alt=""
+              className="size-10 rounded-full object-cover"
+            />
+          ) : (
+            <span
+              aria-hidden
+              className={cn(
+                "flex size-10 items-center justify-center rounded-full text-sm font-bold",
+                swatch.chip,
+              )}
+            >
+              {member.name.trim().charAt(0)}
+            </span>
+          )}
+          <span
+            aria-hidden
+            className={cn(
+              "absolute -end-0.5 -bottom-0.5 size-3 rounded-full ring-2 ring-white dark:ring-zinc-900",
+              swatch.dot,
+            )}
+          />
+        </span>
+
         <div className="min-w-0 flex-1">
           <p
             className={cn(

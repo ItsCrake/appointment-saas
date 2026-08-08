@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 438 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 458 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -373,6 +373,85 @@ drift. `lib/branding.ts` still re-validates every one of these on read: a seed
 or a psql session can write past the app, and the public page must render
 regardless. `parseGallery` and `parseReviews` drop what does not parse rather
 than throwing.
+
+### Image uploads (Supabase Storage)
+
+Owners upload logos, banners, gallery photos and staff portraits from the
+dashboard. **The bytes never pass through the Next server.**
+
+```
+browser                     Next server                 Supabase Storage
+   │  requestMediaUploadAction()  │
+   ├─────────────────────────────►│ requireWritable()
+   │                              │ entitlement check
+   │                              │ createSignedUploadUrl(path)  ──────►│
+   │◄─── ticket {uploadUrl, publicUrl} ◄──────────────────────────────  │
+   │                                                                     │
+   ├──── PUT the file, straight to the signed URL ──────────────────────►│
+   │                                                                     │
+   └─ onChange(publicUrl) → the *existing* save action writes the column
+```
+
+**Why not just POST the file to a Server Action.** Action bodies are capped at
+1MB by default, and raising the cap only moves the problem — a 5MB photo would
+still be buffered in a serverless function on its way to a service that already
+speaks HTTP, paid for twice and slower on the phone connection this product is
+actually used on.
+
+**Why the browser needs a ticket at all.** It has no Supabase session to
+authenticate with: the auth cookies are `httpOnly` (see `supabase/cookies.ts`),
+deliberately, so an XSS bug cannot walk off with the token. A browser client
+would therefore upload as anonymous and any RLS policy would refuse it. So the
+server issues a signed URL good for one exact path.
+
+**Why the server signs with the service-role key rather than the owner's
+session.** The alternative is an RLS policy on `storage.objects` matching the
+first path segment against the businesses this `auth.uid()` owns. That is a
+second copy of "who owns this tenant" written in SQL, free to drift from
+`requireWritable()` — and it would **silently break admin impersonation**, which
+resolves a business the signed-in user does not own. Signing server-side keeps
+one authorisation boundary, the one the coverage test already polices.
+
+The consequence is that `SUPABASE_SERVICE_ROLE_KEY` is now a production
+requirement rather than a CLI convenience. `createSupabaseAdminClient()` returns
+`null` when it is absent, so uploads say they are not configured instead of
+crashing, and the URL fields they were added beside still work.
+
+`admin-isolation.test.ts` is what keeps that key out of the browser bundle: it
+resolves every import in `src/` and fails the build if a `"use client"` module
+reaches the admin client, or if anything beyond `media-actions.ts` imports it at
+all. A leaked service-role import would not actually expose the value — the
+variable has no `NEXT_PUBLIC_` prefix, so Next inlines `undefined` — which is
+precisely the danger: the feature would break in a way that invites someone to
+"fix" it by renaming the variable.
+
+**Three size checks, and only one of them is a guarantee.** The browser checks
+for instant feedback, `requestMediaUploadAction` checks before spending a
+signature, and the bucket carries `file_size_limit` and `allowed_mime_types`.
+Only the last cannot be skipped by a crafted request; the first two exist to
+produce a good error message.
+
+`image/svg+xml` is excluded on purpose. An SVG is a document that can carry
+script, and these files land in a public bucket where the URL can be opened
+directly rather than only rendered inside an `<img>`.
+
+Paths are `{businessId}/{kind}/{uuid}.{ext}`. The tenant comes first so
+everything a business owns shares a prefix. The extension is derived from the
+**MIME type, never the uploaded filename**, and both variable segments are
+asserted to be UUIDs rather than escaped — escaping invites the question of
+whether it was done right.
+
+The bucket is created by `npm run storage:setup`, **not by a migration**. It
+looks like schema and Supabase Storage is Postgres tables underneath, so the
+obvious move is a `0019_storage.sql` — which would break the entire suite, since
+the tests run the real migration files against PGlite, a bare Postgres with no
+`storage` schema in it at all.
+
+Known trade-off: **replacing an image orphans the old object.** Every upload
+gets a fresh UUID path (so a CDN can never serve stale bytes at a live URL), and
+nothing sweeps the previous one. A tenant who re-crops their logo ten times
+leaves ten files. At this scale that is cheaper than a delete-on-replace that
+would have to guess whether an unsaved form is going to be submitted.
 
 ### Subscription columns (0010) — enforced as entitlements, still not billed
 
@@ -1378,7 +1457,14 @@ exclusion constraint, enum casts and RLS are genuinely exercised.
 > Supabase after changes. The suite proves SQL _semantics_, not driver binding.
 
 Useful scripts: `db:migrate`, `db:seed`, `db:claim -- <uuid>` (point the demo
-shop at a real auth user), `check:env`, `test:e2e`.
+shop at a real auth user), `storage:setup` (create the media bucket),
+`check:env`, `test:e2e`.
+
+> **The upload path itself is not covered by the suite.** What _is_ covered is
+> every rule around it — validation, path construction, the Pro gate, and the
+> mechanical check that the service-role key cannot reach a client bundle. The
+> HTTP conversation with Supabase Storage needs a real project, so it is a
+> manual check after deploy: upload a logo, confirm it renders on `/[slug]`.
 
 The E2E suite books against `demo-barber` and tags every row it creates with
 the phone number `0559990001`, which is all teardown deletes. The dashboard

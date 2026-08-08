@@ -12,6 +12,8 @@ export type BookingStaff = {
   id: string;
   name: string;
   title: string | null;
+  /** Already checked with `isSafeMediaUrl`; null renders a monogram. */
+  imageUrl: string | null;
 };
 
 export type BookingService = {

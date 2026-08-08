@@ -14,6 +14,7 @@ import {
 import { listActiveStaff } from "@/db/queries/staff";
 import { buildSocialLinks } from "@/lib/social-links";
 import {
+  isSafeMediaUrl,
   parseGallery,
   parseReviews,
   toThemeColor,
@@ -222,6 +223,12 @@ export default async function BusinessPage({ params }: PageProps) {
             id: member.id,
             name: member.name,
             title: member.title,
+            // Checked here rather than in the picker, so the component never
+            // has to defend against a column written past the app.
+            imageUrl:
+              member.imageUrl && isSafeMediaUrl(member.imageUrl)
+                ? member.imageUrl
+                : null,
           }))}
           services={services.map((s) => ({
             id: s.id,

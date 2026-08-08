@@ -118,6 +118,18 @@ npm run db:claim -- <your-auth-user-uuid>
 > `db:seed` deletes and recreates the demo business, which resets its owner —
 > re-run `db:claim` afterwards.
 
+Image uploads need one extra step, once per Supabase project. Set
+`SUPABASE_SERVICE_ROLE_KEY`, then:
+
+```bash
+npm run storage:setup
+```
+
+Without it the dashboard still runs and every media field still accepts a pasted
+URL — only the upload button refuses, and it says so. The bucket is not created
+by a migration because Supabase Storage lives in a schema the PGlite test
+database does not have.
+
 Notifications work out of the box without any provider account: every channel
 falls back to a console provider that logs the message and marks it sent. Add
 `RESEND_API_KEY` + `NOTIFICATIONS_FROM_EMAIL` to make email real, and the
@@ -164,6 +176,7 @@ Run from `Frontend/`.
 | `npm run db:studio`          | Drizzle Studio                                            |
 | `npm run db:seed`            | Reset and seed the `demo-barber` business                 |
 | `npm run db:claim -- <uuid>` | Point the demo business at a real auth user               |
+| `npm run storage:setup`      | Create the `business-media` bucket (once per project)     |
 
 ---
 
@@ -225,7 +238,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 438 unit tests, build
+npm run verify     # env, lint, types, 458 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 

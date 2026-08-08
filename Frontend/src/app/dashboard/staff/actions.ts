@@ -13,6 +13,7 @@ import {
   replaceStaffSchedule,
   updateStaff,
 } from "@/db/queries/staff";
+import { mediaUrlSchema } from "@/lib/branding";
 import { requireWritable } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import { STAFF_COLORS } from "@/lib/staff-colors";
@@ -25,6 +26,12 @@ const staffSchema = z.object({
   title: z.string().trim().max(60).optional().or(z.literal("")),
   phone: z.string().trim().max(40).optional().or(z.literal("")),
   color: z.enum(STAFF_COLORS),
+  /**
+   * Normally an uploaded URL, but an owner can still paste one — so it goes
+   * through the same http(s)-only check as every other media column rather
+   * than being trusted because the upload widget usually produced it.
+   */
+  imageUrl: z.union([mediaUrlSchema, z.literal("")]).optional(),
 });
 
 const shiftSchema = z.object({
@@ -57,6 +64,7 @@ export async function createStaffAction(
       title: parsed.data.title || null,
       phone: parsed.data.phone || null,
       color: parsed.data.color,
+      imageUrl: parsed.data.imageUrl || null,
     });
   } catch (error) {
     reportError("staff.create", error, { businessId: business.id });
@@ -88,6 +96,7 @@ export async function updateStaffAction(
     title: parsed.data.title || null,
     phone: parsed.data.phone || null,
     color: parsed.data.color,
+    imageUrl: parsed.data.imageUrl || null,
   });
 
   if (!updated) return { ok: false, error: "נותן השירות לא נמצא" };

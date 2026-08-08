@@ -6,6 +6,9 @@ const complete = {
   NEXT_PUBLIC_APP_URL: "https://book.example.com",
   NEXT_PUBLIC_SUPABASE_URL: "https://abc.supabase.co",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+  // Production-required since owner image uploads started using it to sign
+  // upload URLs — without it the upload controls refuse on three screens.
+  SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
   DATABASE_URL: "postgresql://user:pass@host:6543/postgres",
   DIRECT_URL: "postgresql://user:pass@host:5432/postgres",
   CRON_SECRET: "a-sufficiently-long-secret",
@@ -50,6 +53,18 @@ describe("checkEnv", () => {
     expect(errorsOf(without("CRON_SECRET"), true)).toContain(
       "CRON_SECRET: not set",
     );
+  });
+
+  it("blocks a production deploy where owners cannot upload an image", () => {
+    // The dashboard renders an upload control on settings, staff and
+    // appearance. Without the service-role key every one of them refuses at
+    // the moment a file is picked — visibly broken rather than silently, but
+    // still not a state to launch in.
+    expect(errorsOf(without("SUPABASE_SERVICE_ROLE_KEY"), true)).toContain(
+      "SUPABASE_SERVICE_ROLE_KEY: not set",
+    );
+    // Locally it is only a warning: the URL fields still work without it.
+    expect(errorsOf(without("SUPABASE_SERVICE_ROLE_KEY"), false)).toEqual([]);
   });
 
   it("blocks a production deploy that cannot send the SMS the Pro tier sells", () => {

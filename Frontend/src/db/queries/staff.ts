@@ -98,6 +98,7 @@ export async function createStaff(
     title?: string | null;
     phone?: string | null;
     color?: string;
+    imageUrl?: string | null;
   },
 ) {
   const [row] = await db
@@ -107,6 +108,7 @@ export async function createStaff(
       name: values.name,
       title: values.title ?? null,
       phone: values.phone ?? null,
+      imageUrl: values.imageUrl ?? null,
       ...(values.color ? { color: values.color } : {}),
     })
     .returning();
@@ -123,6 +125,7 @@ export async function updateStaff(
     title?: string | null;
     phone?: string | null;
     color?: string;
+    imageUrl?: string | null;
     isActive?: boolean;
     sortOrder?: number;
   },

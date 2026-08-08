@@ -61,6 +61,7 @@ export function StaffStep({
               selected={selectedId === member.id}
               onSelect={() => onSelect(member.id)}
               icon={<User className="size-4" aria-hidden />}
+              imageUrl={member.imageUrl}
               title={member.name}
               subtitle={member.title}
             />
@@ -75,12 +76,15 @@ function Option({
   selected,
   onSelect,
   icon,
+  imageUrl,
   title,
   subtitle,
 }: {
   selected: boolean;
   onSelect: () => void;
   icon: React.ReactNode;
+  /** A portrait replaces the icon entirely when the owner uploaded one. */
+  imageUrl?: string | null;
   title: string;
   subtitle?: string | null;
 }) {
@@ -97,17 +101,34 @@ function Option({
           : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700",
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-full",
-          selected
-            ? "bg-(--accent) text-(--accent-contrast)"
-            : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
-        )}
-      >
-        {icon}
-      </span>
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time
+        <img
+          src={imageUrl}
+          alt=""
+          className={cn(
+            "size-9 shrink-0 rounded-full object-cover",
+            // Ringed rather than filled when selected: the photo is the point,
+            // and tinting it would be the one place the accent covers content
+            // instead of marking it.
+            selected
+              ? "ring-2 ring-(--accent)"
+              : "ring-1 ring-black/5 dark:ring-white/10",
+          )}
+        />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-full",
+            selected
+              ? "bg-(--accent) text-(--accent-contrast)"
+              : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+          )}
+        >
+          {icon}
+        </span>
+      )}
 
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">

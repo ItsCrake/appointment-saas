@@ -48,13 +48,22 @@ export const ENV_VARS: EnvVar[] = [
     description: "Public anon key. Safe to expose; RLS is what protects data.",
     howTo: "Supabase → Project Settings → API → anon public key.",
   },
+  /*
+   * `production`, not `optional`, since image uploads started using it: the
+   * dashboard renders an upload control on the settings, staff and appearance
+   * screens, and without this key every one of them refuses at the moment an
+   * owner picks a file. Unlike the notification channels the failure is at
+   * least loud — it says so on screen rather than reporting success — but a
+   * visibly broken control on three screens is not a state to launch in.
+   */
   {
     name: "SUPABASE_SERVICE_ROLE_KEY",
-    requirement: "optional",
+    requirement: "production",
     group: "Supabase",
     description:
-      "Admin key. Only used by `npm run db:claim` to resolve emails.",
-    howTo: "Supabase → Project Settings → API → service_role. Never expose it.",
+      "Admin key. Mints signed upload URLs for owner image uploads, and used by `npm run db:claim`.",
+    howTo:
+      "Supabase → Project Settings → API → service_role. Never expose it. Then run `npm run storage:setup`.",
   },
   {
     name: "DATABASE_URL",

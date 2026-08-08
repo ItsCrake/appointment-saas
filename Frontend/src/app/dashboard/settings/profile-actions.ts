@@ -5,12 +5,52 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import { updateBusiness } from "@/db/queries";
+import { mediaUrlSchema } from "@/lib/branding";
 import { requireWritable } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import { normaliseHandle, toProfileUrl } from "@/lib/social-links";
 
 export type ProfileActionResult =
   { ok: true; message?: string } | { ok: false; error: string };
+
+/**
+ * The business logo.
+ *
+ * Saved on its own the moment it changes, unlike the appearance form's fields,
+ * because there is nothing to batch it with — a lone Save button under a single
+ * image is a step that exists only to be forgotten.
+ *
+ * Not behind the Pro branding gate. The column predates that gate, already
+ * renders on every tenant's public page, and is not one of the four things the
+ * upsell offers to sell; taking it away as a side effect of adding an uploader
+ * would be a repackaging, not a feature.
+ */
+const logoSchema = z.union([mediaUrlSchema, z.literal(""), z.null()]);
+
+export async function saveLogoAction(
+  input: unknown,
+): Promise<ProfileActionResult> {
+  const parsed = logoSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  const { business } = await requireWritable();
+
+  try {
+    await updateBusiness(db, business.id, { logoUrl: parsed.data || null });
+  } catch (error) {
+    reportError("settings.logo", error, { businessId: business.id });
+    return { ok: false, error: "אירעה שגיאה בשמירת הלוגו" };
+  }
+
+  revalidatePath("/dashboard/settings");
+  revalidatePath(`/${business.slug}`);
+  return {
+    ok: true,
+    message: parsed.data ? "הלוגו נשמר" : "הלוגו הוסר",
+  };
+}
 
 /**
  * Stored as the owner typed it, minus decoration.

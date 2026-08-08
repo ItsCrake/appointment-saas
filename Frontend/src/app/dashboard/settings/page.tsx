@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 import { AppearanceForm } from "@/components/dashboard/appearance-form";
 import {
   DepositSettingsForm,
+  LogoForm,
   SocialLinksForm,
 } from "@/components/dashboard/profile-extras-form";
 import { SettingsForm } from "@/components/dashboard/settings-form";
@@ -50,6 +51,20 @@ export default async function SettingsPage() {
           timezone: business.timezone,
         }}
       />
+
+      {/* Above the branding block on purpose: the logo is not part of what the
+          Pro tier sells, and putting it inside a section a free tenant sees as
+          an upsell would hide a field they are entitled to use. */}
+      <div className="mt-8">
+        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+          לוגו העסק
+        </h2>
+        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+          התמונה שמזהה את העסק בעמוד ההזמנות
+        </p>
+
+        <LogoForm initial={business.logoUrl} />
+      </div>
 
       <div className="mt-8">
         <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">

@@ -387,6 +387,12 @@ export const staff = pgTable(
      * which names are legal; the stylesheet decides what they look like.
      */
     color: varchar("color", { length: 20 }).notNull().default("slate"),
+    /**
+     * Portrait for the booking flow's staff picker (0018). Presentation only,
+     * and NULL is the normal state — the picker falls back to a monogram.
+     * Validated on read by `isSafeMediaUrl`, never trusted from the column.
+     */
+    imageUrl: text("image_url"),
     sortOrder: integer("sort_order").notNull().default(0),
     /**
      * Deactivate rather than delete. The FK from appointments is RESTRICT, so

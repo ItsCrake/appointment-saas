@@ -38,6 +38,7 @@ export default async function StaffPage() {
     title: member.title,
     phone: member.phone,
     color: member.color,
+    imageUrl: member.imageUrl,
     isActive: member.isActive,
     shifts: schedules[i].map((shift) => ({
       weekday: shift.weekday,

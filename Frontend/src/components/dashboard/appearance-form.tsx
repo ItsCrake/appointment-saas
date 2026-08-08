@@ -26,6 +26,7 @@ import {
 } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
+import { ImageUpload, UploadButton } from "./image-upload";
 import { btnPrimary } from "./ui";
 
 type Props = {
@@ -180,6 +181,26 @@ export function AppearanceForm({ initial }: Props) {
         title="באנר עליון"
         description="תמונה או וידאו שיוצגו ברקע בראש עמוד ההזמנות"
       >
+        <ImageUpload
+          kind="hero"
+          shape="wide"
+          // Only when the banner is an image: a video URL in an `<img>` would
+          // render a broken preview of a perfectly good banner.
+          value={heroMediaType === "image" ? heroMediaUrl || null : null}
+          onChange={(url) => {
+            setHeroMediaUrl(url ?? "");
+            // The pair moves together — the CHECK constraint in 0009 requires
+            // it, and a type left behind by a removal would fail on save.
+            setHeroMediaType(url ? "image" : "");
+          }}
+          hint="רוחב מומלץ 1600 פיקסלים. נשמר בלחיצה על שמירת העיצוב."
+          removeLabel="הסרת הבאנר"
+        />
+
+        <p className="mt-4 mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          או הדבקת כתובת — כאן גם אפשר להזין וידאו
+        </p>
+
         <label htmlFor="heroUrl" className="sr-only">
           כתובת מדיה
         </label>
@@ -232,6 +253,24 @@ export function AppearanceForm({ initial }: Props) {
         title="גלריה"
         description={`עד ${MAX_GALLERY_IMAGES} תמונות. הסדר כאן הוא הסדר בעמוד.`}
       >
+        <UploadButton
+          kind="gallery"
+          label="העלאת תמונה לגלריה"
+          disabled={gallery.length >= MAX_GALLERY_IMAGES}
+          className="mb-3"
+          onUploaded={(url) => {
+            // Re-checked at the moment of arrival, not only when the button was
+            // rendered: two uploads can be in flight at once, and the second
+            // one lands after the first has already taken the last slot.
+            if (gallery.length >= MAX_GALLERY_IMAGES) {
+              setError(`אפשר להוסיף עד ${MAX_GALLERY_IMAGES} תמונות`);
+              return;
+            }
+            setGallery((current) => [...current, url]);
+            setError(undefined);
+          }}
+        />
+
         <div className="flex gap-2">
           <label htmlFor="galleryUrl" className="sr-only">
             כתובת תמונה
