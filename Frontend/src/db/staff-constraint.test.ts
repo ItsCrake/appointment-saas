@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { timeOff } from "@/db/schema";
 import type { Database } from "@/db/types";
 import {
   createAppointment,
@@ -209,6 +210,77 @@ describe("deposit statuses hold their slot", () => {
       expect(replacement.id).toBeTruthy();
     },
   );
+});
+
+describe("time_off.staff_id (0016)", () => {
+  it("accepts a business-wide closure with no staff", async () => {
+    const business = await createBusiness(db);
+    const [row] = await db
+      .insert(timeOff)
+      .values({ businessId: business.id, startsAt: AT, endsAt: UNTIL })
+      .returning();
+
+    expect(row.staffId).toBeNull();
+  });
+
+  it("accepts an absence for the tenant's own staff", async () => {
+    const business = await createBusiness(db);
+    const [alice] = await db.query.staff.findMany({
+      where: (s, { eq }) => eq(s.businessId, business.id),
+    });
+
+    const [row] = await db
+      .insert(timeOff)
+      .values({
+        businessId: business.id,
+        staffId: alice.id,
+        startsAt: AT,
+        endsAt: UNTIL,
+      })
+      .returning();
+
+    expect(row.staffId).toBe(alice.id);
+  });
+
+  it("refuses one tenant's staff on another tenant's closure", async () => {
+    // The composite FK is the whole reason this passes. A plain
+    // `REFERENCES staff(id)` would accept it — both rows exist — and
+    // availability would then apply the wrong shop's absence.
+    const mine = await createBusiness(db);
+    const theirs = await createBusiness(db);
+    const [theirAlice] = await db.query.staff.findMany({
+      where: (s, { eq }) => eq(s.businessId, theirs.id),
+    });
+
+    await expect(
+      db.insert(timeOff).values({
+        businessId: mine.id,
+        staffId: theirAlice.id,
+        startsAt: AT,
+        endsAt: UNTIL,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("takes a provider's absences with them when they are removed", async () => {
+    // CASCADE here, unlike appointments: an absence is not history.
+    const business = await createBusiness(db);
+    const bob = await createStaff(db, business.id, { name: "בוב" });
+
+    await db.insert(timeOff).values({
+      businessId: business.id,
+      staffId: bob.id,
+      startsAt: AT,
+      endsAt: UNTIL,
+    });
+
+    await harness.pg.query(`DELETE FROM staff WHERE id = '${bob.id}'`);
+
+    const remaining = await db.query.timeOff.findMany({
+      where: (t, { eq }) => eq(t.businessId, business.id),
+    });
+    expect(remaining).toHaveLength(0);
+  });
 });
 
 describe("the backfill invariant", () => {

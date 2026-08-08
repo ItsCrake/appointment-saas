@@ -448,7 +448,20 @@ export const workingHours = pgTable(
   ],
 );
 
-/** One-off closures: vacations, holidays, mid-day breaks. */
+/**
+ * One-off closures: vacations, holidays, mid-day breaks.
+ *
+ * `staffId` NULL means the **whole shop** is closed — a holiday, a renovation.
+ * Set, it is one person's absence and everyone else keeps taking bookings.
+ * NULL is the original meaning, so every row that predates `0016` stayed
+ * correct without a backfill.
+ *
+ * The FK to staff is composite, `(business_id, staff_id)`, declared in SQL
+ * because Drizzle models single-column references. A plain `staff.id`
+ * reference would accept one tenant's staff member on another tenant's
+ * closure — both rows exist, so nothing would object — and availability would
+ * quietly apply the wrong shop's absence.
+ */
 export const timeOff = pgTable(
   "time_off",
   {
@@ -456,11 +469,16 @@ export const timeOff = pgTable(
     businessId: uuid("business_id")
       .notNull()
       .references(() => businesses.id, { onDelete: "cascade" }),
+    /** NULL = the whole business. See the note above. */
+    staffId: uuid("staff_id"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     reason: text("reason"),
   },
-  (t) => [index("time_off_business_range_idx").on(t.businessId, t.startsAt)],
+  (t) => [
+    index("time_off_business_range_idx").on(t.businessId, t.startsAt),
+    index("time_off_staff_idx").on(t.staffId, t.startsAt),
+  ],
 );
 
 export const appointments = pgTable(
@@ -635,6 +653,10 @@ export const timeOffRelations = relations(timeOff, ({ one }) => ({
   business: one(businesses, {
     fields: [timeOff.businessId],
     references: [businesses.id],
+  }),
+  staff: one(staff, {
+    fields: [timeOff.staffId],
+    references: [staff.id],
   }),
 }));
 

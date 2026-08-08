@@ -40,11 +40,12 @@ function run(
     id: string;
     shifts?: AvailabilityShift[];
     appointments?: { startsAt: Date; endsAt: Date }[];
+    timeOff?: { startsAt: Date; endsAt: Date }[];
   }[],
   overrides: Partial<{
     durationMin: number;
     businessShifts: AvailabilityShift[];
-    timeOff: { startsAt: Date; endsAt: Date }[];
+    businessTimeOff: { startsAt: Date; endsAt: Date }[];
     serviceBufferMin: number | null;
   }> = {},
 ) {
@@ -53,12 +54,13 @@ function run(
     durationMin: overrides.durationMin ?? 60,
     serviceBufferMin: overrides.serviceBufferMin ?? null,
     businessShifts: overrides.businessShifts ?? NINE_TO_TWELVE,
+    businessTimeOff: overrides.businessTimeOff ?? [],
     staff: staff.map((member) => ({
       id: member.id,
       shifts: member.shifts ?? [],
       appointments: member.appointments ?? [],
+      timeOff: member.timeOff ?? [],
     })),
-    timeOff: overrides.timeOff ?? [],
     date: DATE,
     now: NOW,
   });
@@ -126,13 +128,78 @@ describe("computeStaffSlots — the property the whole feature rests on", () => 
   });
 
   it("applies business time off to everyone", () => {
-    // Time off is a closure of the shop, not an absence of a person.
+    // A closure of the shop — a holiday, a renovation — removes the time from
+    // the page entirely.
     const slots = run([{ id: "a" }, { id: "b" }], {
-      timeOff: [busy("10:00", "11:00")],
+      businessTimeOff: [busy("10:00", "11:00")],
     });
 
     expect(slots.map((s) => s.label)).toEqual(["09:00", "11:00"]);
     expect(staffAvailableAt(slots, at("10:00"))).toEqual([]);
+  });
+});
+
+describe("computeStaffSlots — per-staff time off (0016)", () => {
+  it("removes one name from the picker without removing the time", () => {
+    // The distinction the whole migration exists for: one barber's afternoon
+    // off is not the shop closing.
+    const slots = run([
+      { id: "a", timeOff: [busy("10:00", "11:00")] },
+      { id: "b" },
+    ]);
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
+    expect(staffAvailableAt(slots, at("10:00"))).toEqual(["b"]);
+    // Either side of it, both are still offered.
+    expect(staffAvailableAt(slots, at("09:00")).sort()).toEqual(["a", "b"]);
+    expect(staffAvailableAt(slots, at("11:00")).sort()).toEqual(["a", "b"]);
+  });
+
+  it("drops the time only when every provider is away at it", () => {
+    const slots = run([
+      { id: "a", timeOff: [busy("10:00", "11:00")] },
+      { id: "b", timeOff: [busy("10:00", "11:00")] },
+    ]);
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "11:00"]);
+  });
+
+  it("composes shop closures with personal absence rather than choosing", () => {
+    // A shop closed for a holiday is closed for someone who also happens to be
+    // on leave that week. `a` is away at 09:00 and the shop is shut at 11:00,
+    // so only 10:00 survives — and only for `b` at 09:00.
+    const slots = run(
+      [{ id: "a", timeOff: [busy("09:00", "10:00")] }, { id: "b" }],
+      { businessTimeOff: [busy("11:00", "12:00")] },
+    );
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00"]);
+    expect(staffAvailableAt(slots, at("09:00"))).toEqual(["b"]);
+    expect(staffAvailableAt(slots, at("10:00")).sort()).toEqual(["a", "b"]);
+    expect(staffAvailableAt(slots, at("11:00"))).toEqual([]);
+  });
+
+  it("applies no buffer around an absence, matching shop closures", () => {
+    // Time off blocks on plain overlap. A 30-minute service either side of a
+    // one-hour absence is bookable right up against it.
+    const slots = run([{ id: "a", timeOff: [busy("10:00", "10:30")] }], {
+      durationMin: 30,
+      businessShifts: [shift("09:00", "11:00")],
+    });
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "09:30", "10:30"]);
+  });
+
+  it("re-anchors the grid after an absence, like any other closure", () => {
+    // The cursor jumps to the end of the closure rather than resuming on the
+    // original line, so no unbookable sliver is left behind.
+    const slots = run([{ id: "a", timeOff: [busy("09:10", "09:40")] }], {
+      durationMin: 30,
+      businessShifts: [shift("09:00", "11:00")],
+    });
+
+    // 10:40 would end at 11:10, past the shift, so the walk stops at 10:10.
+    expect(slots.map((s) => s.label)).toEqual(["09:40", "10:10"]);
   });
 
   it("lists staff in the order they were supplied, which is the display order", () => {

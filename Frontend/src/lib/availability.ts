@@ -233,6 +233,11 @@ export type StaffAvailability = {
   shifts: AvailabilityShift[];
   /** Only *this* person's appointments. */
   appointments: BusyInterval[];
+  /**
+   * Only *this* person's absences — `time_off` rows naming them. Shop-wide
+   * closures arrive separately and are added to this list, never instead of it.
+   */
+  timeOff: BusyInterval[];
 };
 
 /** A slot, plus who could actually take it. */
@@ -240,10 +245,19 @@ export type SlotWithStaff = Slot & { staffIds: string[] };
 
 export type ComputeStaffSlotsInput = Omit<
   ComputeSlotsInput,
-  "shifts" | "appointments"
+  "shifts" | "appointments" | "timeOff"
 > & {
   /** Business-wide hours, used by any staff member with no schedule rows. */
   businessShifts: AvailabilityShift[];
+  /**
+   * Closures of the whole shop — a holiday, a renovation. Applied to everyone
+   * *in addition to* each person's own absences.
+   *
+   * Named rather than inherited as plain `timeOff` because the distinction is
+   * the entire point of `0016`: one of these hides a time from the client
+   * completely, the other only removes one name from the picker.
+   */
+  businessTimeOff: BusyInterval[];
   staff: StaffAvailability[];
 };
 
@@ -268,13 +282,15 @@ export type ComputeStaffSlotsInput = Omit<
  * so the staff list a client sees is derived from the same computation that
  * offered them the time, and cannot disagree with it.
  *
- * Time off stays business-wide: it is a closure of the shop, and per-person
- * absence is not built. See ARCHITECTURE.md.
+ * Time off comes in two kinds and they compose rather than override: a shop
+ * closure applies to everybody, a personal absence to one person. A holiday
+ * removes the time from the page; one barber's afternoon off only removes their
+ * name from the picker.
  */
 export function computeStaffSlots(
   input: ComputeStaffSlotsInput,
 ): SlotWithStaff[] {
-  const { businessShifts, staff, ...common } = input;
+  const { businessShifts, businessTimeOff, staff, ...common } = input;
 
   const merged = new Map<string, SlotWithStaff>();
 
@@ -286,6 +302,9 @@ export function computeStaffSlots(
       ...common,
       shifts,
       appointments: member.appointments,
+      // Concatenated, not chosen between. A shop closed for a holiday closes
+      // for someone who also happens to be on leave that week.
+      timeOff: [...businessTimeOff, ...member.timeOff],
     });
 
     for (const slot of slots) {
@@ -395,17 +414,33 @@ export async function getAvailableSlotsWithStaff(
     busyByStaff.set(appointment.staffId, list);
   }
 
+  // Split on `staffId`: a null is the whole shop, an id is one person. A row
+  // naming a staff member who is no longer active simply lands in a bucket
+  // nobody reads, which is the right outcome.
+  const businessTimeOff: BusyInterval[] = [];
+  const timeOffByStaff = new Map<string, BusyInterval[]>();
+  for (const closure of timeOff) {
+    if (!closure.staffId) {
+      businessTimeOff.push(closure);
+      continue;
+    }
+    const list = timeOffByStaff.get(closure.staffId) ?? [];
+    list.push(closure);
+    timeOffByStaff.set(closure.staffId, list);
+  }
+
   return computeStaffSlots({
     business,
     durationMin: service.durationMin,
     serviceBufferMin: service.bufferMin,
     businessShifts,
+    businessTimeOff,
     staff: team.map((member) => ({
       id: member.id,
       shifts: shiftsByStaff.get(member.id) ?? [],
       appointments: busyByStaff.get(member.id) ?? [],
+      timeOff: timeOffByStaff.get(member.id) ?? [],
     })),
-    timeOff,
     date,
     now,
   });

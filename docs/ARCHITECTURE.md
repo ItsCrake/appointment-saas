@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 416 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 425 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -152,8 +152,36 @@ and cannot disagree with it. `createBookingAction` re-derives it server-side and
 **refuses** a requested provider who is not in that list rather than silently
 substituting one, which would book a client with the wrong person.
 
-Time off stays business-wide: it is a closure of the shop. Per-person absence is
-not built.
+### Time off comes in two kinds, and they compose
+
+`0016` adds a nullable `time_off.staff_id`. NULL keeps the original meaning —
+the whole shop is shut, for a holiday or a renovation — so every row that
+predates the migration stayed correct with no backfill. Set, it is one person's
+absence.
+
+The distinction is the point: **a shop closure removes the time from the page;
+a personal absence only removes one name from the picker.** They are
+concatenated, never chosen between, because a shop closed for a holiday is also
+closed for someone who happens to be on leave that week.
+
+Before this, a barber taking Thursday afternoon could only express it by editing
+their weekly hours — a permanent change used to describe a one-off.
+
+> **The FK is composite, `(business_id, staff_id)` against `staff`.** A plain
+> `REFERENCES staff(id)` would accept one tenant's staff member on another
+> tenant's closure: both rows exist, so both ends are satisfied and nothing in
+> the schema objects — and availability would then apply the wrong shop's
+> absence. The composite form needs a `UNIQUE (business_id, id)` on `staff`,
+> which is redundant for uniqueness and exists only to give the FK something to
+> point at.
+>
+> It also gets the nullable case right for free. `MATCH SIMPLE` — the default —
+> skips the check entirely when any column of the key is NULL, so a
+> business-wide row is exempt automatically and a staff-specific one is fully
+> enforced. No CHECK and no trigger.
+>
+> `ON DELETE CASCADE` here, unlike the appointments FK: an absence is not
+> history, so it should go with the person rather than outlive them.
 
 ## Deposits — schema only, nothing enabled
 
