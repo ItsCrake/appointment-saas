@@ -54,7 +54,8 @@ cancellations / no-shows.
 .
 ├── Frontend/          the entire application — there is no separate backend tier
 │   ├── src/
-│   │   ├── app/       routes: /, /[slug], /b/[token], /dashboard/*, /master/*,
+│   │   ├── app/       routes: /, /[slug], /[slug]/my-appointments,
+│   │   │              /b/[token], /dashboard/*, /master/*,
 │   │   │              /login, /login/forgot, /login/reset, /auth/confirm,
 │   │   │              /legal/*, /accessibility, /api/cron
 │   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
@@ -238,7 +239,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 501 unit tests, build
+npm run verify     # env, lint, types, 508 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 

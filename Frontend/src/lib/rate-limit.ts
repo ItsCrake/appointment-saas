@@ -95,6 +95,29 @@ export const SLOTS_RULE: RateLimitRule = {
 };
 
 /**
+ * "התורים שלי" — looking a client's own history up by phone number.
+ *
+ * ---------------------------------------------------------------------------
+ * **A phone number is not a credential.** Anyone who knows someone's number can
+ * see their name, their services and their times at that business. That is a
+ * deliberate product trade-off — an SMS code for a shop with no Twilio account
+ * is a feature nobody can use — but it is the reason these limits are the
+ * tightest non-auth rules in the file.
+ *
+ * Two identifiers, as everywhere else here. The IP rule stops one host walking
+ * the `05X-XXXXXXX` space; the per-phone rule survives a rotating IP pool and
+ * caps how often any single number can be probed from anywhere.
+ *
+ * The upgrade path when SMS exists is an OTP: same page, one extra step, and
+ * the phone stops being the whole answer.
+ * ---------------------------------------------------------------------------
+ */
+export const LOOKUP_RULES = {
+  ip: { scope: "lookup:ip:h", limit: 20, windowMs: HOUR_MS },
+  phone: { scope: "lookup:phone:h", limit: 5, windowMs: HOUR_MS },
+} as const satisfies Record<string, RateLimitRule>;
+
+/**
  * Deterministic per (rule, identifier, window). Pure, so the window maths is
  * testable without a database.
  */

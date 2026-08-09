@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CalendarClock } from "lucide-react";
 
 import { BookingFlow } from "@/components/booking/booking-flow";
 import { BusinessGallery } from "@/components/booking/business-gallery";
@@ -244,6 +246,19 @@ export default async function BusinessPage({ params }: PageProps) {
 
       <BusinessGallery images={gallery} />
       <BusinessReviews reviews={reviews} />
+
+      {/* Below the booking flow, not above it. A returning client will look for
+          it; a first-time visitor should meet the thing this page is for
+          before an entrance that has nothing behind it for them. */}
+      <div className="px-5 pt-2 pb-6">
+        <Link
+          href={`/${slug}/my-appointments`}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <CalendarClock className="size-4" aria-hidden />
+          צפייה בתורים שלי
+        </Link>
+      </div>
 
       <footer className="mt-auto px-5 py-8 text-center text-xs text-zinc-400">
         מופעל על ידי {BRAND.name}

@@ -43,6 +43,11 @@ const EXEMPT: Record<string, string> = {
   // takes no new bookings either.
   "[slug]/actions.ts:fetchSlotsAction": "public booking flow",
   "[slug]/actions.ts:createBookingAction": "public booking flow",
+  // Reads one client's own appointments at one shop. There is no session to
+  // gate on — the phone number is the whole claim, which is why LOOKUP_RULES
+  // is the tightest non-auth limit in the app. Writes nothing.
+  "[slug]/my-appointments/actions.ts:lookupMyAppointmentsAction":
+    "public client lookup",
   // Token-guarded: the cancel link is the credential.
   "b/[token]/actions.ts:cancelBookingAction": "signed cancel token",
 

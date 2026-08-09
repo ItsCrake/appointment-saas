@@ -1,9 +1,10 @@
-import { and, asc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
 
 import {
   appointments,
   appointmentStatus,
   businesses,
+  staff,
   TERMINAL_STATUSES,
   type AppointmentStatus,
 } from "../schema";
@@ -294,6 +295,37 @@ export async function countNewClients(
     .from(firstBookings);
 
   return row?.count ?? 0;
+}
+
+/**
+ * One client's history at one business, newest first, with the provider's name.
+ *
+ * Scoped by `businessId` **and** phone, never by phone alone: a client who
+ * books at two shops on this platform must not see one shop's list from the
+ * other's page. The phone is matched against the normalised form, which is what
+ * `createBookingAction` stores.
+ *
+ * A left join on staff, because `staff_id` is NOT NULL but the row could in
+ * principle be missing; the page renders "—" rather than nothing.
+ */
+export async function listAppointmentsForClient(
+  db: Database,
+  businessId: string,
+  clientPhone: string,
+  limit = 60,
+) {
+  return db
+    .select({ appointment: appointments, staffName: staff.name })
+    .from(appointments)
+    .leftJoin(staff, eq(appointments.staffId, staff.id))
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.clientPhone, clientPhone),
+      ),
+    )
+    .orderBy(desc(appointments.startsAt))
+    .limit(limit);
 }
 
 export type ClientSummary = {

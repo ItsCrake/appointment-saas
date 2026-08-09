@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 501 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 508 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -298,6 +298,48 @@ runtime value, so a stored `#7c3aed` is a colour the agenda cannot render and
 cannot guarantee is legible. `lib/staff-colors.ts` owns which names are legal
 and validates on read; the stylesheet owns what they look like. `staff.phone` is
 for the owner's own use — nothing dispatches to it.
+
+## "התורים שלי" — client self-service (`/[slug]/my-appointments`)
+
+A client types the phone number they booked with and sees their history at that
+one business: status, service, time, provider, and a cancel button when the
+shop's own window still allows it.
+
+**Cancellation reuses `cancelBookingAction` unchanged.** The lookup hands back
+each appointment's `cancel_token` — the same opaque value the confirmation link
+carries — so cancelling here runs the identical code path with the identical
+rules. There is no second implementation of "may this still be cancelled" to
+drift from the first.
+
+### The phone number is not a credential, and that is a deliberate trade-off
+
+Anyone who knows someone's number can see their name, services and times at that
+business. The honest alternative is an SMS one-time code, which a shop with no
+Twilio account cannot use — so the feature ships as specified, with the risk
+named rather than hidden:
+
+- `LOOKUP_RULES` is the **tightest non-auth limit in the app** — 20/hour per IP
+  and 5/hour per phone. The IP rule stops one host walking the `05X-XXXXXXX`
+  space; the per-phone rule survives a rotating IP pool and caps how often any
+  single number can be probed from anywhere.
+- Results are scoped by `business_id` **and** phone. A client who books at two
+  shops on this platform cannot see one shop's list from the other's page —
+  proved in `client-lookup.test.ts` rather than reasoned about.
+- The page is `robots: noindex` and `force-dynamic`; nothing about it is
+  cacheable or shareable between two visitors.
+
+**The upgrade path is an OTP**: same page, one extra step, and the phone stops
+being the whole answer. Worth doing the moment Twilio is configured.
+
+### The phone never enters a URL
+
+It travels in a Server Action body. A query string survives in browser history,
+in referrer headers and in server logs, and this one identifies a person.
+
+The input also carries **no `name` attribute**, which matters for one specific
+case: if the page has not hydrated yet — a slow phone, the first tap — the
+browser submits the form natively, and a named field would put the number
+straight into the URL anyway. Unnamed, that submit is a bare reload.
 
 ## One save bar for a page of five forms
 
