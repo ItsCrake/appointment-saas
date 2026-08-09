@@ -1,3 +1,4 @@
+export * from "./analytics";
 export * from "./appointments";
 export * from "./businesses";
 // Platform-wide reads for /master. Deliberately not tenant-scoped.

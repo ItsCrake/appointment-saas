@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 508 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 547 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -24,7 +24,7 @@ Actions and route handlers _are_ the backend.
 
 ```
 Frontend/src/
-  app/            routes: /[slug], /b/[token], /dashboard/*, /master/*, /login,
+  app/            routes: /[slug], /b/[token], /dashboard/* (incl. /analytics), /master/*, /login,
                   /login/forgot, /login/reset, /auth/confirm,
                   /legal/*, /accessibility, /api/cron
                   loading.tsx beside every dynamic route (see Navigation feedback)
@@ -298,6 +298,78 @@ runtime value, so a stored `#7c3aed` is a colour the agenda cannot render and
 cannot guarantee is legible. `lib/staff-colors.ts` owns which names are legal
 and validates on read; the stylesheet owns what they look like. `staff.phone` is
 for the owner's own use — nothing dispatches to it.
+
+## The booking flow's step graph is two functions, not one
+
+`lib/booking-steps.ts` holds `stepAfterSlot` (where a chosen slot **sends** you)
+and `previousStep` (where you **came from**). They look like the same question
+and are opposites, and conflating them broke the back button:
+
+`back()` reused `stepAfterSlot`, which answers `3` for a shop with no staff
+question — so back from step 3 set the step to 3, and **the button on the final
+step did nothing at all for every single-staff tenant**, which is most of them.
+Only one of the two functions can ever answer `3`.
+
+Extracted and pure so the graph is testable without rendering the flow. The
+test that matters asserts, over every step in every tenant configuration, that
+`previousStep` **never returns the step it was given** — a back button that
+lands where it started is indistinguishable from a dead one.
+
+The button is also named by its destination ("בחירת מועד", "בחירת נותן שירות")
+rather than a bare "חזרה". Someone mid-form should not have to guess whether
+they are about to lose what they typed. Nothing is discarded either way: the
+service, the date and the slot all stay in state.
+
+### There is no "מי שפנוי ראשון"
+
+It was removed from the staff picker, and its absence is the point. The option
+made sense when the question came before the time — "whoever is free" is a real
+preference about a *day*. Once the time is already fixed, **every name on that
+list is free at it**, so the option only asked the client to defer a choice they
+had just been given, and produced a booking nobody had decided.
+
+A single-staff tenant still resolves silently to the details form and never
+learns the concept exists. A tenant with a team never skips silently, even when
+only one person is free — see the sole-provider card.
+
+## Analytics (`/dashboard/analytics`)
+
+Peak heatmap, service breakdown, status split, staff utilisation and a
+booking/revenue trend, over 30 / 90 / 365 days.
+
+**Wall clock, not UTC.** "Busiest hour" is a question about the hour on the
+shop's wall, so every date part is extracted from
+`starts_at AT TIME ZONE <business tz>`. Reading the column raw would put a Tel
+Aviv shop's 09:00 rush at 06:00 in summer and 07:00 in winter — wrong in a way
+nobody would notice, because it is plausible. A test books the same wall-clock
+hour either side of a DST change and asserts both land in the same bucket.
+
+**Cancelled rows are excluded from every "how busy were we" figure** and counted
+only in the status breakdown, which is the one question that is about them.
+
+**Weeks start on Sunday.** Postgres' `date_trunc('week', …)` starts on Monday,
+so the timestamp is shifted a day forward before truncating and back after.
+Without it every Sunday files under the previous week.
+
+**`GROUP BY` uses ordinals, not the repeated expression.** The timezone is a
+bound parameter, so writing the same expression twice emits `$1` in the select
+and `$5` in the group by — and Postgres matches grouping expressions
+_syntactically_, so it sees two different things and rejects the query. This bit
+during development and the fix is `GROUP BY 1, 2`.
+
+**No charting library**, for the same reason there is no component library: a
+bar is a div with a width and a heatmap is a grid of background colours. Nothing
+on the page is a client component either — the range and sort controls are links
+that change `searchParams`, so it costs the browser nothing and survives a
+refresh or a share.
+
+Grouped by the **snapshotted** `service_name`, never joined to `services`: a
+renamed or deleted service still has history, and a join would drop those rows
+or relabel last quarter under this quarter's name.
+
+> All six aggregates were smoke-tested against real Supabase, not only PGlite —
+> the known driver gap is that a `sql` template which binds cleanly in PGlite can
+> still throw at bind time in production.
 
 ## "התורים שלי" — client self-service (`/[slug]/my-appointments`)
 
@@ -1065,6 +1137,32 @@ decoration is what turns an accent into a theme.
 > both under the 4.5:1 floor, on a button label, a badge and a status chip. One
 > step darker across all three stops (`#6d28d9`, `#4f46e5`, `#1d4ed8`) puts the
 > worst case at **6.29:1**. Re-measure before brightening any of them.
+
+#### The hero panel is the one large fill that carries colour
+
+Its dark half used to be flat `zinc-950`. On a phone that panel **is** the first
+screen — 10rem of it above everything else — so the product introduced itself in
+black and white before anyone scrolled.
+
+`.brand-mesh` replaces it: four soft radial blobs over a deep base, in the same
+violet→blue family as `--brand-gradient-deep` and the closing banner, so the top
+of the page and the bottom of it now belong to one product. A *mesh* rather than
+a linear ramp, because a two-stop fade at that size reads as a background
+someone forgot to finish.
+
+This does not loosen the rule above. The accent is still spent only on things
+that are active, primary, or — here — the brand's own introduction. Everything
+between the hero and the closing banner stays monochrome, which is precisely
+what makes both ends read as deliberate.
+
+> **Measured, like the ramp.** The lightest possible composite is where all four
+> blobs overlap the lightest base stop: `rgb(106 77 230)`, **5.51:1 against
+> white**. That clears AA for body text with room, and the only type on it is
+> display-sized. Re-measure before raising any alpha or lightening the base.
+
+The **tenant** booking page is deliberately untouched. Its hero is the shop's
+own logo, banner and accent colour; painting our brand over it would be taking
+their page for our identity.
 
 Two rules hold the rest together:
 

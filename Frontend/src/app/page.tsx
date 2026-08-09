@@ -135,8 +135,21 @@ export default function LandingPage() {
               to blend them read as a smudge rather than a transition, so the
               split is structural again: real grid cells, no blending. */}
           <div className="grid h-full grid-cols-1 grid-rows-[10rem_1fr] lg:grid-cols-2 lg:grid-rows-1">
-            {/* Visual left on desktop, top on mobile. */}
-            <div className="relative overflow-hidden bg-zinc-950 lg:order-2">
+            {/* Visual left on desktop, top on mobile.
+
+                On a phone this panel *is* the first screen — 10rem of it above
+                everything else — so flat ink meant the product introduced
+                itself in black and white. The mesh is the same violet→blue
+                family as the closing banner, which makes the top and bottom of
+                the page one product rather than two. Contrast is measured in
+                `globals.css`; do not brighten it without re-measuring. */}
+            <div className="brand-mesh relative overflow-hidden lg:order-2">
+              {/* Same dot grid as the closing banner, faded out before the
+                  wordmark so texture never competes with type. */}
+              <div
+                aria-hidden
+                className="dot-matrix pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,#000_0%,transparent_70%)]"
+              />
               <HeroParticles className="absolute inset-0 h-full w-full" />
               <div className="relative flex h-full items-center justify-center">
                 <TypewriterLogo className="px-6 text-center" />

@@ -9,6 +9,11 @@ import {
   type BookingConfirmation,
 } from "@/app/[slug]/actions";
 import type { SlotWithStaff } from "@/lib/availability";
+import {
+  previousStep as stepBefore,
+  stepAfterSlot as nextStepAfterSlot,
+  type BookingStep as Step,
+} from "@/lib/booking-steps";
 import { dateRange, todayInTimezone } from "@/lib/format";
 import type { ClientDetails } from "@/lib/validation";
 
@@ -31,15 +36,6 @@ type Props = {
   /** Active providers, in display order. One entry for a single-staff shop. */
   staff: BookingStaff[];
 };
-
-/**
- * `"staff"` and `"only"` sit between choosing a time and entering details —
- * pick from several free providers, or acknowledge the one free provider — but
- * the Stepper still shows three. Picking who performs the service is part of
- * choosing the appointment, not a fourth thing to do, and a rail that grew a
- * marker only for some tenants would make the flow look longer than it is.
- */
-type Step = 1 | 2 | "staff" | "only" | 3;
 
 export function BookingFlow({ slug, business, services, staff }: Props) {
   const today = todayInTimezone(business.timezone);
@@ -129,8 +125,10 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
 
   /** Where a chosen slot sends the client, given who is free at it. */
   function stepAfterSlot(next: SlotWithStaff): Step {
-    if (!multiStaff) return 3;
-    return freeStaffFor(next).length > 1 ? "staff" : "only";
+    return nextStepAfterSlot({
+      multiStaff,
+      freeStaffCount: freeStaffFor(next).length,
+    });
   }
 
   function selectSlot(next: SlotWithStaff) {
@@ -163,7 +161,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
     setStep(destination);
   }
 
-  function selectStaff(next: string | null) {
+  function selectStaff(next: string) {
     setStaffId(next);
     setStep(3);
     setStartedAt(Date.now());
@@ -185,14 +183,12 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
 
   function back() {
     setSubmitError(undefined);
-    setStep((s) => {
-      if (s === 3) {
-        // Back from the details form returns to whichever question was asked,
-        // and straight to the grid when none was.
-        return slot ? stepAfterSlot(slot) : 2;
-      }
-      return s === "staff" || s === "only" ? 2 : 1;
+    const destination = stepBefore(step, {
+      multiStaff,
+      freeStaffCount: slot ? freeStaffFor(slot).length : 0,
+      hasSlot: Boolean(slot),
     });
+    if (destination !== null) setStep(destination);
   }
 
   async function submit(details: ClientDetails) {
@@ -251,21 +247,47 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
     );
   }
 
+  /**
+   * The back button is named by **where it lands**, never by where it is. So
+   * the details step in a team shop offers "בחירת נותן שירות" rather than
+   * promising a calendar it is not returning to.
+   */
+  const BACK_LABELS: Record<Step, string> = {
+    1: "בחירת שירות",
+    2: "בחירת מועד",
+    staff: "בחירת נותן שירות",
+    only: "בחירת נותן שירות",
+    3: "פרטים",
+  };
+
+  const destination = stepBefore(step, {
+    multiStaff,
+    freeStaffCount: slot ? freeStaffFor(slot).length : 0,
+    hasSlot: Boolean(slot),
+  });
+  const backLabel = destination === null ? null : BACK_LABELS[destination];
+
   return (
     <div ref={headingRef}>
       {/* The staff question belongs to "choosing the appointment", so it shows
           as step 2 on the rail rather than adding a fourth marker. */}
       <Stepper current={step === "staff" || step === "only" ? 2 : step} />
 
-      {step !== 1 ? (
+      {/* Present on every step but the first, and it says where it goes.
+          "חזרה" alone makes someone mid-form guess whether they are about to
+          lose what they typed — naming the destination is the difference
+          between a control people use and one they avoid. Nothing is
+          discarded: the service, the date and the slot all stay in state. */}
+      {backLabel ? (
         <div className="px-5 pb-3">
           <button
             type="button"
             onClick={back}
-            className="-me-2 inline-flex items-center gap-1 rounded-lg py-1 pe-2 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:hover:text-zinc-100"
+            aria-label={`חזרה ל${backLabel}`}
+            className="inline-flex h-10 items-center gap-1 rounded-full border border-zinc-200 ps-2 pe-3.5 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-100"
           >
-            <ChevronRight className="size-4" aria-hidden />
-            חזרה
+            <ChevronRight className="size-4 shrink-0" aria-hidden />
+            {backLabel}
           </button>
         </div>
       ) : null}
@@ -308,7 +330,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
           <StaffStep
             staff={freeStaffFor(slot)}
             timeLabel={slot.label}
-            selectedId={staffId}
+            selectedId={staffId ?? undefined}
             onSelect={selectStaff}
           />
         ) : null}

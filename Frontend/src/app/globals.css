@@ -289,6 +289,53 @@ body {
   background-size: 22px 22px;
 }
 
+/* ---------------------------------------------------------------------------
+   BRAND MESH — the hero panel's background.
+
+   The hero's dark half used to be flat `zinc-950`. On a phone that panel is the
+   first 10rem of the page and the whole product read as black and white before
+   anyone scrolled. This is the same violet→blue family as
+   `--brand-gradient-deep` and the closing banner, so the top of the page and
+   the bottom of it now belong to one product.
+
+   A *mesh*, not a linear ramp: four soft radial blobs over a deep base, which
+   is what keeps it from looking like a two-colour fade. Every blob is
+   partially transparent, so wherever two overlap the result is still dark.
+
+   CONTRAST, MEASURED — not eyeballed, following the rule at the top of this
+   file. The lightest possible composite is where all four blobs overlap the
+   lightest base stop: rgb(106 77 230), which is **5.51:1 against white**. That
+   clears AA for body text (4.5:1) with room, and the only type that sits on it
+   is display-sized. Re-measure before raising any alpha or lightening the base.
+--------------------------------------------------------------------------- */
+.brand-mesh {
+  /* Opaque floor first: the radials below are all transparent at their edges,
+     and without this the panel would show whatever is behind it. */
+  background-color: #1e1b4b;
+  background-image:
+    radial-gradient(
+      ellipse 80% 60% at 12% 18%,
+      rgb(124 58 237 / 0.55) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 70% 65% at 88% 12%,
+      rgb(37 99 235 / 0.5) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 90% 70% at 70% 95%,
+      rgb(79 70 229 / 0.55) 0%,
+      transparent 65%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 25% 88%,
+      rgb(168 85 247 / 0.35) 0%,
+      transparent 60%
+    ),
+    linear-gradient(160deg, #4c1d95 0%, #312e81 55%, #1e3a8a 100%);
+}
+
 /* Warm flare at the bottom centre, playing against the cool gradient base. */
 .cta-flare {
   background: radial-gradient(

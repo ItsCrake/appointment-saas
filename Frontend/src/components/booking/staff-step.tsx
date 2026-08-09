@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Sparkles, User } from "lucide-react";
+import { Check, User } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,13 @@ import type { BookingStaff } from "./types";
  * avoiding: a client who does not read carefully books a specific person
  * without meaning to, and the shop discovers it when that person is double-
  * committed in spirit if not in the calendar. One deliberate tap is cheap.
+ *
+ * **There is no "מי שפנוי ראשון" option**, and its absence is deliberate. It
+ * made sense when the question came before the time — "whoever is free" is a
+ * real preference about a *day*. Once the time is already fixed, every name on
+ * this list is free at it, so the option only asked the client to defer a
+ * choice they had already been given, and produced a booking nobody had
+ * decided.
  */
 export function StaffStep({
   staff,
@@ -31,9 +38,9 @@ export function StaffStep({
   staff: BookingStaff[];
   /** "09:30", for the heading — the choice only makes sense beside the time. */
   timeLabel: string;
-  /** `null` is the explicit "anyone" choice; `undefined` is "not chosen yet". */
-  selectedId: string | null | undefined;
-  onSelect: (staffId: string | null) => void;
+  /** `undefined` until one is tapped; there is no "anyone" value. */
+  selectedId: string | undefined;
+  onSelect: (staffId: string) => void;
 }) {
   return (
     <section className="px-5">
@@ -45,16 +52,6 @@ export function StaffStep({
       </p>
 
       <ul className="space-y-2">
-        <li>
-          <Option
-            selected={selectedId === null}
-            onSelect={() => onSelect(null)}
-            icon={<Sparkles className="size-4" aria-hidden />}
-            title="מי שפנוי ראשון"
-            subtitle="נשבץ עבורכם את מי שפנוי במועד הזה"
-          />
-        </li>
-
         {staff.map((member) => (
           <li key={member.id}>
             <Option

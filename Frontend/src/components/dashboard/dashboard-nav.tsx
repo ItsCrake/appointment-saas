@@ -5,6 +5,7 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
+  ChartColumn,
   Clock,
   CreditCard,
   Loader2,
@@ -26,8 +27,10 @@ const LINKS = [
   { href: "/dashboard/services", label: "שירותים", icon: Scissors },
   { href: "/dashboard/hours", label: "שעות", icon: Clock },
   { href: "/dashboard/clients", label: "לקוחות", icon: Users },
-  // After clients on purpose: the bottom bar takes the first four, and an
-  // owner reaches for their client list far more often than for the roster.
+  // Everything below is overflow on a phone. The bottom bar takes the first
+  // four, and an owner reaches for their client list far more often than for
+  // the roster or a chart.
+  { href: "/dashboard/analytics", label: "אנליטיקס", icon: ChartColumn },
   { href: "/dashboard/staff", label: "צוות", icon: UserRound },
   { href: "/dashboard/billing", label: "חיוב", icon: CreditCard },
   { href: "/dashboard/settings", label: "הגדרות", icon: Settings },
