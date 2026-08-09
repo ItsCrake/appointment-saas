@@ -78,6 +78,12 @@ export type BookingConfirmation = {
   businessTimezone: string;
   clientName: string;
   clientPhone: string;
+  /**
+   * `true` when the tenant runs "תורים באישור" and this is a *request*, not a
+   * booking. The confirmation screen reads completely differently in that case
+   * — a client who thinks they have an appointment will turn up for it.
+   */
+  awaitingApproval: boolean;
 };
 
 export type BookingResult =
@@ -109,6 +115,7 @@ function fabricateConfirmation(input: {
     businessTimezone: "Asia/Jerusalem",
     clientName: input.clientName,
     clientPhone: input.clientPhone,
+    awaitingApproval: false,
   };
 }
 
@@ -244,7 +251,13 @@ export async function createBookingAction(
       staffId,
       startsAt: start,
       endsAt: end,
-      status: "confirmed",
+      /**
+       * `pending` holds the slot exactly as `confirmed` does — it is
+       * non-terminal, so the exclusion constraint blocks it. A request that
+       * did not reserve the time would be a request to be disappointed:
+       * someone else books it while the owner is deciding.
+       */
+      status: businessRow.requiresApproval ? "pending" : "confirmed",
       clientName,
       clientPhone: normalisedPhone,
       clientEmail: clientEmail || null,
@@ -283,6 +296,9 @@ export async function createBookingAction(
         businessTimezone: businessRow.timezone,
         clientName: appointment.clientName,
         clientPhone: appointment.clientPhone,
+        // Read from the written row, not from the business flag: whatever the
+        // database actually stored is what the client is told.
+        awaitingApproval: appointment.status === "pending",
       },
     };
   } catch (error) {

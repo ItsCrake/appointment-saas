@@ -18,6 +18,7 @@ type Business = {
   reminderHoursBefore: number;
   notificationEmail: string;
   timezone: string;
+  requiresApproval: boolean;
 };
 
 export function SettingsForm({ business }: { business: Business }) {
@@ -37,6 +38,11 @@ export function SettingsForm({ business }: { business: Business }) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  /** Separate from `set` so the string fields keep their narrow signature. */
+  function setFlag(key: "requiresApproval", value: boolean) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(undefined);
@@ -52,6 +58,7 @@ export function SettingsForm({ business }: { business: Business }) {
         cancelWindowHours: Number(form.cancelWindowHours),
         reminderHoursBefore: Number(form.reminderHoursBefore),
         notificationEmail: form.notificationEmail,
+        requiresApproval: form.requiresApproval,
       });
 
       if (result.ok) {
@@ -169,6 +176,27 @@ export function SettingsForm({ business }: { business: Business }) {
             />
           </Field>
         </div>
+
+        {/* A booking rule, so it lives with the booking rules rather than in a
+            section of its own. It changes what a client gets at the end of the
+            flow more than anything else on this page. */}
+        <label className="flex items-start gap-3 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+          <input
+            type="checkbox"
+            checked={form.requiresApproval}
+            onChange={(e) => setFlag("requiresApproval", e.target.checked)}
+            className="mt-0.5 size-4 shrink-0 accent-zinc-900 dark:accent-zinc-100"
+          />
+          <span>
+            <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+              תורים באישור
+            </span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">
+              תורים חדשים יגיעו כבקשה שממתינה לאישורכם. המועד נשמר עבור הלקוח
+              בינתיים, כדי שלא ייתפס בזמן שאתם מחליטים.
+            </span>
+          </span>
+        </label>
 
         <p className="text-xs text-zinc-500">
           אזור זמן: <span className="font-medium">{business.timezone}</span>

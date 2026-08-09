@@ -10,6 +10,7 @@ import { db } from "@/db";
 import {
   cancelPendingNotificationsForAppointment,
   createAppointment,
+  getAppointment,
   getService,
   SlotTakenError,
   updateAppointmentStatus,
@@ -19,8 +20,10 @@ import { requireWritable } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import {
+  enqueueApprovalNotifications,
   enqueueBookingNotifications,
   enqueueCancellationNotifications,
+  enqueueRejectionNotifications,
 } from "@/lib/notifications/enqueue";
 import { normalizePhone } from "@/lib/validation";
 
@@ -168,6 +171,21 @@ export async function setAppointmentStatusAction(
 
   const { business } = await requireWritable();
 
+  /**
+   * Read first, because **what the client should be told depends on where the
+   * appointment came from**, and the update destroys that. Approving a request
+   * and un-cancelling a booking both land on `confirmed`; rejecting a request
+   * and cancelling a booking both land on `cancelled`. By the time the row has
+   * been written the two are indistinguishable.
+   *
+   * A read-then-write race needs two owners acting on one appointment in the
+   * same second; the cost of losing it is one message with the wrong wording.
+   */
+  const before = await getAppointment(db, business.id, parsedId.data);
+  if (!before) return { ok: false, error: "התור לא נמצא" };
+
+  const wasRequest = before.status === "pending";
+
   const updated = await updateAppointmentStatus(
     db,
     business.id,
@@ -177,21 +195,36 @@ export async function setAppointmentStatusAction(
 
   if (!updated) return { ok: false, error: "התור לא נמצא" };
 
-  // Cancelling from the dashboard should notify the client, exactly as the
-  // self-service link does.
-  if (parsedStatus.data === "cancelled") {
-    try {
+  try {
+    if (parsedStatus.data === "cancelled") {
       await cancelPendingNotificationsForAppointment(db, updated.id);
-      await enqueueCancellationNotifications({
+
+      // "התור שלך בוטל" is wrong for something that was never confirmed.
+      await (wasRequest
+        ? enqueueRejectionNotifications({ db, business, appointment: updated })
+        : // Cancelling from the dashboard notifies the client exactly as the
+          // self-service link does.
+          enqueueCancellationNotifications({
+            db,
+            business,
+            appointment: updated,
+          }));
+    } else if (parsedStatus.data === "confirmed" && wasRequest) {
+      // Approval is also when the reminder finally gets scheduled — it was
+      // deliberately withheld while the answer was still unknown.
+      await enqueueApprovalNotifications({
         db,
         business,
         appointment: updated,
       });
-    } catch (error) {
-      reportError("dashboard.cancel.notify", error, {
-        appointmentId: updated.id,
-      });
     }
+  } catch (error) {
+    // Never turn a successful status change into an error: the appointment has
+    // already moved, and the owner would click again.
+    reportError("dashboard.status.notify", error, {
+      appointmentId: updated.id,
+      status: parsedStatus.data,
+    });
   }
 
   revalidatePath("/dashboard");

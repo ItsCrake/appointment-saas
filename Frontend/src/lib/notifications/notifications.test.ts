@@ -9,8 +9,10 @@ import { notifications } from "@/db/schema";
 import type { Database } from "@/db/types";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import {
+  enqueueApprovalNotifications,
   enqueueBookingNotifications,
   enqueueCancellationNotifications,
+  enqueueRejectionNotifications,
 } from "@/lib/notifications/enqueue";
 import { toE164 } from "@/lib/notifications/providers";
 import { renderNotification } from "@/lib/notifications/templates";
@@ -253,6 +255,114 @@ describe("cancellation flow", () => {
   });
 });
 
+describe("enqueue — requires approval (0019)", () => {
+  it("sends a request message instead of a confirmation", async () => {
+    const { business, appointment } = await scenario(
+      { requiresApproval: true },
+      { status: "pending" },
+    );
+
+    const queued = await enqueueBookingNotifications({
+      db,
+      business,
+      appointment,
+      now: NOW,
+    });
+
+    expect(queued).toContain("booking_pending");
+    expect(queued).not.toContain("booking_confirmation");
+  });
+
+  it("withholds the reminder until the answer is known", async () => {
+    // Reminding someone about an appointment the owner has not agreed to is
+    // the same lie as the confirmation, arriving the day before instead.
+    const { business, appointment } = await scenario(
+      { requiresApproval: true },
+      { status: "pending" },
+    );
+
+    const queued = await enqueueBookingNotifications({
+      db,
+      business,
+      appointment,
+      now: NOW,
+    });
+
+    expect(queued).not.toContain("reminder");
+  });
+
+  it("still alerts the owner, who is the one who has to answer", async () => {
+    const { business, appointment } = await scenario(
+      { requiresApproval: true },
+      { status: "pending" },
+    );
+
+    const queued = await enqueueBookingNotifications({
+      db,
+      business,
+      appointment,
+      now: NOW,
+    });
+
+    expect(queued).toContain("booking_alert");
+  });
+
+  it("schedules the reminder at approval, not before", async () => {
+    const { business, appointment } = await scenario(
+      { requiresApproval: true },
+      { status: "pending" },
+    );
+
+    await enqueueBookingNotifications({ db, business, appointment, now: NOW });
+
+    // The row the action passes on is the one *after* the update.
+    const approved = { ...appointment, status: "confirmed" as const };
+    const queued = await enqueueApprovalNotifications({
+      db,
+      business,
+      appointment: approved,
+      now: NOW,
+    });
+
+    expect(queued.sort()).toEqual(["booking_approved", "reminder"]);
+  });
+
+  it("rejects without telling the client their booking was cancelled", async () => {
+    const { business, appointment } = await scenario(
+      { requiresApproval: true },
+      { status: "pending" },
+    );
+
+    const queued = await enqueueRejectionNotifications({
+      db,
+      business,
+      appointment: { ...appointment, status: "cancelled" as const },
+      now: NOW,
+    });
+
+    expect(queued).toEqual(["booking_rejected"]);
+    // No owner alert: the owner is the one who just did it.
+    expect(queued).not.toContain("cancellation_alert");
+  });
+
+  it("leaves a tenant without the flag exactly as it was", async () => {
+    const { business, appointment } = await scenario();
+
+    const queued = await enqueueBookingNotifications({
+      db,
+      business,
+      appointment,
+      now: NOW,
+    });
+
+    expect(queued.sort()).toEqual([
+      "booking_alert",
+      "booking_confirmation",
+      "reminder",
+    ]);
+  });
+});
+
 describe("templates", () => {
   const context = {
     kind: "booking_confirmation" as const,
@@ -266,6 +376,7 @@ describe("templates", () => {
     serviceName: "תספורת גבר",
     priceCents: 7000,
     startsAt: START.toISOString(),
+    status: "confirmed",
   };
 
   it("renders the local time, not UTC", () => {
@@ -294,6 +405,70 @@ describe("templates", () => {
       kind: "booking_alert",
     });
     expect(subject).toContain("דני");
+  });
+
+  /**
+   * "תורים באישור" (0019). The copy is the feature here as much as the status
+   * column is: a client who reads a confirmation for a request that has not
+   * been approved turns up to a shop that is not expecting them.
+   */
+  describe("requires approval", () => {
+    it("never tells a pending client their appointment is booked", () => {
+      const { subject, body } = renderNotification({
+        ...context,
+        kind: "booking_pending",
+        status: "pending",
+      });
+
+      expect(subject).toContain("ממתינה לאישור");
+      // The exact word a skim-reader looks for, and the one that would be a lie.
+      expect(body).not.toContain("נקבע");
+      // The time is genuinely held, so withdrawing has to be possible.
+      expect(body).toContain("https://example.test/b/token");
+    });
+
+    it("says the request was approved, not merely booked", () => {
+      const { subject, body } = renderNotification({
+        ...context,
+        kind: "booking_approved",
+      });
+
+      expect(subject).toContain("אושר");
+      expect(body).toContain("09:00");
+    });
+
+    it("distinguishes a rejection from a cancellation", () => {
+      // Both are `cancelled` in the database by dispatch time, which is exactly
+      // why they are separate kinds — the status cannot tell them apart.
+      const rejected = renderNotification({
+        ...context,
+        kind: "booking_rejected",
+      });
+      const cancelled = renderNotification({
+        ...context,
+        kind: "cancellation_confirmation",
+      });
+
+      expect(rejected.subject).toContain("לא אושרה");
+      expect(rejected.subject).not.toContain("בוטל");
+      expect(cancelled.subject).toContain("בוטל");
+      // Both point back at the booking page: a refusal with no next step is
+      // where a client gives up on a shop that would see them an hour later.
+      expect(rejected.body).toContain("https://example.test/demo-barber");
+    });
+
+    it("tells the owner a request is waiting on them", () => {
+      const waiting = renderNotification({
+        ...context,
+        kind: "booking_alert",
+        status: "pending",
+      });
+      const booked = renderNotification({ ...context, kind: "booking_alert" });
+
+      // The subject is the only part most owners read on a phone.
+      expect(waiting.subject).toContain("ממתין לאישורך");
+      expect(booked.subject).not.toContain("ממתין");
+    });
   });
 });
 

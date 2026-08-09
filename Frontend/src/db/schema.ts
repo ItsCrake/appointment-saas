@@ -55,6 +55,15 @@ export const notificationKind = pgEnum("notification_kind", [
   "cancellation_confirmation",
   "cancellation_alert",
   "reminder",
+  /**
+   * The three moments "תורים באישור" creates (0019). Three kinds rather than
+   * one status-aware template, because at dispatch time a rejected request and
+   * a cancelled booking are both simply `cancelled` — one kind could not tell
+   * the client which happened.
+   */
+  "booking_pending",
+  "booking_approved",
+  "booking_rejected",
   // Billing kinds (0012). These carry no appointment, which is why the
   // dispatcher grew an appointment-optional path — it used to skip any row
   // without one, so these would have inserted cleanly and then vanished.
@@ -104,6 +113,15 @@ export const businesses = pgTable("businesses", {
   reminderHoursBefore: integer("reminder_hours_before").notNull().default(24),
   /** Where owner alerts go. NULL means the owner gets no notifications. */
   notificationEmail: text("notification_email"),
+  /**
+   * "תורים באישור" (0019). When true a new booking lands as `pending` and does
+   * not become real until the owner approves it.
+   *
+   * The slot is held either way — `pending` is non-terminal, so the exclusion
+   * constraint blocks it exactly as a confirmed booking would. A request that
+   * did not reserve the time would be a request to be disappointed.
+   */
+  requiresApproval: boolean("requires_approval").notNull().default(false),
   /**
    * Set on the onboarding finish screen. NULL means the owner still has steps
    * to complete; explicit state rather than inferring from service count,

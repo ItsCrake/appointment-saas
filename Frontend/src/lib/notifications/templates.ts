@@ -70,15 +70,71 @@ export function renderNotification(context: NotificationContext): {
           `לקביעת תור חדש: ${context.bookingUrl}${contact}`,
       };
 
-    case "booking_alert":
+    /**
+     * The request landed. Deliberately does **not** say "נקבע" anywhere: the
+     * client has not got a booking yet, and a message that reads like a
+     * confirmation is how someone turns up to a shop expecting them.
+     *
+     * It still carries the manage link. The time is genuinely held for them
+     * while the owner decides, so being able to withdraw is real.
+     */
+    case "booking_pending":
       return {
-        subject: `תור חדש: ${context.clientName} — ${slot}`,
+        subject: `בקשתך ב${context.businessName} התקבלה וממתינה לאישור`,
         body:
-          `נקבע תור חדש ב${context.businessName}.\n\n` +
+          `היי ${context.clientName},\n\n` +
+          `קיבלנו את בקשתך לתור ב${context.businessName}. היא ממתינה לאישור העסק — נעדכן אותך ברגע שתאושר.\n\n` +
+          `${context.serviceName} · ${price}\n${slot}${where}\n\n` +
+          `לצפייה או ביטול הבקשה: ${context.manageUrl}${contact}`,
+      };
+
+    case "booking_approved":
+      return {
+        subject: `התור שלך ב${context.businessName} אושר`,
+        body:
+          `היי ${context.clientName},\n\n` +
+          `הבקשה שלך אושרה — התור ב${context.businessName} קבוע.\n\n` +
+          `${context.serviceName} · ${price}\n${slot}${where}\n\n` +
+          `לצפייה או ביטול: ${context.manageUrl}${contact}`,
+      };
+
+    /**
+     * Separate from `cancellation_confirmation` because "בוטל" is wrong for
+     * something that was never confirmed, and because by dispatch time both
+     * are simply `cancelled` — the status cannot tell them apart.
+     *
+     * Ends by pointing back at the booking page: a refusal with no next step
+     * is where a client gives up on a shop that would happily see them an hour
+     * later.
+     */
+    case "booking_rejected":
+      return {
+        subject: `בקשתך ב${context.businessName} לא אושרה`,
+        body:
+          `היי ${context.clientName},\n\n` +
+          `הבקשה שלך לתור ב${context.businessName} ל${slot} לא אושרה הפעם.\n\n` +
+          `אפשר לבחור מועד אחר כאן: ${context.bookingUrl}${contact}`,
+      };
+
+    case "booking_alert": {
+      // A request the owner still has to act on is not the same message as a
+      // booking that simply happened, and the subject line is the only part
+      // most owners read on a phone.
+      const awaiting = context.status === "pending";
+      return {
+        subject: awaiting
+          ? `ממתין לאישורך: ${context.clientName} — ${slot}`
+          : `תור חדש: ${context.clientName} — ${slot}`,
+        body:
+          (awaiting
+            ? `התקבלה בקשה לתור ב${context.businessName} וממתינה לאישורך.\n\n`
+            : `נקבע תור חדש ב${context.businessName}.\n\n`) +
           `לקוח: ${context.clientName}\n` +
           `שירות: ${context.serviceName} · ${price}\n` +
-          `מועד: ${slot}`,
+          `מועד: ${slot}` +
+          (awaiting ? `\n\nלאישור או דחייה: ${context.bookingUrl}` : ""),
       };
+    }
 
     case "cancellation_alert":
       return {

@@ -4,12 +4,14 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
+import { PendingRequests } from "@/components/dashboard/pending-requests";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { db } from "@/db";
 import {
   getDashboardStats,
   getNextUpcomingAppointment,
   listAppointmentsInRange,
+  listPendingRequests,
   listServices,
 } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
@@ -51,17 +53,20 @@ export default async function AgendaPage({ searchParams }: PageProps) {
 
   const windows = getStatsWindows(business.timezone);
 
-  const [appointments, services, stats, nextUpcoming] = await Promise.all([
-    listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
-      "pending",
-      "confirmed",
-      "completed",
-      "no_show",
-    ]),
-    listServices(db, business.id),
-    getDashboardStats(db, business.id, windows),
-    getNextUpcomingAppointment(db, business.id, windows.now),
-  ]);
+  const [appointments, services, stats, nextUpcoming, requests] =
+    await Promise.all([
+      listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
+        "pending",
+        "confirmed",
+        "completed",
+        "no_show",
+      ]),
+      listServices(db, business.id),
+      getDashboardStats(db, business.id, windows),
+      getNextUpcomingAppointment(db, business.id, windows.now),
+      // Every open request, not only today's — see `PendingRequests`.
+      listPendingRequests(db, business.id, windows.now),
+    ]);
 
   return (
     <div>
@@ -95,6 +100,23 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         todayRevenueCents={stats.todayRevenueCents}
         newClientsThisWeek={stats.newClientsThisWeek}
         ratesWindowDays={RATES_WINDOW_DAYS}
+      />
+
+      {/* Above the agenda, because it is the only thing on this page that is
+          waiting on the owner rather than merely informing them. */}
+      <PendingRequests
+        timezone={business.timezone}
+        appointments={requests.map((a) => ({
+          id: a.id,
+          startsAt: a.startsAt.toISOString(),
+          endsAt: a.endsAt.toISOString(),
+          status: a.status,
+          clientName: a.clientName,
+          clientPhone: a.clientPhone,
+          serviceName: a.serviceName,
+          priceCents: a.priceCents,
+          notes: a.notes,
+        }))}
       />
 
       <AgendaView

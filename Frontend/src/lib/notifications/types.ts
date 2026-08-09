@@ -54,6 +54,15 @@ export type AppointmentContext = {
   serviceName: string;
   priceCents: number;
   startsAt: string;
+  /**
+   * The appointment's status *at dispatch time*, which is what lets the owner
+   * alert distinguish a booking from a request awaiting them.
+   *
+   * Only useful for kinds that can occur in more than one state. It cannot
+   * distinguish a rejection from a cancellation — both read `cancelled` by the
+   * time the row is sent — which is why those are separate kinds.
+   */
+  status: string;
 };
 
 /**

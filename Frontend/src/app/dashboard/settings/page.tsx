@@ -49,6 +49,7 @@ export default async function SettingsPage() {
           reminderHoursBefore: business.reminderHoursBefore,
           notificationEmail: business.notificationEmail ?? "",
           timezone: business.timezone,
+          requiresApproval: business.requiresApproval,
         }}
       />
 

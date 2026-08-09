@@ -49,6 +49,26 @@ export async function listAppointmentsInRange(
     .orderBy(asc(appointments.startsAt));
 }
 
+/** One appointment, tenant-scoped so another shop's id simply does not resolve. */
+export async function getAppointment(
+  db: Database,
+  businessId: string,
+  appointmentId: string,
+) {
+  const [row] = await db
+    .select()
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.id, appointmentId),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 /** Dashboard action: mark completed / no-show / cancelled, tenant-scoped. */
 export async function updateAppointmentStatus(
   db: Database,
@@ -127,6 +147,35 @@ export async function getNextUpcomingAppointment(
     .limit(1);
 
   return row ?? null;
+}
+
+/**
+ * Requests still waiting on the owner, soonest first.
+ *
+ * Its own query rather than a filter over the agenda's range, because the
+ * agenda shows **one day** and a request can be for any day. An owner who has
+ * to find next Tuesday's request by navigating to next Tuesday will not find
+ * it, and the client is left waiting on an answer that never comes.
+ *
+ * Past requests are excluded: approving a time that has already gone is not a
+ * decision anyone needs offered.
+ */
+export async function listPendingRequests(
+  db: Database,
+  businessId: string,
+  now: Date,
+) {
+  return db
+    .select()
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.status, "pending"),
+        gt(appointments.startsAt, now),
+      ),
+    )
+    .orderBy(asc(appointments.startsAt));
 }
 
 export type DashboardStats = {

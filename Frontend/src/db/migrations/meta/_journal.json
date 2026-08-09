@@ -134,6 +134,13 @@
       "when": 1786600000000,
       "tag": "0018_staff_image",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786700000000,
+      "tag": "0019_requires_approval",
+      "breakpoints": true
     }
   ]
 }

@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 483 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 493 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -298,6 +298,65 @@ runtime value, so a stored `#7c3aed` is a colour the agenda cannot render and
 cannot guarantee is legible. `lib/staff-colors.ts` owns which names are legal
 and validates on read; the stylesheet owns what they look like. `staff.phone` is
 for the owner's own use — nothing dispatches to it.
+
+## Requires approval — "תורים באישור" (0019)
+
+`businesses.requires_approval`, default false. When on, a public booking is
+written as **`pending`** and does not become an appointment until the owner
+says so.
+
+**The slot is held either way.** `pending` is non-terminal, so the exclusion
+constraint blocks it exactly as a confirmed booking would. A request that did
+not reserve the time would be a request to be disappointed — someone else takes
+it while the owner is deciding.
+
+**`pending`, not `pending_approval`.** The enum has both, and they are about
+different questions. `pending_approval` belongs to the deposit flow 0014 laid
+out: _the client says they transferred the money, the owner has not checked_.
+The two will eventually coexist on one appointment. `pending` is also already
+rendered as "ממתין" everywhere, and already treated as open by the agenda.
+
+**Owner-created bookings are never pending.** A manual booking is the owner
+already agreeing; asking them to approve their own walk-in would be a step with
+one possible answer.
+
+### The copy is the feature
+
+A client told "התור נקבע בהצלחה!" for something that has not been approved
+**turns up**. So the confirmation screen changes wholesale — amber and an
+hourglass rather than green and a tick, because someone skimming reads the
+colour before the sentence — and the calendar download is withheld, since an
+unconfirmed time sitting in someone's phone for weeks is the same
+misunderstanding with a longer life. The manage link stays: the time really is
+held, so withdrawing is real.
+
+Three notification kinds rather than one status-aware template:
+
+| Kind               | When                     | Why it cannot be shared             |
+| ------------------ | ------------------------ | ----------------------------------- |
+| `booking_pending`  | request created          | must not contain "נקבע"             |
+| `booking_approved` | owner approves           | "אושר", and schedules the reminder  |
+| `booking_rejected` | owner rejects            | "בוטל" is wrong for the unconfirmed |
+
+The last one is the reason they are separate at all: **by dispatch time a
+rejected request and a cancelled booking are both simply `cancelled`**, so no
+template could tell them apart from the row. `setAppointmentStatusAction` reads
+the appointment _before_ updating it for the same reason — approving a request
+and un-cancelling a booking both land on `confirmed`.
+
+**No reminder is scheduled while a request is open.** Reminding someone about an
+appointment the owner has not agreed to is the same lie as the confirmation,
+arriving the day before instead. `enqueueApprovalNotifications` schedules it at
+the moment the answer is yes.
+
+### Requests live above the agenda, not in it
+
+The agenda shows one day; a request can be for any day. An owner who has to
+navigate to next Tuesday to discover next Tuesday's request will not find it,
+and the client waits on an answer that never comes — the whole feature fails on
+that one gap. `listPendingRequests` fetches every future request regardless of
+the selected date, and the panel renders nothing when there are none, so a shop
+that does not use the feature never sees it.
 
 ## Deposits — schema only, nothing enabled
 

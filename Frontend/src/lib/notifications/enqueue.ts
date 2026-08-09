@@ -93,17 +93,25 @@ export async function enqueueBookingNotifications({
   const queued: string[] = [];
   const delivery = clientDelivery(business, appointment);
 
+  /**
+   * A tenant with "תורים באישור" on writes `pending`, and a client who is told
+   * their appointment is booked when it is not is the failure this branch
+   * exists to prevent — they would turn up.
+   */
+  const awaitingApproval = appointment.status === "pending";
+
   if (delivery) {
+    const kind = awaitingApproval ? "booking_pending" : "booking_confirmation";
     const row = await enqueueNotification(db, {
       businessId: business.id,
       appointmentId: appointment.id,
       channel: delivery.channel,
-      kind: "booking_confirmation",
+      kind,
       recipient: delivery.recipient,
       scheduledFor: now,
-      dedupeKey: dedupeKey("booking_confirmation", appointment.id),
+      dedupeKey: dedupeKey(kind, appointment.id),
     });
-    if (row) queued.push("booking_confirmation");
+    if (row) queued.push(kind);
   }
 
   if (business.notificationEmail) {
@@ -119,9 +127,80 @@ export async function enqueueBookingNotifications({
     if (row) queued.push("booking_alert");
   }
 
+  /**
+   * No reminder yet for a request. Reminding someone about an appointment the
+   * owner has not agreed to would be the same lie as the confirmation, only
+   * arriving the day before. `enqueueApprovalNotifications` schedules it at the
+   * moment the answer is yes.
+   */
+  if (!awaitingApproval) {
+    queued.push(...(await enqueueReminder({ db, business, appointment, now })));
+  }
+
+  return queued;
+}
+
+/**
+ * The owner said yes. The client is told, and the reminder they did not get at
+ * request time is scheduled now.
+ *
+ * `appointment` must be the row **after** the update, so its status is
+ * `confirmed` — `enqueueReminder` and the dispatcher both check it.
+ */
+export async function enqueueApprovalNotifications({
+  db,
+  business,
+  appointment,
+  now = new Date(),
+}: EnqueueInput) {
+  const queued: string[] = [];
+  const delivery = clientDelivery(business, appointment);
+
+  if (delivery) {
+    const row = await enqueueNotification(db, {
+      businessId: business.id,
+      appointmentId: appointment.id,
+      channel: delivery.channel,
+      kind: "booking_approved",
+      recipient: delivery.recipient,
+      scheduledFor: now,
+      dedupeKey: dedupeKey("booking_approved", appointment.id),
+    });
+    if (row) queued.push("booking_approved");
+  }
+
   queued.push(...(await enqueueReminder({ db, business, appointment, now })));
 
   return queued;
+}
+
+/**
+ * The owner said no.
+ *
+ * Deliberately not `cancellation_confirmation`: "התור שלך בוטל" is wrong for
+ * something that was never confirmed, and no owner alert is queued because the
+ * owner is the one who just did it.
+ */
+export async function enqueueRejectionNotifications({
+  db,
+  business,
+  appointment,
+  now = new Date(),
+}: EnqueueInput) {
+  const delivery = clientDelivery(business, appointment);
+  if (!delivery) return [];
+
+  const row = await enqueueNotification(db, {
+    businessId: business.id,
+    appointmentId: appointment.id,
+    channel: delivery.channel,
+    kind: "booking_rejected",
+    recipient: delivery.recipient,
+    scheduledFor: now,
+    dedupeKey: dedupeKey("booking_rejected", appointment.id),
+  });
+
+  return row ? ["booking_rejected"] : [];
 }
 
 /**

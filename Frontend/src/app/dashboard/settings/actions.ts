@@ -39,6 +39,8 @@ const settingsSchema = z.object({
   notificationEmail: z
     .union([z.email("כתובת אימייל לא תקינה"), z.literal("")])
     .optional(),
+  /** Optional so an older client that predates the toggle still saves. */
+  requiresApproval: z.boolean().optional(),
 });
 
 export async function saveSettingsAction(
@@ -72,6 +74,9 @@ export async function saveSettingsAction(
     cancelWindowHours: data.cancelWindowHours,
     reminderHoursBefore: data.reminderHoursBefore,
     notificationEmail: data.notificationEmail || null,
+    ...(data.requiresApproval === undefined
+      ? {}
+      : { requiresApproval: data.requiresApproval }),
   });
 
   revalidatePath("/dashboard/settings");

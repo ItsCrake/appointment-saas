@@ -129,6 +129,7 @@ export async function dispatchDueNotifications(
         serviceName: appointment.serviceName,
         priceCents: appointment.priceCents,
         startsAt: appointment.startsAt.toISOString(),
+        status: appointment.status,
       };
     }
 
