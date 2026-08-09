@@ -5,8 +5,9 @@ import { AlertCircle, ImagePlus, Trash2, Upload } from "lucide-react";
 
 import { requestMediaUploadAction } from "@/app/dashboard/media-actions";
 import {
+  acceptsVideo,
   describeUploadProblem,
-  UPLOAD_ACCEPT,
+  uploadAccept,
   type MediaKind,
 } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
@@ -87,7 +88,8 @@ export function UploadButton({
   className,
 }: {
   kind: MediaKind;
-  onUploaded: (url: string) => void;
+  /** `mediaType` matters only to the hero, which stores it alongside the URL. */
+  onUploaded: (url: string, mediaType: "image" | "video") => void;
   label?: string;
   disabled?: boolean;
   className?: string;
@@ -110,8 +112,8 @@ export function UploadButton({
 
   async function handleFile(file: File) {
     // Checked here first purely for speed — the action checks the same rule
-    // with the same function, and the bucket enforces it for real.
-    const problem = describeUploadProblem(file);
+    // with the same function, and the bucket enforces the outer bound.
+    const problem = describeUploadProblem(file, kind);
     if (problem) {
       setState({ phase: "error", message: problem });
       return;
@@ -157,7 +159,7 @@ export function UploadButton({
 
     requestRef.current = null;
     setState({ phase: "idle" });
-    onUploaded(ticket.publicUrl);
+    onUploaded(ticket.publicUrl, ticket.mediaType);
   }
 
   return (
@@ -168,7 +170,10 @@ export function UploadButton({
       <input
         id={inputId}
         type="file"
-        accept={UPLOAD_ACCEPT}
+        // Per kind: the hero's picker offers video, everything else does not.
+        // A picker that offers more than the validator accepts produces a
+        // rejection *after* the owner has chosen, which reads as a bug.
+        accept={uploadAccept(kind)}
         disabled={disabled || uploading}
         className="peer sr-only"
         onChange={(event) => {
@@ -234,6 +239,7 @@ export function UploadButton({
 export function ImageUpload({
   kind,
   value,
+  valueType = "image",
   onChange,
   shape = "circle",
   hint,
@@ -242,17 +248,20 @@ export function ImageUpload({
 }: {
   kind: MediaKind;
   value: string | null;
-  onChange: (url: string | null) => void;
+  /** What `value` points at. Only the hero can ever be `"video"`. */
+  valueType?: "image" | "video";
+  onChange: (url: string | null, mediaType: "image" | "video") => void;
   /** `circle` for a logo or a portrait, `wide` for a banner. */
   shape?: "circle" | "wide";
   hint?: string;
   disabled?: boolean;
   removeLabel?: string;
 }) {
+  const takesVideo = acceptsVideo(kind);
   const frame =
     shape === "circle"
       ? "size-20 shrink-0 rounded-full"
-      : "h-28 w-full rounded-xl";
+      : "aspect-[16/9] w-full rounded-xl";
 
   return (
     <div
@@ -261,7 +270,24 @@ export function ImageUpload({
         shape === "circle" ? "items-center" : "flex-col",
       )}
     >
-      {value ? (
+      {value && valueType === "video" ? (
+        // Muted and looping in the preview too, so what an owner approves here
+        // is what a client will see. Not `autoPlay`: a settings page that
+        // starts playing on load is startling, and the poster frame is enough
+        // to confirm the right file was picked.
+        <video
+          src={value}
+          muted
+          loop
+          playsInline
+          controls
+          preload="metadata"
+          className={cn(
+            frame,
+            "border border-zinc-200 bg-zinc-900 object-cover dark:border-zinc-800",
+          )}
+        />
+      ) : value ? (
         // eslint-disable-next-line @next/next/no-img-element -- owner-supplied host, unknown at build time
         <img
           src={value}
@@ -287,7 +313,15 @@ export function ImageUpload({
         <UploadButton
           kind={kind}
           disabled={disabled}
-          label={value ? "החלפת התמונה" : "העלאת תמונה"}
+          label={
+            takesVideo
+              ? value
+                ? "החלפת המדיה"
+                : "העלאת תמונה או סרטון"
+              : value
+                ? "החלפת התמונה"
+                : "העלאת תמונה"
+          }
           onUploaded={onChange}
         />
 
@@ -301,7 +335,9 @@ export function ImageUpload({
           <button
             type="button"
             disabled={disabled}
-            onClick={() => onChange(null)}
+            // The type travels with the removal so the caller can clear the
+            // pair together — 0009's CHECK constraint rejects a stray type.
+            onClick={() => onChange(null, "image")}
             className="mt-1.5 inline-flex items-center gap-1 rounded-lg text-[11px] font-medium text-zinc-500 transition-colors hover:text-red-600 disabled:opacity-60"
           >
             <Trash2 className="size-3.5" aria-hidden />

@@ -145,8 +145,20 @@ npm --prefix Frontend run storage:setup
 
 It is idempotent — safe to re-run, and re-running is how you repair a bucket
 that was created by hand in the dashboard without limits. It creates
-`business-media` as **public-read**, capped at **5MB**, restricted to
-`image/jpeg, image/png, image/webp, image/avif, image/gif`.
+`business-media` as **public-read**, capped at **25MB**, restricted to
+`image/jpeg, image/png, image/webp, image/avif, image/gif, video/mp4,
+video/webm`.
+
+> **Re-run it after upgrading to a build with video heroes.** A bucket created
+> before that carries a 5MB limit and an image-only MIME list, so every video
+> upload fails with a storage error rather than a message an owner can act on.
+> The command is idempotent and repairing an existing bucket is exactly what it
+> is for.
+
+The bucket's 25MB is the ceiling for a hero **video**; images are held to 5MB by
+the browser and by `requestMediaUploadAction`. One bucket carries one limit, so
+the tighter image rule lives in the app — a crafted request could put a 20MB PNG
+in a tenant's own folder, which costs storage rather than safety.
 
 Those two bucket settings are the only size and type checks that actually
 _enforce_ anything. The browser and the server action check the same rules first

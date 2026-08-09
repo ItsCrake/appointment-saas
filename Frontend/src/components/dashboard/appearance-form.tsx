@@ -201,21 +201,24 @@ export function AppearanceForm({ initial }: Props) {
         <ImageUpload
           kind="hero"
           shape="wide"
-          // Only when the banner is an image: a video URL in an `<img>` would
-          // render a broken preview of a perfectly good banner.
-          value={heroMediaType === "image" ? heroMediaUrl || null : null}
-          onChange={(url) => {
+          value={heroMediaUrl || null}
+          // The preview renders a `<video>` or an `<img>` from this, so a clip
+          // is no longer a broken image icon in the settings page.
+          valueType={heroMediaType === "video" ? "video" : "image"}
+          onChange={(url, mediaType) => {
             setHeroMediaUrl(url ?? "");
             // The pair moves together — the CHECK constraint in 0009 requires
-            // it, and a type left behind by a removal would fail on save.
-            setHeroMediaType(url ? "image" : "");
+            // it, and a type left behind by a removal would fail on save. The
+            // type comes from the server's own reading of the content type
+            // rather than from anything the browser guessed.
+            setHeroMediaType(url ? mediaType : "");
           }}
-          hint="רוחב מומלץ 1600 פיקסלים."
+          hint="תמונה ברוחב 1600 פיקסלים, או סרטון קצר עד 25MB. סרטון מתנגן מושתק ובלולאה."
           removeLabel="הסרת הבאנר"
         />
 
         <p className="mt-4 mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-          או הדבקת כתובת — כאן גם אפשר להזין וידאו
+          או הדבקת כתובת של מדיה שמאוחסנת במקום אחר
         </p>
 
         <label htmlFor="heroUrl" className="sr-only">

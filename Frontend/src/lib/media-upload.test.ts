@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   ACCEPTED_IMAGE_TYPES,
+  ACCEPTED_MEDIA_TYPES,
+  ACCEPTED_VIDEO_TYPES,
   BRANDED_KINDS,
   buildMediaPath,
   describeUploadProblem,
   MAX_UPLOAD_BYTES,
+  MAX_VIDEO_BYTES,
+  maxBytesFor,
   MEDIA_BUCKET,
+  mediaTypeOf,
   publicMediaUrl,
-  UPLOAD_ACCEPT,
+  uploadAccept,
+  VIDEO_KINDS,
 } from "@/lib/media-upload";
 
 const BUSINESS = "11111111-2222-3333-4444-555555555555";
@@ -173,10 +179,102 @@ describe("gates", () => {
   });
 });
 
-describe("UPLOAD_ACCEPT", () => {
-  it("offers the file picker exactly what the checks allow", () => {
+describe("uploadAccept", () => {
+  it("offers the file picker exactly what the checks allow, per kind", () => {
     // A picker that offers more than the validator accepts produces a rejection
     // *after* the owner has chosen, which reads as a bug rather than a rule.
-    expect(UPLOAD_ACCEPT.split(",")).toEqual([...ACCEPTED_IMAGE_TYPES]);
+    expect(uploadAccept("hero").split(",")).toEqual([...ACCEPTED_MEDIA_TYPES]);
+
+    for (const kind of ["logo", "gallery", "staff"] as const) {
+      expect(uploadAccept(kind).split(",")).toEqual([...ACCEPTED_IMAGE_TYPES]);
+    }
+  });
+});
+
+describe("video", () => {
+  it("takes video on the hero and nowhere else", () => {
+    // A looping clip as a logo, a thumbnail or a portrait is a mistake nobody
+    // meant to make, and those surfaces are `<img>` tags that render nothing.
+    expect(VIDEO_KINDS).toEqual(["hero"]);
+
+    for (const type of ACCEPTED_VIDEO_TYPES) {
+      expect(describeUploadProblem({ type, size: 1024 }, "hero")).toBeNull();
+      expect(
+        describeUploadProblem({ type, size: 1024 }, "logo"),
+      ).not.toBeNull();
+    }
+  });
+
+  it("says a video belongs on the banner rather than 'images only'", () => {
+    // "images only" reads as a bug to someone who just put one on the banner.
+    const message = describeUploadProblem(
+      { type: "video/mp4", size: 1024 },
+      "staff",
+    );
+    expect(message).toContain("באנר");
+  });
+
+  it("allows 25MB for a clip and still only 5MB for a picture", () => {
+    expect(
+      describeUploadProblem(
+        { type: "video/mp4", size: MAX_VIDEO_BYTES },
+        "hero",
+      ),
+    ).toBeNull();
+    expect(
+      describeUploadProblem(
+        { type: "video/mp4", size: MAX_VIDEO_BYTES + 1 },
+        "hero",
+      ),
+    ).not.toBeNull();
+
+    // The hero takes video *and* images, and an image on it is still 5MB.
+    expect(
+      describeUploadProblem(
+        { type: "image/png", size: MAX_UPLOAD_BYTES + 1 },
+        "hero",
+      ),
+    ).not.toBeNull();
+  });
+
+  it("names the limit that actually applied, not a fixed one", () => {
+    const tooBig = describeUploadProblem(
+      { type: "video/mp4", size: 40 * 1024 * 1024 },
+      "hero",
+    );
+    expect(tooBig).toContain("40MB");
+    expect(tooBig).toContain("25MB");
+  });
+
+  it("maps a content type to the column value the hero stores", () => {
+    // `hero_media_type` is half of a CHECK-constrained pair, so this cannot be
+    // guessed from a file extension in the browser.
+    expect(mediaTypeOf("video/webm")).toBe("video");
+    expect(mediaTypeOf("image/png")).toBe("image");
+    expect(mediaTypeOf("application/pdf")).toBeNull();
+  });
+
+  it("resolves the size ceiling from the type", () => {
+    expect(maxBytesFor("video/mp4")).toBe(MAX_VIDEO_BYTES);
+    expect(maxBytesFor("image/jpeg")).toBe(MAX_UPLOAD_BYTES);
+    // Anything unrecognised gets the tighter of the two.
+    expect(maxBytesFor("application/pdf")).toBe(MAX_UPLOAD_BYTES);
+  });
+
+  it("still refuses SVG on the hero, video or not", () => {
+    expect(
+      describeUploadProblem({ type: "image/svg+xml", size: 1024 }, "hero"),
+    ).not.toBeNull();
+  });
+
+  it("builds a path with the container's own extension", () => {
+    expect(
+      buildMediaPath({
+        businessId: BUSINESS,
+        kind: "hero",
+        contentType: "video/webm",
+        unique: UNIQUE,
+      }),
+    ).toBe(`${BUSINESS}/hero/${UNIQUE}.webm`);
   });
 });

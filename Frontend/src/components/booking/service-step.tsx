@@ -66,7 +66,9 @@ export function ServiceStep({ services, selectedId, onSelect }: Props) {
                 ) : null}
 
                 <span className="mt-2 flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                  {/* Tinted, not filled: it is a duration, not an action, and
+                      a badge on every row would drown the selected state. */}
+                  <span className="inline-flex items-center gap-1 rounded-full bg-(--accent-soft) px-2 py-0.5 text-[11px] font-medium text-(--accent-on-soft)">
                     <Clock className="size-3" aria-hidden />
                     {formatDuration(service.durationMin)}
                   </span>

@@ -284,7 +284,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
             type="button"
             onClick={back}
             aria-label={`חזרה ל${backLabel}`}
-            className="inline-flex h-10 items-center gap-1 rounded-full border border-zinc-200 ps-2 pe-3.5 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-100"
+            className="inline-flex h-10 items-center gap-1 rounded-full border border-zinc-200 ps-2 pe-3.5 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-100"
           >
             <ChevronRight className="size-4 shrink-0" aria-hidden />
             {backLabel}

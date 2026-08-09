@@ -2,8 +2,8 @@ import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
 import {
-  ACCEPTED_IMAGE_TYPES,
-  MAX_UPLOAD_BYTES,
+  ACCEPTED_MEDIA_TYPES,
+  MAX_VIDEO_BYTES,
   MEDIA_BUCKET,
 } from "@/lib/media-upload";
 
@@ -65,10 +65,17 @@ const supabase = createClient(url, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+/**
+ * One bucket, one size limit — so it is set to the **larger** of the two the
+ * app enforces (25MB, for a hero video). The 5MB image rule is checked in the
+ * browser and again in `requestMediaUploadAction`; the bucket cannot express
+ * "5MB unless it is a video", and a second bucket to police a number the app
+ * already checks twice is not worth the deployment step.
+ */
 const options = {
   public: true,
-  fileSizeLimit: MAX_UPLOAD_BYTES,
-  allowedMimeTypes: [...ACCEPTED_IMAGE_TYPES],
+  fileSizeLimit: MAX_VIDEO_BYTES,
+  allowedMimeTypes: [...ACCEPTED_MEDIA_TYPES],
 };
 
 async function main() {
@@ -105,7 +112,7 @@ async function main() {
   }
 
   console.log(
-    `  ${DIM}public read · max ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB · ${ACCEPTED_IMAGE_TYPES.join(", ")}${RESET}\n`,
+    `  ${DIM}public read · max ${MAX_VIDEO_BYTES / (1024 * 1024)}MB · ${ACCEPTED_MEDIA_TYPES.join(", ")}${RESET}\n`,
   );
   console.log(
     `${GREEN}✓ Ready${RESET} — owners can upload images from the dashboard.\n`,

@@ -5,13 +5,15 @@ import { z } from "zod";
 import { requireWritable } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
 import {
-  ACCEPTED_IMAGE_TYPES,
+  ACCEPTED_MEDIA_TYPES,
   BRANDED_KINDS,
   buildMediaPath,
   describeUploadProblem,
-  MAX_UPLOAD_BYTES,
+  isMediaKind,
+  MAX_VIDEO_BYTES,
   MEDIA_BUCKET,
   MEDIA_KINDS,
+  mediaTypeOf,
   publicMediaUrl,
   type MediaKind,
 } from "@/lib/media-upload";
@@ -33,6 +35,12 @@ export type UploadTicket =
       uploadUrl: string;
       path: string;
       publicUrl: string;
+      /**
+       * `"image"` or `"video"`, resolved from the content type the server
+       * accepted. The hero stores the two together under a CHECK constraint, so
+       * the form must not have to guess which it just uploaded.
+       */
+      mediaType: "image" | "video";
       /** Public key, sent as `apikey` on the upload request. */
       apiKey: string;
     }
@@ -40,9 +48,13 @@ export type UploadTicket =
 
 const requestSchema = z.object({
   kind: z.enum(MEDIA_KINDS),
-  contentType: z.enum(ACCEPTED_IMAGE_TYPES),
-  /** Declared, not proven — the bucket enforces the real limit. */
-  size: z.number().int().min(1).max(MAX_UPLOAD_BYTES),
+  contentType: z.enum(ACCEPTED_MEDIA_TYPES),
+  /**
+   * Declared, not proven. Bounded by the larger of the two limits here and
+   * narrowed per kind by `describeUploadProblem` below, which is the check that
+   * knows a 25MB file is only legal as a hero video.
+   */
+  size: z.number().int().min(1).max(MAX_VIDEO_BYTES),
 });
 
 /**
@@ -62,20 +74,32 @@ export async function requestMediaUploadAction(
     // The schema's own messages are English and mention field paths, which is
     // no use to an owner. Every rejection here is one of the two rules stated
     // in `describeUploadProblem`, so say it the way the browser already did.
-    const raw = input as { type?: unknown; size?: unknown } | null;
+    const raw = input as {
+      type?: unknown;
+      contentType?: unknown;
+      size?: unknown;
+      kind?: unknown;
+    } | null;
+    const type =
+      typeof raw?.contentType === "string"
+        ? raw.contentType
+        : typeof raw?.type === "string"
+          ? raw.type
+          : "";
     return {
       ok: false,
       error:
-        describeUploadProblem({
-          type: typeof raw?.type === "string" ? raw.type : "",
-          size: typeof raw?.size === "number" ? raw.size : 0,
-        }) ?? "בקשה לא תקינה",
+        describeUploadProblem(
+          { type, size: typeof raw?.size === "number" ? raw.size : 0 },
+          isMediaKind(raw?.kind) ? raw.kind : undefined,
+        ) ?? "בקשה לא תקינה",
     };
   }
 
   const { kind, contentType, size } = parsed.data;
 
-  const problem = describeUploadProblem({ type: contentType, size });
+  // Per-kind, so a 25MB video is legal on the hero and refused everywhere else.
+  const problem = describeUploadProblem({ type: contentType, size }, kind);
   if (problem) return { ok: false, error: problem };
 
   const { business } = await requireWritable();
@@ -134,6 +158,9 @@ export async function requestMediaUploadAction(
     uploadUrl: data.signedUrl,
     path: data.path,
     publicUrl: publicMediaUrl(config.url, path),
+    // Never null here: the schema already restricted `contentType` to the
+    // accepted set, and every member of it maps to one or the other.
+    mediaType: mediaTypeOf(contentType) ?? "image",
     apiKey: config.anonKey,
   };
 }

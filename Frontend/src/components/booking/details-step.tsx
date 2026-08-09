@@ -74,7 +74,10 @@ export function DetailsStep({
       {/* Summary of what is being booked, so nobody confirms blind. The time is
           the largest thing on the card — it is what people double-check. */}
       <div className="mb-6 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center justify-between gap-3 bg-zinc-900 px-4 py-3 text-white dark:bg-zinc-100 dark:text-zinc-900">
+        {/* The one filled surface on the final step, so it carries the shop's
+            colour rather than ink. It is a summary of what is about to be
+            booked — the most "theirs" thing on the page. */}
+        <div className="flex items-center justify-between gap-3 bg-(--accent) px-4 py-3 text-(--accent-contrast)">
           <span className="min-w-0 truncate text-sm font-semibold">
             {service.name}
           </span>
@@ -253,7 +256,7 @@ export function DetailsStep({
 function inputClass(invalid: boolean) {
   return cn(
     "h-12 w-full rounded-xl border bg-white px-4 text-base text-zinc-900 placeholder:text-zinc-400",
-    "focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent",
+    "focus:outline-none focus:ring-2 focus:ring-(--accent) focus:border-transparent",
     "dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100",
     invalid
       ? "border-red-400 focus:ring-red-500"

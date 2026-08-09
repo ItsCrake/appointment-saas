@@ -77,6 +77,21 @@ body {
    `--accent`, because the primary CTA label is 14px semibold — which is not
    "large text" and so gets no 3:1 exemption. Measured in-browser, not assumed.
 --------------------------------------------------------------------------- */
+/* Root fallback, for a client-facing page that forgets the attribute entirely.
+   The bare `[data-accent]` selector below only fires when the attribute is
+   *present*; without this, `bg-(--accent)` on such a page resolves to nothing
+   and the primary button renders invisible — which is how a cancel page ships
+   with no cancel button. Defined here so that failure cannot happen, and every
+   page that matters still sets the attribute for real. */
+:root {
+  --accent: oklch(51.1% 0.262 276.966);
+  --accent-strong: oklch(45.7% 0.24 277.023);
+  --accent-contrast: #fff;
+  --accent-soft: oklch(96.2% 0.018 272.314);
+  --accent-soft-border: oklch(87% 0.065 274.039);
+  --accent-on-soft: oklch(45.7% 0.24 277.023);
+}
+
 /* The bare selector is the fallback for an unexpected attribute value; naming
    indigo alongside it keeps the default colour explicit rather than implied. */
 [data-accent],
@@ -87,6 +102,9 @@ body {
   --accent-soft: oklch(96.2% 0.018 272.314);
   --accent-soft-border: oklch(87% 0.065 274.039);
   --accent-on-soft: oklch(45.7% 0.24 277.023);
+  --accent-mesh-base: #1e1b4b;
+  --accent-mesh-a: 124 58 237;
+  --accent-mesh-b: 37 99 235;
 }
 
 [data-accent="emerald"] {
@@ -97,6 +115,9 @@ body {
   --accent-soft: oklch(97.9% 0.021 166.113);
   --accent-soft-border: oklch(84.5% 0.143 164.978);
   --accent-on-soft: oklch(43.2% 0.095 166.913);
+  --accent-mesh-base: #052e2b;
+  --accent-mesh-a: 16 185 129;
+  --accent-mesh-b: 13 148 136;
 }
 
 [data-accent="rose"] {
@@ -105,6 +126,9 @@ body {
   --accent-soft: oklch(96.9% 0.015 12.422);
   --accent-soft-border: oklch(89.2% 0.058 10.001);
   --accent-on-soft: oklch(51.4% 0.222 16.935);
+  --accent-mesh-base: #4c0519;
+  --accent-mesh-a: 244 63 94;
+  --accent-mesh-b: 236 72 153;
 }
 
 [data-accent="amber"] {
@@ -115,6 +139,9 @@ body {
   --accent-soft: oklch(98.7% 0.022 95.277);
   --accent-soft-border: oklch(87.9% 0.169 91.605);
   --accent-on-soft: oklch(47.3% 0.137 46.201);
+  --accent-mesh-base: #451a03;
+  --accent-mesh-a: 245 158 11;
+  --accent-mesh-b: 249 115 22;
 }
 
 [data-accent="violet"] {
@@ -123,6 +150,9 @@ body {
   --accent-soft: oklch(96.9% 0.016 293.756);
   --accent-soft-border: oklch(89.4% 0.057 293.283);
   --accent-on-soft: oklch(49.1% 0.27 292.581);
+  --accent-mesh-base: #2e1065;
+  --accent-mesh-a: 168 85 247;
+  --accent-mesh-b: 99 102 241;
 }
 
 [data-accent="cyan"] {
@@ -131,6 +161,9 @@ body {
   --accent-soft: oklch(98.4% 0.019 200.873);
   --accent-soft-border: oklch(86.5% 0.087 207.078);
   --accent-on-soft: oklch(45% 0.085 224.283);
+  --accent-mesh-base: #083344;
+  --accent-mesh-a: 6 182 212;
+  --accent-mesh-b: 14 165 233;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -334,6 +367,49 @@ body {
       transparent 60%
     ),
     linear-gradient(160deg, #4c1d95 0%, #312e81 55%, #1e3a8a 100%);
+}
+
+/* ---------------------------------------------------------------------------
+   ACCENT MESH — the same treatment as `.brand-mesh`, in the tenant's own hue.
+
+   `.brand-mesh` is ours and hard-codes violet→blue. This one reads
+   `--accent-mesh-*`, so it resolves from whatever `data-accent` is on an
+   ancestor and every business gets its banner in the colour they picked,
+   with no runtime class names and no inline styles.
+
+   Each swatch declares a deep base plus **two companion hues from its own
+   family** rather than one colour at three opacities. A single hue fading out
+   is a wash; two neighbours overlapping is what makes it read as a mesh.
+
+   Where it is used, nothing sits on top but decoration — the business name and
+   description live on the page background below the banner, not over it. That
+   is deliberate and it is what lets these stay vivid: no text means no contrast
+   floor to defend, and the tenant's colour can be as saturated as they chose.
+--------------------------------------------------------------------------- */
+.accent-mesh {
+  /* Opaque floor: every radial below is transparent at its edge. */
+  background-color: var(--accent-mesh-base, #1e1b4b);
+  background-image:
+    radial-gradient(
+      ellipse 80% 60% at 12% 18%,
+      rgb(var(--accent-mesh-a, 124 58 237) / 0.6) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 70% 65% at 88% 12%,
+      rgb(var(--accent-mesh-b, 37 99 235) / 0.55) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 90% 70% at 72% 92%,
+      rgb(var(--accent-mesh-a, 124 58 237) / 0.45) 0%,
+      transparent 65%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 22% 88%,
+      rgb(var(--accent-mesh-b, 37 99 235) / 0.4) 0%,
+      transparent 60%
+    );
 }
 
 /* Warm flare at the bottom centre, playing against the cool gradient base. */

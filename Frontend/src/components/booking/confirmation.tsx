@@ -146,7 +146,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
           rather than a quiet text link. */}
       <Link
         href={`/b/${appointment.cancelToken}`}
-        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
       >
         <ShieldCheck className="size-4" aria-hidden />
         {awaiting ? "צפייה או ביטול הבקשה" : "צפייה או ביטול התור"}
@@ -161,7 +161,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
       <button
         type="button"
         onClick={onBookAnother}
-        className="mt-4 h-12 w-full rounded-xl text-sm font-semibold text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:hover:text-zinc-100"
+        className="mt-4 h-12 w-full rounded-xl text-sm font-semibold text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:text-zinc-100"
       >
         קביעת תור נוסף
       </button>

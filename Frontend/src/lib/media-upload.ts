@@ -35,17 +35,38 @@
 export const MEDIA_BUCKET = "business-media";
 
 /**
- * 5MB. Enforced in three places on purpose, each covering the last one's gap:
- * here for instant feedback, in the action before a ticket is issued, and on
- * the bucket itself — which is the only one a crafted request cannot skip.
+ * 5MB for a picture.
+ *
+ * Enforced in three places on purpose, each covering the last one's gap: here
+ * for instant feedback, in the action before a ticket is issued, and on the
+ * bucket — see the honest note on `MAX_VIDEO_BYTES` about what the bucket can
+ * and cannot police once two limits exist.
  */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 /**
- * Images only. `image/svg+xml` is deliberately absent: an SVG is a document
- * that can carry script, and these files are served from a public bucket on a
- * Supabase origin — harmless for `<img>`, not harmless for anyone who opens the
- * URL directly.
+ * 25MB for a hero video, and the number is a product decision rather than a
+ * technical ceiling.
+ *
+ * This file autoplays on a client's **first paint**, usually on mobile data, in
+ * a country where that costs money. 25MB of H.264 is roughly 20 seconds of
+ * decent 1080p — enough for the loop a shop actually wants, and little enough
+ * that a page still arrives. Raising it trades a booking page that loads for
+ * one that buffers.
+ *
+ * A bucket carries **one** `file_size_limit`, so it is set to this, the larger
+ * of the two. The 5MB image rule is therefore enforced by the browser and by
+ * `requestMediaUploadAction` only — a crafted request could put a 20MB PNG in a
+ * tenant's own folder. That costs storage, not safety, and the alternative is a
+ * second bucket to police a number the app already checks twice.
+ */
+export const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Images. `image/svg+xml` is deliberately absent: an SVG is a document that can
+ * carry script, and these files are served from a public bucket on a Supabase
+ * origin — harmless for `<img>`, not harmless for anyone who opens the URL
+ * directly.
  */
 export const ACCEPTED_IMAGE_TYPES = [
   "image/jpeg",
@@ -55,27 +76,75 @@ export const ACCEPTED_IMAGE_TYPES = [
   "image/gif",
 ] as const;
 
-export type AcceptedImageType = (typeof ACCEPTED_IMAGE_TYPES)[number];
+/**
+ * Video, for the hero banner only.
+ *
+ * Two containers, because between them every browser this product runs on can
+ * play something: MP4/H.264 is universal, WebM is what a shop's own editor is
+ * most likely to export. No HLS and no adaptive anything — this is a decorative
+ * loop behind a heading, not a player.
+ */
+export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/webm"] as const;
 
-/** For the file input's `accept`, which is a hint to the picker, not a check. */
-export const UPLOAD_ACCEPT = ACCEPTED_IMAGE_TYPES.join(",");
+export type AcceptedImageType = (typeof ACCEPTED_IMAGE_TYPES)[number];
+export type AcceptedVideoType = (typeof ACCEPTED_VIDEO_TYPES)[number];
+export type AcceptedMediaType = AcceptedImageType | AcceptedVideoType;
+
+/** Everything the bucket will hold, for `storage:setup`. */
+export const ACCEPTED_MEDIA_TYPES = [
+  ...ACCEPTED_IMAGE_TYPES,
+  ...ACCEPTED_VIDEO_TYPES,
+] as const;
 
 /**
  * Extension per MIME type — **never taken from the uploaded filename**. A name
  * is attacker-controlled and is the classic way a path picks up a `..` or a
  * second extension; the type has already been checked against the list above.
  */
-const EXTENSIONS: Record<AcceptedImageType, string> = {
+const EXTENSIONS: Record<AcceptedMediaType, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/avif": "avif",
   "image/gif": "gif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
 };
 
-/** What the image is for. Decides the folder, and which gate applies. */
+/** What the media is for. Decides the folder, and which rules apply. */
 export const MEDIA_KINDS = ["logo", "hero", "gallery", "staff"] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
+
+/**
+ * **Only the hero takes video.** A looping clip behind the business name is a
+ * banner; a looping clip as a logo, a gallery thumbnail or someone's portrait
+ * is a mistake nobody meant to make, and the places those render are `<img>`
+ * tags that would show nothing at all.
+ */
+export const VIDEO_KINDS: readonly MediaKind[] = ["hero"];
+
+export function acceptsVideo(kind: MediaKind): boolean {
+  return VIDEO_KINDS.includes(kind);
+}
+
+/** The types a given surface will actually take. */
+export function acceptedTypesFor(
+  kind: MediaKind,
+): readonly AcceptedMediaType[] {
+  return acceptsVideo(kind) ? ACCEPTED_MEDIA_TYPES : ACCEPTED_IMAGE_TYPES;
+}
+
+/** The size ceiling for a given content type. */
+export function maxBytesFor(contentType: string): number {
+  return isAcceptedVideoType(contentType) ? MAX_VIDEO_BYTES : MAX_UPLOAD_BYTES;
+}
+
+/** `"image"` or `"video"`, matching `businesses.hero_media_type`. */
+export function mediaTypeOf(contentType: string): "image" | "video" | null {
+  if (isAcceptedVideoType(contentType)) return "video";
+  if (isAcceptedImageType(contentType)) return "image";
+  return null;
+}
 
 /**
  * Kinds that live behind the Pro branding gate, mirroring where the *save* is
@@ -103,6 +172,20 @@ export function isAcceptedImageType(
   );
 }
 
+export function isAcceptedVideoType(
+  value: unknown,
+): value is AcceptedVideoType {
+  return (
+    typeof value === "string" &&
+    (ACCEPTED_VIDEO_TYPES as readonly string[]).includes(value)
+  );
+}
+
+/** For the file input's `accept`, which is a hint to the picker, not a check. */
+export function uploadAccept(kind: MediaKind): string {
+  return acceptedTypesFor(kind).join(",");
+}
+
 /** Megabytes, for a message. `5` rather than `5.0`. */
 function toMb(bytes: number): string {
   const mb = bytes / (1024 * 1024);
@@ -115,14 +198,27 @@ function toMb(bytes: number): string {
  * One function so the browser and the action cannot disagree about what is
  * allowed — the browser's copy is only there to fail in a tenth of a second
  * instead of after a round trip.
+ *
+ * Takes the `kind`, because the answer genuinely depends on it: the hero takes
+ * video at 25MB, everywhere else takes images at 5MB. A single global rule
+ * would either refuse the banner a shop wants or let a 25MB clip become
+ * somebody's profile picture.
  */
-export function describeUploadProblem(file: {
-  type: string;
-  size: number;
-}): string | null {
-  if (!isAcceptedImageType(file.type)) {
+export function describeUploadProblem(
+  file: { type: string; size: number },
+  kind: MediaKind = "gallery",
+): string | null {
+  const video = isAcceptedVideoType(file.type);
+  const allowed = acceptsVideo(kind)
+    ? video || isAcceptedImageType(file.type)
+    : isAcceptedImageType(file.type);
+
+  if (!allowed) {
     // Named rather than listed: an owner who picked a PDF needs to know their
-    // file is the wrong kind, not to read five MIME types.
+    // file is the wrong kind, not to read seven MIME types. A video refused on
+    // a logo says so specifically, because "images only" would read as a bug to
+    // someone who just uploaded one to the banner.
+    if (video) return "אפשר להעלות סרטון בבאנר העליון בלבד.";
     return "אפשר להעלות תמונות בלבד (JPG, PNG, WEBP, AVIF או GIF).";
   }
 
@@ -131,8 +227,9 @@ export function describeUploadProblem(file: {
     return "הקובץ ריק.";
   }
 
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return `הקובץ גדול מדי (${toMb(file.size)}MB). המקסימום הוא ${toMb(MAX_UPLOAD_BYTES)}MB.`;
+  const limit = maxBytesFor(file.type);
+  if (file.size > limit) {
+    return `הקובץ גדול מדי (${toMb(file.size)}MB). המקסימום הוא ${toMb(limit)}MB.`;
   }
 
   return null;
@@ -156,7 +253,7 @@ const UUID_PATTERN =
 export function buildMediaPath(input: {
   businessId: string;
   kind: MediaKind;
-  contentType: AcceptedImageType;
+  contentType: AcceptedMediaType;
   /** Server-generated. Passed in so this function stays pure. */
   unique: string;
 }): string {

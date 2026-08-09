@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 547 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 567 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -1160,9 +1160,78 @@ what makes both ends read as deliberate.
 > white**. That clears AA for body text with room, and the only type on it is
 > display-sized. Re-measure before raising any alpha or lightening the base.
 
-The **tenant** booking page is deliberately untouched. Its hero is the shop's
-own logo, banner and accent colour; painting our brand over it would be taking
-their page for our identity.
+The **tenant** booking page gets the same treatment in *their* colour rather
+than ours — see below.
+
+### The booking page is the tenant's, in the tenant's colour
+
+`theme_color` used to reach a handful of controls and stop. The rest of
+`/[slug]` was the platform's monochrome, so a shop that picked emerald got a
+mostly grey page with a few green buttons on it.
+
+Now the accent carries every surface that is **active, selected or theirs**: the
+banner, the monogram, the stepper, selected cards, the summary bar on the final
+step, the service duration badge, and every focus ring. Body copy, cards and
+borders stay neutral, which is what keeps the colour meaning "this is the thing
+you picked" rather than "this page is green".
+
+`.accent-mesh` is the same mesh as `.brand-mesh` reading `--accent-mesh-*`
+instead of hard-coded stops, so it resolves from `data-accent` with no runtime
+class names. Each swatch declares a deep base plus **two companion hues from its
+own family**: one hue at three opacities is a wash, two neighbours overlapping
+is what reads as a mesh.
+
+**The banner now renders for every business, media or not.** It used to appear
+only when a hero had been uploaded, so a shop that had not got round to it
+opened as a white page with a grey monogram — the most important screen in the
+product introducing them as nothing in particular. With no media the mesh is the
+banner.
+
+Nothing sits on top of it but decoration: the business name and description live
+on the page background *below* the banner. That is what lets these stay
+saturated — no text over the mesh means no contrast floor to defend, so a
+tenant's colour can be as vivid as they chose it.
+
+> **`/b/[token]` was themed at the same time, and had to be.** The moment its
+> primary button moved to `bg-(--accent)`, a page with no `data-accent` on it
+> resolved that to nothing and rendered an **invisible cancel button**.
+> `theme-coverage.test.ts` now fails the build if a page rendering a booking
+> component omits the attribute, and `:root` carries a fallback accent so the
+> same slip can never produce an invisible control again.
+
+### Banner sizing is an aspect ratio, not a height
+
+`aspect-[4/3]` on a phone, `aspect-[16/9]` from `sm` up, capped at `26rem`. A
+fixed height holds a different share of a 375px phone than of a laptop; a ratio
+holds the same one. The cap is what stops a tablet turning the banner into a
+full screen of decoration before anyone reaches a service.
+
+### Video heroes
+
+`hero_media_type` has accepted `"video"` since 0009 and the page has always
+rendered one; what was missing was any way to *get* a video in. The uploader now
+takes `video/mp4` and `video/webm` at **25MB**, on the hero and nowhere else.
+
+- **Only the hero.** A looping clip as a logo, a gallery thumbnail or a
+  portrait is a mistake nobody meant to make, and those surfaces are `<img>`
+  tags that would render nothing at all.
+- **25MB is a product decision, not a technical ceiling.** This file autoplays
+  on a client's first paint, usually on mobile data. 25MB of H.264 is roughly
+  twenty seconds of decent 1080p — enough for the loop a shop wants, little
+  enough that the page still arrives.
+- **The type comes back from the server**, not from a guess in the browser.
+  `hero_media_url` and `hero_media_type` are a CHECK-constrained pair, so the
+  upload ticket reports which of the two it accepted and the form stores them
+  together.
+- **The bucket now carries one limit for both**, the larger. The 5MB image rule
+  is enforced in the browser and in the action only — a crafted request could
+  put a 20MB PNG in a tenant's own folder. That costs storage, not safety, and
+  the alternative is a second bucket to police a number the app checks twice.
+
+Playback is `autoPlay muted loop playsInline`, with `controls={false}` and
+`disablePictureInPicture`: it is a background, not a player. The settings
+preview deliberately does **not** autoplay — a settings page that starts playing
+on load is startling, and a poster frame is enough to confirm the right file.
 
 Two rules hold the rest together:
 

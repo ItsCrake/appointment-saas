@@ -119,12 +119,17 @@ npm run db:claim -- <your-auth-user-uuid>
 > `db:seed` deletes and recreates the demo business, which resets its owner —
 > re-run `db:claim` afterwards.
 
-Image uploads need one extra step, once per Supabase project. Set
+Media uploads need one extra step, once per Supabase project. Set
 `SUPABASE_SERVICE_ROLE_KEY`, then:
 
 ```bash
 npm run storage:setup
 ```
+
+Images up to 5MB anywhere, plus **`video/mp4` and `video/webm` up to 25MB on the
+hero banner**. It is idempotent — re-run it after pulling a build that changes
+the limits, or a bucket created earlier keeps the old ones and rejects the new
+uploads with a storage error.
 
 Without it the dashboard still runs and every media field still accepts a pasted
 URL — only the upload button refuses, and it says so. The bucket is not created
@@ -239,7 +244,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 547 unit tests, build
+npm run verify     # env, lint, types, 567 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ManageBooking } from "@/components/booking/manage-booking";
 import { db } from "@/db";
 import { getAppointmentContextByToken } from "@/db/queries";
+import { toThemeColor } from "@/lib/branding";
 import { getCancellationState } from "@/lib/cancellation";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +27,13 @@ export default async function ManageBookingPage({ params }: PageProps) {
   const state = getCancellationState(appointment, business.cancelWindowHours);
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col px-5 py-10">
+    // Themed like the booking page it came from. A client arriving here from a
+    // confirmation message is still looking at that shop, and a page in a
+    // different colour reads as a different company asking about their booking.
+    <div
+      data-accent={toThemeColor(business.themeColor)}
+      className="mx-auto flex w-full max-w-lg flex-1 flex-col px-5 py-10"
+    >
       <ManageBooking
         token={token}
         appointment={{
