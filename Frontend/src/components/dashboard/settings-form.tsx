@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import { AlertCircle, ExternalLink } from "lucide-react";
 
 import { saveSettingsAction } from "@/app/dashboard/settings/actions";
-import { useToast } from "@/components/ui/toast";
+
+import { useSectionForm, type SaveResult } from "./settings-dirty";
 
 type Business = {
   name: string;
@@ -21,33 +22,24 @@ type Business = {
   requiresApproval: boolean;
 };
 
+type Values = Omit<
+  Business,
+  "bufferMin" | "cancelWindowHours" | "reminderHoursBefore"
+> & {
+  /** Held as strings so a half-typed number does not become NaN mid-keystroke. */
+  bufferMin: string;
+  cancelWindowHours: string;
+  reminderHoursBefore: string;
+};
+
 export function SettingsForm({ business }: { business: Business }) {
   const router = useRouter();
-  const { toast } = useToast();
-
-  const [form, setForm] = useState({
-    ...business,
-    bufferMin: String(business.bufferMin),
-    cancelWindowHours: String(business.cancelWindowHours),
-    reminderHoursBefore: String(business.reminderHoursBefore),
-  });
   const [error, setError] = useState<string>();
-  const [pending, startTransition] = useTransition();
 
-  function set<K extends keyof typeof form>(key: K, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
+  const onSave = useCallback(
+    async (form: Values): Promise<SaveResult> => {
+      setError(undefined);
 
-  /** Separate from `set` so the string fields keep their narrow signature. */
-  function setFlag(key: "requiresApproval", value: boolean) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setError(undefined);
-
-    startTransition(async () => {
       const result = await saveSettingsAction({
         name: form.name,
         slug: form.slug,
@@ -62,17 +54,48 @@ export function SettingsForm({ business }: { business: Business }) {
       });
 
       if (result.ok) {
-        toast("ההגדרות נשמרו");
+        // The slug may have changed, and the header links to it.
         router.refresh();
-      } else {
-        setError(result.error);
-        toast(result.error, "error");
+        return { ok: true };
       }
-    });
+
+      // Kept inline as well as in the bar's toast: this one names a specific
+      // field, and the owner has to look at the field to fix it.
+      setError(result.error);
+      return { ok: false, error: result.error };
+    },
+    [router],
+  );
+
+  const { values: form, setValues: setForm } = useSectionForm<Values>({
+    id: "details",
+    label: "פרטי העסק",
+    initial: {
+      ...business,
+      bufferMin: String(business.bufferMin),
+      cancelWindowHours: String(business.cancelWindowHours),
+      reminderHoursBefore: String(business.reminderHoursBefore),
+    },
+    onSave,
+  });
+
+  function set<K extends keyof Values>(key: K, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  /** Separate from `set` so the string fields keep their narrow signature. */
+  function setFlag(key: "requiresApproval", value: boolean) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-6">
+    // Still a <form> for the semantics and for Enter-to-submit, but submitting
+    // is a no-op: the page has one save control and it is the bar.
+    <form
+      onSubmit={(event) => event.preventDefault()}
+      noValidate
+      className="space-y-6"
+    >
       <Section title="פרטי העסק">
         <Field label="שם העסק" htmlFor="name">
           <input
@@ -248,17 +271,6 @@ export function SettingsForm({ business }: { business: Business }) {
           {error}
         </p>
       ) : null}
-
-      <button
-        type="submit"
-        disabled={pending}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60 md:w-auto md:px-8"
-      >
-        {pending ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-        ) : null}
-        שמירת הגדרות
-      </button>
     </form>
   );
 }

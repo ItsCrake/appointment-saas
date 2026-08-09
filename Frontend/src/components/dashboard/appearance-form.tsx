@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
   Check,
   Image as ImageIcon,
-  Loader2,
   Plus,
   Star,
   Trash2,
@@ -27,6 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ImageUpload, UploadButton } from "./image-upload";
+import { useSectionForm, type SaveResult } from "./settings-dirty";
 import { btnPrimary } from "./ui";
 
 type Props = {
@@ -42,19 +42,57 @@ type Props = {
 const inputClass =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 ";
 
-export function AppearanceForm({ initial }: Props) {
-  const [themeColor, setThemeColor] = useState<ThemeColor>(initial.themeColor);
-  const [heroMediaUrl, setHeroMediaUrl] = useState(initial.heroMediaUrl);
-  const [heroMediaType, setHeroMediaType] = useState<HeroMediaType | "">(
-    initial.heroMediaType,
-  );
-  const [gallery, setGallery] = useState<string[]>(initial.galleryUrls);
-  const [reviews, setReviews] = useState<Review[]>(initial.reviews);
+type Values = Props["initial"];
 
+export function AppearanceForm({ initial }: Props) {
   const [galleryDraft, setGalleryDraft] = useState("");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const [saved, setSaved] = useState(false);
+
+  const onSave = useCallback(async (values: Values): Promise<SaveResult> => {
+    setError(undefined);
+
+    const result = await saveAppearanceAction({
+      ...values,
+      heroMediaUrl: values.heroMediaUrl.trim(),
+    });
+
+    if (result.ok) return { ok: true };
+    setError(result.error);
+    return { ok: false, error: result.error };
+  }, []);
+
+  const { values, setValues } = useSectionForm<Values>({
+    id: "appearance",
+    label: "עיצוב עמוד ההזמנות",
+    initial,
+    onSave,
+  });
+
+  const {
+    themeColor,
+    heroMediaUrl,
+    heroMediaType,
+    galleryUrls: gallery,
+    reviews,
+  } = values;
+
+  /** Field setters, so the body below reads as it did before the refactor. */
+  const setThemeColor = (next: ThemeColor) =>
+    setValues((v) => ({ ...v, themeColor: next }));
+  const setHeroMediaUrl = (next: string) =>
+    setValues((v) => ({ ...v, heroMediaUrl: next }));
+  const setHeroMediaType = (next: HeroMediaType | "") =>
+    setValues((v) => ({ ...v, heroMediaType: next }));
+  const setGallery = (next: string[] | ((current: string[]) => string[])) =>
+    setValues((v) => ({
+      ...v,
+      galleryUrls: typeof next === "function" ? next(v.galleryUrls) : next,
+    }));
+  const setReviews = (next: Review[] | ((current: Review[]) => Review[])) =>
+    setValues((v) => ({
+      ...v,
+      reviews: typeof next === "function" ? next(v.reviews) : next,
+    }));
 
   function addGalleryImage() {
     const url = galleryDraft.trim();
@@ -104,27 +142,6 @@ export function AppearanceForm({ initial }: Props) {
     setReviews((current) =>
       current.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     );
-  }
-
-  async function save() {
-    setSaving(true);
-    setError(undefined);
-    setSaved(false);
-
-    const result = await saveAppearanceAction({
-      themeColor,
-      heroMediaUrl: heroMediaUrl.trim(),
-      heroMediaType,
-      galleryUrls: gallery,
-      reviews,
-    });
-
-    setSaving(false);
-    if (result.ok) {
-      setSaved(true);
-    } else {
-      setError(result.error);
-    }
   }
 
   return (
@@ -193,7 +210,7 @@ export function AppearanceForm({ initial }: Props) {
             // it, and a type left behind by a removal would fail on save.
             setHeroMediaType(url ? "image" : "");
           }}
-          hint="רוחב מומלץ 1600 פיקסלים. נשמר בלחיצה על שמירת העיצוב."
+          hint="רוחב מומלץ 1600 פיקסלים."
           removeLabel="הסרת הבאנר"
         />
 
@@ -461,32 +478,6 @@ export function AppearanceForm({ initial }: Props) {
           {error}
         </p>
       ) : null}
-
-      {saved ? (
-        <p
-          role="status"
-          className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-        >
-          <Check className="size-4 shrink-0" aria-hidden />
-          העיצוב נשמר
-        </p>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={save}
-        disabled={saving}
-        className={cn(btnPrimary, "h-12 w-full")}
-      >
-        {saving ? (
-          <>
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            שומר…
-          </>
-        ) : (
-          "שמירת העיצוב"
-        )}
-      </button>
     </div>
   );
 }

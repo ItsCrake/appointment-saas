@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback } from "react";
 import { Info } from "lucide-react";
 
 import {
@@ -9,52 +9,47 @@ import {
   saveSocialLinksAction,
   type ProfileActionResult,
 } from "@/app/dashboard/settings/profile-actions";
-import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 import { ImageUpload } from "./image-upload";
-import { btnPrimary, cardClass, inputClass } from "./ui";
+import { useSectionForm, type SaveResult } from "./settings-dirty";
+import { cardClass, inputClass } from "./ui";
 
 /**
- * The logo, which saves itself.
+ * The logo.
  *
- * Every other form on this page batches its fields behind a Save button. This
- * one has a single value, and a Save button under one image is a step whose
- * only possible outcome is being forgotten — so picking a file *is* the save,
- * and the toast is the confirmation.
+ * It briefly saved itself on upload, because a Save button under a single image
+ * is a step whose only outcome is being forgotten. The save bar makes that
+ * unnecessary and the special case actively confusing: with one control on the
+ * page, an image that had already committed while everything else waited would
+ * be the only thing an owner could not undo by pressing "ביטול".
  *
- * Optimistic in one direction only: the preview switches immediately, and a
- * failed write puts the previous value back rather than leaving a picture on
- * screen that is not in the database.
+ * The preview still updates the moment the upload finishes — that is local
+ * state, not a write.
  */
 export function LogoForm({ initial }: { initial: string | null }) {
-  const { toast } = useToast();
-  const [value, setValue] = useState(initial);
-  const [pending, startTransition] = useTransition();
+  const onSave = useCallback(
+    async (value: string | null): Promise<SaveResult> => {
+      const result: ProfileActionResult = await saveLogoAction(value);
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
+    },
+    [],
+  );
 
-  function save(next: string | null) {
-    const previous = value;
-    setValue(next);
-
-    startTransition(async () => {
-      const result: ProfileActionResult = await saveLogoAction(next);
-      if (result.ok) {
-        toast(result.message ?? "נשמר", "success");
-      } else {
-        setValue(previous);
-        toast(result.error, "error");
-      }
-    });
-  }
+  const { values, setValues } = useSectionForm<string | null>({
+    id: "logo",
+    label: "לוגו העסק",
+    initial,
+    onSave,
+  });
 
   return (
     <div className={cn(cardClass, "p-5")}>
       <ImageUpload
         kind="logo"
-        value={value}
-        onChange={save}
-        disabled={pending}
-        hint="מוצג בראש עמוד ההזמנות. תמונה מרובעת תיראה הכי טוב. נשמר מיד."
+        value={values}
+        onChange={setValues}
+        hint="מוצג בראש עמוד ההזמנות. תמונה מרובעת תיראה הכי טוב."
         removeLabel="הסרת הלוגו"
       />
     </div>
@@ -100,17 +95,20 @@ const SOCIAL_FIELDS = [
 ];
 
 export function SocialLinksForm({ initial }: { initial: SocialValues }) {
-  const { toast } = useToast();
-  const [values, setValues] = useState(initial);
-  const [pending, startTransition] = useTransition();
+  const onSave = useCallback(
+    async (next: SocialValues): Promise<SaveResult> => {
+      const result: ProfileActionResult = await saveSocialLinksAction(next);
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
+    },
+    [],
+  );
 
-  function save() {
-    startTransition(async () => {
-      const result: ProfileActionResult = await saveSocialLinksAction(values);
-      if (result.ok) toast(result.message ?? "נשמר", "success");
-      else toast(result.error, "error");
-    });
-  }
+  const { values, setValues } = useSectionForm<SocialValues>({
+    id: "social",
+    label: "רשתות חברתיות",
+    initial,
+    onSave,
+  });
 
   return (
     <div className={cn(cardClass, "p-5")}>
@@ -139,15 +137,6 @@ export function SocialLinksForm({ initial }: { initial: SocialValues }) {
           </label>
         ))}
       </div>
-
-      <button
-        type="button"
-        disabled={pending}
-        onClick={save}
-        className={cn(btnPrimary, "mt-4 w-full")}
-      >
-        שמירת הקישורים
-      </button>
     </div>
   );
 }
@@ -162,18 +151,20 @@ export function SocialLinksForm({ initial }: { initial: SocialValues }) {
  * other switch goes.
  */
 export function DepositSettingsForm({ initial }: { initial: DepositValues }) {
-  const { toast } = useToast();
-  const [values, setValues] = useState(initial);
-  const [pending, startTransition] = useTransition();
+  const onSave = useCallback(
+    async (next: DepositValues): Promise<SaveResult> => {
+      const result: ProfileActionResult = await saveDepositSettingsAction(next);
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
+    },
+    [],
+  );
 
-  function save() {
-    startTransition(async () => {
-      const result: ProfileActionResult =
-        await saveDepositSettingsAction(values);
-      if (result.ok) toast(result.message ?? "נשמר", "success");
-      else toast(result.error, "error");
-    });
-  }
+  const { values, setValues } = useSectionForm<DepositValues>({
+    id: "deposit",
+    label: "מקדמה",
+    initial,
+    onSave,
+  });
 
   return (
     <div className={cn(cardClass, "p-5")}>
@@ -291,15 +282,6 @@ export function DepositSettingsForm({ initial }: { initial: DepositValues }) {
           </p>
         )}
       </div>
-
-      <button
-        type="button"
-        disabled={pending}
-        onClick={save}
-        className={cn(btnPrimary, "mt-4 w-full")}
-      >
-        שמירת הגדרות המקדמה
-      </button>
     </div>
   );
 }

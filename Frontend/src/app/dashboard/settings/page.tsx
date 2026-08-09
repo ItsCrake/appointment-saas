@@ -8,6 +8,10 @@ import {
   LogoForm,
   SocialLinksForm,
 } from "@/components/dashboard/profile-extras-form";
+import {
+  SettingsDirtyProvider,
+  SettingsSaveBar,
+} from "@/components/dashboard/settings-dirty";
 import { SettingsForm } from "@/components/dashboard/settings-form";
 import { btnAccent } from "@/components/dashboard/ui";
 import {
@@ -27,113 +31,119 @@ export default async function SettingsPage() {
   const canBrand = entitlementsFor(business).customBranding;
 
   return (
-    <div>
-      <header className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          הגדרות
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500">
-          פרטי העסק וכללי קביעת התורים
-        </p>
-      </header>
+    // Every section below registers its dirty state here, and the bar is the
+    // only save control on the page. pb-28 keeps the last card clear of it.
+    <SettingsDirtyProvider>
+      <div className="pb-28">
+        <header className="mb-5">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            הגדרות
+          </h1>
+          <p className="mt-0.5 text-sm text-zinc-500">
+            פרטי העסק וכללי קביעת התורים
+          </p>
+        </header>
 
-      <SettingsForm
-        business={{
-          name: business.name,
-          slug: business.slug,
-          phone: business.phone ?? "",
-          address: business.address ?? "",
-          description: business.description ?? "",
-          bufferMin: business.bufferMin,
-          cancelWindowHours: business.cancelWindowHours,
-          reminderHoursBefore: business.reminderHoursBefore,
-          notificationEmail: business.notificationEmail ?? "",
-          timezone: business.timezone,
-          requiresApproval: business.requiresApproval,
-        }}
-      />
+        <SettingsForm
+          business={{
+            name: business.name,
+            slug: business.slug,
+            phone: business.phone ?? "",
+            address: business.address ?? "",
+            description: business.description ?? "",
+            bufferMin: business.bufferMin,
+            cancelWindowHours: business.cancelWindowHours,
+            reminderHoursBefore: business.reminderHoursBefore,
+            notificationEmail: business.notificationEmail ?? "",
+            timezone: business.timezone,
+            requiresApproval: business.requiresApproval,
+          }}
+        />
 
-      {/* Above the branding block on purpose: the logo is not part of what the
+        {/* Above the branding block on purpose: the logo is not part of what the
           Pro tier sells, and putting it inside a section a free tenant sees as
           an upsell would hide a field they are entitled to use. */}
-      <div className="mt-8">
-        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          לוגו העסק
-        </h2>
-        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
-          התמונה שמזהה את העסק בעמוד ההזמנות
-        </p>
+        <div className="mt-8">
+          <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            לוגו העסק
+          </h2>
+          <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+            התמונה שמזהה את העסק בעמוד ההזמנות
+          </p>
 
-        <LogoForm initial={business.logoUrl} />
-      </div>
+          <LogoForm initial={business.logoUrl} />
+        </div>
 
-      <div className="mt-8">
-        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          עיצוב עמוד ההזמנות
-        </h2>
-        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
-          צבע, באנר, גלריה וחוות דעת
-        </p>
+        <div className="mt-8">
+          <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            עיצוב עמוד ההזמנות
+          </h2>
+          <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+            צבע, באנר, גלריה וחוות דעת
+          </p>
 
-        {canBrand ? (
-          <AppearanceForm
+          {canBrand ? (
+            <AppearanceForm
+              initial={{
+                themeColor: toThemeColor(business.themeColor),
+                heroMediaUrl: business.heroMediaUrl ?? "",
+                heroMediaType:
+                  business.heroMediaType === "image" ||
+                  business.heroMediaType === "video"
+                    ? (business.heroMediaType as HeroMediaType)
+                    : "",
+                galleryUrls: parseGallery(business.galleryUrls),
+                reviews: parseReviews(business.reviews),
+              }}
+            />
+          ) : (
+            <BrandingUpsell />
+          )}
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            רשתות חברתיות
+          </h2>
+          <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+            קישורים שיופיעו בעמוד ההזמנות
+          </p>
+
+          <SocialLinksForm
             initial={{
-              themeColor: toThemeColor(business.themeColor),
-              heroMediaUrl: business.heroMediaUrl ?? "",
-              heroMediaType:
-                business.heroMediaType === "image" ||
-                business.heroMediaType === "video"
-                  ? (business.heroMediaType as HeroMediaType)
-                  : "",
-              galleryUrls: parseGallery(business.galleryUrls),
-              reviews: parseReviews(business.reviews),
+              instagram: business.socialInstagram ?? "",
+              facebook: business.socialFacebook ?? "",
+              tiktok: business.socialTiktok ?? "",
+              whatsapp: business.socialWhatsapp ?? "",
+              website: business.websiteUrl ?? "",
             }}
           />
-        ) : (
-          <BrandingUpsell />
-        )}
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            מקדמה
+          </h2>
+          <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+            תשלום מראש לשריון התור
+          </p>
+
+          <DepositSettingsForm
+            initial={{
+              enabled: business.depositEnabled,
+              mode: business.depositMode === "gateway" ? "gateway" : "manual",
+              // The column is agorot; the form speaks shekels.
+              amount: Math.round(business.depositAmountCents / 100),
+              bitPhone: business.depositBitPhone ?? "",
+              paymentUrl: business.depositPaymentUrl ?? "",
+              instructions: business.depositInstructions ?? "",
+            }}
+          />
+        </div>
       </div>
 
-      <div className="mt-8">
-        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          רשתות חברתיות
-        </h2>
-        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
-          קישורים שיופיעו בעמוד ההזמנות
-        </p>
-
-        <SocialLinksForm
-          initial={{
-            instagram: business.socialInstagram ?? "",
-            facebook: business.socialFacebook ?? "",
-            tiktok: business.socialTiktok ?? "",
-            whatsapp: business.socialWhatsapp ?? "",
-            website: business.websiteUrl ?? "",
-          }}
-        />
-      </div>
-
-      <div className="mt-8">
-        <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          מקדמה
-        </h2>
-        <p className="mt-0.5 mb-4 text-sm text-zinc-500">
-          תשלום מראש לשריון התור
-        </p>
-
-        <DepositSettingsForm
-          initial={{
-            enabled: business.depositEnabled,
-            mode: business.depositMode === "gateway" ? "gateway" : "manual",
-            // The column is agorot; the form speaks shekels.
-            amount: Math.round(business.depositAmountCents / 100),
-            bitPhone: business.depositBitPhone ?? "",
-            paymentUrl: business.depositPaymentUrl ?? "",
-            instructions: business.depositInstructions ?? "",
-          }}
-        />
-      </div>
-    </div>
+      <SettingsSaveBar />
+    </SettingsDirtyProvider>
   );
 }
 

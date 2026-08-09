@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 493 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 501 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -298,6 +298,44 @@ runtime value, so a stored `#7c3aed` is a colour the agenda cannot render and
 cannot guarantee is legible. `lib/staff-colors.ts` owns which names are legal
 and validates on read; the stylesheet owns what they look like. `staff.phone` is
 for the owner's own use — nothing dispatches to it.
+
+## One save bar for a page of five forms
+
+`/dashboard/settings` grew a Save button per section — details, appearance,
+logo, social links, deposits — each with its own action and its own idea of
+whether it had been pressed. An owner who changed three things had to find three
+buttons, and the one they missed simply did not save, with nothing on the page
+saying which was which.
+
+Sections now **register themselves** with a small store, and one bar appears
+only when at least one of them differs from what was last saved. Pressing save
+runs each dirty section's own action; each keeps its own validation, its own
+error message and its own server action.
+
+`useSyncExternalStore`, not context state, because the registry is written from
+inside child effects — putting it in state would be a child setting a parent's
+state during its own commit, and would re-render every section whenever any one
+of them went dirty.
+
+Three details carry the weight:
+
+- **Notify only when the set of dirty ids changes.** Sections re-register on
+  nearly every render to keep their `save` closure fresh — a stale one would
+  save what the field held a keystroke ago — so without this guard the bar
+  re-renders on every character typed anywhere on the page.
+- **Baseline is state, not the prop.** A successful save marks the section clean
+  immediately; waiting for the server data to come back would leave the bar up
+  for a beat after a save that already worked, which reads as failure.
+- **Saves run sequentially.** They are separate writes to one row, and failing
+  halfway should leave the sections that did save marked clean rather than
+  rolling anything back.
+
+The logo used to save itself on upload, which was right when it was the only
+control of its kind. With one save control on the page it became the only thing
+an owner could not undo with "ביטול", so it joined the bar.
+
+`beforeunload` is registered only while something is unsaved. A page that always
+warns on leaving is a page people learn to click through.
 
 ## Requires approval — "תורים באישור" (0019)
 
