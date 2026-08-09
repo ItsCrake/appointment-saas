@@ -229,6 +229,9 @@ export type StaffAvailability = {
    * This person's shifts for the requested weekday. **Empty means "inherit the
    * business hours"**, which is what lets a single-staff shop — and any staff
    * member who simply works the shop's hours — never touch a schedule.
+   *
+   * Non-empty means "these hours **∩ the shop's**". A personal schedule narrows
+   * when someone works; it never opens the shop early. See `intersectShifts`.
    */
   shifts: AvailabilityShift[];
   /** Only *this* person's appointments. */
@@ -242,6 +245,102 @@ export type StaffAvailability = {
 
 /** A slot, plus who could actually take it. */
 export type SlotWithStaff = Slot & { staffIds: string[] };
+
+const TIME_PATTERN = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+
+/**
+ * Wall-clock "HH:mm" or "HH:mm:ss" to seconds since midnight, or null.
+ *
+ * Parsed rather than compared as strings, because the two sources genuinely
+ * disagree on format: a `time` column comes back as `"09:00:00"` and a shift
+ * built in a test or a form is `"09:00"`. Lexicographically `"09:00" < "09:00:00"`,
+ * so string comparison would clip a shift by its own formatting.
+ */
+function toSeconds(time: string): number | null {
+  const match = TIME_PATTERN.exec(time);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] ?? 0);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function toTime(seconds: number): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+}
+
+/**
+ * Staff hours **clipped to** business hours, rather than instead of them.
+ *
+ * ---------------------------------------------------------------------------
+ * This function is a bug fix with a name.
+ *
+ * Personal schedules used to *replace* the shop's hours whenever a staff member
+ * had any rows at all. So a barber whose row said 08:00–20:00 was offered from
+ * 08:00 to 20:00 even though the shop opens at 09:00 and closes at 17:00 — and
+ * because only that one person had a row, the booking flow showed those times
+ * with exactly one provider free, which is how it was spotted. A staff row on a
+ * weekday the shop is closed did the same thing, on a day with no hours at all.
+ *
+ * A personal schedule is a **restriction on** when someone works, never a
+ * licence to work when the shop is shut. So: no rows still means "inherit the
+ * shop's hours", and rows mean "these hours, ∩ the shop's".
+ *
+ * The empty result is meaningful and must not fall back — a staff member whose
+ * hours lie entirely outside the shop's works no hours that day. The caller
+ * makes the inherit-or-intersect decision on the *raw* row count, before this
+ * runs, precisely so an empty intersection cannot be mistaken for "no rows".
+ * ---------------------------------------------------------------------------
+ */
+export function intersectShifts(
+  staffShifts: AvailabilityShift[],
+  businessShifts: AvailabilityShift[],
+): AvailabilityShift[] {
+  const open = businessShifts
+    .filter((shift) => !shift.isClosed)
+    .map((shift) => ({
+      from: toSeconds(shift.startTime),
+      to: toSeconds(shift.endTime),
+    }))
+    .filter(
+      (window): window is { from: number; to: number } =>
+        window.from !== null && window.to !== null && window.to > window.from,
+    );
+
+  if (open.length === 0) return [];
+
+  const clipped: AvailabilityShift[] = [];
+
+  for (const shift of staffShifts) {
+    if (shift.isClosed) continue;
+
+    const from = toSeconds(shift.startTime);
+    const to = toSeconds(shift.endTime);
+    // An unparseable or inverted personal shift is dropped, not widened to the
+    // shop's day: the safe reading of a broken row is that it grants nothing.
+    if (from === null || to === null || to <= from) continue;
+
+    for (const window of open) {
+      const start = Math.max(from, window.from);
+      const end = Math.min(to, window.to);
+      // Touching at an endpoint is not an overlap — a shift ending at 12:00
+      // against one starting at 12:00 shares no bookable minute.
+      if (end > start) {
+        clipped.push({
+          startTime: toTime(start),
+          endTime: toTime(end),
+          isClosed: false,
+        });
+      }
+    }
+  }
+
+  return clipped;
+}
 
 export type ComputeStaffSlotsInput = Omit<
   ComputeSlotsInput,
@@ -295,7 +394,18 @@ export function computeStaffSlots(
   const merged = new Map<string, SlotWithStaff>();
 
   for (const member of staff) {
-    const shifts = member.shifts.length > 0 ? member.shifts : businessShifts;
+    /**
+     * No rows means "works the shop's hours". Rows mean "these hours, clipped
+     * to the shop's" — never instead of them. The decision is made on the raw
+     * row count so that an intersection which comes back **empty** stays empty:
+     * someone whose hours fall entirely outside the shop's works no hours, and
+     * falling back here would hand them the whole day.
+     */
+    const shifts =
+      member.shifts.length > 0
+        ? intersectShifts(member.shifts, businessShifts)
+        : businessShifts;
+
     if (shifts.length === 0) continue;
 
     const slots = computeSlots({

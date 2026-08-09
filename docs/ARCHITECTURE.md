@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 458 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 483 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -151,6 +151,51 @@ shown at step 3 comes from the same computation that offered the time at step 2
 and cannot disagree with it. `createBookingAction` re-derives it server-side and
 **refuses** a requested provider who is not in that list rather than silently
 substituting one, which would book a client with the wrong person.
+
+### A personal schedule narrows the shop's hours — it never widens them
+
+`staff_schedules` rows used to **replace** `working_hours` for anyone who had
+any. A provider whose row read 08:00–20:00 was therefore offered 08:00–20:00
+against a shop open 09:00–17:00, and a row on a weekday with no shop hours at
+all produced a fully bookable day out of nothing. Because the person with the
+row was usually the only one with one, those off-hours times showed exactly one
+provider free — which is how it was spotted in production.
+
+`intersectShifts()` is the fix, and the rule it encodes is:
+
+| `staff_schedules` rows | Hours used                          |
+| ---------------------- | ----------------------------------- |
+| none                   | the shop's hours, unchanged         |
+| some                   | those rows **∩** the shop's hours   |
+
+Three things about it are load-bearing:
+
+- **The inherit-or-intersect decision is made on the raw row count**, before the
+  intersection runs. An empty *result* means "works no hours today" and must
+  stay empty; treating it as "no rows" would hand that person the whole day —
+  the exact bug, reintroduced through the fix.
+- **A broken row grants nothing.** An unparseable or inverted personal shift is
+  dropped rather than falling back to the shop's hours, so a typo cannot become
+  extra availability.
+- **Times are parsed, not compared as strings.** A `time` column returns
+  `"09:00:00"` and a form sends `"09:00"`; lexicographically `"09:00"` sorts
+  first, so string comparison would clip a shift by its own formatting.
+
+None of this depends on `has_multiple_staff`. That flag is a UI switch — it
+decides whether the picker renders — and never reaches the engine, so a
+one-chair shop ran the identical path and had the identical bug.
+
+### One booking blocks its provider on every service
+
+Availability partitions appointments by `staff_id` and **never reads
+`service_id`**, so a haircut booked at 09:00 removes 09:00 from the beard trim,
+the colour, and everything else that person offers. It also removes any *start*
+a longer service would overlap, not merely the identical time.
+
+This was already correct; what it lacked was a test saying so, which is what
+made it worth auditing. `availability-staff-db.test.ts` now pins it against
+real Postgres, including the case where cancelling releases the time on every
+service and the case where a `pending` booking still holds it.
 
 ### Booking flow: the time first, the person second
 

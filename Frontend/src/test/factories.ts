@@ -8,6 +8,7 @@ import {
   businesses,
   services,
   staff,
+  staffSchedules,
   timeOff,
   workingHours,
 } from "@/db/schema";
@@ -110,6 +111,26 @@ export async function createStaff(
   const [row] = await db
     .insert(staff)
     .values({ businessId, name: "נותן שירות", ...overrides })
+    .returning();
+
+  return row;
+}
+
+/**
+ * A personal weekday shift. Rows here **narrow** the shop's hours rather than
+ * replacing them — see `intersectShifts`. No rows means "works the shop's
+ * hours", which is what almost every tenant has.
+ */
+export async function createStaffSchedule(
+  db: Database,
+  staffId: string,
+  weekday: number,
+  startTime: string,
+  endTime: string,
+) {
+  const [row] = await db
+    .insert(staffSchedules)
+    .values({ staffId, weekday, startTime, endTime })
     .returning();
 
   return row;

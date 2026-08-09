@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeStaffSlots,
+  intersectShifts,
   staffAvailableAt,
   type AvailabilityBusiness,
   type AvailabilityShift,
@@ -250,6 +251,181 @@ describe("computeStaffSlots — per-staff time off (0016)", () => {
 
     expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
     expect(staffAvailableAt(slots, at("09:00"))).toEqual(["on"]);
+  });
+});
+
+/**
+ * A personal schedule narrows when someone works. It never opens the shop.
+ *
+ * These are regression tests for a real production bug: staff shifts *replaced*
+ * the business hours instead of intersecting with them, so a provider whose row
+ * ran 08:00–20:00 was offered from 08:00 to 20:00 against a shop open
+ * 09:00–17:00 — and since only that one person had a row, those off-hours times
+ * showed exactly one provider free, which is how it was noticed.
+ */
+describe("computeStaffSlots — staff hours are clipped to the shop's", () => {
+  it("does not open the shop early for a provider who starts before it", () => {
+    const slots = run([{ id: "keen", shifts: [shift("06:00", "12:00")] }], {
+      businessShifts: NINE_TO_TWELVE,
+    });
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
+  });
+
+  it("does not keep it open late for a provider who finishes after it", () => {
+    const slots = run([{ id: "night", shifts: [shift("09:00", "20:00")] }], {
+      businessShifts: NINE_TO_TWELVE,
+    });
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
+  });
+
+  it("clips both ends at once", () => {
+    const slots = run([{ id: "long", shifts: [shift("06:00", "23:00")] }], {
+      businessShifts: [shift("10:00", "12:00")],
+    });
+
+    expect(slots.map((s) => s.label)).toEqual(["10:00", "11:00"]);
+  });
+
+  it("offers nothing on a weekday the shop has no hours for", () => {
+    // The worst shape of the bug: a schedule row on a closed day produced a
+    // fully bookable day out of nothing.
+    expect(
+      run([{ id: "a", shifts: [shift("09:00", "17:00")] }], {
+        businessShifts: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("offers nothing when the shop's only row for the day is closed", () => {
+    expect(
+      run([{ id: "a", shifts: [shift("09:00", "17:00")] }], {
+        businessShifts: [{ ...shift("09:00", "17:00"), isClosed: true }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("offers nothing when the personal hours miss the shop's entirely", () => {
+    expect(
+      run([{ id: "a", shifts: [shift("18:00", "22:00")] }], {
+        businessShifts: NINE_TO_TWELVE,
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not fall back to the shop's hours on an empty intersection", () => {
+    // The trap in the fix: an empty *result* must not be read as "no rows", or
+    // the person who works no valid hours is handed the entire day.
+    const slots = run([{ id: "a", shifts: [shift("18:00", "22:00")] }], {
+      businessShifts: NINE_TO_TWELVE,
+    });
+
+    expect(staffAvailableAt(slots, at("09:00"))).toEqual([]);
+  });
+
+  it("splits a straight personal shift across a split business day", () => {
+    // Shop open 09:00–11:00 and 14:00–16:00; the provider claims 09:00–16:00.
+    // The lunch break belongs to the shop, so it survives.
+    const slots = run([{ id: "a", shifts: [shift("09:00", "16:00")] }], {
+      businessShifts: [shift("09:00", "11:00"), shift("14:00", "16:00")],
+    });
+
+    expect(slots.map((s) => s.label)).toEqual([
+      "09:00",
+      "10:00",
+      "14:00",
+      "15:00",
+    ]);
+  });
+
+  it("clips one provider without touching another who has no rows", () => {
+    const slots = run(
+      [{ id: "early", shifts: [shift("06:00", "10:00")] }, { id: "normal" }],
+      { businessShifts: NINE_TO_TWELVE },
+    );
+
+    // 08:00 was the bug; it must not appear for anyone.
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
+    expect(staffAvailableAt(slots, at("09:00")).sort()).toEqual([
+      "early",
+      "normal",
+    ]);
+    expect(staffAvailableAt(slots, at("11:00"))).toEqual(["normal"]);
+  });
+
+  it("applies to a one-person shop too, where nobody picks a provider", () => {
+    // `hasMultipleStaff` is a UI switch and never reaches this engine: a
+    // single-staff tenant runs the identical path, so the off-hours bug was
+    // never limited to team shops.
+    const slots = run([{ id: "solo", shifts: [shift("07:00", "22:00")] }], {
+      businessShifts: NINE_TO_TWELVE,
+    });
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
+  });
+
+  it("compares wall-clock times numerically, not as strings", () => {
+    // A `time` column returns "09:00:00" while a form sends "09:00". Compared
+    // as text, "09:00" sorts before "09:00:00" and the shift loses its first
+    // slot for no reason a reader could ever guess.
+    const slots = run([{ id: "a", shifts: [shift("09:00", "12:00")] }], {
+      businessShifts: [shift("09:00:00", "12:00:00")],
+    });
+
+    expect(slots.map((s) => s.label)).toEqual(["09:00", "10:00", "11:00"]);
+  });
+});
+
+describe("intersectShifts", () => {
+  const clip = (from: string, to: string) => ({
+    startTime: from,
+    endTime: to,
+    isClosed: false,
+  });
+
+  it("returns the overlap of a single pair", () => {
+    expect(
+      intersectShifts([shift("08:00", "18:00")], [shift("09:00", "17:00")]),
+    ).toEqual([clip("09:00:00", "17:00:00")]);
+  });
+
+  it("treats a touching endpoint as no overlap", () => {
+    // 09:00–12:00 against 12:00–17:00 shares no bookable minute.
+    expect(
+      intersectShifts([shift("09:00", "12:00")], [shift("12:00", "17:00")]),
+    ).toEqual([]);
+  });
+
+  it("drops a shift the shop has marked closed", () => {
+    expect(
+      intersectShifts(
+        [shift("09:00", "17:00")],
+        [{ ...shift("09:00", "17:00"), isClosed: true }],
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops an unparseable or inverted personal shift rather than widening it", () => {
+    // The safe reading of a broken row is that it grants nothing. Falling back
+    // to the shop's hours would turn a typo into extra availability.
+    for (const broken of [
+      shift("nonsense", "17:00"),
+      shift("17:00", "09:00"),
+      shift("25:00", "26:00"),
+      shift("09:00", "09:00"),
+    ]) {
+      expect(intersectShifts([broken], [shift("09:00", "17:00")])).toEqual([]);
+    }
+  });
+
+  it("keeps every piece when one shift spans several business windows", () => {
+    expect(
+      intersectShifts(
+        [shift("08:00", "20:00")],
+        [shift("09:00", "12:00"), shift("14:00", "17:00")],
+      ),
+    ).toEqual([clip("09:00:00", "12:00:00"), clip("14:00:00", "17:00:00")]);
   });
 });
 
