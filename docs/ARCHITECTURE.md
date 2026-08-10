@@ -86,10 +86,12 @@ Eleven tables now. `staff` and `staff_schedules` arrived in `0013`, and
 **One binary question, asked once.** `businesses.has_multiple_staff` is the
 answer to "האם יש יותר מנותן שירות אחד בעסק?". False hides the concept
 everywhere — no picker in the booking flow, no manager in the dashboard — and
-the tenant's single staff row silently takes every appointment. An explicit
-column rather than `count(staff) > 1`, because an owner must be able to answer
-*yes* before adding anyone, and to collapse back without deleting people who
-hold history.
+**only the primary staff row is bookable**, whatever else the roster holds. An
+explicit column rather than `count(staff) > 1`, because an owner must be able to
+answer *yes* before adding anyone, and to collapse back without deleting people
+who hold history — which is exactly the state that made the flag load-bearing in
+availability rather than only in the UI. See
+[has_multiple_staff decides who is bookable](#has_multiple_staff-decides-who-is-bookable-not-only-what-renders).
 
 **Every business has at least one staff row, and that is an invariant, not a
 convention.** `appointments.staff_id` is NOT NULL and the exclusion constraint
@@ -184,9 +186,49 @@ Three things about it are load-bearing:
   `"09:00:00"` and a form sends `"09:00"`; lexicographically `"09:00"` sorts
   first, so string comparison would clip a shift by its own formatting.
 
-None of this depends on `has_multiple_staff`. That flag is a UI switch — it
-decides whether the picker renders — and never reaches the engine, so a
-one-chair shop ran the identical path and had the identical bug.
+None of this depends on `has_multiple_staff`: `computeStaffSlots` is handed a
+list of people and unions it, so a one-chair shop ran the identical algorithm
+and had the identical bug. **Which people are in that list is a different
+question, and the flag does decide it** — see below.
+
+### `has_multiple_staff` decides who is bookable, not only what renders
+
+It was documented as a pure UI switch, and `getAvailableSlotsWithStaff` read the
+whole roster regardless. That is wrong for a shop holding more than one active
+row while answering "no" — an easy state to reach, because collapsing back to
+one chair deliberately does *not* delete people who hold booking history.
+
+Two things went wrong for those tenants, and the second is the one that got
+reported:
+
+1. **A secondary provider's hours and time off widened the public page.** Times
+   were offered that the one person actually working could not take, and
+   `createBookingAction` assigns `freeStaff[0]` — so a booking could land on
+   somebody the owner had stopped counting.
+2. **The slot grid appeared to jump by five minutes.** Each provider's cursor
+   re-anchors on *their own* bookings, so a colleague whose appointment ended at
+   09:05 contributed 09:05, 10:05 … beside the primary's 09:00, 10:00 …, and the
+   union interleaved them. Nothing was wrong with the step — it is
+   `durationMin + bufferMin` and always was — and nothing on the owner's own
+   calendar explained the times they were seeing.
+
+The flag is therefore applied **above** the engine, by choosing who goes into
+it, rather than threading a tenant setting through the cursor walk.
+`primaryStaff()` in `db/queries/staff.ts` is the single definition of who that
+is — the head of `listActiveStaff`, whose order is total by construction
+(`sortOrder, createdAt, id`) — and `getDefaultStaff` resolves the same row, so
+availability and the dashboard's manual booking cannot disagree about who takes
+a booking.
+
+`/[slug]` filters the roster it ships to the browser by the same rule. The
+picker never renders for these tenants, so those names were a list of staff the
+shop does not present, sent to every visitor for nothing.
+
+> **A team shop is deliberately left alone.** Its interleaved grid is real
+> availability — two people genuinely free at two different times — and snapping
+> it to a common grid would hide bookable slots to make the page look tidier.
+> Proved in both directions by `availability-staff-db.test.ts`: the same fixture
+> with the flag on keeps 09:05, and with it off does not.
 
 ### One booking blocks its provider on every service
 

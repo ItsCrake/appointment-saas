@@ -650,6 +650,31 @@ to be a product defect rather than a test defect.
 > analytics could not tell a dead link from a live page, and every bot probe of
 > the domain got a 200.
 
+### Single-staff shops book only their primary provider ✅
+
+Reported as "the slot grid jumps by five minutes". The step was never the
+problem — it is `duration + buffer`, tested since Phase 1. `has_multiple_staff`
+was documented as a UI switch, so availability read the **whole** roster even
+for a shop that had answered "no", and a shop can legitimately hold other active
+rows because collapsing back to one chair does not delete people with history.
+
+- [x] `getAvailableSlotsWithStaff` evaluates only the primary provider when the
+      flag is off. Applied above the engine — `computeStaffSlots` still just
+      unions the list it is handed, so no tenant setting reaches the cursor walk.
+- [x] `primaryStaff()` is the single definition of who that is, shared with
+      `getDefaultStaff`, so availability and manual booking cannot disagree
+      about who takes a booking.
+- [x] **Two bugs, one cause.** A secondary provider's hours also widened the
+      public page, and `createBookingAction` takes `freeStaff[0]` — so a booking
+      could be assigned to someone the owner had stopped counting.
+- [x] `/[slug]` filters the roster it ships to the browser by the same rule.
+- [x] A team shop is untouched: its interleaved grid is real availability, and
+      snapping it to a common grid would hide bookable times. Asserted in both
+      directions from one fixture.
+- [x] Two existing tests were exercising the incoherent state (two active staff,
+      flag off) and now declare `team: true`, which is what they meant.
+- [x] `npm run verify` green at **711 tests across 54 files**.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

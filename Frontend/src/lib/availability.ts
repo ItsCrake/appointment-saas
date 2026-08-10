@@ -10,6 +10,7 @@ import {
 import {
   listActiveStaff,
   listStaffSchedulesForWeekday,
+  primaryStaff,
 } from "@/db/queries/staff";
 import type { Database } from "@/db/types";
 
@@ -484,11 +485,38 @@ export async function getAvailableSlotsWithStaff(
     weekday,
   );
 
-  const team = await listActiveStaff(db, businessId);
+  const active = await listActiveStaff(db, businessId);
   // A tenant with every provider deactivated takes no bookings. Returning an
   // empty list is right — and is why the dashboard refuses to deactivate the
   // last one.
-  if (team.length === 0) return [];
+  if (active.length === 0) return [];
+
+  /**
+   * **`has_multiple_staff` decides who is bookable, not merely what renders.**
+   *
+   * It used to be documented as a pure UI switch, and this function read the
+   * whole roster regardless. That is wrong in two ways for a shop that answered
+   * "no" while still holding more than one active row — which is easy to reach,
+   * because collapsing back to one chair deliberately does *not* delete people
+   * who hold history:
+   *
+   * 1. A secondary provider's hours and time off silently widened the shop's
+   *    availability, offering times the one person actually working could not
+   *    take. `createBookingAction` then assigned the booking to whoever was
+   *    free first, so it could land on someone the owner had stopped counting.
+   * 2. Each provider's grid re-anchors on their own bookings, and the union of
+   *    two independently re-anchored grids interleaves. A colleague whose
+   *    appointment ended at 09:05 put 09:05, 09:25 … alongside 09:00, 09:20 …
+   *    — which is what a one-chair shop sees as "the slots jump by five
+   *    minutes", with nothing on their own calendar to explain it.
+   *
+   * So the flag is applied *here*, above the engine, by choosing who goes into
+   * it. `computeStaffSlots` itself still knows nothing about it — it is handed
+   * a list and unions it — which keeps the rule in one place instead of
+   * threading a tenant setting through the cursor walk.
+   */
+  const primary = primaryStaff(active);
+  const team = business.hasMultipleStaff || !primary ? active : [primary];
 
   const staffIds = team.map((member) => member.id);
 

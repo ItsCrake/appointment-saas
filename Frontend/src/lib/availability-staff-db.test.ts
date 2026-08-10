@@ -49,8 +49,14 @@ beforeEach(async () => {
 /** Local wall clock on DATE as the UTC instant the engine returns. IDT = +03. */
 const at = (time: string) => new Date(`${DATE}T${time}:00+03:00`).toISOString();
 
-async function shop() {
-  const business = await createBusiness(db);
+/**
+ * `team: true` is the owner answering "yes" to the multi-staff setup question.
+ * It is not decoration: with it off, availability evaluates **only** the primary
+ * provider, so any test that expects a second name has to say it runs a team
+ * shop. See "has_multiple_staff decides who is bookable" below.
+ */
+async function shop({ team = false }: { team?: boolean } = {}) {
+  const business = await createBusiness(db, { hasMultipleStaff: team });
   // 09:00–17:00, the hours everything below is measured against.
   await createShift(db, business.id, WEEKDAY, "09:00:00", "17:00:00");
   const [alice] = await db.query.staff.findMany({
@@ -131,7 +137,7 @@ describe("a booking blocks its provider across every service", () => {
   });
 
   it("blocks only that provider, leaving the time open on another", async () => {
-    const { business, alice } = await shop();
+    const { business, alice } = await shop({ team: true });
     const bob = await createStaff(db, business.id, { name: "בוב" });
     const haircut = await createService(db, business.id, { durationMin: 60 });
     const beard = await createService(db, business.id, {
@@ -236,7 +242,7 @@ describe("staff_schedules never widen the shop's hours", () => {
   it("still narrows within the shop's hours, which is what the feature is for", async () => {
     // The fix must not flatten personal schedules into "everyone works the
     // shop's hours" — a morning-only barber is the whole point of the table.
-    const { business, alice } = await shop();
+    const { business, alice } = await shop({ team: true });
     const bob = await createStaff(db, business.id, { name: "בוב" });
     const service = await createService(db, business.id, { durationMin: 60 });
     await createStaffSchedule(db, alice.id, WEEKDAY, "09:00:00", "11:00:00");
@@ -260,5 +266,125 @@ describe("staff_schedules never widen the shop's hours", () => {
     await createStaffSchedule(db, alice.id, WEEKDAY, "09:00:00", "17:00:00");
 
     expect(await slotsFor(business.id, service.id)).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A shop can hold more than one active staff row while answering "no" to the
+ * multi-staff question, and that is a supported state rather than a corrupt
+ * one: collapsing back to one chair deliberately does not delete people who
+ * hold booking history. Before this, those people still shaped the public page.
+ */
+describe("has_multiple_staff decides who is bookable", () => {
+  it("ignores a secondary provider's availability entirely", async () => {
+    const { business, alice } = await shop();
+    await createStaff(db, business.id, { name: "בוב" });
+    const service = await createService(db, business.id, { durationMin: 60 });
+
+    await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date(at("09:00")),
+      new Date(at("10:00")),
+      { staffId: alice.id },
+    );
+
+    const slots = await slotsFor(business.id, service.id);
+
+    // Bob is free at 09:00 and must not rescue the time: the one person this
+    // shop books into is busy, so the shop is busy.
+    expect(slots.map((s) => s.label)).not.toContain("09:00");
+    expect(staffAvailableAt(slots, at("09:00"))).toEqual([]);
+  });
+
+  it("never offers a secondary provider as the one taking the booking", async () => {
+    const { business, alice } = await shop();
+    await createStaff(db, business.id, { name: "בוב" });
+    const service = await createService(db, business.id, { durationMin: 60 });
+
+    const slots = await slotsFor(business.id, service.id);
+
+    // Every slot resolves to Alice alone. `createBookingAction` takes
+    // `freeStaff[0]`, so a stray id here is a booking assigned to somebody the
+    // owner stopped counting.
+    for (const slot of slots) {
+      expect(slot.staffIds).toEqual([alice.id]);
+    }
+  });
+
+  it("does not let a secondary provider's hours widen the day", async () => {
+    const { business } = await shop();
+    const bob = await createStaff(db, business.id, { name: "בוב" });
+    const service = await createService(db, business.id, { durationMin: 60 });
+    // Bob works late. With the concept switched off, that is not this shop's
+    // problem — the page must still close when the shop does.
+    await createStaffSchedule(db, bob.id, WEEKDAY, "09:00:00", "23:00:00");
+
+    const labels = (await slotsFor(business.id, service.id)).map((s) => s.label);
+
+    expect(labels[labels.length - 1]).toBe("16:00");
+    expect(labels).not.toContain("20:00");
+  });
+
+  it("keeps one clean grid instead of interleaving two re-anchored ones", async () => {
+    // The reported symptom, reproduced exactly: "the slots jump by five
+    // minutes". Nothing was wrong with the step — it is `duration + buffer` and
+    // always was. Each provider's cursor re-anchors on *their own* bookings, so
+    // a colleague whose appointment ended at 09:05 contributed 09:05, 10:05 …
+    // beside Alice's 09:00, 10:00 …, and the union interleaved them.
+    const { business } = await shop();
+    const bob = await createStaff(db, business.id, { name: "בוב" });
+    const service = await createService(db, business.id, { durationMin: 60 });
+
+    await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date(at("09:00")),
+      new Date(at("09:05")),
+      { staffId: bob.id },
+    );
+
+    const labels = (await slotsFor(business.id, service.id)).map((s) => s.label);
+
+    expect(labels).toEqual([
+      "09:00",
+      "10:00",
+      "11:00",
+      "12:00",
+      "13:00",
+      "14:00",
+      "15:00",
+      "16:00",
+    ]);
+    // The off-grid starts Bob's re-anchored cursor produced are gone with him.
+    expect(labels.some((l) => l.endsWith(":05"))).toBe(false);
+  });
+
+  it("brings the whole team back the moment the toggle is on", async () => {
+    // The other direction matters just as much: this is a setting an owner
+    // flips, not a migration. Same fixture as above, one field different.
+    const { business } = await shop({ team: true });
+    const bob = await createStaff(db, business.id, { name: "בוב" });
+    const service = await createService(db, business.id, { durationMin: 60 });
+
+    await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date(at("09:00")),
+      new Date(at("09:05")),
+      { staffId: bob.id },
+    );
+
+    const labels = (await slotsFor(business.id, service.id)).map((s) => s.label);
+
+    // Bob's re-anchored grid is legitimate availability for a real team, so it
+    // is offered rather than snapped away.
+    expect(labels).toContain("09:05");
+    expect(labels).toContain("09:00");
   });
 });

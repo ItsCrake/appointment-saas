@@ -13,7 +13,7 @@ import {
   listServices,
   listWorkingHours,
 } from "@/db/queries";
-import { listActiveStaff } from "@/db/queries/staff";
+import { listActiveStaff, primaryStaff } from "@/db/queries/staff";
 import { buildSocialLinks } from "@/lib/social-links";
 import {
   isSafeMediaUrl,
@@ -132,11 +132,20 @@ export default async function BusinessPage({ params }: PageProps) {
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) notFound();
 
-  const [services, hours, team] = await Promise.all([
+  const [services, hours, activeStaff] = await Promise.all([
     listServices(db, business.id),
     listWorkingHours(db, business.id),
     listActiveStaff(db, business.id),
   ]);
+
+  // The same rule the availability engine applies, for the same reason. A shop
+  // that answered "no" to the multi-staff question can still hold other active
+  // rows — people who have booking history and so cannot be deleted — and none
+  // of them is bookable here. Sending their names to the browser would ship a
+  // roster of staff this shop does not present, for a picker that never renders.
+  const primary = primaryStaff(activeStaff);
+  const team =
+    business.hasMultipleStaff || !primary ? activeStaff : [primary];
 
   // The demo shop's address, phone and prices are invented. Publishing them as
   // LocalBusiness data would assert a real trader at a real street address.

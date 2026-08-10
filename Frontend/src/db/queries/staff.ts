@@ -44,6 +44,21 @@ export async function getStaff(
 }
 
 /**
+ * The one provider a single-staff tenant books into, picked from a list that is
+ * already in hand.
+ *
+ * Exists so "who is the primary" is defined **once**. It is the head of
+ * `listActiveStaff`, whose ordering is total by construction
+ * (`sortOrder, createdAt, id`) — the owner's intent first, the id only to break
+ * a tie that would otherwise move a walk-in between providers on a refresh.
+ * Both the availability engine and the manual-booking action resolve it, and
+ * two copies of the rule would eventually disagree about who takes a booking.
+ */
+export function primaryStaff<T>(team: readonly T[]): T | null {
+  return team[0] ?? null;
+}
+
+/**
  * The staff member a booking goes to when the tenant is single-staff.
  *
  * Never null in practice — 0013 backfilled one per business and business
@@ -52,8 +67,7 @@ export async function getStaff(
  * with no explanation.
  */
 export async function getDefaultStaff(db: Database, businessId: string) {
-  const [row] = await listActiveStaff(db, businessId);
-  return row ?? null;
+  return primaryStaff(await listActiveStaff(db, businessId));
 }
 
 /**

@@ -355,9 +355,10 @@ describe("computeStaffSlots — staff hours are clipped to the shop's", () => {
   });
 
   it("applies to a one-person shop too, where nobody picks a provider", () => {
-    // `hasMultipleStaff` is a UI switch and never reaches this engine: a
-    // single-staff tenant runs the identical path, so the off-hours bug was
-    // never limited to team shops.
+    // `hasMultipleStaff` never reaches *this* function — it is handed a list
+    // and unions it. The flag decides who goes *into* the list, one level up in
+    // `getAvailableSlotsWithStaff`. So a single-staff tenant runs the identical
+    // algorithm, which is why the off-hours bug was never limited to teams.
     const slots = run([{ id: "solo", shifts: [shift("07:00", "22:00")] }], {
       businessShifts: NINE_TO_TWELVE,
     });
