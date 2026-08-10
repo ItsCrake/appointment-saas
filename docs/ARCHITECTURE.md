@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 644 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 706 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -38,13 +38,16 @@ Frontend/src/
                   activate, provider adapter)
                   auth-validation (password rules + hashed rate-limit key)
                   safe-redirect (open-redirect guard for a `next` in a query)
+                  public-slug + slug-cache (is this path a tenant, and does
+                    that tenant exist — the proxy's 404 guard)
                   app-url (which origin a shareable link uses — and, in
                     authRedirectOrigin, the stricter rule an emailed one uses)
                   brand (the wordmark, one place), platform-metrics (MRR etc.)
                   super-admin + master-session + impersonation (/master access)
                   supabase/ (server client + forced cookie flags)
   test/           PGlite harness + factories
-  proxy.ts        auth redirect guard (NOT middleware.ts — see below)
+  proxy.ts        unknown-slug 404 guard + auth redirect
+                  (NOT middleware.ts — see below)
 ```
 
 ## Database
@@ -958,10 +961,124 @@ deploy check must not coexist with zero delivered mail. Development rules keep
 it a warning, since the console provider is the whole point locally.
 
 **`proxy.ts`, not `middleware.ts`.** Next 16 deprecates the middleware file
-convention. It only redirects; the real authorization boundary is
-`requireBusiness()` in `src/lib/dashboard-session.ts`, which resolves the
-business **from the session** and is called by every dashboard page and action.
-No action takes a business id from its request body.
+convention. It has two jobs and they share nothing but the entry point:
+resolving an unknown slug to a real 404 (below), and redirecting anonymous
+visitors away from `/dashboard`. The second is **only** a redirect — the real
+authorization boundary is `requireBusiness()` in
+`src/lib/dashboard-session.ts`, which resolves the business **from the session**
+and is called by every dashboard page and action. No action takes a business id
+from its request body.
+
+The two are kept in separate functions because a public booking page must not
+pay for a Supabase `getUser()` round trip it has no use for. Broadening the
+matcher without splitting them would have put an auth call in front of the
+product's most-loaded page.
+
+## Unknown slugs return a real 404
+
+`/[slug]` sits at the root of the URL space, so **every** unmatched
+single-segment path lands on it — a mistyped link, a shop that closed,
+`/wp-admin`. All of them used to answer **200**.
+
+The cause is documented Next behaviour rather than a bug in this app.
+`not-found.js` returns "a `200` HTTP status code for streamed responses, and
+`404` for non-streamed ones", and `loading.js` § Status Codes says why: the
+response body starts streaming the moment a Suspense fallback renders, and *"to
+start streaming, the response headers must be set"*. `/[slug]` gained a
+`loading.tsx` in the navigation-performance pass, so by the time the database
+says the business is missing the status line is already gone. `/b/[token]` has
+no `loading.tsx`, makes the identical `notFound()` call, and has always
+returned a real 404 — which is the clearest confirmation of the mechanism.
+
+**The SEO risk was already covered, and that is worth stating precisely**
+because it changes what this fix is for. `generateMetadata` returns
+`robots: { index: false, follow: false }` for a missing slug, and Next's own
+guidance is that the `noindex` meta is what prevents indexation in the
+streaming case. So this was never "an empty page gets indexed". What was
+actually wrong is narrower and still worth fixing: analytics and uptime
+tooling could not distinguish a dead link from a live page, and **every bot
+probe of the domain got a 200**.
+
+Next's recommended fix is to resolve the resource in the proxy, before the body
+streams, and that is what `proxy.ts` now does.
+
+### Three verdicts, not two
+
+`lib/public-slug.ts` classifies each path as `platform`, `tenant` or
+`impossible`, and the third one earns its place:
+
+| Verdict      | Example                        | Cost      |
+| ------------ | ------------------------------ | --------- |
+| `platform`   | `/legal/terms`, `/sw.js`, `/`  | nothing   |
+| `tenant`     | `/demo-barber`, `/wp-admin`    | one query |
+| `impossible` | `/Demo-Barber`, `/wp_admin`    | nothing   |
+
+Every slug is lowercased through Zod before it reaches the column, so a path
+outside `^[a-z0-9-]{1,40}$` cannot match a row however the data looks. Folding
+`impossible` into `platform` would send those back down the render path to
+produce the streamed soft 404 again; folding it into `tenant` would spend a
+round trip proving what the character set already settles. Bot noise is the
+overwhelming majority of this traffic and it now costs nothing at all.
+
+### The reserved list is in code, and a test defends it
+
+Adding `src/app/pricing/page.tsx` gives the platform a `/pricing` page **and**
+makes it indistinguishable from a tenant called "pricing" — the proxy would
+look the slug up, fail to find it, and 404 a working page. In production only,
+since a local database may have no businesses at all.
+
+The matcher cannot hold that list: Next requires matcher patterns to be
+statically analysable literals, so a second copy would live in a regex and
+drift. `RESERVED_SEGMENTS` is therefore the single source of truth and
+`public-slug.coverage.test.ts` fails the build when a top-level route is
+missing from it — the same mechanical-coverage pattern as `nav-coverage` and
+`dashboard-session.coverage`. It also fails on a *stale* reservation, because
+a reserved name is permanently denied to every tenant.
+
+What the matcher still carries is only what can never be a page: `_next/`,
+`api/`, and anything with a file extension. It ends in `.+` rather than `.*`
+so `/` — the highest-traffic route in the product, and a static prerender with
+no slug to resolve — never invokes the function at all.
+
+### The cache, and why hits and misses are separate
+
+`lib/slug-cache.ts` sits in front of the lookup, because the proxy runs before
+the most latency-sensitive page in the product and a business's slug changes
+perhaps twice in its lifetime. Two properties are load-bearing:
+
+- **Separate maps with separate caps.** In one shared map a bot spraying random
+  slugs would evict every real business, so the defence against pointless
+  queries would collapse under exactly the traffic it exists for.
+- **Misses expire far sooner than hits** (20s against 5min). The failure modes
+  are not symmetric: a stale *hit* means a deactivated shop renders and then
+  soft-404s — the old behaviour, no worse — while a stale *miss* means a live
+  booking page answers 404 to real clients.
+
+Next's proxy docs warn against relying on globals, because a proxy may be
+deployed separately from the app and instances are not coordinated. That is
+fine here precisely because this is a *cache*: every entry is derived, expiry
+is absolute, and a cold instance simply asks again. Nothing is ever only in it.
+
+**It fails open.** If the lookup throws, the request is let through to render
+exactly as it did before — the same rule the rate limiter follows. Taking every
+tenant's booking page offline because one query failed is far worse than the
+soft 404 being replaced.
+
+### Why a dedicated route rather than deleting the `loading.tsx`
+
+A miss is rewritten — not redirected, so the visitor keeps the URL they typed —
+to `/business-not-found`, which is **synchronous, has no `loading.tsx` and
+nothing to await**. Nothing suspends, so nothing streams, so its `notFound()`
+still owns the status line. It prerenders static, which makes the 404 free to
+serve.
+
+Removing the `loading.tsx` from `/[slug]` would also restore the status and
+costs far more: Next skips prefetching a dynamic route with no fallback, which
+is the exact regression the navigation-performance pass was built to fix.
+
+`components/booking/business-not-found.tsx` is the shared UI, rendered both
+there and from `/[slug]/not-found.tsx`. A visitor cannot tell which path they
+took and should not be able to.
 
 **Abuse defence is layered, and fails open.** The public booking action is
 unauthenticated by design, so it carries a honeypot (a visually hidden field
@@ -1911,7 +2028,11 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   `next.config.ts`, env validation CLI
 - Abuse defence: honeypot + Postgres rate limits on IP and phone-per-business
 - Observability: structured JSON logging with client identifiers redacted
-- Playwright E2E over the public booking and cancellation flows
+- Playwright E2E over the public booking and cancellation flows — **green**,
+  including a real 404 for an unknown slug
+- **A real 404 for unknown slugs**, resolved in the proxy before the response
+  streams, behind a bounded slug cache that fails open — see
+  [Unknown slugs return a real 404](#unknown-slugs-return-a-real-404)
 - Per-business branding: accent theme, hero media, gallery + lightbox, reviews
 - Pricing page with a monthly/yearly toggle; plan recorded during onboarding
 - Super-admin console at `/master`: tenant metrics, impersonation, trial
@@ -1991,19 +2112,11 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - Sentry — `reportError` is the single call site to wire it into
 - E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
   suite, not through a browser
-- **Two Playwright specs are red, and were before this work** (`npm run verify`
-  is unaffected — it does not run them):
-  - `booking-flow` and `error-fallbacks` both wait on
-    `getByRole("radiogroup", { name: "בחירת שעה" })`. That name exists only in
-    `e2e/`, never in `src/`: the slot picker was rewritten in `761790e` to
-    group slots into morning/afternoon/evening, each labelled by its own period
-    heading, and the helper was never updated.
-  - `error-fallbacks` also expects **404** for an unknown slug and gets **200**.
-    The `not-found` page renders correctly; only the status is wrong. Verified
-    against `0c12087` — it reproduces on entirely pre-reconciliation code, in
-    dev *and* in a production build. This one is a real defect rather than a
-    stale selector: `README.md` lists "an unknown slug returns 404" as a
-    post-deploy check, and a soft 404 is what gets an empty page indexed.
+- E2E coverage of the owner dashboard runs only when `E2E_EMAIL` /
+  `E2E_PASSWORD` name **the account that owns `demo-barber`**. Any other
+  confirmed account lands in `/dashboard/setup`, and the specs then fail on a
+  missing appointment when the real cause is an onboarding form. `db:seed`
+  reassigns the demo shop, which is how the two drift apart.
 - **Legal review.** `/legal/*` and `/accessibility` are engineer-written
   templates and `LEGAL_ENTITY` still holds placeholder registration and address
   fields. They must be reviewed by an Israeli lawyer before real money moves.

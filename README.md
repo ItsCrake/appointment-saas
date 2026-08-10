@@ -53,6 +53,9 @@ trends), and an **installable app with push notifications** for new bookings.
   Storage** on a server-minted signed URL; the bytes never pass through Next.
 - The public booking form carries a honeypot plus Postgres-backed rate limits
   on IP and on phone-per-business.
+- An unknown slug is resolved in the proxy **before the response streams**, so
+  it answers a real 404 rather than a 200 with a not-found page inside it. A
+  path that cannot be a slug at all costs no database query.
 
 ---
 
@@ -77,11 +80,13 @@ trends), and an **installable app with push notifications** for new bookings.
 │   │   │              notifications/ (+ whatsapp, reminder-policy), billing/,
 │   │   │              entitlements, stats, push, media-upload, booking-steps
 │   │   │              rate limiting, auth-validation, safe-redirect, app-url,
+│   │   │              public-slug + slug-cache (the proxy's 404 guard),
 │   │   │              env, ics
 │   │   │              branding, plans, legal-content, platform-metrics
 │   │   │              super-admin, impersonation, supabase/
 │   │   ├── test/      PGlite harness + factories
-│   │   └── proxy.ts   auth redirect guard (Next 16 deprecates middleware.ts)
+│   │   └── proxy.ts   unknown-slug 404 guard + auth redirect
+│   │                  (Next 16 deprecates middleware.ts)
 │   ├── public/        sw.js (push, caches nothing) + PWA icons
 │   ├── e2e/           Playwright specs
 │   ├── next.config.ts security headers
@@ -247,6 +252,7 @@ Run from `Frontend/`.
 | `/legal/terms`            | public        | Terms, refunds, subscription, communications    |
 | `/legal/privacy`          | public        | Privacy, retention, deletion rights, cookies    |
 | `/accessibility`          | public        | Israeli accessibility statement (AA)            |
+| `/business-not-found`     | internal      | The proxy's 404 target for an unknown slug      |
 | `/api/cron/notifications` | `CRON_SECRET` | Dispatches the outbox on a schedule             |
 
 `/dashboard/*` and `/b/*` send `X-Robots-Tag: noindex` and
@@ -260,15 +266,16 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 644 unit tests, build
+npm run verify     # env, lint, types, 706 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
-> **Two E2E specs are currently red**, and were before the most recent work —
-> a stale selector in `e2e/helpers.ts` and an unknown slug answering 200 rather
-> than 404. `npm run verify` does not run Playwright and is unaffected. Both
-> are described in
-> [ARCHITECTURE.md](docs/ARCHITECTURE.md#feature-status).
+> **The Playwright suite is green.** The three specs that assert the owner's
+> dashboard skip unless `E2E_EMAIL` / `E2E_PASSWORD` name the account that owns
+> `demo-barber` — see below. The two long-standing failures are fixed: the
+> stale slot selector, and an unknown slug answering 200 rather than 404, which
+> was a real soft-404 and is described in
+> [ARCHITECTURE.md](docs/ARCHITECTURE.md#unknown-slugs-return-a-real-404).
 
 Unit tests run against **PGlite applying the real migration files**, so the
 exclusion constraint, enum casts and RLS policies are genuinely exercised
@@ -278,6 +285,13 @@ The E2E suite books against `demo-barber` and tags every row it creates with
 the phone number `0559990001`, which is all teardown deletes. The dashboard
 specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 `.env.local`; without them those specs skip and the public ones still run.
+
+> **Those credentials must name the account that owns `demo-barber`**, not just
+> any confirmed account. An owner with no business is redirected into
+> `/dashboard/setup`, so the specs fail on a missing appointment when the real
+> cause is that they are looking at an onboarding form. `npm run db:seed`
+> reassigns the demo shop, which is how the two drift apart — re-run
+> `npm run db:claim -- <uuid>` afterwards.
 
 > **Known gap:** PGlite is more forgiving than postgres.js about parameter
 > binding, so the suite proves SQL _semantics_, not driver binding. Aggregate
@@ -355,19 +369,22 @@ reminder thresholds, and Sentry.
 
 ### Before this goes live
 
-Four things are known-outstanding and none of them are code:
+Three things are known-outstanding and none of them are code:
 
-1. **Apply migration `0012`.** It has never been run against any database.
-   `npm run db:migrate`. Without it the whole billing lifecycle is inert.
-2. **Have a lawyer review the legal text.** `/legal/*` and `/accessibility`
+1. **Have a lawyer review the legal text.** `/legal/*` and `/accessibility`
    are engineer-written templates, and `LEGAL_ENTITY` in
    `lib/legal-content.ts` still carries placeholder ח.פ. and address fields.
-3. **Open a Twilio account**, or drop the SMS line from the Pro tier in
+2. **Open a Twilio account**, or drop the SMS line from the Pro tier in
    `lib/plans.ts`. `check:env --production` fails without the credentials,
    because a tier that *sells* SMS must not deploy onto a provider that
    silently delivers nothing.
-4. **Pick a payment provider** (Stripe, or an Israeli one with native
+3. **Pick a payment provider** (Stripe, or an Israeli one with native
    חשבונית מס). Only `getBillingProvider()` needs to learn the new name.
+
+> The fourth item here used to be "apply migration `0012`". It is retired:
+> verified against the live database, **all 21 migrations (0000–0020) are
+> applied**, twelve public tables, every `0012` billing column present. The
+> README and ARCHITECTURE.md had disagreed on this.
 
 > **Deploy note:** the Pro tier sells SMS reminders, so
 > `check:env --production` now requires Twilio credentials. Without a Twilio

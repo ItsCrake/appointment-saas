@@ -49,7 +49,7 @@ test.describe("booking failures surface in the UI", () => {
         .getByRole("radio");
       const timeSlot = page.getByRole("radio", { name: /^\d{2}:\d{2}$/ });
       const slotsLoaded = page
-        .getByRole("radiogroup", { name: "בחירת שעה" })
+        .getByRole("group", { name: "בחירת שעה" })
         .or(page.getByText("אין מועדים פנויים"));
 
       for (let i = 2; i < 10; i++) {

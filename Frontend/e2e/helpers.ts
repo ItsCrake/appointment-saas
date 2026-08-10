@@ -101,13 +101,25 @@ export type BookedSlot = {
   clientName: string;
 };
 
-/** "יום ראשון, 02/08/2026 בשעה 09:15" -> { date, time } */
+/**
+ * Pulls the appointment's date and time out of the confirmation screen's text.
+ *
+ * The two are matched **independently rather than as one ordered pattern**. The
+ * screen used to read "יום ראשון, 02/08/2026 בשעה 09:15" in a single line; it
+ * now leads with the time in display size and puts the weekday and date
+ * underneath, so a pattern anchored on "date, then time" silently stopped
+ * matching. Order is presentation, and this helper only wants the two values.
+ */
 export function parseConfirmationWhen(text: string) {
-  // [\s\S] rather than the dotAll flag, which needs an ES2018 target.
-  const match = text.match(/(\d{2})\/(\d{2})\/(\d{4})[\s\S]*?(\d{2}:\d{2})/);
-  if (!match) throw new Error(`Could not parse date/time from: ${text}`);
-  const [, dd, mm, yyyy, time] = match;
-  return { date: `${yyyy}-${mm}-${dd}`, time };
+  const date = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const time = text.match(/(?<!\d)(\d{2}:\d{2})(?!\d)/);
+
+  if (!date || !time) {
+    throw new Error(`Could not parse date/time from: ${text}`);
+  }
+
+  const [, dd, mm, yyyy] = date;
+  return { date: `${yyyy}-${mm}-${dd}`, time: time[1] };
 }
 
 /**
@@ -135,8 +147,14 @@ export async function bookAppointment(
   const timeSlot = page.getByRole("radio", { name: /^\d{2}:\d{2}$/ });
 
   // Whichever of these settles first tells us the fetch finished.
+  //
+  // A `group`, not a `radiogroup`: slots are grouped into morning / afternoon /
+  // evening and each period is its own radiogroup, labelled by its own heading
+  // — and that heading carries a count, so no radiogroup has a stable name.
+  // The wrapper is rendered only when there are slots, which is what keeps this
+  // a real wait rather than one that settles on the skeleton.
   const slotsLoaded = page
-    .getByRole("radiogroup", { name: "בחירת שעה" })
+    .getByRole("group", { name: "בחירת שעה" })
     .or(page.getByText("אין מועדים פנויים"));
 
   let chosenTime: string | null = null;
@@ -172,7 +190,12 @@ export async function bookAppointment(
     page.getByRole("heading", { name: "התור נקבע בהצלחה!" }),
   ).toBeVisible();
 
-  const summary = await page.locator("dl").first().innerText();
+  // The whole confirmation section, not the `dl` inside it: the date and time
+  // live in the hero block above that list, so `dl` alone carries the service,
+  // the price and the client — and none of what this is looking for.
+  const summary = await page
+    .locator('section[aria-labelledby="confirm-heading"]')
+    .innerText();
   const { date, time } = parseConfirmationWhen(summary);
 
   const manageHref = await page

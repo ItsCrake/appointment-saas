@@ -24,6 +24,25 @@ export async function getActiveBusinessBySlug(db: Database, slug: string) {
   return row ?? null;
 }
 
+/**
+ * Whether `/[slug]` resolves to anything, without fetching the row.
+ *
+ * The proxy's 404 guard asks this before every public page render, so it selects
+ * one indexed column rather than `*`. **The predicate must stay identical to
+ * `getActiveBusinessBySlug`** — if this said yes where that says no, the page
+ * would render, call `notFound()`, and answer 200 again for exactly the
+ * deactivated tenants the guard was meant to cover.
+ */
+export async function activeBusinessSlugExists(db: Database, slug: string) {
+  const [row] = await db
+    .select({ id: businesses.id })
+    .from(businesses)
+    .where(and(eq(businesses.slug, slug), eq(businesses.isActive, true)))
+    .limit(1);
+
+  return row !== undefined;
+}
+
 /** Public booking pages, for the sitemap. */
 export async function listActiveBusinessSlugs(db: Database) {
   return db

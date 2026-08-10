@@ -41,7 +41,13 @@ export function SlotPicker({
       ) : slots.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="space-y-5">
+        // Named, and rendered *only* when there are slots. The day strip above
+        // has had an accessible name since it was written; the time area had
+        // none, so a screen reader landed in a bare list of numbers. It is also
+        // the one stable hook for "the fetch finished with something to show" —
+        // the per-period radiogroups are labelled by their own heading, whose
+        // text carries a count, so none of them has a fixed name.
+        <div role="group" aria-label="בחירת שעה" className="space-y-5">
           {groupSlotsByPeriod(slots).map(({ period, slots: periodSlots }) => {
             const { label, Icon, tint } = PERIODS[period];
 

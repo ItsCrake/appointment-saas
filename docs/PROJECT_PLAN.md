@@ -610,6 +610,46 @@ it shipped; each bullet is one commit.
 > **`npm run verify` is green at 644 tests across 50 files**, up from 337 at
 > the start of this phase.
 
+### The E2E suite, and the soft 404 it was hiding ✅
+
+The two long-standing red specs are fixed, and fixing the second one turned out
+to be a product defect rather than a test defect.
+
+- [x] **The stale slot selector.** `getByRole("radiogroup", { name: "בחירת שעה" })`
+      named something that existed only in `e2e/`: the picker was rewritten to
+      group slots into morning/afternoon/evening, each radiogroup labelled by
+      its own heading — and those headings carry a count, so none of them has a
+      stable name. The rendered slot list is now a `group` with that label,
+      which the day strip has always had and the time area never did. It is
+      rendered **only when there are slots**, so the helper's wait still means
+      "the fetch finished with something to show" rather than settling on the
+      skeleton.
+- [x] **A third breakage, which the first was masking.** Once the flow got past
+      the slot step it failed on the confirmation screen: the helper read the
+      first `<dl>`, and the date and time had moved out of that list into the
+      hero block above it — and swapped order, time first. Now matched
+      independently rather than as one ordered pattern, because order is
+      presentation and the helper wants two values.
+- [x] **An unknown slug returns a real 404.** Resolved in `proxy.ts` before the
+      response streams, which is Next's own documented remedy. Three-way path
+      classification so a path that *cannot* be a slug costs no query; a
+      bounded cache with separate maps for hits and misses; fails open on a
+      database error. Full reasoning in
+      [ARCHITECTURE.md](ARCHITECTURE.md#unknown-slugs-return-a-real-404).
+- [x] `public-slug.coverage.test.ts` fails the build when a new top-level route
+      is not declared, because `/[slug]` is a root segment and `src/app/pricing`
+      would otherwise be 404'd by the proxy in production only.
+- [x] 62 new unit tests; `npm run verify` green at **706 across 54 files**.
+      Playwright green at 7 passed / 3 skipped — the dashboard specs need
+      credentials for the account that actually owns `demo-barber`.
+
+> **The docs had the SEO framing wrong and it is corrected in place.** The soft
+> 404 was described as "what gets an empty page indexed", but `generateMetadata`
+> already returns `noindex` for a missing slug and Next's guidance is that the
+> meta tag is what prevents indexation while streaming. The real cost was that
+> analytics could not tell a dead link from a live page, and every bot probe of
+> the domain got a 200.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
