@@ -36,21 +36,36 @@ const NOTHING: Entitlements = {
 };
 
 /**
- * `free` and `starter` are identical here, and that is not an oversight.
+ * The tier line, and where it moved.
  *
- * Everything Starter sells — the booking page, unlimited bookings, email
- * reminders, self-service cancellation, the basic dashboard — is baseline
- * product that no tenant is ever denied. Starter buys *the right to keep using
- * it*, not an extra capability, so there is nothing to switch off when a
- * Starter tenant stops paying.
+ * **Custom branding is Basic, not Pro.** It used to be the headline Pro
+ * feature, which meant the cheapest paying tenant got a booking page in
+ * somebody else's colours — the one screen their clients actually see. A shop
+ * paying anything at all should look like themselves; what Pro sells is the
+ * work the *owner* does, not how the shop appears.
  *
- * The practical consequence is worth stating plainly rather than discovering
- * later: **for a Starter tenant the grace window applies no pressure at all.**
- * The freeze at the end of it is the only real enforcement they will feel.
+ * Pro is therefore three things that all cost us something per tenant:
+ * analytics, message delivery over SMS/WhatsApp, and human setup time.
+ *
+ * Staff management and the full calendar are in Basic's copy but appear
+ * nowhere here on purpose. They are **ungated** — no entitlement key, no
+ * check — and listing them is describing the product, not promising a switch.
+ * Adding a gate for them now would be taking a feature away from every tenant
+ * who already has it.
+ *
+ * `free` keeps nothing. It is not a tier anyone buys — it is the degraded
+ * state during the non-payment grace window, so its job is to be worth
+ * escaping.
  */
 const BY_PLAN: Record<PlanType, Entitlements> = {
   free: NOTHING,
-  starter: NOTHING,
+  starter: {
+    customBranding: true,
+    smsReminders: false,
+    whatsappReminders: false,
+    advancedAnalytics: false,
+    prioritySupport: false,
+  },
   pro: {
     customBranding: true,
     smsReminders: true,

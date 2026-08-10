@@ -65,11 +65,23 @@ describe("entitlementsFor", () => {
     }
   });
 
-  it("gives an actively-paying starter tenant no paid feature", () => {
+  it("gives an actively-paying starter tenant their own branding", () => {
+    // Moved down from Pro deliberately: the cheapest paying tenant should not
+    // have a booking page in somebody else's colours. It is the one screen
+    // their clients actually see.
     const entitlements = entitlementsFor(state("starter", "active"));
-    for (const feature of FEATURES) {
-      expect(entitlements[feature]).toBe(false);
-    }
+    expect(entitlements.customBranding).toBe(true);
+  });
+
+  it("keeps what Pro sells behind Pro", () => {
+    // The three things that cost us something per tenant: analytics, message
+    // delivery, and human setup time.
+    const entitlements = entitlementsFor(state("starter", "active"));
+
+    expect(entitlements.advancedAnalytics).toBe(false);
+    expect(entitlements.smsReminders).toBe(false);
+    expect(entitlements.whatsappReminders).toBe(false);
+    expect(entitlements.prioritySupport).toBe(false);
   });
 
   it("unlocks every paid feature for a trialing starter tenant", () => {

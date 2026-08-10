@@ -11,6 +11,7 @@ import {
   TrendPanel,
   type SortKey,
 } from "@/components/dashboard/analytics-panels";
+import { AnalyticsPaywall } from "@/components/dashboard/analytics-paywall";
 import { PageHeader } from "@/components/dashboard/ui";
 import { db } from "@/db";
 import {
@@ -30,6 +31,7 @@ import {
   toRange,
 } from "@/lib/analytics";
 import { requireBusiness } from "@/lib/dashboard-session";
+import { entitlementsFor } from "@/lib/entitlements";
 
 export const metadata: Metadata = { title: "אנליטיקס" };
 
@@ -47,6 +49,26 @@ type PageProps = {
 export default async function AnalyticsPage({ searchParams }: PageProps) {
   const { business } = await requireBusiness();
   const { range: rawRange, by } = await searchParams;
+
+  /**
+   * Gated **before** the queries run, not after.
+   *
+   * The paywall renders invented sample numbers, so there is nothing to fetch
+   * for a tenant who cannot see the real ones — and nothing of theirs can leak
+   * into a payload behind a CSS blur, which is the way this feature is usually
+   * built wrong.
+   */
+  if (!entitlementsFor(business).advancedAnalytics) {
+    return (
+      <div className="pb-4">
+        <PageHeader
+          title="אנליטיקס"
+          subtitle="מתי עמוס, מה מבוקש, ומי עושה מה"
+        />
+        <AnalyticsPaywall />
+      </div>
+    );
+  }
 
   const range = toRange(rawRange);
   const sort: SortKey = by === "revenue" ? "revenue" : "bookings";
