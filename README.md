@@ -20,15 +20,18 @@ platform owner gets a super-admin console at `/master`.
 ## What it does
 
 **For the client** — opens the business link, picks a service, picks a slot,
-enters name and phone. No registration. Gets a confirmation with an `.ics`
-download and a personal link to cancel within the business's cancellation
-window.
+picks a provider if the shop has a team, enters name and phone. No
+registration. Gets a confirmation with an `.ics` download and a personal link
+to cancel within the business's cancellation window, plus
+`/[slug]/my-appointments` to look up their history by phone.
 
-**For the owner** — day and week agenda, manual booking for walk-ins, quick
-status actions (completed / no-show / cancel), services CRUD with per-service
-buffer, weekly working hours with split shifts, one-off time off, a clients
-list derived from booking history, and stats for today / this week /
-cancellations / no-shows.
+**For the owner** — day and week agenda plus a **full week calendar** with
+custom blocks that also block client bookings, manual booking for walk-ins,
+quick status actions, optional **approve/reject** on every incoming request,
+services CRUD with per-service buffer, weekly working hours with split shifts,
+**staff with their own hours, time off and colours**, a clients list derived
+from booking history, **analytics** (peak heatmap, top services, staff load,
+trends), and an **installable app with push notifications** for new bookings.
 
 **Underneath**
 
@@ -40,9 +43,14 @@ cancellations / no-shows.
   instant cannot both win.
 - All timestamps are stored in UTC and reasoned about in the business
   timezone. DST transitions are covered by tests.
-- Row Level Security is on for all 9 tables with **zero anon policies**, which
+- Staff schedules **narrow** the shop's hours, never widen them — a personal
+  shift is intersected with `working_hours`, so a provider can never be booked
+  while the shop is shut.
+- Row Level Security is on for all 12 tables with **zero anon policies**, which
   is what keeps the public Supabase anon key from reading every tenant's client
   names and phone numbers.
+- Owner image and video uploads go **straight from the browser to Supabase
+  Storage** on a server-minted signed URL; the bytes never pass through Next.
 - The public booking form carries a honeypot plus Postgres-backed rate limits
   on IP and on phone-per-business.
 
@@ -55,19 +63,26 @@ cancellations / no-shows.
 ├── Frontend/          the entire application — there is no separate backend tier
 │   ├── src/
 │   │   ├── app/       routes: /, /[slug], /[slug]/my-appointments,
-│   │   │              /b/[token], /dashboard/* (incl. /analytics), /master/*,
-│   │   │              /login, /login/forgot, /login/reset, /auth/confirm,
-│   │   │              /legal/*, /accessibility, /api/cron
+│   │   │              /b/[token], /master/*, /login, /login/forgot,
+│   │   │              /login/reset, /auth/confirm, /legal/*, /accessibility,
+│   │   │              /api/cron, manifest.ts
+│   │   │              /dashboard/* — agenda, agenda/full (week calendar),
+│   │   │              services, hours, clients, analytics, staff, billing,
+│   │   │              settings, setup
 │   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
-│   │   ├── db/        schema, migrations, queries/ (repository layer), scripts
+│   │   ├── db/        schema, migrations (0000–0020), queries/ (repository
+│   │   │              layer), scripts
 │   │   │              queries/admin.ts — the only cross-tenant queries
-│   │   ├── lib/       availability, notifications/, billing/, entitlements, stats
+│   │   ├── lib/       availability, calendar-layout, calendar-week, analytics,
+│   │   │              notifications/ (+ whatsapp, reminder-policy), billing/,
+│   │   │              entitlements, stats, push, media-upload, booking-steps
 │   │   │              rate limiting, auth-validation, safe-redirect, app-url,
 │   │   │              env, ics
 │   │   │              branding, plans, legal-content, platform-metrics
 │   │   │              super-admin, impersonation, supabase/
 │   │   ├── test/      PGlite harness + factories
 │   │   └── proxy.ts   auth redirect guard (Next 16 deprecates middleware.ts)
+│   ├── public/        sw.js (push, caches nothing) + PWA icons
 │   ├── e2e/           Playwright specs
 │   ├── next.config.ts security headers
 │   └── vercel.json    cron schedule + function limits
@@ -183,6 +198,7 @@ Run from `Frontend/`.
 | `npm run db:seed`            | Reset and seed the `demo-barber` business                 |
 | `npm run db:claim -- <uuid>` | Point the demo business at a real auth user               |
 | `npm run storage:setup`      | Create the `business-media` bucket (once per project)     |
+| `npm run push:keys`          | Generate the VAPID pair for web push (**once, ever**)     |
 
 ---
 
@@ -290,12 +306,14 @@ Run `npm run check:env -- --production` before every deploy.
 
 ## Status
 
-Feature-complete through **Phase 7** (super-admin console) and **stages 8a–8c**
-of the billing milestone. Shipped since the MVP: per-business branding, a
-two-tier plan line with server-enforced entitlements, the full subscription
-lifecycle, a payment adapter behind a console provider, a monochrome rebuild of
-the landing page, a navigation-performance pass, auth hardening, the Israeli
-legal surface, self-service password reset, and one palette across the product.
+Feature-complete through **Phase 9**, plus **stages 8a–8c** of the billing
+milestone. Shipped since the MVP: per-business branding, a two-tier plan line
+with server-enforced entitlements, the full subscription lifecycle, a payment
+adapter behind a console provider, a monochrome rebuild of the landing page, a
+navigation-performance pass, auth hardening, the Israeli legal surface,
+self-service password reset, one palette across the product — and then Phase 9:
+multi-staff, media uploads, booking approval, client self-service, analytics, a
+full week calendar, an installable app with push, and a WhatsApp backend.
 
 > **The whole product now runs on one palette.** Teal is gone from `/login`,
 > `/dashboard/*` and `/master`, and `neutral` and `slate` were collapsed into
@@ -322,10 +340,18 @@ emailed link → `/login/reset`. Two Supabase dashboard settings make it work
 properly in production; both fail quietly if skipped, and both are in
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#4-supabase-auth).
 
+**Four newer surfaces are code-complete but have never run on real
+infrastructure**, and each needs one credential before it can: media uploads
+(`SUPABASE_SERVICE_ROLE_KEY` + `npm run storage:setup`), web push
+(`npm run push:keys`), WhatsApp (Green API), and SMS (Twilio). Everything
+around them is tested; the wire itself has not been exercised. The post-deploy
+checklist in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#6-post-deploy-checks)
+walks each one.
+
 Still not built: a real payment provider and its webhook (8d), the per-tenant
-cost model (8e), client deposits, multi-staff resources, Google Calendar sync,
-recurring appointments, custom domains, service image upload (needs Supabase
-Storage), Sentry.
+cost model (8e), client deposits beyond the schema, Google Calendar sync,
+recurring appointments, custom domains, service image upload, per-tenant
+reminder thresholds, and Sentry.
 
 ### Before this goes live
 

@@ -73,12 +73,18 @@ Online payments/deposits, multi-staff resources, Google Calendar 2-way sync, AI 
 
 ## 3. Database Schema (concise)
 
-> ⚠️ **This section is the original design sketch and has drifted.** It predates
-> migrations `0003`–`0011`, so it omits per-service buffers, the notifications
-> outbox, rate limits, onboarding state, and the branding / subscription /
-> trial columns. `Frontend/src/db/schema.ts` is the source of truth, and
+> ⚠️ **This section is the original design sketch and has drifted a long way.**
+> It predates migrations `0003`–`0020`, so it omits per-service buffers, the
+> notifications outbox, rate limits, onboarding state, branding, subscription
+> and trial columns, the whole of multi-staff (`staff`, `staff_schedules`,
+> `appointments.staff_id`, `time_off.staff_id`), deposits, social links,
+> `requires_approval`, and `push_subscriptions`.
+>
+> **`Frontend/src/db/schema.ts` is the source of truth**, and
 > [ARCHITECTURE.md](ARCHITECTURE.md#database) documents the constraints that
-> carry weight. Kept here for the original reasoning, not as a reference.
+> carry weight. Kept here for the original reasoning, not as a reference —
+> including the last note below, which predicted the multi-staff change and is
+> worth reading against what it actually took.
 
 ```
 businesses
@@ -155,6 +161,12 @@ appointments
 - Postgres `EXCLUDE USING gist (business_id WITH =, tstzrange(starts_at, ends_at) WITH &&)` is the authoritative anti-double-booking guard; the UI check is only an optimization.
 - Snapshot `price_cents` / service name on the appointment so history survives service edits.
 - Add `staff` + `appointments.staff_id` later without breaking this model.
+  > **How that actually went (0013).** The model held, but the guard above did
+  > not: the exclusion constraint had to be **rekeyed** onto
+  > `(business_id, staff_id)`, added while the old one still stood and dropped
+  > only afterwards so the table was never unguarded. Its predicate was also
+  > inverted to list the statuses that *release* a slot, which is what later
+  > let two new enum values be added without naming them anywhere.
 
 ---
 
@@ -261,7 +273,7 @@ lapsed trial — is stages 8b–8e.
 | Tier line          | **Two tiers**: Starter ₪69/mo, Pro ₪99/mo. `business` retired and folded into `pro`.                    |
 | Volume caps        | **None.** Both tiers include unlimited bookings; differentiation is by feature only.                     |
 | Unpaid tenants     | **7-day grace** (downgrade + warnings), then **freeze**: public booking off, dashboard read-only.        |
-| Multi-staff copy   | **Removed** — it does not exist. SMS/WhatsApp stays, because the Twilio adapters and outbox do exist.    |
+| Multi-staff copy   | **Removed** — it did not exist at the time. ~~Superseded:~~ multi-staff shipped in Phase 9 and is now Basic-tier copy. |
 | Payment provider   | **Deferred by design.** Build the adapter and a console provider; the concrete provider is one file.     |
 
 Sequencing is deliberate: only 8d needs the provider decision, so everything
@@ -470,6 +482,133 @@ the note promised, rather than drifting further.
 > The brand ramp is the *platform's* identity and `--accent` is the *tenant's*.
 > Conflating them would have repainted every customer's booking page as a side
 > effect of a marketing decision.
+
+### Phase 9 — Product depth ✅
+
+Everything between the palette reconciliation and the current head. Ordered as
+it shipped; each bullet is one commit.
+
+#### Multi-staff (0013–0018) ✅
+
+- [x] `staff` and `staff_schedules`, `businesses.has_multiple_staff`, and
+      `appointments.staff_id` NOT NULL with `ON DELETE RESTRICT` — history
+      outlives the person. Backfilled one staff row per existing tenant.
+- [x] **The exclusion constraint rekeyed on `(business_id, staff_id)`**, added
+      while the old one still stood and dropped only afterwards, so the table
+      is never unguarded for an instant. Its predicate is *inverted* — it lists
+      the statuses that release a slot — which is what let 0014 add two enum
+      values without naming them in a constraint.
+- [x] `computeStaffSlots()` layers over `computeSlots()` rather than replacing
+      it: every hard-won rule applies per person unchanged, and "a booking for
+      A leaves the time open for B" falls out with no new logic.
+- [x] Booking flow asks **the time first and the person second**, so step 2
+      shows every time anyone can do. A single-staff tenant skips it silently;
+      a team shop never does, even when only one person is free.
+- [x] Per-staff time off (0016) via a **composite FK** on
+      `(business_id, staff_id)`, so one tenant's closure cannot name another's
+      staff. Phone, colour and portrait in 0017–0018.
+
+#### Media uploads ✅
+
+- [x] Browser → Supabase Storage directly, on a signed URL minted server-side
+      after `requireWritable()`. The bytes never pass through Next: a Server
+      Action body is capped at 1MB, and the browser has no Supabase session to
+      authenticate with because the auth cookies are `httpOnly` by design.
+- [x] Signed with the **service-role key** rather than the owner's session, so
+      authorisation stays in one place. An RLS policy matching the path prefix
+      against `auth.uid()` would be a second copy of "who owns this tenant" —
+      and would silently break admin impersonation.
+- [x] `admin-isolation.test.ts` resolves every import in `src/` and fails the
+      build if a `"use client"` module reaches the admin client.
+- [x] Video on the hero (mp4/webm, 25MB) with `autoPlay muted loop playsInline`.
+      Bucket created by `npm run storage:setup`, **not** a migration — Storage
+      lives in a schema PGlite does not have.
+
+#### Availability fix ✅
+
+- [x] **`staff_schedules` used to replace `working_hours`, not intersect it.**
+      A provider whose row read 08:00–20:00 was offered 08:00–20:00 against a
+      shop open 09:00–17:00, and a row on a closed weekday produced a fully
+      bookable day out of nothing. `intersectShifts()` clips.
+- [x] The inherit-or-intersect decision is made on the **raw row count**, so an
+      empty intersection stays empty rather than being read as "no rows" and
+      handing that person the whole day.
+- [x] Cross-service blocking audited and found already correct — availability
+      partitions by `staff_id` and never reads `service_id`. It lacked a test,
+      which is what made it worth auditing.
+
+#### "תורים באישור" (0019) ✅
+
+- [x] A booking arrives as `pending` and **holds its slot** — non-terminal, so
+      the exclusion constraint blocks it. A request that reserved nothing would
+      be a request to be disappointed.
+- [x] Three notification kinds rather than one status-aware template: by
+      dispatch time a rejected request and a cancelled booking are both simply
+      `cancelled`, so nothing in the row could tell them apart.
+- [x] The confirmation screen changes wholesale — amber and an hourglass, no
+      calendar download. Someone who skims a green tick has been told they have
+      an appointment, and turns up.
+- [x] Requests render **above** the agenda, because the agenda shows one day and
+      a request can be for any day.
+
+#### Client self-service ✅
+
+- [x] `/[slug]/my-appointments` — phone lookup, upcoming and past, cancellation
+      reusing `cancelBookingAction` with the token the lookup returns.
+- [x] **A phone number is not a credential**, and the docs say so. Mitigated
+      with the tightest non-auth rate limit in the app, tenant-scoped results
+      proved by test, and `noindex`. The upgrade path is an OTP once SMS exists.
+
+#### Dashboard depth ✅
+
+- [x] One unsaved-changes bar replacing five per-section save buttons.
+- [x] `/dashboard/analytics` — wall-clock heatmap (`AT TIME ZONE`, DST-proved),
+      services, staff load, status split, trend. No charting library.
+- [x] `/dashboard/agenda/full` — week grid where a custom block is a `time_off`
+      row, so it blocks client bookings with no new blocking logic.
+- [x] Mobile navigation: every dashboard page reachable from a phone, with
+      `nav-coverage.test.ts` failing the build if one is not.
+
+#### Tier line moved ✅
+
+- [x] **Custom branding moved from Pro to Basic.** The cheapest paying tenant
+      should not have a booking page in somebody else's colours.
+- [x] Pro is now the three things that cost per tenant: analytics, message
+      delivery, human setup time.
+- [x] The analytics paywall ships **invented sample numbers**, not the tenant's
+      figures behind a blur — a blur is a visual effect, not an access control.
+      The page gates before it queries, asserted by test.
+
+#### Messaging ✅
+
+- [x] `WhatsAppService` over two backends. Green API preferred because the
+      official Business API needs a Meta-approved template for a message the
+      shop sends first, and Green API drives the shop's own account.
+- [x] Reminders planned from the **lead time**: ≥30h ahead → 24h before,
+      otherwise 2h before. The brief left 24–30h undefined; ordered thresholds
+      matched longest-first close it, because a gap here sends nothing silently.
+
+#### PWA + push (0020) ✅
+
+- [x] Manifest opening on `/dashboard` — whoever installs this is an owner.
+- [x] **A service worker that caches nothing.** For a booking app stale is
+      worse than offline: an owner who sees a cached slot books over it.
+- [x] One subscription row per **device**; the tenant flag is separate so
+      toggling notifications never re-triggers a permission prompt that can
+      only be refused once.
+- [x] Push is deliberately **not** in the outbox — it is a nudge whose value
+      expires in a minute, and the booking is on the dashboard either way.
+- [x] `push_subscriptions` with RLS and an owner policy. The RLS test caught the
+      omission before review did.
+
+#### Marketing ✅
+
+- [x] Proof strip, six interactive feature cards, and an install guide split
+      iOS/Android — the two platforms genuinely differ, and on iOS Safari will
+      not offer notification permission until the app is on the home screen.
+
+> **`npm run verify` is green at 644 tests across 50 files**, up from 337 at
+> the start of this phase.
 
 #### 8d — The payment provider *(needs the provider decision)*
 

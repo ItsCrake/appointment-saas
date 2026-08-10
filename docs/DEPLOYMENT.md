@@ -55,7 +55,10 @@ brackets included. `check:env` fails if the brackets survive.
 
 | Variable                    | Effect if unset                                                                                                                                                                            |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TWILIO_WHATSAPP_FROM`      | The WhatsApp channel stays on the console provider. Genuinely optional: reminders are never auto-routed to WhatsApp, because a business-initiated message needs a Meta-approved template. |
+| `TWILIO_WHATSAPP_FROM`      | The official WhatsApp Business API backend is unavailable. Needs a **Meta-approved template** for confirmations and reminders — prefer Green API below, which does not.                   |
+| `GREEN_API_INSTANCE_ID` / `GREEN_API_TOKEN` | WhatsApp is unavailable and the channel falls through to SMS, then email. **Preferred backend**: it drives the shop's own account, so no template approval is needed.        |
+| `GREEN_API_HOST`            | Defaults to `https://api.green-api.com`. New instances are often issued on a numbered host, e.g. `https://7103.api.greenapi.com`.                                                          |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push is off; the settings card says so and every other alert channel still fires. Generate with `npm run push:keys` — **once, ever** (see §3.2).      |
 | `SUPER_ADMIN_EMAILS`        | `/master` denies everyone. The console is unreachable, which is the safe default — set it only when you want it.                                                                            |
 
 ## 3. Database
@@ -67,18 +70,16 @@ pointing at production:
 npm --prefix Frontend run db:migrate
 ```
 
-> ⚠️ **Migration `0012` has never been applied to any database.** It widens the
-> subscription status set, rewrites retired `business` plan rows up to `pro`,
-> and creates `subscription_events` and `invoices`. Until it runs, the entire
-> billing lifecycle is inert: no trial lapses, nothing is ever frozen, and
-> `/dashboard/billing` cannot read its own tables.
+All 21 migrations (`0000`–`0020`) are applied to the current production
+database. Run this after every deploy that adds one — nothing applies them for
+you.
 
-Verify afterwards that RLS is on for all nine tables and that no policy is
+Verify afterwards that RLS is on for all twelve tables and that no policy is
 reachable by `anon` — the anon key is public, and RLS is the only thing
 standing between tenants:
 
 ```sql
--- Expect 9 rows, all rls_enabled = true.
+-- Expect 12 rows, all rls_enabled = true.
 select tablename, rowsecurity as rls_enabled
 from pg_tables where schemaname = 'public' order by tablename;
 
@@ -92,8 +93,9 @@ select tablename, policyname, roles from pg_policies
 where schemaname = 'public' and roles::text[] && array['anon','public'];
 ```
 
-`rate_limits` correctly shows RLS on with no policy at all; the other six each
-have one `authenticated` owner policy.
+`rate_limits` and `subscription_events` correctly show RLS on with no policy
+at all, and `invoices` has a `SELECT`-only one. The other nine each carry one
+`authenticated` owner policy.
 
 > **Migration `0008` will refuse to apply if any business points at a deleted
 > auth user.** It adds the owner FK, and it will not delete rows to make room
@@ -179,6 +181,26 @@ same `requireWritable()` check every other dashboard mutation runs.
 | "העלאת קבצים לא מוגדרת עדיין בשרת"                      | `SUPABASE_SERVICE_ROLE_KEY` is not set        |
 | "לא הצלחנו להתחיל את ההעלאה" on every attempt           | key is set, bucket was never created          |
 | Upload reaches 100% then fails                          | bucket exists but has no `file_size_limit` / wrong mime list — re-run the command |
+
+## 3.2 Web push keys — once, ever
+
+```bash
+npm --prefix Frontend run push:keys
+```
+
+Prints a VAPID pair. Put the public key in `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, the
+private key in `VAPID_PRIVATE_KEY`, and a contact address in `VAPID_SUBJECT`
+(some push services reject pushes without one).
+
+> ⚠️ **Generate once and never rotate them.** The pair identifies this server to
+> every push service, so replacing it **invalidates every existing
+> subscription**. Every owner who had enabled notifications would silently stop
+> receiving them, and would have to accept the browser permission prompt again
+> — a prompt a person can only refuse once, after which it cannot be re-asked
+> from the page at all.
+
+Without them nothing breaks: the settings card says push is not configured, and
+every other alert channel still fires.
 
 ## 4. Supabase Auth
 
@@ -381,3 +403,30 @@ Then, against the deployed site:
 - the reset mail actually arrives (this proves custom SMTP, not just the app),
   and its link opens `/login/reset` **in a different browser** from the one that
   requested it — that is the check for §4a
+
+### The newer surfaces, which have never run on real infrastructure
+
+Each of these is fully tested in the suite and has **never been exercised
+against a real service**. They are grouped because they share that property.
+
+- **Media uploads.** Upload a logo from the dashboard, confirm it renders on
+  `/<slug>`. Then a hero video, and confirm it autoplays muted on a phone. This
+  is the check for `SUPABASE_SERVICE_ROLE_KEY` and for `storage:setup` having
+  been re-run since the video limits changed — a bucket created earlier keeps
+  the 5MB image-only settings and rejects video with a raw storage error.
+- **Web push.** With the VAPID pair set, open `/dashboard/settings` on a phone,
+  enable notifications, and press "שליחת התראת בדיקה". Then book a real
+  appointment from another device and confirm the push arrives with the app
+  closed. Nothing before this point proves a notification has ever left the
+  server.
+- **Install to home screen.** iOS: Safari → Share → Add to Home Screen, then
+  open from the icon and *only then* enable notifications — Safari will not
+  offer permission before the app is installed. Android: Chrome should offer
+  the install itself.
+- **WhatsApp.** With Green API credentials set, book an appointment and confirm
+  the client receives the confirmation. `check:env` reports which backend
+  resolved; if it says Twilio, the message needs a Meta-approved template
+  first and will be rejected without one.
+- **A same-day booking gets a reminder.** Book something four hours out and
+  confirm a reminder is queued for two hours before, not skipped. This is the
+  one behaviour that a fixed 24-hour rule silently lost.

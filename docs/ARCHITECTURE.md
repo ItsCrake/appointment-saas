@@ -634,14 +634,18 @@ The migration refuses to apply if orphans already exist, rather than deleting
 them to make room for the constraint. `src/db/owner-cascade.test.ts` covers the
 cascade, the slug reclaim, tenant isolation, and that refusal.
 
-### RLS status: 9 of 9 tables, **0 anon policies**
+### RLS status: 12 of 12 tables, **0 anon policies**
 
-Migrations `0002`, `0005`, `0007` and `0012`. Six tables carry one
-`FOR ALL TO authenticated` policy keyed on `auth.uid() = owner_user_id`, joined
-through `businesses` for child tables. Both `USING` and `WITH CHECK` are set,
-so an owner cannot insert rows pointing at someone else's business.
+Migrations `0002`, `0005`, `0007`, `0012`, `0013` and `0020`. Nine tables carry
+one `FOR ALL TO authenticated` policy keyed on `auth.uid() = owner_user_id`,
+joined through `businesses` for child tables. Both `USING` and `WITH CHECK` are
+set, so an owner cannot insert rows pointing at someone else's business.
 
-Three tables deliberately differ, and `db/rls.test.ts` asserts each:
+`db/rls.test.ts` asserts the whole table list, not only the policies — which is
+what caught `push_subscriptions` arriving without a policy. A new tenant table
+cannot be added without a deliberate decision about its RLS.
+
+Three tables deliberately differ, and the same test asserts each:
 
 | Table                 | Policy                | Why                                                                                                            |
 | --------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -1883,11 +1887,11 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 ## Feature status
 
-**Done (Phases 0–7 and billing stages 8a–8c, bar the production deploy)**
+**Done (Phases 0–9, bar the payment provider and a production pilot)**
 
-> **Migration `0012` has never been applied to any database.** Everything the
-> billing lifecycle does is inert until `npm run db:migrate` runs against
-> production. This is the single highest-priority outstanding item.
+> **All 21 migrations (0000–0020) are applied.** Verified directly against the
+> live database: twelve public tables, RLS on every one. The long-standing
+> "0012 has never been applied" warning is retired.
 
 
 - Public booking: 3-step flow, no client login, `.ics` download, self-service
@@ -1940,6 +1944,29 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   `slate` collapsed into `zinc`, the brand gradient reserved for active and
   recommended states, and six hand-rolled buttons pulled onto the shared
   tokens — see [One palette, one ramp](#one-palette-one-ramp)
+- **Multi-staff**: per-person schedules and time off, a staff picker that asks
+  *after* the time is chosen, the exclusion constraint rekeyed on
+  `(business_id, staff_id)`, and calendar swatches shared by the agenda and the
+  analytics charts
+- **Media uploads**: images anywhere and video on the hero, straight from the
+  browser to Supabase Storage on a server-minted signed URL — the bytes never
+  pass through Next
+- **"תורים באישור"**: a booking arrives as a request that holds its slot, with
+  three notification kinds and an approve/reject panel above the agenda
+- **Client self-service** at `/[slug]/my-appointments`: phone lookup, history,
+  and cancellation reusing the emailed link's own code path
+- **Analytics** at `/dashboard/analytics`: wall-clock heatmap, service and staff
+  breakdowns, status split and a booking/revenue trend — Pro-gated behind a
+  paywall that ships invented sample numbers rather than blurring real ones
+- **Full week calendar** at `/dashboard/agenda/full`, where a custom block is a
+  `time_off` row and therefore blocks client bookings for free
+- **PWA + web push**: installable manifest, a service worker that caches
+  nothing, and per-device VAPID subscriptions notifying owners of new bookings
+- **WhatsApp** behind one interface with two backends (Green API preferred over
+  Twilio, because only one of them needs Meta template approval), and reminders
+  planned from the booking's lead time rather than a fixed 24 hours
+- Per-tenant theming across the whole booking page, including an accent-driven
+  mesh banner and a video hero
 
 **Not built**
 
@@ -1949,10 +1976,18 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   and the webhook that would drive it. `getBillingProvider()` is the only
   function that needs to learn a new name. Stages 8d and 8e — see
   [PROJECT_PLAN.md](PROJECT_PLAN.md).
-- Multi-staff resources, Google Calendar sync, recurring appointments,
-  custom domains
-- Service image upload (needs Supabase Storage), appointment status filters,
-  timezone editing in settings
+- Google Calendar sync, recurring appointments, custom domains
+- **Service images.** `services.image_url` exists and renders on the public
+  page, but nothing sets it — the uploader supports every other surface. The
+  same orphaned-column gap `businesses.logo_url` had until the upload work.
+- Appointment status filters, timezone editing in settings
+- **Per-tenant reminder thresholds.** The lead-time table is configurable in
+  code; making it per-business needs columns and a settings UI.
+- **Deposits are still schema-only.** `deposit_*` columns and the two enum
+  statuses exist and are configurable in settings, and the section says so on
+  screen. No booking has ever been written as `pending_deposit`.
+- **Marketing mockups** are the existing `MockupShowcase`, not phone-framed
+  renders of the booking flow and dashboard. A design-asset job, not a code one.
 - Sentry — `reportError` is the single call site to wire it into
 - E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
   suite, not through a browser
@@ -1972,17 +2007,25 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - **Legal review.** `/legal/*` and `/accessibility` are engineer-written
   templates and `LEGAL_ENTITY` still holds placeholder registration and address
   fields. They must be reviewed by an Israeli lawyer before real money moves.
-- SMS/WhatsApp are code-complete but **unproven — no Twilio account yet**. The
-  routing is wired (`clientDelivery()` picks SMS for Pro), so the only thing
-  between a Pro tenant and real SMS is credentials. `check:env --production`
-  now fails without them, which blocks a deploy until that account exists.
-- WhatsApp needs a Meta-approved template before reminders can route to it.
-  Until then the channel is deliberately configured-but-unused.
+- SMS/WhatsApp are code-complete but **unproven — no account with either
+  provider yet**. The routing is wired and WhatsApp now leads the channel
+  order, so the only thing between a Pro tenant and a real message is
+  credentials. `check:env --production` fails without the Twilio ones, which
+  blocks a deploy until that account exists.
+- **Web push is unproven end to end.** The VAPID pair has never been generated
+  for a real deployment, so no notification has left a real server. Every part
+  around it is tested — subscription storage, expiry handling, the manifest's
+  icons, the worker's handlers — but the wire itself has not been exercised.
 - `appointments.reminder_sent_at` is dead since the outbox landed; safe to drop
-- Read-only impersonation. An admin viewing a tenant can currently write as
-  that tenant; see the warning under [Impersonation](#impersonation). Stage 8b
-  builds the per-action write gate for frozen tenants — the same mechanism, so
-  that is when this gets closed properly rather than half-done.
+- Read-only impersonation. An admin viewing a tenant can still write as that
+  tenant; see the warning under [Impersonation](#impersonation). 8b built the
+  per-action write gate for frozen tenants, which is the mechanism this needs —
+  it is now a matter of passing a second reason through it, not of new
+  machinery.
+- **Orphaned uploads.** Replacing an image leaves the old object in the bucket,
+  because every upload gets a fresh UUID path so a CDN can never serve stale
+  bytes at a live URL. No sweep collects them. Cheap at this scale; a job for
+  the day storage costs anything.
 
 ## Gotchas
 
