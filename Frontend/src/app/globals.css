@@ -544,3 +544,29 @@ body {
     animation: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   iOS safe areas.
+
+   `viewport-fit=cover` (set in `app/layout.tsx`) is what makes
+   `env(safe-area-inset-*)` report real values at all — without it they are
+   `0px` and every inset rule in the codebase is a no-op. The cost of turning
+   it on is that content now draws into the unsafe areas, so the two edges that
+   matter have to claim their space back.
+
+   The status bar is handled here rather than on a component, because the
+   topmost element on the dashboard is not fixed: an impersonation banner or a
+   freeze banner can render above the nav, so no single component can own the
+   inset without being wrong whenever a banner is present.
+
+   Scoped to `display-mode: standalone`, which is precisely the case where it
+   is needed. In a browser tab the chrome already occupies that space, and
+   padding the body there would push every page — including the landing hero,
+   whose whole composition is a full-bleed panel — down by a strip of blank
+   paper for nothing.
+   -------------------------------------------------------------------------- */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
+}

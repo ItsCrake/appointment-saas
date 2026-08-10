@@ -2000,6 +2000,47 @@ failure, and the reported bug. Two changes:
   cooldown: what survives is the project-wide email cap, which is the same for
   every address and therefore discloses nothing.
 
+## iOS safe areas
+
+The installed app's tab bar sat underneath the home indicator, and the reason
+is worth recording because the code looked right.
+
+Five components already carried `pb-[env(safe-area-inset-bottom)]` — the
+dashboard's bottom bar, the hours drawer, the "עוד" sheet, the gallery lightbox
+and the week-calendar sheet. **All five were no-ops.** iOS only reports
+non-zero `env(safe-area-inset-*)` values when the viewport opts in with
+`viewport-fit=cover`, and the viewport export set width, scale and theme colour
+but not that. Without it the page is laid out inside the safe area and every
+inset resolves to `0px`, so the padding was real CSS applied to a real element
+and computed to nothing.
+
+Turning it on means content now draws into the unsafe areas, so the two edges
+that matter claim their space back:
+
+- **The status bar** is handled in `globals.css` on `body`, not on a component,
+  because the topmost element on the dashboard is not fixed — an impersonation
+  or freeze banner can render above the nav, so no component can own the inset
+  without being wrong whenever a banner is present. Scoped to
+  `@media (display-mode: standalone)`: in a browser tab the chrome already
+  occupies that space, and padding the body there would push every page,
+  including the landing page's full-bleed hero, down by a strip of blank paper.
+- **The bottom bar** insets itself, with the background still running to the
+  physical edge — a bar that stopped short would show page content scrolling
+  underneath it. `max(…, 0.25rem)` because flush against the bezel on a device
+  with no inset reads as clipped rather than as full-bleed. The dashboard's
+  `main` clears `6rem + env(safe-area-inset-bottom)`, since 6rem covered the
+  4rem of tabs but not the inset that appeared beneath them.
+
+`pwa.test.ts` asserts `viewport-fit=cover` is still there. The failure it
+guards against is deletion, and the symptom of that deletion is five silent
+regressions on hardware the suite cannot reach.
+
+> **Verified as far as this environment allows**: the compiled CSS is valid
+> (`max(env(safe-area-inset-bottom), .25rem)`, `calc(6rem + env(…))`), the meta
+> tag renders, and there is no horizontal overflow at 375px. The insets
+> themselves are zero in every browser here, so the on-device result still needs
+> a look on a real iPhone with the app installed.
+
 ## Web push
 
 `lib/push.ts` sends owner notifications inline and best-effort, deliberately

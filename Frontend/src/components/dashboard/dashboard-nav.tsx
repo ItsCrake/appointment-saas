@@ -296,8 +296,22 @@ export function DashboardNav() {
         <MoreSheet isActive={isActive} />
       </div>
 
-      {/* Mobile: fixed bottom bar, thumb-reachable. */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden dark:border-zinc-800 dark:bg-zinc-900/95">
+      {/* Mobile: fixed bottom bar, thumb-reachable.
+
+          The bottom padding lifts the tap targets clear of the iOS home
+          indicator while the bar's own background still runs to the physical
+          edge — a bar that stopped short would show a strip of page scrolling
+          underneath it. It only started working when `viewport-fit=cover`
+          landed; before that `env(safe-area-inset-bottom)` was `0px` and the
+          indicator sat on top of the middle two tabs.
+
+          `max(…, 0.25rem)` because a bar flush against the bezel on a device
+          with no inset reads as clipped rather than as full-bleed.
+
+          The horizontal insets matter only in landscape on a notched phone.
+          The manifest locks the installed app to portrait, so this is for the
+          same page opened in Safari, where nothing locks anything. */}
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 pb-[max(env(safe-area-inset-bottom),0.25rem)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur md:hidden dark:border-zinc-800 dark:bg-zinc-900/95">
         <ul className="grid grid-cols-4">
           {MOBILE_LINKS.map(({ href, label, icon: Icon }) => (
             <li key={href}>

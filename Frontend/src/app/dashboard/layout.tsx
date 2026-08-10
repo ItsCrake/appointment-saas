@@ -93,8 +93,11 @@ export default async function DashboardLayout({
       {frozen ? <FrozenBanner reason={frozen.reason} /> : null}
       <div className="flex min-h-full flex-1 flex-col bg-zinc-50 md:flex-row dark:bg-zinc-950">
         <DashboardNav />
-        {/* pb-24 clears the mobile bottom bar; md restores normal padding. */}
-        <main className="flex-1 px-4 pt-6 pb-24 md:px-8 md:pb-10">
+        {/* Clears the mobile bottom bar, which is 4rem of tabs plus whatever
+            the home indicator claims — 6rem alone left the last row of a long
+            page tucked under it on an iPhone once the inset became real. `md`
+            restores normal padding, where the bar does not exist. */}
+        <main className="flex-1 px-4 pt-6 pb-[calc(6rem_+_env(safe-area-inset-bottom))] md:px-8 md:pb-10">
           <div className="mx-auto w-full max-w-4xl">{children}</div>
         </main>
       </div>

@@ -103,3 +103,52 @@ describe("service worker", () => {
     expect(sw).toContain("showNotification");
   });
 });
+
+describe("iOS safe areas", () => {
+  /**
+   * `viewport-fit=cover` is the switch that makes `env(safe-area-inset-*)`
+   * report real values on iOS. Without it they are all `0px`, every inset rule
+   * in the codebase quietly does nothing, and the installed app's tab bar sits
+   * under the home indicator — while the CSS still *reads* as correct, which is
+   * exactly how it survived review the first time.
+   *
+   * Asserted against the source rather than a render because it is a static
+   * export, and because the failure it guards against is deletion.
+   */
+  const layout = readFileSync(
+    path.resolve(process.cwd(), "src/app/layout.tsx"),
+    "utf8",
+  );
+  const globals = readFileSync(
+    path.resolve(process.cwd(), "src/app/globals.css"),
+    "utf8",
+  );
+
+  it("opts the viewport into the unsafe areas", () => {
+    expect(layout).toMatch(/viewportFit:\s*"cover"/);
+  });
+
+  it("claims the status bar back for the installed app only", () => {
+    // In a browser tab the chrome already occupies that space; padding the body
+    // there would push the landing hero down by a strip of blank paper.
+    expect(globals).toMatch(/@media \(display-mode: standalone\)/);
+    expect(globals).toMatch(/padding-top:\s*env\(safe-area-inset-top\)/);
+  });
+
+  it("keeps the bottom bar clear of the home indicator", () => {
+    const nav = readFileSync(
+      path.resolve(process.cwd(), "src/components/dashboard/dashboard-nav.tsx"),
+      "utf8",
+    );
+    expect(nav).toContain("pb-[max(env(safe-area-inset-bottom),0.25rem)]");
+  });
+
+  it("scrolls dashboard content past the bar rather than under it", () => {
+    const dashboardLayout = readFileSync(
+      path.resolve(process.cwd(), "src/app/dashboard/layout.tsx"),
+      "utf8",
+    );
+    // 6rem alone cleared the 4rem of tabs but not the inset beneath them.
+    expect(dashboardLayout).toContain("env(safe-area-inset-bottom)");
+  });
+});

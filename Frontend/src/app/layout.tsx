@@ -39,6 +39,23 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Booking pages are content, not an app shell — let people zoom.
   maximumScale: 5,
+  /**
+   * **This is what makes `env(safe-area-inset-*)` non-zero on iOS.**
+   *
+   * Without it the viewport is `auto` (equivalent to `contain`), the page is
+   * laid out inside the safe area, and every one of those variables resolves to
+   * `0px`. The codebase had five `pb-[env(safe-area-inset-bottom)]` rules — on
+   * the dashboard's bottom bar, the hours drawer, the more sheet, the gallery
+   * lightbox and the week-calendar sheet — and all five were silently no-ops,
+   * which is why the installed app's tab bar sat under the home indicator
+   * despite looking correctly written.
+   *
+   * The consequence is that content now extends into the unsafe areas by
+   * default, so anything fixed to an edge has to inset itself. `globals.css`
+   * handles the status bar for the installed app; the bottom bar handles its
+   * own edge.
+   */
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },

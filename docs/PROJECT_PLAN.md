@@ -694,6 +694,26 @@ rows because collapsing back to one chair does not delete people with history.
       product a half-configured trio looks identical to an unconfigured one.
 - [x] 22 new unit tests; `npm run verify` green at **733 across 55 files**.
 
+### iOS safe areas actually apply now ✅
+
+- [x] **Root cause: `viewport-fit=cover` was missing.** Five components already
+      had `pb-[env(safe-area-inset-bottom)]` and every one was a no-op — iOS
+      reports zero insets unless the viewport opts in, so the padding was real
+      CSS computing to nothing.
+- [x] The status bar is claimed back on `body`, scoped to
+      `display-mode: standalone` — the topmost dashboard element is not fixed
+      (banners can precede the nav), and padding it in a browser tab would push
+      the landing hero down for nothing.
+- [x] The bottom bar insets itself with its background still reaching the edge,
+      floored at `0.25rem`; `main` clears `6rem + inset`.
+- [x] `pwa.test.ts` asserts the viewport flag, because deleting it silently
+      re-breaks all five.
+- [x] `npm run verify` green at **737 across 55 files**.
+
+> Compiled CSS, the meta tag and the absence of horizontal overflow are
+> verified. The insets are zero in every browser available here, so the
+> on-device result still wants a look on a real iPhone with the app installed.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
