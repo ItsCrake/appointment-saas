@@ -18,6 +18,7 @@ import {
 } from "@/lib/availability";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError, reportWarning } from "@/lib/observability";
+import { sendPushToBusiness } from "@/lib/push";
 import { BOOKING_RULES, rateLimitMessage, SLOTS_RULE } from "@/lib/rate-limit";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
 import { getClientIp } from "@/lib/request-context";
@@ -280,6 +281,28 @@ export async function createBookingAction(
         businessId,
         appointmentId: appointment.id,
       });
+    }
+
+    /**
+     * The owner's phone, separately from the outbox and for a reason: a push
+     * is a nudge whose value expires in a minute. The booking is on their
+     * dashboard and the email alert is queued either way, so this one sends
+     * inline, best-effort, and never delays or fails the booking.
+     */
+    if (businessRow.pushEnabled) {
+      try {
+        const when = formatInTimeZone(start, businessRow.timezone, "d.M HH:mm");
+        await sendPushToBusiness(db, businessId, {
+          title: appointment.status === "pending" ? "בקשת תור חדשה" : "תור חדש",
+          body: `${clientName} · ${service.name} · ${when}`,
+          url: "/dashboard",
+        });
+      } catch (error) {
+        reportError("booking.push", error, {
+          businessId,
+          appointmentId: appointment.id,
+        });
+      }
     }
 
     return {

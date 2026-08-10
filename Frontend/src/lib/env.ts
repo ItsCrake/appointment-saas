@@ -125,6 +125,35 @@ export const ENV_VARS: EnvVar[] = [
         ? null
         : "must contain an email address",
   },
+  /*
+   * Web push. `optional` rather than `production` because the failure is
+   * visible and self-limiting: with no keys the settings card says push is not
+   * configured, and every other alert channel still fires. Nothing is silently
+   * lost, which is the bar the Resend and Twilio entries are held to.
+   */
+  {
+    name: "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+    requirement: "optional",
+    group: "Web push",
+    description:
+      "VAPID public key. Public by design — the browser needs it to subscribe.",
+    howTo: "Generate both keys with: npm run push:keys",
+  },
+  {
+    name: "VAPID_PRIVATE_KEY",
+    requirement: "optional",
+    group: "Web push",
+    description: "VAPID private key. Signs every push; never expose it.",
+    howTo: "Generate both keys with: npm run push:keys",
+  },
+  {
+    name: "VAPID_SUBJECT",
+    requirement: "optional",
+    group: "Web push",
+    description:
+      "Contact for the push service, as mailto: or https:. Some services reject pushes without one.",
+    howTo: 'e.g. "mailto:support@yourdomain.com".',
+  },
   {
     name: "SUPER_ADMIN_EMAILS",
     requirement: "optional",

@@ -123,6 +123,13 @@ export const businesses = pgTable("businesses", {
    */
   requiresApproval: boolean("requires_approval").notNull().default(false),
   /**
+   * Owner opt-in for web push (0020). Separate from `push_subscriptions`
+   * because a device can stay registered while notifications are switched off
+   * — turning them back on should not require asking the browser for
+   * permission again, which is a prompt that can only be refused once.
+   */
+  pushEnabled: boolean("push_enabled").notNull().default(false),
+  /**
    * Set on the onboarding finish screen. NULL means the owner still has steps
    * to complete; explicit state rather than inferring from service count,
    * which would drag an owner back into setup after deleting a service.
@@ -578,6 +585,39 @@ export const appointments = pgTable(
  * cron job, so a provider outage never loses a message and a retry never
  * duplicates one (`dedupe_key` is unique).
  */
+/**
+ * Web push registrations, one row per **device** (0020).
+ *
+ * Not per owner: a shop is routinely run from a phone and a laptop, and an
+ * owner who enables notifications on both expects both to buzz. The endpoint is
+ * the device's identity as far as the push service is concerned, so it carries
+ * the unique constraint and makes re-subscribing an upsert.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull().unique(),
+    /** Browser-supplied keys, needed to encrypt the payload. */
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    /** So an owner can tell which device a row belongs to. */
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /**
+     * Set when the push service reports the subscription gone (404/410). Kept
+     * rather than deleted, so a lapsed device is a fact rather than an absence.
+     */
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
+  },
+  (t) => [index("push_subscriptions_business_idx").on(t.businessId)],
+);
+
 export const notifications = pgTable(
   "notifications",
   {

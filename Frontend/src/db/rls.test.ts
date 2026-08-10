@@ -7,6 +7,13 @@ const TABLES = [
   "businesses",
   "invoices",
   "notifications",
+  /*
+   * A push endpoint is not a credential, but it is a URL that lets whoever
+   * holds it buzz somebody's phone. The anon key is public and a table without
+   * RLS is readable by anyone who knows its name, so this one gets the same
+   * owner policy as every other tenant table.
+   */
+  "push_subscriptions",
   // No owner policy: rate_limits is infrastructure with no business_id, so
   // RLS is on with no policy at all — nothing but the app connection reads it.
   "rate_limits",

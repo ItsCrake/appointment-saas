@@ -8,6 +8,7 @@ import {
   LogoForm,
   SocialLinksForm,
 } from "@/components/dashboard/profile-extras-form";
+import { PushSettings } from "@/components/dashboard/push-settings";
 import {
   SettingsDirtyProvider,
   SettingsSaveBar,
@@ -99,6 +100,21 @@ export default async function SettingsPage() {
           ) : (
             <BrandingUpsell />
           )}
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            התראות למכשיר
+          </h2>
+          <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+            התראה מיידית על תור חדש, גם כשהאפליקציה סגורה
+          </p>
+
+          {/* Outside the save bar: granting browser permission is not a form
+              field, and an owner who has just accepted a permission prompt has
+              already made the decision — asking them to press Save as well
+              would leave notifications off for anyone who forgets. */}
+          <PushSettings enabled={business.pushEnabled} />
         </div>
 
         <div className="mt-8">
