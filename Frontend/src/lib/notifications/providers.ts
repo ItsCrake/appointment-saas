@@ -5,6 +5,7 @@ import type {
   OutboundMessage,
   SendResult,
 } from "./types";
+import { whatsappProvider } from "./whatsapp";
 
 /**
  * Fallback used whenever a channel has no credentials. It "succeeds" and logs,
@@ -156,6 +157,16 @@ export function getProvider(
   channel: NotificationChannel,
 ): NotificationProvider {
   if (channel === "email") return resendProvider() ?? consoleProvider("email");
+
+  // WhatsApp has two possible backends and prefers the one that needs no
+  // template approval — see `whatsapp.ts`. SMS has only Twilio.
+  if (channel === "whatsapp") {
+    return (
+      whatsappProvider(() => twilioProvider("whatsapp")) ??
+      consoleProvider("whatsapp")
+    );
+  }
+
   return twilioProvider(channel) ?? consoleProvider(channel);
 }
 

@@ -169,8 +169,40 @@ export const ENV_VARS: EnvVar[] = [
     requirement: "optional",
     group: "Notifications (SMS/WhatsApp)",
     description:
-      "Sending number for WhatsApp. Optional: reminders are never auto-routed to WhatsApp, because a business-initiated message needs a Meta-approved template.",
+      "Sending number for the official WhatsApp Business API. Needs a Meta-approved template for confirmations and reminders — see GREEN_API_INSTANCE_ID for the alternative.",
     howTo: "twilio.com → Messaging → WhatsApp senders.",
+  },
+  /*
+   * Green API is the WhatsApp backend that works on day one. It drives the
+   * shop's own account rather than the official Business API, so a booking
+   * confirmation needs no template approval. Optional because WhatsApp falls
+   * through to SMS and then email when it is not configured — nothing breaks,
+   * the message simply arrives by another route.
+   */
+  {
+    name: "GREEN_API_INSTANCE_ID",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description:
+      "Green API instance. Preferred WhatsApp backend: no Meta template approval, so confirmations send immediately.",
+    howTo: "green-api.com → Instances → idInstance.",
+  },
+  {
+    name: "GREEN_API_TOKEN",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description: "Green API token. Required alongside the instance id.",
+    howTo: "green-api.com → Instances → apiTokenInstance.",
+  },
+  {
+    name: "GREEN_API_HOST",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description:
+      "Override the Green API host. Defaults to https://api.green-api.com; new instances are often issued on a numbered host.",
+    howTo:
+      "Copy the host shown beside your instance, e.g. https://7103.api.greenapi.com.",
+    validate: isUrl,
   },
 ];
 

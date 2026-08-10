@@ -4,6 +4,7 @@ import type { Database } from "@/db/types";
 import { entitlementsFor } from "@/lib/entitlements";
 
 import { isChannelLive } from "./providers";
+import { planReminder } from "./reminder-policy";
 import type { NotificationChannel, NotificationKind } from "./types";
 
 /** Owner alerts are always email — the owner has an inbox, by definition. */
@@ -23,13 +24,12 @@ const OWNER_CHANNEL = "email" as const;
  * - entitlement — a lapsed Pro tenant resolves to `free` and lands back on
  *   email, with no separate downgrade path to maintain.
  *
- * WhatsApp is deliberately *not* auto-selected even when entitled and
- * configured: a reminder is a business-initiated message, so Meta requires a
- * pre-approved template outside the 24-hour service window. The adapter works;
- * routing to it before that approval exists would produce provider rejections
- * rather than messages. Preference order is the value here, not an oversight.
+ * **WhatsApp now leads the order**, where it used to be excluded outright. The
+ * reason it was excluded has not gone away — it has become one backend of two.
+ * See the note at the top of the loop below, and `whatsapp.ts`.
  */
 const CLIENT_CHANNEL_PREFERENCE: readonly NotificationChannel[] = [
+  "whatsapp",
   "sms",
   "email",
 ];
@@ -43,6 +43,29 @@ function clientDelivery(
   const entitlements = entitlementsFor(business);
 
   for (const channel of CLIENT_CHANNEL_PREFERENCE) {
+    /**
+     * WhatsApp is now *first*, where it used to be excluded entirely.
+     *
+     * The old reason still stands for one of the two backends: an official
+     * Business API message the shop sends first needs a Meta-approved template
+     * outside the 24-hour service window, so routing to Twilio WhatsApp
+     * without one produces provider rejections rather than messages. Green API
+     * drives the shop's own account and has no such rule, which is why
+     * `whatsapp.ts` prefers it.
+     *
+     * `isChannelLive` is what makes the preference safe either way: with no
+     * WhatsApp credentials at all the channel resolves to the console
+     * provider, and the loop falls through to SMS and then email rather than
+     * logging a confirmation nobody receives.
+     */
+    if (channel === "whatsapp") {
+      if (!entitlements.whatsappReminders) continue;
+      if (!isChannelLive("whatsapp")) continue;
+      const phone = appointment.clientPhone?.trim();
+      if (phone) return { channel: "whatsapp", recipient: phone };
+      continue;
+    }
+
     if (channel === "sms") {
       if (!entitlements.smsReminders) continue;
       if (!isChannelLive("sms")) continue;
@@ -214,14 +237,21 @@ export async function enqueueReminder({
   appointment,
   now = new Date(),
 }: EnqueueInput) {
-  const hours = business.reminderHoursBefore;
-  if (hours <= 0) return [];
-
   const delivery = clientDelivery(business, appointment);
   if (!delivery) return [];
 
-  const sendAt = new Date(appointment.startsAt.getTime() - hours * 3_600_000);
-  if (sendAt.getTime() <= now.getTime()) return [];
+  /**
+   * The lead time decides the reminder, not a fixed 24 hours — see
+   * `reminder-policy.ts`. A same-day booking used to get nothing at all,
+   * because 24 hours before it was already in the past, and that is precisely
+   * the client most likely to forget.
+   */
+  const plan = planReminder({
+    startsAt: appointment.startsAt,
+    bookedAt: now,
+    reminderHoursBefore: business.reminderHoursBefore,
+  });
+  if (!plan) return [];
 
   const row = await enqueueNotification(db, {
     businessId: business.id,
@@ -229,11 +259,13 @@ export async function enqueueReminder({
     channel: delivery.channel,
     kind: "reminder",
     recipient: delivery.recipient,
-    scheduledFor: sendAt,
+    scheduledFor: plan.sendAt,
     // The channel is deliberately absent from the key: one reminder per
     // appointment, whatever carries it. Including it would let a plan change
-    // between booking and send time queue a second copy.
-    dedupeKey: dedupeKey("reminder", appointment.id, `:${hours}`),
+    // between booking and send time queue a second copy. The *lead* is in it,
+    // so a booking approved later — and therefore replanned onto the short
+    // rule — is not deduped against a reminder that was never scheduled.
+    dedupeKey: dedupeKey("reminder", appointment.id, `:${plan.hoursBefore}`),
   });
 
   return row ? ["reminder"] : [];

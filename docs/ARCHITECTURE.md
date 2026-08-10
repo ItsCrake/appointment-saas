@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 574 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 595 tests; Playwright — 10 specs |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -450,6 +450,65 @@ an owner could not undo with "ביטול", so it joined the bar.
 
 `beforeunload` is registered only while something is unsaved. A page that always
 warns on leaving is a page people learn to click through.
+
+## WhatsApp has two backends, and they are not interchangeable
+
+`lib/notifications/whatsapp.ts` puts one interface over both, because the
+difference decides the product rather than only the plumbing:
+
+| Backend       | Business-initiated message                                        |
+| ------------- | ----------------------------------------------------------------- |
+| **Twilio**    | Official Business API — needs a **Meta-approved template**         |
+| **Green API** | Drives the shop's own account — **no template approval**           |
+
+A confirmation and a reminder are both business-initiated, so over Twilio they
+need template approval before they deliver anything. Green API is therefore
+preferred when both are configured: it is the one that works for an Israeli
+barber on the day they sign up. It is also unofficial, which is a risk the
+operator takes knowingly and should not learn from a support ticket.
+
+Both satisfy `NotificationProvider`, so the outbox, the dedupe key, the retry
+policy and the templates are identical either way — choosing is a credential,
+not a rewrite.
+
+**WhatsApp now leads `CLIENT_CHANNEL_PREFERENCE`**, where it used to be excluded
+outright for the template reason above. `isChannelLive` is what makes that safe:
+with no WhatsApp credentials the channel resolves to the console provider and
+the loop falls through to SMS and then email, rather than logging a confirmation
+nobody receives.
+
+## Reminders are planned from the lead time, not fixed at 24 hours
+
+A fixed "24 hours before" loses half of all bookings. Someone who books at 09:00
+for 14:00 the same day gets **nothing** — the send time is already in the past —
+and that is exactly the client most likely to forget, because they booked in a
+hurry.
+
+| Booked this far ahead | Reminder goes out |
+| --------------------- | ----------------- |
+| 30h or more           | 24h before        |
+| less than 30h         | 2h before         |
+
+> **The brief specified `>30h → 24h` and `<24h → 2h`, which leaves 24–30h
+> undefined.** Rules are expressed as ordered thresholds matched longest-first,
+> so every lead time hits exactly one — a gap in a table like this does not fail
+> loudly, it silently sends nothing. The 24–30h band resolves to the 2h rule on
+> purpose: a booking made 26 hours ahead would otherwise be reminded two hours
+> after it was made, which reads as a duplicate confirmation.
+
+The tenant's own `reminder_hours_before` replaces the **long** rule's lead, so a
+shop that prefers 48 hours keeps 48 for advance bookings and still gets the
+short-notice fallback for same-day ones. `0` disables reminders entirely.
+
+`planReminder` returns null rather than throwing when no rule matches or when
+the computed time has already passed — a "reminder" arriving seconds after the
+confirmation is worse than none. The lead is part of the dedupe key, so a
+request approved later and replanned onto the short rule is not deduped against
+a reminder that was never scheduled.
+
+Thresholds are configurable in code (`DEFAULT_REMINDER_RULES`, or a table passed
+straight to `planReminder`). **Per-tenant thresholds would need columns** and are
+not built.
 
 ## Requires approval — "תורים באישור" (0019)
 
