@@ -5,6 +5,7 @@ import {
   listPushSubscriptions,
   markPushSubscriptionExpired,
 } from "@/db/queries/push";
+import { validateVapidSubject } from "@/lib/env";
 import { reportError } from "@/lib/observability";
 
 /**
@@ -38,18 +39,37 @@ let configured: boolean | null = null;
 /**
  * Configures VAPID once per process, and reports whether it could.
  *
- * Cached because `setVapidDetails` validates the key pair and throws on a
+ * Cached because `setVapidDetails` validates its arguments and throws on a
  * malformed one — doing that per send would turn a typo in an environment
  * variable into an exception on every booking.
  */
 function ensureConfigured(): boolean {
   if (configured !== null) return configured;
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:support@bazman.co.il";
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  const subject = process.env.VAPID_SUBJECT?.trim();
 
-  if (!publicKey || !privateKey) {
+  if (!publicKey || !privateKey || !subject) {
+    configured = false;
+    return configured;
+  }
+
+  /**
+   * **No default subject.** This used to fall back to a hard-coded
+   * `mailto:` address, which is the wrong shape of guess in three ways: the
+   * `sub` claim is how a push service reaches *the operator* when a deployment
+   * misbehaves (RFC 8292 §2.1), so an address nobody reads is worse than an
+   * error; the domain in it may not even belong to whoever deployed this; and
+   * it made a missing variable invisible, so the first sign of trouble would
+   * be a push service quietly dropping traffic.
+   *
+   * Validated with the same function `check:env` uses, so a deploy that passes
+   * the check cannot fail here.
+   */
+  const problem = validateVapidSubject(subject);
+  if (problem) {
+    reportError("push.configure", new Error(`VAPID_SUBJECT ${problem}`), {});
     configured = false;
     return configured;
   }
@@ -65,6 +85,11 @@ function ensureConfigured(): boolean {
   }
 
   return configured;
+}
+
+/** Test seam: the cache above is per-process and would outlive an env change. */
+export function resetPushConfigForTests() {
+  configured = null;
 }
 
 export function isPushConfigured(): boolean {

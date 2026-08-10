@@ -2000,6 +2000,50 @@ failure, and the reported bug. Two changes:
   cooldown: what survives is the project-wide email cap, which is the same for
   every address and therefore discloses nothing.
 
+## Web push
+
+`lib/push.ts` sends owner notifications inline and best-effort, deliberately
+outside the outbox: a push is a nudge whose value expires in a minute, and the
+booking is on the dashboard either way.
+
+### The VAPID subject is required, and there is no default
+
+`ensureConfigured()` used to fall back to a hard-coded `mailto:` address when
+`VAPID_SUBJECT` was unset. That is the wrong shape of guess in three ways:
+
+- The `sub` claim is how a push service reaches **the operator** when a
+  deployment misbehaves (RFC 8292 §2.1). An address nobody reads is worse than
+  an error, because the report goes somewhere and is never seen.
+- The domain in a constant need not belong to whoever deployed the code. A
+  self-hoster would have been sending someone else's contact details to Google
+  and Mozilla on every push.
+- It made a missing variable invisible. The first sign of trouble would have
+  been a push service quietly dropping traffic, with `check:env` green.
+
+So the subject is now required whenever the key pair is set, validated against
+`mailto:` / `https:`, and **the `.env.example` placeholder is rejected by
+name** — it is structurally a perfectly good `mailto:`, so nothing else would
+have caught it, and it is the single most likely wrong value to reach
+production.
+
+`validateVapidSubject` lives in `lib/env.ts` and is called by both
+`check:env` and the runtime. Two copies would let a green deploy check coexist
+with a runtime that refuses, which is the exact failure the check exists to
+prevent; a test asserts the two agree across valid, placeholder and malformed
+subjects.
+
+**Severity follows the consequence, not the tier.** The variable is `optional`,
+because a shop with no push configured is a legitimate state. Alongside a real
+key pair, a bad subject is an **error in every mode**: `setVapidDetails` throws
+on it, so push would refuse at runtime while every screen still claimed it was
+configured. The half-configured rule is the same one email has, and for the
+same reason — `push:keys` prints all three lines at once, so two-of-three is a
+paste that went wrong, never a decision.
+
+`check:env` now reports `push → live` or `push → off` beside the email channel,
+because a half-configured trio is indistinguishable from an unconfigured one
+from inside the product: the settings card says "not configured" either way.
+
 ## Observability
 
 Every server boundary reports through `reportError` / `reportWarning` in
@@ -2167,10 +2211,11 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   order, so the only thing between a Pro tenant and a real message is
   credentials. `check:env --production` fails without the Twilio ones, which
   blocks a deploy until that account exists.
-- **Web push is unproven end to end.** The VAPID pair has never been generated
-  for a real deployment, so no notification has left a real server. Every part
+- **Web push is unproven end to end**, though no longer unconfigured: a VAPID
+  trio is present locally and `check:env` reports `push → live`. Every part
   around it is tested — subscription storage, expiry handling, the manifest's
-  icons, the worker's handlers — but the wire itself has not been exercised.
+  icons, the worker's handlers, and now the configuration rule itself — but no
+  notification has yet left a real server to a real device.
 - `appointments.reminder_sent_at` is dead since the outbox landed; safe to drop
 - Read-only impersonation. An admin viewing a tenant can still write as that
   tenant; see the warning under [Impersonation](#impersonation). 8b built the

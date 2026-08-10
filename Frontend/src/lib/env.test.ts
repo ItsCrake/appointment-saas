@@ -183,4 +183,105 @@ describe("checkEnv", () => {
       ).toEqual([]);
     });
   });
+
+  describe("web push", () => {
+    const push = {
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: "BPublicKey",
+      VAPID_PRIVATE_KEY: "PrivateKey",
+      VAPID_SUBJECT: "mailto:support@example.com",
+    };
+
+    it("is a valid state to leave entirely unconfigured", () => {
+      // Unlike email, push genuinely can be off: owners still get email alerts
+      // and the booking is on the dashboard either way.
+      expect(errorsOf(complete, true)).toEqual([]);
+      expect(checkEnv(complete, { production: true }).pushLive).toBe(false);
+    });
+
+    it("is live only when all three are set and the subject is valid", () => {
+      expect(checkEnv({ ...complete, ...push }, {}).pushLive).toBe(true);
+    });
+
+    it.each(Object.keys(push))(
+      "rejects a config missing only %s, in either mode",
+      (missing) => {
+        const partial: Record<string, string | undefined> = {
+          ...complete,
+          ...push,
+        };
+        delete partial[missing];
+
+        // An error in development too: `push:keys` prints all three lines at
+        // once, so two-of-three is a paste that went wrong, never a decision.
+        expect(errorsOf(partial, true).join()).toMatch(/half-configured/);
+        expect(errorsOf(partial, false).join()).toMatch(/half-configured/);
+        expect(checkEnv(partial, {}).pushLive).toBe(false);
+      },
+    );
+
+    it("names the missing variable once, not twice", () => {
+      const issues = checkEnv(
+        { ...complete, ...push, VAPID_SUBJECT: undefined },
+        { production: true },
+      ).issues.filter((i) => i.name === "VAPID_SUBJECT");
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0].reason).toMatch(/half-configured/);
+    });
+
+    it("rejects the placeholder shipped in .env.example", () => {
+      // The single most likely wrong value to reach production, and one that
+      // passes every structural test.
+      const env = {
+        ...complete,
+        ...push,
+        VAPID_SUBJECT: "mailto:you@yourdomain.com",
+      };
+      expect(errorsOf(env, true).join()).toMatch(/example value/);
+      expect(checkEnv(env, {}).pushLive).toBe(false);
+    });
+
+    it.each([
+      ["a bare email", "support@example.com"],
+      ["an http origin", "http://example.com"],
+      ["a mailto without an address", "mailto:support"],
+      ["prose", "Bazman support"],
+    ])("rejects %s as a subject, even in development", (_label, subject) => {
+      // An error rather than a warning *because the keys are set*: push would
+      // refuse at runtime while the product still claimed it was configured.
+      const env = { ...complete, ...push, VAPID_SUBJECT: subject };
+      expect(errorsOf(env, false).join()).toMatch(/cannot configure/);
+      expect(checkEnv(env, {}).pushLive).toBe(false);
+    });
+
+    it("blames the missing keys, not the subject's format, when only it is set", () => {
+      // A subject with no key pair is half-configured, and that is the useful
+      // thing to say. Reporting the format as well would send someone off to
+      // fix a string that is not what is stopping them.
+      const errors = errorsOf({ ...complete, VAPID_SUBJECT: "nonsense" }, true);
+
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /NEXT_PUBLIC_VAPID_PUBLIC_KEY.*half-configured/,
+          ),
+          expect.stringMatching(/VAPID_PRIVATE_KEY.*half-configured/),
+        ]),
+      );
+      expect(errors.join()).not.toMatch(/cannot configure/);
+    });
+
+    it("accepts an https subject, which RFC 8292 allows too", () => {
+      expect(
+        errorsOf(
+          {
+            ...complete,
+            ...push,
+            VAPID_SUBJECT: "https://example.com/contact",
+          },
+          true,
+        ),
+      ).toEqual([]);
+    });
+  });
 });

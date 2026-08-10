@@ -20,6 +20,36 @@ const isUrl = (value: string) => {
   }
 };
 
+/**
+ * The VAPID `sub` claim, per RFC 8292 §2.1: a `mailto:` or `https:` URI that
+ * lets a push service reach whoever is sending.
+ *
+ * Exported because `lib/push.ts` applies the identical rule before calling
+ * `setVapidDetails`. Two copies would let `check:env` pass on a value the
+ * runtime then refuses — the failure mode this whole check exists to prevent.
+ *
+ * The placeholder is rejected explicitly. It ships in `.env.example`, so it is
+ * the single most likely wrong value to reach production, and it would
+ * otherwise pass every structural test here.
+ */
+export const VAPID_SUBJECT_PLACEHOLDER = "mailto:you@yourdomain.com";
+
+export function validateVapidSubject(value: string): string | null {
+  if (value === VAPID_SUBJECT_PLACEHOLDER) {
+    return "is still the example value from .env.example";
+  }
+
+  if (value.startsWith("mailto:")) {
+    return value.slice("mailto:".length).includes("@")
+      ? null
+      : "mailto: must contain an email address";
+  }
+
+  if (value.startsWith("https://")) return isUrl(value);
+
+  return "must be a mailto: or https: URI (RFC 8292)";
+}
+
 export const ENV_VARS: EnvVar[] = [
   {
     name: "NEXT_PUBLIC_APP_URL",
@@ -151,8 +181,9 @@ export const ENV_VARS: EnvVar[] = [
     requirement: "optional",
     group: "Web push",
     description:
-      "Contact for the push service, as mailto: or https:. Some services reject pushes without one.",
-    howTo: 'e.g. "mailto:support@yourdomain.com".',
+      "Contact for the push service, as mailto: or https: (RFC 8292). Required whenever the key pair is set — push refuses to configure without it.",
+    howTo: 'A real inbox you monitor, e.g. "mailto:support@yourdomain.com".',
+    validate: validateVapidSubject,
   },
   {
     name: "SUPER_ADMIN_EMAILS",
@@ -253,6 +284,12 @@ export type EnvReport = {
    */
   emailChannel: "resend" | "console";
   /**
+   * Whether `sendPushToBusiness` will actually reach a device under this env.
+   * Mirrors `ensureConfigured()` in `lib/push.ts`, including the subject rule —
+   * the two must agree, or this reports a channel the runtime then refuses.
+   */
+  pushLive: boolean;
+  /**
    * Whether money can actually be collected.
    *
    * Reported rather than enforced, unlike Resend and Twilio. There is no
@@ -331,11 +368,71 @@ export function checkEnv(
     else issues[queued] = issue;
   }
 
+  /**
+   * Web push follows the same half-configured rule as email, for the same
+   * reason: a partially set trio is a deployment mistake rather than a channel
+   * deliberately switched off, and it fails at the worst moment — `push:keys`
+   * generates a pair and prints a *placeholder* subject beside it, so pasting
+   * two of the three lines is the natural way to get here.
+   *
+   * `setVapidDetails` throws without a valid subject, so the alternative is not
+   * "push works a bit". It is a caught exception on the first booking and an
+   * owner whose notifications never arrive.
+   */
+  const pushVars = [
+    "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY",
+    "VAPID_SUBJECT",
+  ] as const;
+  const setPushVars = pushVars.filter((name) => Boolean(env[name]?.trim()));
+
+  /** Replaces any queued issue for `name`, so a variable is reported once. */
+  const raise = (name: string, reason: string, howTo: string) => {
+    const issue: EnvIssue = { name, level: "error", reason, howTo };
+    const queued = issues.findIndex((i) => i.name === name);
+    if (queued === -1) issues.push(issue);
+    else issues[queued] = issue;
+  };
+
+  const allPushSet = setPushVars.length === pushVars.length;
+  const subjectProblem = allPushSet
+    ? validateVapidSubject(env.VAPID_SUBJECT!.trim())
+    : null;
+
+  if (setPushVars.length > 0 && !allPushSet) {
+    for (const name of pushVars) {
+      if (setPushVars.includes(name)) continue;
+      raise(
+        name,
+        "web push is half-configured — all three variables are needed to send",
+        "Set all three, or clear all three to switch push off.",
+      );
+    }
+  }
+
+  /**
+   * A bad subject is only a *warning* on its own, because the variable is
+   * optional and an unconfigured channel is a legitimate state. Alongside a
+   * real key pair it is an **error**: `setVapidDetails` throws on it, so push
+   * would refuse at runtime while every screen in the product still claimed it
+   * was configured. Severity follows the consequence, not the tier.
+   */
+  if (subjectProblem) {
+    raise(
+      "VAPID_SUBJECT",
+      `web push cannot configure — the subject ${subjectProblem}`,
+      'A real inbox you monitor, e.g. "mailto:support@yourdomain.com".',
+    );
+  }
+
+  const pushLive = allPushSet && subjectProblem === null;
+
   return {
     ok: issues.every((issue) => issue.level !== "error"),
     issues,
     present,
     emailChannel: hasKey && hasFrom ? "resend" : "console",
+    pushLive,
     // No provider adapter exists yet, so this is always false. It is surfaced
     // so `check:env` states it outright instead of leaving it to be discovered
     // by a tenant clicking a disabled button.

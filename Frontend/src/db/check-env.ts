@@ -66,6 +66,20 @@ if (report.emailChannel === "resend") {
   );
 }
 
+// Push is the one channel whose absence an owner cannot see from the product:
+// the settings card says "not configured", but a *half*-configured trio looks
+// identical while refusing at runtime. Say which it is.
+if (report.pushLive) {
+  console.log(
+    `  ${GREEN}✓${RESET} push → live ${DIM}(owners are notified on their devices)${RESET}`,
+  );
+} else {
+  console.log(
+    `  ${YELLOW}!${RESET} push → off ${DIM}(owners rely on email alerts)${RESET}\n` +
+      `      ${DIM}Needs all three VAPID variables. Generate with: npm run push:keys${RESET}`,
+  );
+}
+
 // Stated rather than left to be discovered by a tenant clicking a disabled
 // button. Not an error: no provider exists to configure until stage 8d, and
 // the console provider refuses in production rather than faking a payment.

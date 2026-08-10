@@ -19,11 +19,19 @@ const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
 const RESET = "\x1b[0m";
 
+const YELLOW = "\x1b[33m";
+
 console.log(`\n${GREEN}✓ VAPID key pair generated${RESET}\n`);
-console.log("Add these to .env.local and to your host's environment:\n");
+console.log("Add all three to .env.local and to your host's environment:\n");
 console.log(`NEXT_PUBLIC_VAPID_PUBLIC_KEY="${publicKey}"`);
 console.log(`VAPID_PRIVATE_KEY="${privateKey}"`);
 console.log(`VAPID_SUBJECT="mailto:you@yourdomain.com"`);
+console.log(
+  `\n${YELLOW}▲ Replace the subject with a real inbox you monitor.${RESET}` +
+    `\n${DIM}  It is the RFC 8292 contact a push service uses to reach you when${RESET}` +
+    `\n${DIM}  a deployment misbehaves, and the line above is rejected as-is:${RESET}` +
+    `\n${DIM}  push refuses to configure rather than mailing a placeholder.${RESET}`,
+);
 console.log(
   `\n${DIM}Rotating these invalidates every existing subscription — every owner${RESET}` +
     `\n${DIM}who enabled notifications would have to opt in again. Generate once.${RESET}\n`,

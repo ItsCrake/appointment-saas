@@ -205,6 +205,11 @@ Run from `Frontend/`.
 | `npm run storage:setup`      | Create the `business-media` bucket (once per project)     |
 | `npm run push:keys`          | Generate the VAPID pair for web push (**once, ever**)     |
 
+All three VAPID variables are needed together, including a real `VAPID_SUBJECT`
+— push refuses to configure with two of the three, and `check:env` reports
+`push → live` or `push → off` so a half-configured trio cannot pass for an
+unconfigured one.
+
 ---
 
 ## Tech stack

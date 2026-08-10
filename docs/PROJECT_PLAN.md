@@ -675,6 +675,25 @@ rows because collapsing back to one chair does not delete people with history.
       flag off) and now declare `team: true`, which is what they meant.
 - [x] `npm run verify` green at **711 tests across 54 files**.
 
+### Web push requires a real VAPID subject ✅
+
+- [x] The hard-coded `mailto:` fallback is gone. The `sub` claim is how a push
+      service reaches *the operator* (RFC 8292 §2.1), the domain in a constant
+      need not belong to whoever deployed the code, and defaulting it made a
+      missing variable invisible — the first symptom would have been a push
+      service dropping traffic with `check:env` green.
+- [x] Validated as `mailto:` / `https:`, with the `.env.example` placeholder
+      **rejected by name**: it is structurally a valid `mailto:`, so nothing
+      else would catch it.
+- [x] One validator, shared by `check:env` and the runtime. Two copies would let
+      a green deploy check coexist with a runtime that refuses; a test asserts
+      they agree.
+- [x] Half-configured push is an error in every mode, like email — `push:keys`
+      prints all three lines at once, so two-of-three is a bad paste.
+- [x] `check:env` reports `push → live` / `push → off`, because from inside the
+      product a half-configured trio looks identical to an unconfigured one.
+- [x] 22 new unit tests; `npm run verify` green at **733 across 55 files**.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
