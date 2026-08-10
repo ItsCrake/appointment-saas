@@ -3,13 +3,18 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CtaBanner } from "@/components/marketing/cta-banner";
+import { FeatureCards } from "@/components/marketing/feature-cards";
+import { InstallGuide } from "@/components/marketing/install-guide";
+import { ProofStrip } from "@/components/marketing/proof-strip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { HeroParticles } from "@/components/marketing/hero-particles";
 import { MockupShowcase } from "@/components/marketing/mockup-showcase";
 import { PricingTable } from "@/components/marketing/pricing-table";
 import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
 import { BRAND, BRAND_MARK } from "@/lib/brand";
-import { FAQS, FEATURES, STEPS } from "@/lib/landing-content";
+// FEATURES moved into `FeatureCards`, which owns both the copy and the
+// disclosure state — the two are one thing now.
+import { FAQS, STEPS } from "@/lib/landing-content";
 import { TRIAL_DAYS } from "@/lib/plans";
 
 // No database access and no dynamic APIs, so this prerenders as static HTML
@@ -210,9 +215,13 @@ export default function LandingPage() {
           </span>
         </section>
 
-        {/* PEEK TARGET — the 30% below the fold. Full-bleed ink band, so what
-            shows above the fold is a hard tonal change rather than more of the
-            same white. */}
+        {/* PROOF — the first thing under the fold, and the one strip that has
+            to stop a thumb. Three numbers answering three objections, on the
+            mesh, exactly where the hero's colour would otherwise end. */}
+        <ProofStrip />
+
+        {/* PEEK TARGET — full-bleed band, so what shows below the proof strip
+            is a hard tonal change rather than more of the same white. */}
         <section className="border-y border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
           <div className="mx-auto w-full max-w-[1400px] px-5 py-14 sm:px-8 sm:py-20">
             <Link
@@ -263,28 +272,25 @@ export default function LandingPage() {
           </ol>
         </section>
 
-        {/* FEATURES — editorial two-column list, not a card grid. Six equal
-            bordered boxes is the shape every generated page reaches for. */}
+        {/* FEATURES — one open at a time. The list is what gets skimmed and
+            the detail is what convinces, so the detail is a tap away rather
+            than six paragraphs nobody reaches the end of. */}
         <section className="border-t border-zinc-200 dark:border-zinc-800">
           <div className="mx-auto w-full max-w-[1400px] px-5 py-20 sm:px-8 sm:py-28">
             <h2 className={sectionTitle}>מה מקבלים</h2>
-            <dl className="mt-12 grid gap-x-16 gap-y-10 md:grid-cols-2">
-              {FEATURES.map((feature) => (
-                <div
-                  key={feature.title}
-                  className="border-t border-zinc-200 pt-5 dark:border-zinc-800"
-                >
-                  <dt className="text-base font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
-                    {feature.title}
-                  </dt>
-                  <dd className="mt-1.5 max-w-[52ch] text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                    {feature.body}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <p className="mt-3 max-w-md text-base text-zinc-600 dark:text-zinc-400">
+              לחצו על מה שמעניין אתכם.
+            </p>
+            <div className="mt-10">
+              <FeatureCards />
+            </div>
           </div>
         </section>
+
+        {/* INSTALL — where the PWA is explained. After the features, because
+            "put it on your home screen" only lands once someone knows what
+            they would be putting there. */}
+        <InstallGuide />
 
         {/* PRICING */}
         <section
