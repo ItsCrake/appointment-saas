@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
-import { ExternalLink } from "lucide-react";
+import { CalendarRange, ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
 import { PendingRequests } from "@/components/dashboard/pending-requests";
@@ -77,6 +77,17 @@ export default async function AgendaPage({ searchParams }: PageProps) {
           </h1>
           <p className="mt-0.5 text-sm text-zinc-500">{business.name}</p>
         </div>
+
+        {/* The week grid is a sibling view of this one rather than a nav
+            entry: an owner arrives at "today" and reaches for the week from
+            here, not from a menu two taps away. */}
+        <Link
+          href="/dashboard/agenda/full"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          <CalendarRange className="size-3.5" aria-hidden />
+          לוח שבועי
+        </Link>
 
         <Link
           href={`/${business.slug}`}
