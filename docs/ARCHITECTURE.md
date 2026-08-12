@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 792 tests; Playwright — 10 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 802 tests; Playwright — 10 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -379,6 +379,51 @@ A single-staff tenant still resolves silently to the details form and never
 learns the concept exists. A tenant with a team never skips silently, even when
 only one person is free — see the sole-provider card.
 
+## The week calendar reads at a glance
+
+Three things were wrong on a busy week, and all three came from the same place:
+every card was drawn the same way regardless of how much room it had.
+
+**The grid was too short.** An hour was 56px, so a 15-minute booking got 14 —
+less than one line of the smallest type on the page. It could only ever render
+as a clipped fragment. An hour is now 80px, from a **shared `HOUR_ROW`
+constant** used by both the hour rail and the day columns: they are separate
+elements that must agree exactly, and one step of difference shears the week so
+the times on the left stop describing the cards on the right.
+
+**Short cards stacked.** A name over a time in 20px produced two clipped
+half-lines and an ellipsis on both — technically more information, legibly less.
+Under 30 minutes a card is now a single row, `09:00 · דני · תספורת`, truncating
+only at the end. At 30 and above it is two: bold name, then time span and
+service.
+
+**Solid fills became a wall of colour.** Cards are translucent with a hairline
+ring, so the open-hours band reads through them, and the only saturated thing is
+a 4px accent bar on the leading edge — which is what lets it carry meaning
+across seven columns.
+
+> **The bar is the staff colour when there is one, and the status colour
+> otherwise.** A team shop renders a staff legend directly above this grid, so a
+> bar in any other colour would contradict the key the owner is reading it
+> against. `staffColor` is only populated for a team, so a one-chair shop has no
+> legend and the bar is free to carry the thing that actually varies there.
+
+### The hover card is positioned `fixed`, and that is not a detail
+
+The grid lives in an `overflow-x-auto` container, and CSS computes the other
+axis to `auto` alongside it — so a popover absolutely positioned inside a day
+column is clipped on all four sides. `fixed` escapes that.
+
+It is also rendered at the calendar root rather than inside the card it
+describes, for a second reason: the cards carry `backdrop-blur`, which
+establishes a containing block and would pin a fixed descendant straight back
+inside the thing it is trying to escape.
+
+`role="tooltip"`, shown on hover **and focus**, with the trigger keeping its
+native `title` so the same summary survives without a pointer. The card itself
+is `pointer-events-none` except for the call and WhatsApp links — otherwise
+moving the cursor toward it would leave the trigger and close it before arriving.
+
 ## Analytics (`/dashboard/analytics`)
 
 Peak heatmap, service breakdown, status split, staff utilisation and a
@@ -417,6 +462,39 @@ or relabel last quarter under this quarter's name.
 > All six aggregates were smoke-tested against real Supabase, not only PGlite —
 > the known driver gap is that a `sql` template which binds cleanly in PGlite can
 > still throw at bind time in production.
+
+## "Last visit" counts only visits
+
+The clients list derived it from a plain `max(starts_at)` over every row of that
+client's history, which is wrong in two directions at once — and wrong in a way
+that always looks plausible, which is why it survived: a date appears, it is
+roughly the right shape, and nobody checks it against the calendar.
+
+- A client who **cancelled** last Tuesday showed last Tuesday, so a shop chasing
+  lapsed regulars skipped exactly the person who had stopped coming.
+- A client with a **future** booking showed a date that has not happened yet,
+  which is how a "last visit" column ends up printing next month.
+
+It is now `max(starts_at) FILTER (WHERE status NOT IN ('cancelled','no_show')
+AND starts_at <= now())`. `no_show` goes with `cancelled` because the chair sat
+empty. `pending` and `confirmed` in the past are **kept**: the appointment ran
+even if nobody tidied the status afterwards, which is the normal state of a busy
+shop's calendar.
+
+**The column is now nullable, and that is the point.** Someone who has only ever
+booked and cancelled, or whose first appointment is still ahead of them, has no
+last visit — so the table says "טרם הגיע" rather than borrowing the nearest date
+it can find. `NULLS LAST` is explicit in the ordering, because Postgres sorts
+nulls *first* under `DESC` and the top of the list would otherwise be everyone
+who has never walked in.
+
+`bookings` deliberately still counts everything. It is labelled "תורים" and
+answers a different question: how much this person has ever booked, cancellations
+included.
+
+> Measured against the live demo tenant when this shipped: **all 16 clients**
+> showed a date under the old query, and **not one of them** had ever actually
+> been in.
 
 ## "התורים שלי" — client self-service (`/[slug]/my-appointments`)
 
@@ -1507,16 +1585,30 @@ not fit beside the copy and the actions: content overflowed the section and
 pushed the headline up underneath the header. The agenda is what sells the
 product, so the three summary figures are what give way.
 
-`hero-particles.tsx` is a Canvas client leaf drawing **hollow stroked bubbles**,
-varied in size, drifting upward with a sine sway and a slow radius pulse. Size
-drives parallax: bigger rings rise slower and sit fainter, which is where the
-depth comes from. Canvas rather than a swarm of animated DOM nodes — forty
-absolutely-positioned divs are forty composited layers, which is what turns a
-"subtle" effect into a 30fps phone. Nothing in it touches React state; positions
-live in a plain array mutated inside the rAF loop, so the component renders
-exactly once. It paints one frame synchronously before starting the loop,
-because `requestAnimationFrame` is suspended in a background tab and a page
-opened in one would otherwise show an empty black panel until focused.
+### The hero panel is obsidian, and carries no texture at all
+
+`hero-particles.tsx` is **deleted**, along with the dot grid that sat under it.
+Both were texture competing with the one piece of type on that half of the
+screen, and the Canvas field was a running `requestAnimationFrame` loop on a
+phone for something nobody looks at.
+
+`.brand-mesh` is replaced there by `.hero-obsidian`, a deep indigo-into-obsidian
+ramp. The difference is contrast, not taste: the mesh is the *brand's* colour
+spread across a panel, and white on its lightest composite measures **5.51:1**.
+The new ramp measures **11.51:1** at the equivalent point, and **9.15:1** read
+through the glass wall on top of it.
+
+It also does something the mesh could not. The mesh is the same violet→blue
+family as the closing banner, so the top and bottom of the page rhymed and the
+hero read as continuous with the white between them. A darker ramp separates it
+from the viewport, which is what a hero is for.
+
+**The glass wall behind the wordmark is new.** The wordmark previously sat
+directly on the mesh with nothing behind it. It now has a frosted panel —
+`bg-white/[0.07]`, hairline-lit along its top edge, sized by its own content so
+the type keeps the dimensions and cadence it always had. The fill is
+deliberately low: heavier turns the measured 11.51:1 behind it into a wash and
+the wordmark stops being the brightest thing in the composition.
 
 The scroll affordance is a hairline that draws downward and retracts, with no
 label and no wheel icon. It exists because the 70/30 split is deliberate and

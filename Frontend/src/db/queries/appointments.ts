@@ -332,33 +332,69 @@ export type ClientSummary = {
   clientPhone: string;
   clientName: string;
   bookings: number;
-  lastVisit: Date;
+  /**
+   * **Null when they have never actually been in** — someone whose only
+   * bookings were cancelled, or whose first appointment is still ahead of
+   * them. Both are real states and neither is a visit, so the column has to be
+   * able to say "none" rather than borrowing the nearest date it can find.
+   */
+  lastVisit: Date | null;
 };
 
 /**
  * Clients are not a table — they are derived from appointment history, keyed
  * by phone number (the identity a booking actually carries). The name shown is
  * the most recent one, since people re-book with slight spelling changes.
+ *
+ * **"Last visit" counts only appointments that happened.** It used to be a
+ * plain `max(starts_at)` over every row, which was wrong in two directions at
+ * once and wrong in a way that looked plausible:
+ *
+ * - a client who **cancelled** last Tuesday showed last Tuesday as their last
+ *   visit, so a shop chasing lapsed regulars saw someone who had not been in
+ *   for months as freshly seen;
+ * - a client with a **future** booking showed a date that has not happened yet,
+ *   which is how a "last visit" column ends up printing next month.
+ *
+ * `no_show` is excluded for the same reason as `cancelled`: the chair sat
+ * empty. `pending` and `confirmed` in the past are kept — the appointment ran
+ * even if nobody moved the status afterwards, which is the normal state of a
+ * busy shop's calendar.
+ *
+ * `bookings` deliberately still counts everything. It is labelled "תורים" and
+ * answers a different question — how much this person has ever booked, which
+ * includes the times they cancelled.
  */
 export async function listClients(
   db: Database,
   businessId: string,
+  now: Date = new Date(),
 ): Promise<ClientSummary[]> {
+  // Bound as an ISO string with an explicit cast: a raw `Date` inside a `sql`
+  // template has no inferable type for the postgres.js driver and throws at
+  // bind time, while passing cleanly in PGlite. See `analytics.ts`.
+  const visited = sql`${appointments.status} NOT IN ('cancelled', 'no_show')
+    AND ${appointments.startsAt} <= ${now.toISOString()}::timestamptz`;
+
   const rows = await db
     .select({
       clientPhone: appointments.clientPhone,
       clientName: sql<string>`(array_agg(${appointments.clientName} ORDER BY ${appointments.startsAt} DESC))[1]`,
       bookings: sql<number>`count(*)::int`,
-      lastVisit: sql<Date>`max(${appointments.startsAt})`,
+      lastVisit: sql<Date | null>`max(${appointments.startsAt}) FILTER (WHERE ${visited})`,
     })
     .from(appointments)
     .where(eq(appointments.businessId, businessId))
     .groupBy(appointments.clientPhone)
-    .orderBy(sql`max(${appointments.startsAt}) DESC`);
+    // NULLS LAST explicitly: Postgres sorts nulls *first* under DESC, which
+    // would put every client who has never been in at the top of the list.
+    .orderBy(
+      sql`max(${appointments.startsAt}) FILTER (WHERE ${visited}) DESC NULLS LAST`,
+    );
 
   return rows.map((row) => ({
     ...row,
-    lastVisit: new Date(row.lastVisit),
+    lastVisit: row.lastVisit ? new Date(row.lastVisit) : null,
   }));
 }
 

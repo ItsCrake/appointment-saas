@@ -7,7 +7,6 @@ import { FeatureCards } from "@/components/marketing/feature-cards";
 import { InstallGuide } from "@/components/marketing/install-guide";
 import { ProofStrip } from "@/components/marketing/proof-strip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
-import { HeroParticles } from "@/components/marketing/hero-particles";
 import { MockupShowcase } from "@/components/marketing/mockup-showcase";
 import { PricingTable } from "@/components/marketing/pricing-table";
 import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
@@ -144,20 +143,40 @@ export default function LandingPage() {
 
                 On a phone this panel *is* the first screen — 10rem of it above
                 everything else — so flat ink meant the product introduced
-                itself in black and white. The mesh is the same violet→blue
-                family as the closing banner, which makes the top and bottom of
-                the page one product rather than two. Contrast is measured in
-                `globals.css`; do not brighten it without re-measuring. */}
-            <div className="brand-mesh relative overflow-hidden lg:order-2">
-              {/* Same dot grid as the closing banner, faded out before the
-                  wordmark so texture never competes with type. */}
-              <div
-                aria-hidden
-                className="dot-matrix pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,#000_0%,transparent_70%)]"
-              />
-              <HeroParticles className="absolute inset-0 h-full w-full" />
-              <div className="relative flex h-full items-center justify-center">
-                <TypewriterLogo className="px-6 text-center" />
+                itself in black and white. It used to carry `.brand-mesh`, the
+                same violet→blue as the closing banner; the hero now runs its
+                own darker ramp instead, so the top of the page separates from
+                the white below it rather than rhyming with the bottom.
+                Contrast is measured in `globals.css`; do not brighten it
+                without re-measuring. */}
+            <div className="hero-obsidian relative overflow-hidden lg:order-2">
+              {/* No texture layer at all any more — no dot grid, no canvas
+                  particle field. Both were competing with the one piece of type
+                  on this half of the screen, and forty animated rings is a
+                  running rAF loop on a phone for something nobody looks at. The
+                  panel now earns its depth from the gradient alone.
+
+                  `.hero-obsidian` is measurably darker than the `.brand-mesh`
+                  it replaced (11.51:1 against white at its lightest point,
+                  against 5.51:1), which is what separates the hero from the
+                  white viewport below it. */}
+              <div className="relative flex h-full items-center justify-center p-6">
+                {/* The glass wall. Frosted, hairline-lit along its top edge,
+                    and sized by its content so the wordmark keeps the
+                    dimensions and cadence it always had — it now sits *on*
+                    something rather than floating on a field.
+
+                    `bg-white/[0.07]` is deliberately low: the wall is a plane
+                    catching light, not a panel. Anything heavier turns the
+                    measured 11.51:1 behind it into a wash and the wordmark
+                    stops being the brightest thing in the composition. */}
+                <div className="relative rounded-3xl border border-white/15 bg-white/[0.07] px-6 py-5 shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_24px_60px_-30px_rgb(0_0_0/0.9)] backdrop-blur-xl sm:px-10 sm:py-8">
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-l from-transparent via-white/40 to-transparent"
+                  />
+                  <TypewriterLogo className="text-center" />
+                </div>
               </div>
             </div>
 

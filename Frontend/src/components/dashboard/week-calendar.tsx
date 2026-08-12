@@ -6,6 +6,8 @@ import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  MessageCircle,
+  Phone,
   Trash2,
   X,
 } from "lucide-react";
@@ -28,15 +30,24 @@ import { formatPrice } from "@/lib/format";
 import { staffSwatch } from "@/lib/staff-colors";
 import { cn } from "@/lib/utils";
 
-import { btnPrimary, btnSecondary, cardClass, inputClass } from "./ui";
+import {
+  btnPrimary,
+  btnSecondary,
+  cardClass,
+  inputClass,
+  StatusChip,
+} from "./ui";
 
 const WEEKDAY_SHORT = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 
 export type CalendarEntry = CalendarItem & {
   kind: "appointment" | "block";
+  /** Client name for an appointment; the reason for a block. */
   title: string;
-  /** Client phone or the block's reason — the second line on the card. */
+  /** Service name for an appointment; who and when for a block. */
   subtitle: string | null;
+  /** Appointments only — powers the call and WhatsApp links in the hover card. */
+  clientPhone: string | null;
   status: string | null;
   priceCents: number | null;
   staffName: string | null;
@@ -44,6 +55,23 @@ export type CalendarEntry = CalendarItem & {
   /** Present for blocks, so they can be removed from here. */
   timeOffId: string | null;
 };
+
+/**
+ * One hour of grid, in both the rail and every day column.
+ *
+ * A shared constant because the two are separate elements that must agree
+ * exactly: a difference of a single step shears the whole week, and the times
+ * on the left stop describing the cards on the right.
+ *
+ * `h-20` rather than the original `h-14`. At 56px an hour, a 15-minute booking
+ * was 14 pixels tall — less than one line of the smallest type on the page, so
+ * it could only ever render as a clipped fragment of a name. At 80px it is 20,
+ * which fits the single-row layout below with its padding.
+ */
+const HOUR_ROW = "h-20";
+
+/** Below this, a card gets one row instead of two. */
+const COMPACT_BELOW_MIN = 30;
 
 export type CalendarDay = {
   /** "YYYY-MM-DD" in the business timezone. */
@@ -93,6 +121,9 @@ export function WeekCalendar({
   timezone: string;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
+  // One at a time, held at the root so the card can be positioned `fixed` and
+  // escape the grid's scroll clipping. See `EntryPopover`.
+  const [hovered, setHovered] = useState<HoveredEntry | null>(null);
 
   const bounds = gridBounds(
     entries,
@@ -192,7 +223,10 @@ export function WeekCalendar({
               {rows.map((hour) => (
                 <div
                   key={hour}
-                  className="relative h-14 border-b border-zinc-100 dark:border-zinc-800/60"
+                  className={cn(
+                    HOUR_ROW,
+                    "relative border-b border-zinc-100 dark:border-zinc-800/60",
+                  )}
                 >
                   <span className="absolute end-1 -top-2 text-[10px] text-zinc-400 tabular-nums">
                     {String(hour).padStart(2, "0")}:00
@@ -212,7 +246,10 @@ export function WeekCalendar({
                 {rows.map((hour) => (
                   <div
                     key={hour}
-                    className="h-14 border-b border-zinc-100 dark:border-zinc-800/60"
+                    className={cn(
+                      HOUR_ROW,
+                      "border-b border-zinc-100 dark:border-zinc-800/60",
+                    )}
                   />
                 ))}
 
@@ -239,6 +276,7 @@ export function WeekCalendar({
                     <EntryCard
                       key={entry.id}
                       entry={entry}
+                      onHoverChange={setHovered}
                       style={{
                         top: `${box.top}%`,
                         height: `${box.height}%`,
@@ -253,6 +291,8 @@ export function WeekCalendar({
           </div>
         </div>
       </div>
+
+      {hovered ? <EntryPopover hovered={hovered} /> : null}
 
       {adding ? (
         <BlockDialog
@@ -287,43 +327,246 @@ function WeekLink({
   );
 }
 
+/**
+ * The colour of a card's accent bar.
+ *
+ * **Staff colour wins when there is one**, because a team shop renders a staff
+ * legend directly above this grid — a bar in any other colour would contradict
+ * the key the owner is reading it against. `staffName`/`staffColor` are only
+ * populated for a team, so a one-chair shop has no legend and the bar is free
+ * to carry the thing that actually varies there: the status.
+ *
+ * Blocks get zinc. A block is the absence of availability and must not compete
+ * with a real booking for attention.
+ */
+function accentBar(entry: CalendarEntry): string {
+  if (entry.kind === "block") return "bg-zinc-400 dark:bg-zinc-600";
+  if (entry.staffColor) return staffSwatch(entry.staffColor).dot;
+
+  switch (entry.status) {
+    case "pending":
+      return "bg-amber-500";
+    case "cancelled":
+      return "bg-rose-500";
+    case "no_show":
+      return "bg-zinc-400";
+    case "completed":
+      return "bg-emerald-500";
+    default:
+      return "bg-indigo-500";
+  }
+}
+
 function EntryCard({
   entry,
   style,
+  onHoverChange,
 }: {
   entry: CalendarEntry;
   style: React.CSSProperties;
+  onHoverChange: (hover: HoveredEntry | null) => void;
 }) {
-  const swatch = entry.staffColor ? staffSwatch(entry.staffColor) : null;
   const cancelled = entry.status === "cancelled" || entry.status === "no_show";
+  const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
+
+  /**
+   * One row or two, decided by how much room the booking actually has.
+   *
+   * A 15-minute slot is 20px tall. Stacking a name over a time in there
+   * produced two clipped half-lines and an ellipsis on both — technically more
+   * information, legibly less. One row that reads
+   * "09:00 · דני · תספורת" and truncates only at the end is the same data in
+   * the order somebody scanning a week actually wants it.
+   */
+  const compact = entry.endMinutes - entry.startMinutes < COMPACT_BELOW_MIN;
+
+  const show = (event: React.MouseEvent | React.FocusEvent) => {
+    onHoverChange({
+      entry,
+      rect: event.currentTarget.getBoundingClientRect(),
+    });
+  };
 
   return (
     <div
       style={style}
-      title={`${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)} · ${entry.title}`}
+      tabIndex={0}
+      // The native tooltip stays as the no-JavaScript, no-pointer fallback —
+      // the rich card below is an enhancement, not the only way to read this.
+      title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
+      onMouseEnter={show}
+      onFocus={show}
+      onMouseLeave={() => onHoverChange(null)}
+      onBlur={() => onHoverChange(null)}
       className={cn(
-        "absolute overflow-hidden rounded-lg px-1.5 py-1 text-[10px] leading-tight",
+        "group absolute flex overflow-hidden rounded-lg text-[10px] leading-tight",
+        "ring-1 backdrop-blur-sm transition-shadow",
+        "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
+        "hover:z-10 hover:shadow-lg",
         entry.kind === "block"
-          ? // Hatched and grey: a block is the absence of availability, so it
-            // must not compete with a real booking for attention.
-            "border border-dashed border-zinc-400 bg-zinc-100 text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+          ? "bg-zinc-100/70 text-zinc-600 ring-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700"
           : cn(
-              "border text-zinc-900 dark:text-zinc-50",
-              swatch
-                ? swatch.chip
-                : "bg-(--accent-soft) text-(--accent-on-soft)",
-              cancelled && "line-through opacity-50",
+              // Translucent and muted rather than a solid fill: the card sits
+              // over the open-hours band, and letting that read through is what
+              // keeps a busy week from turning into a wall of colour.
+              "bg-white/75 text-zinc-900 ring-zinc-200/80",
+              "dark:bg-zinc-900/70 dark:text-zinc-50 dark:ring-zinc-700/80",
+              cancelled && "opacity-55",
             ),
       )}
     >
-      <p className="truncate font-semibold">{entry.title}</p>
-      <p className="truncate tabular-nums opacity-80">
-        {minutesToLabel(entry.startMinutes)}
-        {entry.priceCents !== null ? ` · ${formatPrice(entry.priceCents)}` : ""}
+      {/* The bar is the only saturated thing on the card, which is what lets it
+          carry meaning at a glance across seven columns. */}
+      <span
+        aria-hidden
+        className={cn("w-1 shrink-0 rounded-s-lg", accentBar(entry))}
+      />
+
+      <div className="min-w-0 flex-1 px-1.5 py-1">
+        {compact ? (
+          <div className="flex items-baseline gap-1 overflow-hidden whitespace-nowrap">
+            <span className="shrink-0 font-semibold tabular-nums">
+              {minutesToLabel(entry.startMinutes)}
+            </span>
+            <span className={cn("truncate", cancelled && "line-through")}>
+              {entry.title}
+              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
+            </span>
+          </div>
+        ) : (
+          <>
+            <p
+              className={cn("truncate font-bold", cancelled && "line-through")}
+            >
+              {entry.title}
+            </p>
+            <p className="truncate opacity-75">
+              <span className="tabular-nums">{span}</span>
+              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type HoveredEntry = { entry: CalendarEntry; rect: DOMRect };
+
+/**
+ * The hover card.
+ *
+ * **Rendered at the calendar root and positioned `fixed`, not inside the card
+ * it describes.** The grid lives in an `overflow-x-auto` container, and CSS
+ * computes the other axis to `auto` alongside it — so an absolutely-positioned
+ * popover inside a day column is clipped on all four sides. `fixed` escapes
+ * that, and keeping it out of the card matters for a second reason: the cards
+ * carry `backdrop-blur`, which establishes a containing block and would pin a
+ * fixed descendant right back inside the thing it is trying to escape.
+ *
+ * `role="tooltip"` rather than a dialog: it is supplementary detail about the
+ * element under the cursor, it takes no focus, and everything in it is also
+ * reachable from the agenda. The trigger keeps its `title` so the same summary
+ * survives without a pointer.
+ */
+function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
+  const { entry, rect } = hovered;
+  const CARD_WIDTH = 240;
+
+  // Clamped to the viewport, because a card on the last column would otherwise
+  // open past the right edge and a card near the bottom past the fold.
+  const left = Math.min(
+    Math.max(8, rect.left + rect.width / 2 - CARD_WIDTH / 2),
+    Math.max(8, window.innerWidth - CARD_WIDTH - 8),
+  );
+  const opensUpward = rect.bottom + 200 > window.innerHeight;
+
+  const phone = entry.clientPhone?.replace(/\D/g, "");
+  const wa = phone?.startsWith("0") ? `972${phone.slice(1)}` : phone;
+
+  return (
+    <div
+      role="tooltip"
+      style={{
+        position: "fixed",
+        width: CARD_WIDTH,
+        insetInlineStart: "auto",
+        left,
+        ...(opensUpward
+          ? { bottom: window.innerHeight - rect.top + 8 }
+          : { top: rect.bottom + 8 }),
+      }}
+      className="animate-fade pointer-events-none z-50 rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-xl backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/95"
+    >
+      <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">
+        {entry.title}
       </p>
-      {entry.staffName ? (
-        <p className="truncate opacity-70">{entry.staffName}</p>
+
+      <p className="mt-0.5 text-xs text-zinc-500 tabular-nums">
+        {minutesToLabel(entry.startMinutes)}–{minutesToLabel(entry.endMinutes)}
+      </p>
+
+      <dl className="mt-2 space-y-1 text-xs">
+        {entry.subtitle ? <Row label="שירות">{entry.subtitle}</Row> : null}
+        {entry.priceCents !== null ? (
+          <Row label="מחיר">{formatPrice(entry.priceCents)}</Row>
+        ) : null}
+        {entry.staffName ? (
+          <Row label="נותן שירות">{entry.staffName}</Row>
+        ) : null}
+        {entry.clientPhone ? (
+          <Row label="טלפון">
+            <span dir="ltr">{entry.clientPhone}</span>
+          </Row>
+        ) : null}
+      </dl>
+
+      {entry.status ? (
+        <div className="mt-2">
+          <StatusChip status={entry.status} />
+        </div>
       ) : null}
+
+      {/* `pointer-events-auto` on the links only: the card itself must stay
+          transparent to the pointer, or moving toward it would leave the
+          trigger and close it before the cursor arrived. */}
+      {entry.clientPhone ? (
+        <div className="pointer-events-auto mt-2 flex gap-1.5">
+          <a
+            href={`tel:${entry.clientPhone}`}
+            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-950 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-100 dark:hover:text-zinc-50"
+          >
+            <Phone className="size-3.5" aria-hidden />
+            חיוג
+          </a>
+          <a
+            href={`https://wa.me/${wa}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-950 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-100 dark:hover:text-zinc-50"
+          >
+            <MessageCircle className="size-3.5" aria-hidden />
+            וואטסאפ
+          </a>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-zinc-500">{label}</dt>
+      <dd className="min-w-0 truncate text-zinc-800 dark:text-zinc-200">
+        {children}
+      </dd>
     </div>
   );
 }

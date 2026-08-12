@@ -823,6 +823,32 @@ produces free windows, then a packing rule places candidates inside them.
 > query returned the row out of process. Worth knowing before debugging the
 > query next time.
 
+### Calendar legibility, last-visit truth, hero contrast ✅
+
+- [x] **Week calendar.** The hour row went 56px → 80px from a shared constant
+      (the rail and the columns must agree or the week shears). Under 30 minutes
+      a card is one row rather than two clipped half-lines; 30+ is two. Solid
+      fills became translucent cards with a 4px accent bar — staff colour where
+      a legend exists above the grid, status colour otherwise.
+- [x] **Hover card** with client, phone, service, price, staff, status and
+      call/WhatsApp links. Positioned `fixed` at the calendar root: the grid's
+      `overflow-x-auto` clips both axes, and the cards' own `backdrop-blur`
+      would re-trap a fixed descendant. Opens on focus too, and the native
+      `title` stays as the pointer-free fallback.
+- [x] **Last visit ignores cancellations, no-shows and the future.** It was
+      `max(starts_at)` over everything. The column is now nullable — "טרם הגיע"
+      — with `NULLS LAST`, because Postgres sorts nulls first under `DESC`.
+      10 new tests. On the live demo tenant, all 16 clients showed a date before
+      and none of them had ever been in.
+- [x] **Hero banner.** `hero-particles.tsx` deleted along with the dot grid;
+      `.hero-obsidian` replaces `.brand-mesh` there at **11.51:1** against white
+      (was 5.51), and 9.15:1 through the glass wall.
+- [x] `npm run verify` green at **802 across 58 files**; Playwright 10/10.
+
+> **The hero had no glass wall to keep.** The brief asked to retain one; the
+> wordmark sat directly on the mesh. One was added to match the intent, with the
+> text content and the panel's dimensions unchanged.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

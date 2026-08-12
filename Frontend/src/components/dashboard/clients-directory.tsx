@@ -12,8 +12,12 @@ export type DirectoryClient = {
   clientPhone: string;
   clientName: string;
   bookings: number;
-  lastVisitDate: string;
+  /** Null when they have booked but never actually been in. */
+  lastVisitDate: string | null;
 };
+
+/** What a client with no completed visit shows instead of a date. */
+const NEVER_VISITED = "טרם הגיע";
 
 /**
  * Filtering happens on the client over an already-loaded list rather than
@@ -129,8 +133,15 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                       <span className="tabular-nums">{client.bookings}</span>
                     </Td>
                     <Td>
-                      <span className="text-zinc-500 tabular-nums">
-                        {client.lastVisitDate}
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          client.lastVisitDate
+                            ? "text-zinc-500"
+                            : "text-zinc-400 italic",
+                        )}
+                      >
+                        {client.lastVisitDate ?? NEVER_VISITED}
                       </span>
                     </Td>
                     <Td>
@@ -152,8 +163,10 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                       {client.clientName}
                     </p>
                     <p className="mt-0.5 text-xs text-zinc-500">
-                      {client.bookings} תורים · ביקור אחרון{" "}
-                      {client.lastVisitDate}
+                      {client.bookings} תורים ·{" "}
+                      {client.lastVisitDate
+                        ? `ביקור אחרון ${client.lastVisitDate}`
+                        : NEVER_VISITED}
                     </p>
                     <p
                       dir="ltr"

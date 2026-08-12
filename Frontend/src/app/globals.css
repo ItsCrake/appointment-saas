@@ -570,3 +570,40 @@ body {
     padding-top: env(safe-area-inset-top);
   }
 }
+
+/* --------------------------------------------------------------------------
+   HERO OBSIDIAN — the dark half of the landing hero.
+
+   Replaces `.brand-mesh` there, and the difference is contrast rather than
+   taste. The mesh is mid-toned by design: it is the *brand's* colour, spread
+   across a whole panel, and at its lightest composite white sits at 5.51:1.
+   That is fine behind decoration and thin behind a display wordmark which is
+   the only thing on that half of the screen.
+
+   This ramp runs deep indigo into obsidian instead. Measured the same way —
+   lightest possible composite, both radials at full strength over the lightest
+   linear stop — it is `rgb(49 50 113)`, **11.51:1 against white**, and
+   **9.15:1** through the glass wall that sits on it. Re-measure before
+   lightening any stop.
+
+   It also separates the hero from the rest of the viewport, which the mesh did
+   not: the closing banner uses the same violet-into-blue family, so top and
+   bottom read as one surface interrupted by white rather than as a beginning
+   and an end.
+   -------------------------------------------------------------------------- */
+.hero-obsidian {
+  /* Opaque floor first: every radial below is transparent at its edges. */
+  background-color: #09090b;
+  background-image:
+    radial-gradient(
+      ellipse 85% 65% at 15% 10%,
+      rgb(67 56 202 / 0.45) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 75% 70% at 85% 90%,
+      rgb(51 65 85 / 0.4) 0%,
+      transparent 65%
+    ),
+    linear-gradient(160deg, #1e1b4b 0%, #111827 55%, #09090b 100%);
+}

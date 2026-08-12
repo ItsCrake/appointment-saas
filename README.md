@@ -278,7 +278,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 792 unit tests, build
+npm run verify     # env, lint, types, 802 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
