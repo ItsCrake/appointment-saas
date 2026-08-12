@@ -714,6 +714,50 @@ rows because collapsing back to one chair does not delete people with history.
 > verified. The insets are zero in every browser available here, so the
 > on-device result still wants a look on a real iPhone with the app installed.
 
+### Client win-back automation (0021) ✅
+
+The only marketing message the product sends, and it is built as one rather
+than as another notification kind. סעיף 30א לחוק התקשורת treats "we have not
+seen you in a while" as דבר פרסומת: prior explicit consent, an identifiable
+sender, a working opt-out.
+
+- [x] **Four gates, none of them sufficient alone**: the plan
+      (`clientRetention`, Pro), the owner (`retention_enabled`, default false
+      and never flipped by an upgrade), the client (a consent checkbox that is
+      unticked and rendered only when the campaign is on), and the suppression
+      list.
+- [x] Consent lives on `appointments` and the **latest** booking wins, so
+      leaving the box unticked next time withdraws it with no form and no
+      support ticket. Never backfilled to true.
+- [x] `checkInactiveClients` ships as `runRetentionSweep`, riding the daily
+      cron beside the billing sweep and before dispatch, so a message queued
+      this morning goes out this morning. Wrapped so a marketing failure can
+      never stop a booking confirmation.
+- [x] **Dedupe key is the lapsed appointment**, so a client who never returns
+      gets exactly one message ever. A time-bucketed key would re-send on a
+      schedule, which is what everyone means by spam. Capped at 25 per tenant
+      per run, because the first run after switching on is otherwise a bulk
+      send from the tenant's own number.
+- [x] WhatsApp only, with **no console fallback** — the usual fallback would
+      leave an owner believing a campaign is running while nothing is sent.
+- [x] Re-checked at dispatch: rebooked clients and later opt-outs are skipped.
+- [x] `marketing_opt_outs` makes the opt-out line a promise rather than a
+      sentence. Scoped per business — consent is given to a shop, not to the
+      platform.
+- [x] The RLS test caught the new table before review did, again.
+- [x] Landing page gains a seventh feature card, and its copy names the consent
+      and the opt-out — the owner's first question is whether this makes them
+      look like a spammer to their own customers.
+- [x] 21 new unit tests; `npm run verify` green at **758 across 56 files**.
+
+> **Migration `0021` has not been applied to any database.** It is additive —
+> two defaulted columns, one table, one enum value — but it is not automatic on
+> deploy. `npm run db:migrate`.
+
+> **Still open: nothing reads inbound WhatsApp.** A client replying "הסר" is
+> currently acted on by the owner rather than automatically;
+> `addMarketingOptOut` is the call a webhook would make.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

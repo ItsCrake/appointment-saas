@@ -53,6 +53,10 @@ trends), and an **installable app with push notifications** for new bookings.
   Storage** on a server-minted signed URL; the bytes never pass through Next.
 - The public booking form carries a honeypot plus Postgres-backed rate limits
   on IP and on phone-per-business.
+- The one **marketing** message — an automated WhatsApp to a client who has
+  gone quiet — is gated on the plan, the owner's opt-in, the client's own
+  consent and a suppression list, because Israeli law treats it differently
+  from every other message here.
 - An unknown slug is resolved in the proxy **before the response streams**, so
   it answers a real 404 rather than a 200 with a not-found page inside it. A
   path that cannot be a slug at all costs no database query.
@@ -247,7 +251,7 @@ unconfigured one.
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
 | `/dashboard/staff`        | owner         | Team, per-staff hours, per-staff time off       |
 | `/dashboard/clients`      | owner         | Derived from booking history                    |
-| `/dashboard/settings`     | owner         | Business profile and booking rules              |
+| `/dashboard/settings`     | owner         | Business profile, booking rules, win-back              |
 | `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
 | `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
 | `/master`                 | super admin   | Platform overview: tenants, MRR, conversion     |

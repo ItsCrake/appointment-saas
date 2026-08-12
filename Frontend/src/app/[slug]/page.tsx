@@ -144,8 +144,7 @@ export default async function BusinessPage({ params }: PageProps) {
   // of them is bookable here. Sending their names to the browser would ship a
   // roster of staff this shop does not present, for a picker that never renders.
   const primary = primaryStaff(activeStaff);
-  const team =
-    business.hasMultipleStaff || !primary ? activeStaff : [primary];
+  const team = business.hasMultipleStaff || !primary ? activeStaff : [primary];
 
   // The demo shop's address, phone and prices are invented. Publishing them as
   // LocalBusiness data would assert a real trader at a real street address.
@@ -227,6 +226,7 @@ export default async function BusinessPage({ params }: PageProps) {
             timezone: business.timezone,
             maxAdvanceDays: business.maxAdvanceDays,
             hasMultipleStaff: business.hasMultipleStaff,
+            retentionEnabled: business.retentionEnabled,
           }}
           // The roster is only ever used to put names on ids the availability
           // engine returned, so nothing here decides who is bookable.

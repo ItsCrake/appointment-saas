@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, ExternalLink } from "lucide-react";
 
 import { saveSettingsAction } from "@/app/dashboard/settings/actions";
+import { INACTIVE_DAYS } from "@/lib/retention";
 
 import { useSectionForm, type SaveResult } from "./settings-dirty";
 
@@ -20,6 +21,7 @@ type Business = {
   notificationEmail: string;
   timezone: string;
   requiresApproval: boolean;
+  retentionEnabled: boolean;
 };
 
 type Values = Omit<
@@ -32,7 +34,14 @@ type Values = Omit<
   reminderHoursBefore: string;
 };
 
-export function SettingsForm({ business }: { business: Business }) {
+export function SettingsForm({
+  business,
+  canUseRetention,
+}: {
+  business: Business;
+  /** Pro-only. The action re-checks it; this decides whether to offer it. */
+  canUseRetention: boolean;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string>();
 
@@ -51,6 +60,7 @@ export function SettingsForm({ business }: { business: Business }) {
         reminderHoursBefore: Number(form.reminderHoursBefore),
         notificationEmail: form.notificationEmail,
         requiresApproval: form.requiresApproval,
+        retentionEnabled: form.retentionEnabled,
       });
 
       if (result.ok) {
@@ -84,7 +94,10 @@ export function SettingsForm({ business }: { business: Business }) {
   }
 
   /** Separate from `set` so the string fields keep their narrow signature. */
-  function setFlag(key: "requiresApproval", value: boolean) {
+  function setFlag(
+    key: "requiresApproval" | "retentionEnabled",
+    value: boolean,
+  ) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -225,6 +238,42 @@ export function SettingsForm({ business }: { business: Business }) {
           אזור זמן: <span className="font-medium">{business.timezone}</span>
         </p>
       </Section>
+
+      {/* Rendered only for tenants who can actually use it. An upsell panel
+          would be the wrong shape here: this is not a feature someone is
+          missing out on so much as a decision to start messaging their own
+          customers, and dangling it is how a shop ends up switching on
+          something it has not thought about. */}
+      {canUseRetention ? (
+        <Section title="החזרת לקוחות">
+          <label className="flex items-start gap-3 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+            <input
+              type="checkbox"
+              checked={form.retentionEnabled}
+              onChange={(e) => setFlag("retentionEnabled", e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-zinc-900 dark:accent-zinc-100"
+            />
+            <span>
+              <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                תזכורת אוטומטית ללקוחות שלא חזרו
+              </span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">
+                לקוח שלא קבע תור {INACTIVE_DAYS} ימים ואין לו תור עתידי יקבל
+                הודעת וואטסאפ חמה מהעסק שלכם. נשלחת רק ללקוחות שסימנו הסכמה
+                בטופס ההזמנה, ותמיד עם אפשרות להסרה.
+              </span>
+            </span>
+          </label>
+
+          {/* Said on screen rather than left to be discovered: the switch does
+              nothing at all without a WhatsApp account, and an owner who turns
+              it on and sees no messages will reasonably assume it is broken. */}
+          <p className="text-xs leading-relaxed text-zinc-500">
+            ההודעות נשלחות מחשבון הוואטסאפ של העסק. ללא חיבור וואטסאפ פעיל לא
+            יישלח דבר.
+          </p>
+        </Section>
+      ) : null}
 
       <Section title="התראות">
         <div className="grid gap-4 sm:grid-cols-2">

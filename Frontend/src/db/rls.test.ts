@@ -6,6 +6,12 @@ const TABLES = [
   "appointments",
   "businesses",
   "invoices",
+  /*
+   * Bare phone numbers with no name beside them — a list of people who asked a
+   * business to stop contacting them. Leaking it would be worse than leaking
+   * the client list it is derived from, because it also records the request.
+   */
+  "marketing_opt_outs",
   "notifications",
   /*
    * A push endpoint is not a credential, but it is a URL that lets whoever

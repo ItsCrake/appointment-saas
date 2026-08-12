@@ -116,6 +116,33 @@ export function renderNotification(context: NotificationContext): {
           `אפשר לבחור מועד אחר כאן: ${context.bookingUrl}${contact}`,
       };
 
+    /**
+     * The only marketing message this product sends, and the copy carries
+     * three legal obligations rather than one tone.
+     *
+     * - **The sender is named in the first line.** דבר פרסומת must identify
+     *   who is advertising; a message that opens "היי, מתגעגעים אליך" from an
+     *   unknown WhatsApp number is both unlawful and indistinguishable from a
+     *   scam.
+     * - **The opt-out is in the message, not behind a link.** A one-word reply
+     *   is the lowest-friction exit available on WhatsApp, and it is what
+     *   `marketing_opt_outs` exists to honour.
+     * - **`slot` is deliberately unused here.** Every other client template
+     *   leads with a date; this one is about the absence of one, and quoting
+     *   the last visit back at somebody reads as surveillance rather than
+     *   warmth.
+     */
+    case "client_winback":
+      return {
+        subject: `${context.businessName} — מתגעגעים אליך`,
+        body:
+          `היי ${context.clientName},\n\n` +
+          `כאן ${context.businessName}. מזמן לא התראינו — ` +
+          `נשמח לראות אותך שוב.\n\n` +
+          `לקביעת תור: ${context.bookingUrl}${where}${contact}\n\n` +
+          `להסרה מרשימת הדיוור השיבו "הסר".`,
+      };
+
     case "booking_alert": {
       // A request the owner still has to act on is not the same message as a
       // booking that simply happened, and the subject line is the only part

@@ -24,6 +24,15 @@ export type Entitlements = {
   whatsappReminders: boolean;
   /** Revenue and new-client breakdowns beyond the basic counts. */
   advancedAnalytics: boolean;
+  /**
+   * The automated win-back message to lapsed clients (0021).
+   *
+   * Pro because it costs per tenant to run — it is WhatsApp traffic — and
+   * because it is the one feature that speaks to the tenant's customers on
+   * their behalf. Entitlement is necessary and **not sufficient**: the tenant
+   * must also switch it on, and each client must have consented.
+   */
+  clientRetention: boolean;
   prioritySupport: boolean;
 };
 
@@ -32,6 +41,7 @@ const NOTHING: Entitlements = {
   smsReminders: false,
   whatsappReminders: false,
   advancedAnalytics: false,
+  clientRetention: false,
   prioritySupport: false,
 };
 
@@ -64,6 +74,7 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
     smsReminders: false,
     whatsappReminders: false,
     advancedAnalytics: false,
+    clientRetention: false,
     prioritySupport: false,
   },
   pro: {
@@ -71,6 +82,7 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
     smsReminders: true,
     whatsappReminders: true,
     advancedAnalytics: true,
+    clientRetention: true,
     prioritySupport: true,
   },
 };

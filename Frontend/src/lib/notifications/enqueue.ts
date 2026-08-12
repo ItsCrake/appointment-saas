@@ -310,6 +310,55 @@ export async function enqueueCancellationNotifications({
   return queued;
 }
 
+/**
+ * The win-back message (0021), queued by the daily retention sweep.
+ *
+ * Three things about it differ from every other enqueue in this file, and all
+ * three follow from it being **marketing rather than a message about a booking
+ * the client made**:
+ *
+ * - **WhatsApp only, no channel preference walk.** `clientDelivery` exists to
+ *   find *some* way to reach a client about their own appointment, falling
+ *   back until one works. There is no equivalent duty here: if WhatsApp is not
+ *   live the correct outcome is to send nothing at all, which the sweep has
+ *   already established before calling this.
+ * - **The dedupe key is the lapsed appointment**, not the kind and a window.
+ *   So a client who never returns gets exactly one message, ever, and one who
+ *   does return becomes eligible again only after a *new* visit has lapsed.
+ *   A time-bucketed key would have re-sent on a schedule, which is the shape
+ *   of the thing everyone means by spam.
+ * - **It is scheduled for `now`.** There is nothing in the future to lead.
+ */
+export async function enqueueWinBack({
+  db,
+  business,
+  candidate,
+  now = new Date(),
+}: {
+  db: Database;
+  business: Business;
+  candidate: { phone: string; appointmentId: string };
+  now?: Date;
+}): Promise<boolean> {
+  const phone = candidate.phone.trim();
+  if (!phone) return false;
+
+  const row = await enqueueNotification(db, {
+    businessId: business.id,
+    // Carried so the dispatcher can resolve the client's name and the booking
+    // link from the row it already loads, rather than growing a third context
+    // shape for one template.
+    appointmentId: candidate.appointmentId,
+    channel: "whatsapp",
+    kind: "client_winback",
+    recipient: phone,
+    scheduledFor: now,
+    dedupeKey: dedupeKey("client_winback", candidate.appointmentId),
+  });
+
+  return Boolean(row);
+}
+
 export function buildUrls(business: Business, appointment: Appointment) {
   const base = appBaseUrl();
   return {

@@ -29,6 +29,13 @@ type Props = {
   serverError?: string;
   /** Epoch ms when the slot was picked; the clock for the human-pace check. */
   startedAt: number | null;
+  /**
+   * Whether this shop actually runs the win-back campaign. The consent box is
+   * rendered only when it does — asking permission to send messages nobody is
+   * going to send is a question with no honest purpose, and it adds a line of
+   * legal text to a one-minute form for nothing.
+   */
+  askMarketingConsent: boolean;
   onSubmit: (details: ClientDetails) => void;
 };
 
@@ -39,6 +46,7 @@ export function DetailsStep({
   submitting,
   serverError,
   startedAt,
+  askMarketingConsent,
   onSubmit,
 }: Props) {
   const {
@@ -53,6 +61,9 @@ export function DetailsStep({
       clientPhone: "",
       clientEmail: "",
       notes: "",
+      // Unticked. A pre-ticked consent box is not consent, and it is the
+      // single most common way this kind of feature becomes unlawful.
+      consentMarketing: false,
     },
   });
 
@@ -241,6 +252,25 @@ export function DetailsStep({
             "אישור וקביעת התור"
           )}
         </button>
+
+        {/* Separated from the implicit consent below on purpose. Messages
+            *about this appointment* need no tickbox — there is no ongoing
+            relationship and a required checkbox in front of a one-minute flow
+            costs completions without adding meaningful consent. A shop
+            messaging someone weeks later to drum up business is a different
+            thing entirely, and it is opt-in, unticked, and separately worded. */}
+        {askMarketingConsent ? (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 shrink-0 rounded border-zinc-300 text-(--accent) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:border-zinc-700"
+              {...register("consentMarketing")}
+            />
+            <span className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+              אשמח לקבל עדכונים והצעות מהעסק בוואטסאפ. אפשר להסיר בכל רגע.
+            </span>
+          </label>
+        ) : null}
 
         <div className="space-y-1.5 pb-2 text-center">
           <p className="text-xs text-zinc-400">

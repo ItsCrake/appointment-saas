@@ -43,6 +43,21 @@ export async function activeBusinessSlugExists(db: Database, slug: string) {
   return row !== undefined;
 }
 
+/**
+ * Tenants who have switched the win-back message on.
+ *
+ * Filtered in SQL on the one column that is almost always false, so the daily
+ * sweep does not load every tenant on the platform to discard nearly all of
+ * them. The remaining gates — entitlement, freeze, WhatsApp — are pure checks
+ * on the row and run in `retentionBlockedReason`.
+ */
+export async function listRetentionBusinesses(db: Database) {
+  return db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.retentionEnabled, true));
+}
+
 /** Public booking pages, for the sitemap. */
 export async function listActiveBusinessSlugs(db: Database) {
   return db

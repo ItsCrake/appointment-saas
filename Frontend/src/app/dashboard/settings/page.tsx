@@ -58,7 +58,9 @@ export default async function SettingsPage() {
             notificationEmail: business.notificationEmail ?? "",
             timezone: business.timezone,
             requiresApproval: business.requiresApproval,
+            retentionEnabled: business.retentionEnabled,
           }}
+          canUseRetention={entitlementsFor(business).clientRetention}
         />
 
         {/* Above the branding block on purpose: the logo is not part of what the

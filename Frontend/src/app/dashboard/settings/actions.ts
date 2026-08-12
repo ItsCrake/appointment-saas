@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { isSlugTaken, updateBusiness } from "@/db/queries";
 import { requireWritable } from "@/lib/dashboard-session";
+import { entitlementsFor } from "@/lib/entitlements";
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
 
@@ -41,6 +42,7 @@ const settingsSchema = z.object({
     .optional(),
   /** Optional so an older client that predates the toggle still saves. */
   requiresApproval: z.boolean().optional(),
+  retentionEnabled: z.boolean().optional(),
 });
 
 export async function saveSettingsAction(
@@ -77,6 +79,16 @@ export async function saveSettingsAction(
     ...(data.requiresApproval === undefined
       ? {}
       : { requiresApproval: data.requiresApproval }),
+    /*
+     * Gated on the entitlement at the *boundary*, not only in the UI. A server
+     * action is a plain POST endpoint, so a hidden switch proves nothing about
+     * who can flip it — the same reasoning that makes branding writes check
+     * `customBranding` here rather than trusting the settings page.
+     */
+    ...(data.retentionEnabled === undefined ||
+    !entitlementsFor(business).clientRetention
+      ? {}
+      : { retentionEnabled: data.retentionEnabled }),
   });
 
   revalidatePath("/dashboard/settings");

@@ -5,6 +5,7 @@ import {
   BellRing,
   CalendarRange,
   ChevronDown,
+  HeartHandshake,
   Link2,
   Palette,
   Users,
@@ -13,7 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Six features, one open at a time.
+ * Seven features, one open at a time.
  *
  * ---------------------------------------------------------------------------
  * An accordion rather than six paragraphs, because the detail is what convinces
@@ -61,6 +62,18 @@ const FEATURES = [
     icon: CalendarRange,
     title: "תורים באישור",
     body: "אפשר להחליט שכל תור מגיע כבקשה שממתינה לאישור שלכם. המועד נשמר ללקוח בינתיים, כדי שלא ייתפס בזמן שאתם מחליטים.",
+  },
+  {
+    icon: HeartHandshake,
+    title: "מחזירים לקוחות שנעלמו",
+    /*
+     * The copy names the consent and the opt-out, and that is not legal
+     * throat-clearing bolted onto a sales line — it is the reassurance the
+     * reader actually needs. A shop owner's first thought here is "will this
+     * make me look like a spammer to my own customers", and the honest answer
+     * is what sells it.
+     */
+    body: "לקוח שלא קבע תור שלושה שבועות ואין לו תור עתידי מקבל הודעת וואטסאפ חמה מכם, אוטומטית. נשלחת רק למי שסימן הסכמה בטופס ההזמנה, ותמיד עם אפשרות להסרה בהודעה עצמה.",
   },
 ] as const;
 

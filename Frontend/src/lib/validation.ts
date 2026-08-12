@@ -43,6 +43,21 @@ export const clientDetailsSchema = z.object({
   contactReference: z.string().max(200).optional(),
   /** Milliseconds between form mount and submit. Client-supplied, so weak. */
   elapsedMs: z.number().int().nonnegative().optional(),
+  /**
+   * Consent to marketing messages — currently only the win-back (0021).
+   *
+   * **Optional here, and narrowed to `=== true` where it is stored.** Absence
+   * must read as "did not agree", never as "did not object": a payload without
+   * it came from a form that never showed the box, and inferring consent from
+   * silence is exactly what סעיף 30א forbids. An unticked checkbox submits
+   * nothing at all, so absence is the common path rather than an edge case.
+   *
+   * Deliberately not `.default(false)`: that makes the parsed type
+   * non-optional while the input type stays optional, which react-hook-form's
+   * resolver rejects — and the `=== true` at the call site is the stricter
+   * check anyway.
+   */
+  consentMarketing: z.boolean().optional(),
 });
 
 /** A human takes longer than this to read a summary and type name + phone. */

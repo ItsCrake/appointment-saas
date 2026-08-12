@@ -151,6 +151,7 @@ export async function createBookingAction(
     clientPhone,
     clientEmail,
     notes,
+    consentMarketing,
   } = parsed.data;
 
   // Resolved from the slug, never taken from the payload: the browser must not
@@ -263,6 +264,15 @@ export async function createBookingAction(
       clientPhone: normalisedPhone,
       clientEmail: clientEmail || null,
       notes: notes || null,
+      /**
+       * Consent is stored **only when the tenant is actually running the
+       * campaign**. A shop with retention switched off never renders the box,
+       * so a `true` arriving from such a page came from a crafted request, and
+       * recording it would manufacture consent that no client was ever shown
+       * the wording for.
+       */
+      clientConsentedMarketing:
+        businessRow.retentionEnabled && consentMarketing === true,
       serviceName: service.name,
       priceCents: service.priceCents,
       cancelToken: randomUUID(),

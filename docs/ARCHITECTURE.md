@@ -2000,6 +2000,87 @@ failure, and the reported bug. Two changes:
   cooldown: what survives is the project-wide email cap, which is the same for
   every address and therefore discloses nothing.
 
+## Client win-back — the only marketing message (0021)
+
+Every other message the outbox carries is *about an appointment the client made*
+— a confirmation, a reminder, a cancellation. "We have not seen you in a while"
+is a commercial approach to somebody who is not currently a customer, which
+under **סעיף 30א לחוק התקשורת** is דבר פרסומת and requires prior explicit
+consent, an identifiable sender and a working way out.
+
+That difference is why it is gated four times, and why no single gate is "the
+feature switch":
+
+| Gate                          | Who decides       | Where                     |
+| ----------------------------- | ----------------- | ------------------------- |
+| `clientRetention`             | the plan          | `entitlements.ts`         |
+| `businesses.retention_enabled`| the owner         | `/dashboard/settings`     |
+| `appointments.client_consented_marketing` | the client | the booking form   |
+| `marketing_opt_outs`          | the client, later | the opt-out line's promise |
+
+**Entitlement is deliberately not enough.** Being entitled to a feature is not
+the same as having chosen to use it, and this one speaks to the tenant's
+customers in the tenant's name, over the tenant's own WhatsApp number — which
+is also the number that receives the complaint. So `retention_enabled` defaults
+to false and stays false through every upgrade.
+
+### Consent lives on the appointment, and the latest row wins
+
+There is no clients table — a client is derived from booking history, keyed by
+phone. Putting consent on `appointments` follows that, and buys something
+useful: the **most recent** booking is the current answer, so leaving the box
+unticked next time withdraws consent with no form to fill in and no support
+ticket. `listWinBackCandidates` uses `DISTINCT ON (client_phone)` ordered by
+`starts_at DESC` for exactly this reason — a `max(starts_at)` with a separate
+consent lookup would let an older ticked box resurrect a consent since dropped.
+
+The column is never backfilled to `true`. Consent that arrives switched on is
+not consent, and a backfill would have manufactured it for every client who
+booked before the migration ran.
+
+The checkbox renders **only when the tenant has the campaign switched on**.
+Asking permission to send messages nobody is going to send is a question with
+no honest purpose. The accepted cost is that a shop enabling retention starts
+with an empty pool and waits for consented clients to lapse.
+
+### The dedupe key is the lapsed visit, not a time window
+
+`client_winback:<lastAppointmentId>`. A client who never returns therefore gets
+**exactly one message, ever**, and one who does return becomes eligible again
+only after a *new* visit has lapsed. A key bucketed by month would have
+re-sent on a schedule, which is the shape of the thing everyone means by spam.
+
+`MAX_PER_RUN` caps a tenant at 25 per run. A shop switching this on has years
+of history behind it and every lapsed client becomes eligible on the same
+morning; without the cap the first run is a bulk send, which is what both the
+law and WhatsApp treat as abuse — and the number that gets blocked is the
+tenant's own.
+
+### WhatsApp only, and no console fallback
+
+`retentionBlockedReason` refuses when `isChannelLive("whatsapp")` is false.
+Every other channel in this product falls back to a console provider that logs
+and reports success — recoverable for a reminder, and the reason the outbox was
+testable before Resend existed. Here it would leave an owner believing a
+campaign is running while nothing has ever been delivered. Falling back to
+email instead would be a different product decision taken silently on their
+behalf.
+
+### It is re-checked immediately before sending
+
+The dispatcher re-asks two questions for `client_winback` rows: does the client
+now have a booking, and have they since opted out. The eligibility query
+answers both, but it runs when the row is *queued* — a retried row, or one
+queued minutes before the client rebooked, is exactly the gap. Unlike a
+reminder this message has no deadline, so skipping it costs nothing.
+
+> **The opt-out line is honoured by a table, not by a reply handler.**
+> `marketing_opt_outs` exists and every send consults it, but nothing yet reads
+> inbound WhatsApp, so a client replying "הסר" is currently acted on by the
+> owner rather than automatically. `addMarketingOptOut` is the call an inbound
+> webhook would make when one exists. Shipping the sentence without the table
+> would have made the message's only promise a lie.
+
 ## iOS safe areas
 
 The installed app's tab bar sat underneath the home indicator, and the reason

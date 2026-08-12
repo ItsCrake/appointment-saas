@@ -4,6 +4,10 @@ import {
   markNotificationSent,
   markNotificationSkipped,
 } from "@/db/queries/notifications";
+import {
+  hasNoUpcomingBooking,
+  isOptedOutOfMarketing,
+} from "@/db/queries/retention-guards";
 import type { Database } from "@/db/types";
 
 import { daysUntil, GRACE_DAYS } from "@/lib/billing/lifecycle";
@@ -114,6 +118,43 @@ export async function dispatchDueNotifications(
         );
         summary.skipped++;
         continue;
+      }
+
+      /**
+       * The same re-check, for the message where being wrong is most
+       * embarrassing: "we have not seen you in a while" sent to somebody who
+       * booked yesterday.
+       *
+       * The eligibility query already excludes anyone with a future booking,
+       * but it runs when the row is *queued*. A row that failed a send and is
+       * being retried, or one queued minutes before the client rebooked, is
+       * exactly the gap this closes — and unlike a reminder, this message has
+       * no deadline, so skipping it costs nothing at all.
+       */
+      if (notification.kind === "client_winback") {
+        const stillLapsed = await hasNoUpcomingBooking(
+          db,
+          notification.businessId,
+          appointment.clientPhone,
+          now,
+        );
+        if (!stillLapsed) {
+          await markNotificationSkipped(db, notification.id, "client rebooked");
+          summary.skipped++;
+          continue;
+        }
+
+        if (
+          await isOptedOutOfMarketing(
+            db,
+            notification.businessId,
+            appointment.clientPhone,
+          )
+        ) {
+          await markNotificationSkipped(db, notification.id, "opted out");
+          summary.skipped++;
+          continue;
+        }
       }
 
       const urls = buildUrls(business, appointment);

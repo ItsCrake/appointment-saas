@@ -7,6 +7,7 @@ export * from "./invoices";
 export * from "./notifications";
 export * from "./push";
 export * from "./rate-limits";
+export * from "./retention";
 export * from "./services";
 export * from "./time-off";
 export * from "./working-hours";

@@ -343,6 +343,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
             submitting={submitting}
             serverError={submitError}
             startedAt={startedAt}
+            askMarketingConsent={business.retentionEnabled}
             onSubmit={submit}
           />
         ) : null}

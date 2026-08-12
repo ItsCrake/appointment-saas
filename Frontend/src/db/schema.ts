@@ -71,6 +71,13 @@ export const notificationKind = pgEnum("notification_kind", [
   "trial_ended",
   "payment_failed",
   "payment_receipt",
+  /**
+   * The one message this product sends that is **marketing** rather than a
+   * message about an appointment the client themselves made (0021). It is
+   * gated on three separate consents and carries an opt-out line, none of
+   * which the other kinds need — see `lib/retention.ts`.
+   */
+  "client_winback",
 ]);
 
 export const notificationStatus = pgEnum("notification_status", [
@@ -129,6 +136,17 @@ export const businesses = pgTable("businesses", {
    * permission again, which is a prompt that can only be refused once.
    */
   pushEnabled: boolean("push_enabled").notNull().default(false),
+  /**
+   * Owner opt-in for the client win-back message (0021). Default false, and it
+   * stays false through every upgrade: a shop that never asked for this must
+   * not start messaging its client list because a release shipped.
+   *
+   * Deliberately not derived from the plan. Being *entitled* to a feature is
+   * not the same as having chosen to use it, and this one speaks to the
+   * tenant's customers in the tenant's name over the tenant's own WhatsApp
+   * number.
+   */
+  retentionEnabled: boolean("retention_enabled").notNull().default(false),
   /**
    * Set on the onboarding finish screen. NULL means the owner still has steps
    * to complete; explicit state rather than inferring from service count,
@@ -555,6 +573,22 @@ export const appointments = pgTable(
     priceCents: integer("price_cents").notNull(),
     /** Powers the self-service cancel/reschedule link at /b/[token]. */
     cancelToken: text("cancel_token").notNull().unique(),
+    /**
+     * Whether this client agreed, *at this booking*, to hear from the business
+     * about anything other than their own appointment (0021).
+     *
+     * Per-appointment rather than per-client because there is no clients table
+     * — a client is derived from booking history, keyed by phone. The useful
+     * consequence is that the **most recent** booking is the current answer, so
+     * leaving the box unticked next time withdraws consent with no form to
+     * fill in.
+     *
+     * Never defaulted or backfilled to true. Consent that arrives switched on
+     * is not consent.
+     */
+    clientConsentedMarketing: boolean("client_consented_marketing")
+      .notNull()
+      .default(false),
     reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -617,6 +651,43 @@ export const pushSubscriptions = pgTable(
   },
   (t) => [index("push_subscriptions_business_idx").on(t.businessId)],
 );
+
+/**
+ * People who have asked one business to stop sending them marketing (0021).
+ *
+ * Keyed on the phone number rather than an appointment, because a person opts
+ * out, not a booking — the suppression has to outlive every row they appear in,
+ * including bookings they make later.
+ *
+ * Scoped per business: consent is given to a shop, not to the platform, so
+ * opting out of one barber must not silently opt you out of a clinic you are
+ * happy to hear from.
+ */
+export const marketingOptOuts = pgTable(
+  "marketing_opt_outs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    clientPhone: varchar("client_phone", { length: 30 }).notNull(),
+    /** Free text — "replied הסר", "asked in the shop". */
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Suppressing someone twice is a no-op rather than an error, and the
+    // eligibility query anti-joins on exactly one row per person.
+    unique("marketing_opt_outs_business_phone_unique").on(
+      t.businessId,
+      t.clientPhone,
+    ),
+  ],
+);
+
+export type MarketingOptOut = typeof marketingOptOuts.$inferSelect;
 
 export const notifications = pgTable(
   "notifications",

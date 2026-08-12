@@ -5,6 +5,11 @@ export type BookingBusiness = {
   maxAdvanceDays: number;
   /** When false the staff step never renders and the sole provider is implicit. */
   hasMultipleStaff: boolean;
+  /**
+   * Whether this shop runs the win-back campaign, which is the only reason the
+   * details form asks for marketing consent.
+   */
+  retentionEnabled: boolean;
 };
 
 /** A provider, as the public picker needs them. No ids beyond the one. */

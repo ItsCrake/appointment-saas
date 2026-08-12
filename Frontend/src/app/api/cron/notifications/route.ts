@@ -5,6 +5,7 @@ import { pruneExpiredRateLimits } from "@/db/queries/rate-limits";
 import { sweepSubscriptions } from "@/lib/billing/sweep";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { reportError } from "@/lib/observability";
+import { runRetentionSweep } from "@/lib/retention";
 import { describeProviders } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,21 @@ async function handle(request: NextRequest) {
       reportError("cron.sweepSubscriptions", error);
     }
 
+    /**
+     * Retention rides the same run, and also before dispatch, so a win-back
+     * queued this morning goes out this morning.
+     *
+     * Wrapped separately and never rethrown: this is the least important thing
+     * in the run by a wide margin. A marketing message failing to queue must
+     * not be able to stop a client's booking confirmation from being sent.
+     */
+    let retention = null;
+    try {
+      retention = await runRetentionSweep(db);
+    } catch (error) {
+      reportError("cron.runRetentionSweep", error);
+    }
+
     const summary = await dispatchDueNotifications(db, { limit: 100 });
 
     // Housekeeping rides along rather than needing a second cron entry.
@@ -62,6 +78,7 @@ async function handle(request: NextRequest) {
       ok: true,
       ...summary,
       billing,
+      retention,
       prunedRateLimits,
       providers: describeProviders(),
       durationMs: Date.now() - started,
