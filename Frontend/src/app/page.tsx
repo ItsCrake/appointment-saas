@@ -216,8 +216,10 @@ export default function LandingPage() {
         </section>
 
         {/* PROOF — the first thing under the fold, and the one strip that has
-            to stop a thumb. Three numbers answering three objections, on the
-            mesh, exactly where the hero's colour would otherwise end. */}
+            to stop a thumb. Three numbers answering three objections. A card
+            inset on the page rather than a full-bleed band: butted against the
+            hero it read as a second section starting, where a card with its
+            colour bleeding out of it reads as the hero continuing. */}
         <ProofStrip />
 
         {/* PEEK TARGET — full-bleed band, so what shows below the proof strip

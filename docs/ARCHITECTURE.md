@@ -1552,6 +1552,33 @@ Cancellation records `cancel_at_period_end` and revokes nothing: the tenant
 paid through the period, and the provider event is what eventually moves the
 status.
 
+### The proof strip is a card, and its glass is darker than the mesh
+
+It used to be a full-bleed mesh band butted against the hero, with bare text on
+it. Two things were wrong.
+
+**The seam read as a second section starting.** Inset on the page background as
+a `rounded-3xl` card with a blurred copy of its own colour bleeding out behind
+it, the colour now looks like the hero continuing rather than beginning again —
+which is the whole job of the strip that sits between the promise and the proof.
+
+**The glass is `bg-black/20`, not `bg-white/10`, and that is measured.** The
+reflex for glassmorphism is a white scrim, and on this mesh it is wrong in both
+senses. The mesh's lightest possible composite is `rgb(106 77 230)`, where plain
+white already sits at only **5.50:1**; a white scrim lightens that further,
+dropping white text to 4.54:1 and a `white/70` detail line to about 3.1:1 —
+under the AA floor for 12px type. Darkening instead gives `rgb(85 62 184)`:
+
+| Text | On the bare mesh | On `bg-black/20` glass |
+| ---- | ---------------- | ---------------------- |
+| white | 5.50:1 | **7.59:1** |
+| `white/75` | 3.55:1 ✗ | **5.05:1** |
+
+So the old strip's `text-white/70` detail was **failing AA at 3.55:1** at the
+panel's lightest point, and the redesign fixes that rather than inheriting it.
+It also simply looks better: depth on a mid-toned field comes from a tile
+receding, not glowing. Re-measure before lightening any of it.
+
 ### Closing banner
 
 `cta-banner.tsx` closes the page: the deep gradient variant, a dot-matrix

@@ -758,6 +758,20 @@ sender, a working opt-out.
 > currently acted on by the owner rather than automatically;
 > `addMarketingOptOut` is the call a webhook would make.
 
+### Proof strip rebuilt as a glass card ✅
+
+- [x] A `rounded-3xl` card inset on the page with a blurred halo of its own
+      colour behind it, instead of a full-bleed band whose seam against the
+      hero read as a second section starting.
+- [x] **Dark glass, not white.** `bg-black/20` with a bright hairline, because
+      a white scrim on a mid-toned mesh washes it out *and* costs contrast: it
+      would drop white text to 4.54:1 and the detail line to ~3.1:1.
+- [x] **Fixed a live AA failure.** The old strip put `text-white/70` straight on
+      the mesh at **3.55:1**. It is now 5.05:1, with white at 7.59:1, both
+      measured at the mesh's lightest composite.
+- [x] Verified in a browser: three tiles, 3-up on desktop and stacked on mobile,
+      inset 20px at 375px with no horizontal overflow and no console errors.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
