@@ -4,6 +4,7 @@ import {
   getBusinessById,
   getService,
   listAppointmentsInRange,
+  listServices,
   listTimeOffInRange,
   listWorkingHoursForWeekday,
 } from "@/db/queries";
@@ -55,6 +56,12 @@ export type ComputeSlotsInput = {
   /** Calendar date in the business timezone, "YYYY-MM-DD". */
   date: string;
   now: Date;
+  /**
+   * How starts are placed inside each free window. Defaults to `dense`, which
+   * is what a single-chair shop wants and what every caller did before the
+   * grid existed.
+   */
+  packing?: SlotPacking;
 };
 
 /** Day of week (0 = Sunday) for a plain "YYYY-MM-DD" calendar date. */
@@ -62,17 +69,147 @@ export function weekdayOf(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
+/** Half-open `[start, end)` in epoch milliseconds. */
+export type Interval = { start: number; end: number };
+
 /**
- * Half-open overlap: [aStart, aEnd) vs [bStart, bEnd). Back-to-back intervals
- * do not overlap, which is what makes 09:30 bookable right after 09:00–09:30.
+ * Union of overlapping or touching intervals, sorted by start.
+ *
+ * Touching counts as one (`cur.start <= last.end`, not `<`): two bookings that
+ * meet exactly at 10:00 leave no free time between them, and emitting a
+ * zero-length window there would put a candidate at an instant that is not
+ * actually free.
  */
-function overlaps(
-  aStart: number,
-  aEnd: number,
-  bStart: number,
-  bEnd: number,
-): boolean {
-  return aStart < bEnd && bStart < aEnd;
+export function mergeIntervals(intervals: Interval[]): Interval[] {
+  const sorted = intervals
+    .filter((i) => i.end > i.start)
+    .sort((a, b) => a.start - b.start);
+
+  const merged: Interval[] = [];
+  for (const current of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && current.start <= last.end) {
+      if (current.end > last.end) last.end = current.end;
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+
+/** Everything in `base` that is not covered by `blocked`. */
+export function subtractIntervals(
+  base: Interval[],
+  blocked: Interval[],
+): Interval[] {
+  const merged = mergeIntervals(blocked);
+  const free: Interval[] = [];
+
+  for (const window of base) {
+    let start = window.start;
+
+    for (const block of merged) {
+      if (block.end <= start) continue;
+      if (block.start >= window.end) break;
+
+      if (block.start > start) {
+        free.push({ start, end: Math.min(block.start, window.end) });
+      }
+      start = Math.max(start, block.end);
+      if (start >= window.end) break;
+    }
+
+    if (start < window.end) free.push({ start, end: window.end });
+  }
+
+  return free.filter((i) => i.end > i.start);
+}
+
+/**
+ * Contiguous unbooked time inside the shifts — the model everything below is
+ * built on.
+ *
+ * **The buffer is folded into the blocked intervals, not into the boundary
+ * test.** A candidate `[c, c+d)` conflicts with a booking `b` exactly when it
+ * overlaps `(b.start - buffer, b.end + buffer)`, so expanding each booking by
+ * the buffer on both sides and then demanding `c + d <= window.end` is the
+ * *same rule*, expressed once instead of at every comparison.
+ *
+ * That equivalence is why the boundary test below is `start + duration <= end`
+ * rather than `start + duration + buffer <= end`. The trailing buffer is
+ * already inside the window's edge wherever a booking created that edge — and
+ * where the edge is the **end of the shift** there is nothing to be separated
+ * from, so charging a buffer there would delete the last bookable slot of every
+ * single day. Adding the buffer to the test would double-count it in the first
+ * case and invent it in the second.
+ *
+ * Closures carry no buffer: a shop is shut or it is not.
+ */
+export function freeWindows({
+  shifts,
+  appointments,
+  timeOff,
+  bufferMs,
+}: {
+  shifts: Interval[];
+  appointments: Interval[];
+  timeOff: Interval[];
+  bufferMs: number;
+}): Interval[] {
+  const blocked: Interval[] = [
+    ...appointments.map((a) => ({
+      start: a.start - bufferMs,
+      end: a.end + bufferMs,
+    })),
+    ...timeOff,
+  ];
+
+  return subtractIntervals(mergeIntervals(shifts), blocked);
+}
+
+/**
+ * How candidate start times are placed inside a free window.
+ *
+ * - **`dense`** packs from the window's own start in whole service blocks, so a
+ *   one-chair shop wastes nothing: a gap that opens at 09:35 is offered at
+ *   09:35, not at the next tidy number.
+ * - **`grid`** offers only anchors on a shared lattice. It gives up a little
+ *   density to buy something a team shop needs more: every provider's times
+ *   line up, so the union across staff is one clean column of times instead of
+ *   two interleaved ones.
+ */
+export type SlotPacking =
+  { mode: "dense" } | { mode: "grid"; baseGridMin: number; originMs: number };
+
+/** Greatest common divisor, for the base-grid fallback. */
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+/**
+ * The lattice a team shop's slots snap to.
+ *
+ * **The tenant's own `slot_interval_min` wins**, and reviving it here is
+ * deliberate: it had decayed into a live-looking setting that changed nothing,
+ * which ARCHITECTURE.md flagged as the worse of the two options available.
+ *
+ * The GCD of the service blocks is only the fallback, because on a real
+ * catalogue it is far too fine to be useful. `gcd(15, 20, 30, 45)` is **5**,
+ * which would offer 09:00, 09:05, 09:10 … — the exact five-minute noise a
+ * one-chair shop reported seeing, reintroduced deliberately this time. So it is
+ * floored at 5 and only reached when a tenant has no interval configured at
+ * all.
+ */
+export function baseGridMinutes(
+  slotIntervalMin: number,
+  serviceBlockMins: number[] = [],
+): number {
+  if (slotIntervalMin > 0) return slotIntervalMin;
+
+  const blocks = serviceBlockMins.filter((m) => m > 0);
+  if (blocks.length === 0) return 15;
+
+  return Math.max(5, blocks.reduce(gcd));
 }
 
 /**
@@ -102,6 +239,7 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
     timeOff,
     date,
     now,
+    packing = { mode: "dense" },
   } = input;
   const { timezone, slotIntervalMin } = business;
 
@@ -132,92 +270,93 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
   const earliest = now.getTime() + business.minNoticeMin * MINUTE_MS;
   const latest = now.getTime() + business.maxAdvanceDays * DAY_MS;
 
-  const busy = appointments.map((a) => ({
-    start: a.startsAt.getTime(),
-    end: a.endsAt.getTime(),
-  }));
-  const closures = timeOff.map((t) => ({
-    start: t.startsAt.getTime(),
-    end: t.endsAt.getTime(),
-  }));
-
-  const seen = new Set<number>();
-  const slots: Slot[] = [];
-
+  // Wall-clock times are stored naive and interpreted in the business
+  // timezone; fromZonedTime resolves them to real UTC instants, DST included.
+  const shiftIntervals: Interval[] = [];
   for (const shift of shifts) {
     if (shift.isClosed) continue;
-
-    // Wall-clock times are stored naive and interpreted in the business
-    // timezone; fromZonedTime resolves them to real UTC instants, DST included.
-    const shiftStart = fromZonedTime(
+    const start = fromZonedTime(
       `${date}T${shift.startTime}`,
       timezone,
     ).getTime();
-    const shiftEnd = fromZonedTime(
-      `${date}T${shift.endTime}`,
-      timezone,
-    ).getTime();
+    const end = fromZonedTime(`${date}T${shift.endTime}`, timezone).getTime();
+    // Overnight or zero-length shifts are not supported; drop rather than loop.
+    if (end > start) shiftIntervals.push({ start, end });
+  }
+  if (shiftIntervals.length === 0) return [];
 
-    // Overnight or zero-length shifts are not supported; skip rather than loop.
-    if (!(shiftEnd > shiftStart)) continue;
+  /**
+   * Free windows first, candidates second.
+   *
+   * This replaced a cursor that walked the day and jumped forward whenever it
+   * hit something. That worked, but it fused two questions — *where is there
+   * free time* and *where may a slot start* — into one loop, so the answer to
+   * the second was only ever observable through the first. Splitting them is
+   * what makes a scattered day testable: the windows between a 10:00 and a
+   * 12:00 booking are now a value you can assert on, and the packing rule is a
+   * separate decision applied to it.
+   */
+  const windows = freeWindows({
+    shifts: shiftIntervals,
+    appointments: appointments.map((a) => ({
+      start: a.startsAt.getTime(),
+      end: a.endsAt.getTime(),
+    })),
+    timeOff: timeOff.map((t) => ({
+      start: t.startsAt.getTime(),
+      end: t.endsAt.getTime(),
+    })),
+    bufferMs,
+  });
+
+  // A set, because two shifts or two windows can legitimately propose the same
+  // instant and a client must never see the same time twice.
+  const starts = new Set<number>();
+
+  for (const window of windows) {
+    if (packing.mode === "dense") {
+      /**
+       * From the window's own start, in whole blocks. The first candidate is
+       * the earliest instant that is genuinely free — 09:35 after a booking
+       * that ended at 09:35, not the next round number — and each one after it
+       * is a full `duration + buffer` later, so consecutive bookings inside the
+       * window leave no remainder too short to sell.
+       */
+      for (let t = window.start; t + durationMs <= window.end; t += stepMs) {
+        starts.add(t);
+      }
+      continue;
+    }
 
     /**
-     * A cursor walk rather than a precomputed candidate list, because a
-     * booking does not merely block a start — it *moves* the grid. After an
-     * appointment the next start is its end plus the buffer, and stepping
-     * resumes from there.
+     * Grid mode offers *every* anchor that fits, stepping by the lattice rather
+     * than by the block. These are alternative start times, not consecutive
+     * bookings: a 60-minute service on a 15-minute grid is offered at 09:00,
+     * 09:15, 09:30 … and booking one removes the rest from the next request.
      *
-     * Keeping the original grid line as well would offer 09:40 immediately
-     * after a re-anchored 09:35 and strand a 5-minute sliver nobody can book,
-     * which is the fragmentation this whole scheme exists to avoid.
-     *
-     * Terminates: every branch moves `cursor` strictly forward. A conflict can
-     * only match when `cursor < conflict.end + bufferMs`, and a closure only
-     * when `cursor < closure.end`, so both jumps are increases; otherwise the
-     * cursor advances by a positive step.
+     * The origin is the day's local midnight rather than the shift start, and
+     * that is the whole point of the mode: two providers whose shifts begin at
+     * 09:00 and 09:35 still land on the *same* anchors, so the union across a
+     * team is one column of times instead of two interleaved ones.
      */
-    let cursor = shiftStart;
+    const gridMs = packing.baseGridMin * MINUTE_MS;
+    const firstAnchor =
+      packing.originMs +
+      Math.ceil((window.start - packing.originMs) / gridMs) * gridMs;
 
-    while (cursor + durationMs <= shiftEnd) {
-      const end = cursor + durationMs;
-
-      const conflict = busy.find((b) =>
-        overlaps(cursor - bufferMs, end + bufferMs, b.start, b.end),
-      );
-      if (conflict) {
-        cursor = conflict.end + bufferMs;
-        continue;
-      }
-
-      // Closures re-anchor too, for the same reason; no buffer applies to them.
-      const closure = closures.find((c) =>
-        overlaps(cursor, end, c.start, c.end),
-      );
-      if (closure) {
-        cursor = closure.end;
-        continue;
-      }
-
-      // Outside the notice window or past the horizon: skip this start but
-      // keep walking, since the rest of the shift may still be bookable.
-      if (cursor < earliest || cursor > latest || seen.has(cursor)) {
-        cursor += stepMs;
-        continue;
-      }
-
-      const start = cursor;
-      seen.add(start);
-      slots.push({
-        startsAt: new Date(start).toISOString(),
-        endsAt: new Date(end).toISOString(),
-        label: formatInTimeZone(new Date(start), timezone, "HH:mm"),
-      });
-
-      cursor += stepMs;
+    for (let t = firstAnchor; t + durationMs <= window.end; t += gridMs) {
+      starts.add(t);
     }
   }
 
-  return slots.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  return [...starts]
+    .filter((start) => start >= earliest && start <= latest)
+    .sort((a, b) => a - b)
+    .map((start) => ({
+      startsAt: new Date(start).toISOString(),
+      endsAt: new Date(start + durationMs).toISOString(),
+      label: formatInTimeZone(new Date(start), timezone, "HH:mm"),
+    }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -446,6 +585,29 @@ export function staffAvailableAt(
   return slots.find((slot) => slot.startsAt === startsAt)?.staffIds ?? [];
 }
 
+/**
+ * The lattice for a team shop, resolved with as few queries as possible.
+ *
+ * The tenant's `slot_interval_min` answers this on its own for every business
+ * created by the app, since the column defaults to 15. The catalogue is fetched
+ * **only** when it does not — a hand-edited or legacy row — so the hot path
+ * keeps the query count it had before the grid existed.
+ */
+async function resolveBaseGrid(
+  db: Database,
+  business: { id: string; slotIntervalMin: number; bufferMin: number },
+): Promise<number> {
+  if (business.slotIntervalMin > 0) {
+    return baseGridMinutes(business.slotIntervalMin);
+  }
+
+  const services = await listServices(db, business.id);
+  return baseGridMinutes(
+    business.slotIntervalMin,
+    services.map((s) => s.durationMin + (s.bufferMin ?? business.bufferMin)),
+  );
+}
+
 export type GetAvailableSlotsArgs = {
   businessId: string;
   serviceId: string;
@@ -567,8 +729,29 @@ export async function getAvailableSlotsWithStaff(
     timeOffByStaff.set(closure.staffId, list);
   }
 
+  /**
+   * Single chair packs densely; a team snaps to a shared lattice.
+   *
+   * The same flag that decides *who* is bookable decides *how their times line
+   * up*, and both for the same underlying reason. One provider's grid can
+   * re-anchor freely because there is nothing to disagree with it. Two
+   * providers' grids re-anchoring independently is what produced the
+   * interleaved 09:00 / 09:05 / 10:00 / 10:05 column a shop reported — each
+   * column correct on its own, the union unreadable.
+   */
+  const packing: SlotPacking = business.hasMultipleStaff
+    ? {
+        mode: "grid",
+        baseGridMin: await resolveBaseGrid(db, business),
+        // Local midnight, so the lattice is the same for every provider
+        // regardless of when their own shift happens to start.
+        originMs: dayStart.getTime(),
+      }
+    : { mode: "dense" };
+
   return computeStaffSlots({
     business,
+    packing,
     durationMin: service.durationMin,
     serviceBufferMin: service.bufferMin,
     businessShifts,

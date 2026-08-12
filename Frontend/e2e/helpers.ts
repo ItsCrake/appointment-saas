@@ -123,8 +123,60 @@ export function parseConfirmationWhen(text: string) {
 }
 
 /**
+ * Picks a provider when the shop has a team, and does nothing when it does not.
+ *
+ * `demo-barber` has two active providers, so the public flow is genuinely four
+ * steps for it and this helper was walking three. Which of the two screens
+ * appears depends on how many people are free at the chosen time, and that
+ * varies with whatever is really on the calendar that day — so the helper has
+ * to handle both rather than assume:
+ *
+ * - **the picker**, when more than one provider is free;
+ * - **the sole-provider card**, when exactly one is. A team shop never skips
+ *   silently to the form, deliberately: being handed the only person left
+ *   without being told is a decision made for the client that they cannot see.
+ *
+ * A single-staff tenant reaches neither, so `Promise.race` settles on the
+ * details heading and the helper falls through untouched.
+ */
+export async function chooseProviderIfAsked(page: Page) {
+  const picker = page.getByRole("heading", { name: /^עם מי בשעה/ });
+  const soleProvider = page.getByRole("button", { name: /^להמשיך עם/ });
+  const details = page.getByRole("heading", { name: "הפרטים שלכם" });
+
+  await Promise.race([
+    picker.waitFor({ timeout: 20_000 }).catch(() => {}),
+    soleProvider.waitFor({ timeout: 20_000 }).catch(() => {}),
+    details.waitFor({ timeout: 20_000 }).catch(() => {}),
+  ]);
+
+  if (await soleProvider.isVisible()) {
+    await soleProvider.click();
+    return;
+  }
+
+  if (await picker.isVisible()) {
+    /**
+     * Scoped to the picker's own section, not to "the last list on the page".
+     * The booking page also carries the stepper, the gallery and the reviews,
+     * each of them a list — so an unscoped locator quietly resolved to the
+     * testimonials and waited 20 seconds for a button that was never there.
+     *
+     * Whoever is listed first. The point of the step is that *something* is
+     * chosen explicitly, not which one.
+     */
+    await page
+      .locator("section")
+      .filter({ has: picker })
+      .getByRole("button")
+      .first()
+      .click();
+  }
+}
+
+/**
  * Walks the public flow: service, then the first day far enough ahead that
- * has free slots, then details.
+ * has free slots, then a provider if the shop has a team, then details.
  *
  * Starting at day index 2 keeps every booking comfortably outside the
  * business's 12-hour cancellation window, so the cancel spec has something to
@@ -173,6 +225,8 @@ export async function bookAppointment(
 
   if (!chosenTime)
     throw new Error("No bookable slot found in the next 10 days");
+
+  await chooseProviderIfAsked(page);
 
   await expect(
     page.getByRole("heading", { name: "הפרטים שלכם" }),

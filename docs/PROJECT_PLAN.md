@@ -772,6 +772,57 @@ sender, a working opt-out.
 - [x] Verified in a browser: three tiles, 3-up on desktop and stacked on mobile,
       inset 20px at 375px with no horizontal overflow and no console errors.
 
+### Availability rebuilt on free windows ✅
+
+The cursor walk fused "where is there free time" with "where may a slot start",
+so a scattered day could not be asserted on. Now two steps: interval subtraction
+produces free windows, then a packing rule places candidates inside them.
+
+- [x] `mergeIntervals` / `subtractIntervals` / `freeWindows` exported and tested
+      on their own, so the hole between a 10:00 and a 12:00 booking is a value.
+- [x] **Single-staff packs densely** from each window's own start — a gap that
+      opens at 09:35 is offered at 09:35.
+- [x] **Multi-staff snaps to a lattice** anchored on the day's local midnight,
+      so providers whose free time starts at different minutes still line up.
+      This **reverses** the earlier "leave a team's interleaved grid alone"
+      call, at the user's direction; the density it costs buys a readable column.
+- [x] `slot_interval_min` is the lattice and is load-bearing again — the
+      "live-looking setting that changes nothing" ARCHITECTURE.md warned about.
+      GCD is the fallback only, floored at 5m because `gcd(15,20,30,45)` is 5
+      and would recreate the five-minute noise this engine exists to remove.
+- [x] Variable service lengths, scattered mid-day gaps, two-sided buffers and
+      aggregated multi-service durations all covered — 31 new pure tests plus
+      three through the real query path.
+- [x] `npm run verify` green at **792 across 57 files**.
+
+> **The boundary test is `start + duration <= end`, not
+> `start + duration + buffer <= end` as specified.** The buffer is folded into
+> the blocked intervals instead, which is the same rule stated once. Adding it
+> to the test as well would double-count it after a booking and invent it at
+> closing time, deleting the last slot of every day.
+
+> **Multi-service aggregation is engine-ready, not shipped.** `durationMin`
+> accepts a total and a test proves the gap arithmetic, but `appointments` holds
+> a single `service_id` and no UI selects add-ons.
+
+### The Playwright suite is green end to end ✅
+
+- [x] **10/10 for the first time**, dashboard specs included.
+- [x] The helper now walks the **staff step** — `demo-barber` has two active
+      providers, so its public flow is four steps and the helper knew three. It
+      handles both the picker and the sole-provider card, since which appears
+      depends on who is free at the chosen time.
+- [x] Two long-standing latent test bugs fixed: the picker locator resolved to
+      the reviews list rather than the staff list, and the upcoming-booking
+      assertion matched only the **plural** wording — so it could only ever pass
+      when the calendar held two or more upcoming appointments, and the suite
+      creates exactly one.
+
+> A `/b/[token]` failure during this pass turned out to be a **stale dev
+> server**, not a defect: it 404'd valid tokens until restarted, while the same
+> query returned the row out of process. Worth knowing before debugging the
+> query next time.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

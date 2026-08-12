@@ -323,7 +323,9 @@ describe("has_multiple_staff decides who is bookable", () => {
     // problem — the page must still close when the shop does.
     await createStaffSchedule(db, bob.id, WEEKDAY, "09:00:00", "23:00:00");
 
-    const labels = (await slotsFor(business.id, service.id)).map((s) => s.label);
+    const labels = (await slotsFor(business.id, service.id)).map(
+      (s) => s.label,
+    );
 
     expect(labels[labels.length - 1]).toBe("16:00");
     expect(labels).not.toContain("20:00");
@@ -348,7 +350,9 @@ describe("has_multiple_staff decides who is bookable", () => {
       { staffId: bob.id },
     );
 
-    const labels = (await slotsFor(business.id, service.id)).map((s) => s.label);
+    const labels = (await slotsFor(business.id, service.id)).map(
+      (s) => s.label,
+    );
 
     expect(labels).toEqual([
       "09:00",
@@ -367,7 +371,7 @@ describe("has_multiple_staff decides who is bookable", () => {
   it("brings the whole team back the moment the toggle is on", async () => {
     // The other direction matters just as much: this is a setting an owner
     // flips, not a migration. Same fixture as above, one field different.
-    const { business } = await shop({ team: true });
+    const { business, alice } = await shop({ team: true });
     const bob = await createStaff(db, business.id, { name: "בוב" });
     const service = await createService(db, business.id, { durationMin: 60 });
 
@@ -380,11 +384,124 @@ describe("has_multiple_staff decides who is bookable", () => {
       { staffId: bob.id },
     );
 
-    const labels = (await slotsFor(business.id, service.id)).map((s) => s.label);
+    const slots = await slotsFor(business.id, service.id);
+    const labels = slots.map((s) => s.label);
 
-    // Bob's re-anchored grid is legitimate availability for a real team, so it
-    // is offered rather than snapped away.
-    expect(labels).toContain("09:05");
-    expect(labels).toContain("09:00");
+    /**
+     * Bob is back — but on the shop's lattice, not on his own re-anchored one.
+     *
+     * This is the deliberate difference between the two modes. Bob's free time
+     * genuinely starts at 09:05, and a one-chair shop would be offered exactly
+     * that. On a team the first anchor at or after 09:05 is 09:15, because two
+     * providers drifting independently is what produced the interleaved column
+     * this engine exists to avoid.
+     */
+    expect(labels).not.toContain("09:05");
+    expect(labels.slice(0, 3)).toEqual(["09:00", "09:15", "09:30"]);
+
+    // Nobody is lost, only realigned: Alice alone at 09:00 because Bob is
+    // busy, both of them from 09:15 on.
+    expect(staffAvailableAt(slots, at("09:00"))).toEqual([alice.id]);
+    expect(staffAvailableAt(slots, at("09:15")).sort()).toEqual(
+      [alice.id, bob.id].sort(),
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The base grid, through the real query path.
+ *
+ * `availability-windows.test.ts` proves the lattice arithmetic on hand-built
+ * inputs. This proves the wiring: that `has_multiple_staff` actually selects
+ * the mode, that `slot_interval_min` actually reaches it, and that two
+ * providers with unrelated busy days come back as one column of times.
+ */
+describe("multi-staff slots share one lattice", () => {
+  it("aligns two providers whose free time starts at different minutes", async () => {
+    const { business, alice } = await shop({ team: true });
+    const bob = await createStaff(db, business.id, { name: "בוב" });
+    const service = await createService(db, business.id, { durationMin: 60 });
+
+    // Alice is free from 09:00; Bob's morning job ends at 09:20.
+    await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date(at("09:00")),
+      new Date(at("09:20")),
+      { staffId: bob.id },
+    );
+
+    const slots = await slotsFor(business.id, service.id);
+
+    // Every offered time sits on the shop's 15-minute interval. Before the
+    // grid this list also held 09:20, 10:20, 11:20 … from Bob's own
+    // re-anchored walk, interleaved with Alice's on the hour.
+    for (const slot of slots) {
+      expect(["00", "15", "30", "45"]).toContain(slot.label.slice(3));
+    }
+    expect(slots.map((s) => s.label)).not.toContain("09:20");
+
+    // Bob is realigned, not excluded.
+    expect(staffAvailableAt(slots, at("09:00"))).toEqual([alice.id]);
+    expect(staffAvailableAt(slots, at("09:30")).sort()).toEqual(
+      [alice.id, bob.id].sort(),
+    );
+  });
+
+  it("follows the tenant's own slot interval", async () => {
+    // The column that had decayed into a setting which changed nothing. It is
+    // load-bearing again, and only for team shops.
+    const business = await createBusiness(db, {
+      hasMultipleStaff: true,
+      slotIntervalMin: 30,
+    });
+    await createShift(db, business.id, WEEKDAY, "09:00:00", "17:00:00");
+    const service = await createService(db, business.id, { durationMin: 60 });
+
+    const labels = (await slotsFor(business.id, service.id)).map(
+      (s) => s.label,
+    );
+
+    expect(labels.slice(0, 4)).toEqual(["09:00", "09:30", "10:00", "10:30"]);
+  });
+
+  it("fills a scattered day's gaps on the lattice", async () => {
+    const { business } = await shop({ team: true });
+    const service = await createService(db, business.id, { durationMin: 30 });
+
+    // Two mid-day jobs on the only provider, with an hour between them.
+    await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date(at("10:00")),
+      new Date(at("11:00")),
+      {},
+    );
+    await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date(at("12:00")),
+      new Date(at("13:00")),
+      {},
+    );
+
+    const labels = (await slotsFor(business.id, service.id)).map(
+      (s) => s.label,
+    );
+
+    // The 11:00–12:00 hole is offered at every anchor a 30-minute service
+    // fits, and nothing that would run into the 12:00 booking.
+    expect(labels).toContain("11:00");
+    expect(labels).toContain("11:15");
+    expect(labels).toContain("11:30");
+    expect(labels).not.toContain("11:45");
+    // And the booked hours themselves are gone.
+    expect(labels).not.toContain("10:00");
+    expect(labels).not.toContain("12:30");
   });
 });

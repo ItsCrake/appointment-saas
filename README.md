@@ -38,6 +38,9 @@ trends), and an **installable app with push notifications** for new bookings.
 - Availability is computed **server-side only**. The client never decides what
   is bookable; the server re-derives duration and re-runs availability before
   every insert.
+- Slots come from **contiguous free windows**, not a fixed grid. A one-chair
+  shop packs each gap from its own start so nothing is wasted; a team snaps to
+  the shop's interval so two providers' times line up instead of interleaving.
 - Double booking is prevented by a Postgres `EXCLUDE USING gist` constraint,
   not by application logic — two clients tapping the same slot at the same
   instant cannot both win.
@@ -77,7 +80,7 @@ trends), and an **installable app with push notifications** for new bookings.
 │   │   │              services, hours, clients, analytics, staff, billing,
 │   │   │              settings, setup
 │   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
-│   │   ├── db/        schema, migrations (0000–0020), queries/ (repository
+│   │   ├── db/        schema, migrations (0000–0021), queries/ (repository
 │   │   │              layer), scripts
 │   │   │              queries/admin.ts — the only cross-tenant queries
 │   │   ├── lib/       availability, calendar-layout, calendar-week, analytics,
@@ -275,12 +278,12 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 706 unit tests, build
+npm run verify     # env, lint, types, 792 unit tests, build
 npm run test:e2e   # 10 Playwright specs, separate — needs a running server
 ```
 
-> **The Playwright suite is green.** The three specs that assert the owner's
-> dashboard skip unless `E2E_EMAIL` / `E2E_PASSWORD` name the account that owns
+> **The Playwright suite is green at 10/10**, dashboard specs included. Those
+> three skip unless `E2E_EMAIL` / `E2E_PASSWORD` name the account that owns
 > `demo-barber` — see below. The two long-standing failures are fixed: the
 > stale slot selector, and an unknown slug answering 200 rather than 404, which
 > was a real soft-404 and is described in
@@ -391,7 +394,7 @@ Three things are known-outstanding and none of them are code:
    חשבונית מס). Only `getBillingProvider()` needs to learn the new name.
 
 > The fourth item here used to be "apply migration `0012`". It is retired:
-> verified against the live database, **all 21 migrations (0000–0020) are
+> verified against the live database, **all 21 migrations (0000–0021) are
 > applied**, twelve public tables, every `0012` billing column present. The
 > README and ARCHITECTURE.md had disagreed on this.
 

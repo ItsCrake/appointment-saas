@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  chooseProviderIfAsked,
   cleanupE2EBookings,
   clearRateLimit,
   countE2EBookings,
@@ -59,6 +60,9 @@ test.describe("booking failures surface in the UI", () => {
       }
 
       await timeSlot.first().click();
+      // demo-barber has a team, so the flow asks who before it asks for a
+      // name. Same helper the booking spec uses.
+      await chooseProviderIfAsked(page);
       await page.locator("#clientName").fill("בדיקת חסימה");
       await page.locator("#clientPhone").fill(E2E_PHONE);
       await page.waitForTimeout(3000);

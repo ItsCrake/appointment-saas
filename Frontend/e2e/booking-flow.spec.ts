@@ -92,7 +92,14 @@ test.describe("public booking → dashboard → cancellation", () => {
 
     // Regression guard: an owner whose bookings are days out must never see a
     // bare empty day with no sign the appointment exists.
-    const upcomingCard = page.getByText("תורים קרובים");
+    //
+    // Both wordings, because the pointer is pluralised: one upcoming booking
+    // reads "יש תור אחד קרוב" and several read "יש N תורים קרובים". Matching
+    // only the plural meant this passed solely when the calendar happened to
+    // hold two or more — and the suite creates exactly one.
+    const upcomingCard = page.getByRole("link", {
+      name: /תור אחד קרוב|תורים קרובים/,
+    });
     await expect(upcomingCard).toBeVisible();
   });
 

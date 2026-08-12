@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 706 tests; Playwright — 10 specs |
+| Tests      | Vitest + PGlite (WASM Postgres) — 792 tests; Playwright — 10 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -188,8 +188,9 @@ Three things about it are load-bearing:
 
 None of this depends on `has_multiple_staff`: `computeStaffSlots` is handed a
 list of people and unions it, so a one-chair shop ran the identical algorithm
-and had the identical bug. **Which people are in that list is a different
-question, and the flag does decide it** — see below.
+and had the identical bug. **Which people are in that list — and how their
+times are placed — is a different question, and the flag decides both.** See
+below, and [Free windows](#availability-is-free-windows-first-candidates-second).
 
 ### `has_multiple_staff` decides who is bookable, not only what renders
 
@@ -224,11 +225,12 @@ a booking.
 picker never renders for these tenants, so those names were a list of staff the
 shop does not present, sent to every visitor for nothing.
 
-> **A team shop is deliberately left alone.** Its interleaved grid is real
-> availability — two people genuinely free at two different times — and snapping
-> it to a common grid would hide bookable slots to make the page look tidier.
-> Proved in both directions by `availability-staff-db.test.ts`: the same fixture
-> with the flag on keeps 09:05, and with it off does not.
+> **Superseded for team shops.** This originally left a team's interleaved grid
+> alone, on the grounds that it was real availability. That call was reversed
+> deliberately: a team now snaps to a shared lattice, which costs a little
+> density and buys a readable column. The single-staff rule here is unchanged
+> and still load-bearing — see
+> [Free windows](#availability-is-free-windows-first-candidates-second).
 
 ### One booking blocks its provider on every service
 
@@ -2026,6 +2028,83 @@ failure, and the reported bug. Two changes:
 - A Supabase throttle that still gets through is surfaced. Safe *because* of the
   cooldown: what survives is the project-wide email cap, which is the same for
   every address and therefore discloses nothing.
+
+## Availability is free windows first, candidates second
+
+The engine used to walk the day with a cursor that jumped forward whenever it
+hit something. It was correct, and it fused two questions into one loop: *where
+is there free time* and *where may a slot start*. The second was only ever
+observable through the first, which is why a scattered day — the shape of a real
+Tuesday afternoon — was so hard to reason about or assert on.
+
+It is now two steps.
+
+**1. Free windows.** Shift intervals minus everything blocked, as plain
+`[start, end)` maths. `mergeIntervals` and `subtractIntervals` are exported and
+tested on their own, so "the gap between the 10:00 and the 12:00 booking" is a
+value rather than an emergent property of a loop.
+
+**The buffer is folded into the blocked intervals, not into the boundary test.**
+A candidate `[c, c+d)` conflicts with booking `b` exactly when it overlaps
+`(b.start - buffer, b.end + buffer)`, so expanding each booking by the buffer on
+both sides and then asking `c + d <= window.end` is the *same rule*, stated once
+instead of at every comparison.
+
+> **This is why the boundary test is `start + duration <= end` and not
+> `start + duration + buffer <= end`.** The brief specified the latter, and it
+> would be wrong twice over: where a booking created the window's edge the
+> trailing buffer is already inside it, so charging it again double-counts;
+> and where the edge is the **end of the shift** there is nothing to be
+> separated from, so charging it there deletes the last bookable slot of every
+> single day. A test pins both halves.
+
+Closures carry no buffer — a shop is shut or it is not.
+
+**2. Packing.** How starts are placed inside each window, and the two modes
+differ on purpose:
+
+| Mode | Who gets it | Rule |
+| ---- | ----------- | ---- |
+| `dense` | single-staff | from the window's own start, stepping by `duration + buffer` |
+| `grid` | multi-staff | every lattice anchor that fits, stepping by the base grid |
+
+**Dense wastes nothing.** A gap that opens at 09:35 is offered at 09:35, not at
+the next tidy number, and consecutive starts inside a window leave no remainder
+too short to sell.
+
+**Grid trades a little density for a readable column.** Its anchors are measured
+from the day's **local midnight**, not from each provider's shift start — that
+is the entire point. Two people whose free time begins at 09:00 and 09:20 land
+on the same anchors, so the union across a team is one column of times instead
+of two interleaved ones. Grid mode also offers *overlapping* candidates (a
+60-minute service on a 15-minute lattice is offered at 09:00, 09:15, 09:30 …)
+because those are alternative start times, not consecutive bookings.
+
+### The lattice revives `slot_interval_min`
+
+That column had decayed into a live-looking setting that changed nothing, which
+ARCHITECTURE.md flagged as the worse of the two options available. It is now the
+tenant's base grid, and load-bearing for team shops.
+
+**The GCD is only the fallback, and it is floored at 5 minutes.** The brief
+offered GCD *or* a configured interval; on a real catalogue GCD is far too fine
+to be useful — `gcd(15, 20, 30, 45)` is **5**, which would offer 09:00, 09:05,
+09:10 … and reintroduce the exact five-minute noise a one-chair shop reported.
+So the configured interval wins, the catalogue is only consulted when a tenant
+has none, and the floor stops an unusual catalogue producing that column again.
+
+### What this does not change
+
+- **Multi-service aggregation needs no engine change.** `durationMin` is a total:
+  a caller that sums the durations and buffers of several services gets the
+  right window, and a test proves a 45-minute aggregate fits a 60-minute hole
+  and not a 30-minute one. **The booking *flow* still books one service** —
+  `appointments` has a single `service_id` and nothing in the UI selects add-ons,
+  so this is engine readiness, not a shipped feature.
+- **Query count is unchanged.** `getAvailableSlotsWithStaff` already batched
+  hours, staff schedules, appointments and time off into one `Promise.all` per
+  date, and all window maths is in memory. The catalogue query for the GCD
+  fallback is reached only when `slot_interval_min` is unset.
 
 ## Client win-back — the only marketing message (0021)
 
