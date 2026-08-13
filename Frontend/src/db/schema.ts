@@ -689,6 +689,51 @@ export const marketingOptOuts = pgTable(
 
 export type MarketingOptOut = typeof marketingOptOuts.$inferSelect;
 
+/**
+ * The first row in this schema that is a *client record* rather than a
+ * consequence of one (0022).
+ *
+ * Everything else about a client is derived: the clients list is a `GROUP BY
+ * client_phone` over appointment history and the name shown is whichever they
+ * typed last. That works because every fact about them is already a fact about
+ * a booking. A preference is not — "prefers the 3rd chair", "always late, don't
+ * chase" belongs to the person, and writing it onto their most recent
+ * appointment would attach it to a row that scrolls away and eventually gets
+ * cancelled.
+ *
+ * Keyed on `(business_id, client_phone)`, the identity this product already
+ * uses everywhere. Per business, never per platform: two shops reading each
+ * other's notes about a shared customer is a data leak dressed as a feature.
+ */
+export const clientProfiles = pgTable(
+  "client_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    clientPhone: varchar("client_phone", { length: 30 }).notNull(),
+    /** Free text. The owner writes for themselves, in their own shorthand. */
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One per person per shop — and what makes the write an upsert rather than
+    // a read-then-insert two open tabs could race.
+    unique("client_profiles_business_phone_unique").on(
+      t.businessId,
+      t.clientPhone,
+    ),
+  ],
+);
+
+export type ClientProfile = typeof clientProfiles.$inferSelect;
+
 export const notifications = pgTable(
   "notifications",
   {

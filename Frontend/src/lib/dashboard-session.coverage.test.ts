@@ -51,6 +51,12 @@ const EXEMPT: Record<string, string> = {
   // Token-guarded: the cancel link is the credential.
   "b/[token]/actions.ts:cancelBookingAction": "signed cancel token",
 
+  // A **read**, and the drawer that calls it is the clients page's own detail
+  // view. Guarded by `requireBusiness()`, which resolves the tenant from the
+  // session and scopes every query in it — so the write gate is the wrong
+  // question. A frozen tenant keeps their records, and this writes nothing.
+  "dashboard/clients/actions.ts:loadClientProfileAction": "tenant-scoped read",
+
   // Auth entry points. There is no session to gate on yet.
   "login/actions.ts:signInAction": "auth entry point",
   "login/actions.ts:signUpAction": "auth entry point",

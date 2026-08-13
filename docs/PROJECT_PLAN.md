@@ -906,14 +906,44 @@ produces free windows, then a packing rule places candidates inside them.
       for all seven columns on every hover.
 - [x] `npm run verify` green at **802 across 58 files**.
 
-> **Item 2 of that batch was not actioned.** There is no `/dashboard/notifications`
-> route and no nav entry for it, so "Error 2407341431" could not be reproduced;
-> `/master/*` is separately unreachable while `SUPER_ADMIN_EMAILS` is unset,
-> which is the console failing closed by design. Waiting on the exact URL.
+### `/master/alerts` reproduced and fixed ✅
 
-> **Item 3, the phone-keyed client profile with preferences/notes, is not built
-> yet.** It needs a migration and touches the clients page and the calendar
-> popover; it is the next thing.
+The reported "Error 2407341431" was a **`RangeError: Invalid time value`** — an
+error digest and a blank page, not an auth problem.
+
+- [x] **Root cause: the driver returns an untyped aggregate as a string.** A
+      bare `sql` fragment has no column type, so postgres.js hands back
+      `"2026-08-04 12:44:56.938+00"` while the annotation claims `Date`.
+      `Intl.DateTimeFormat.format()` coerces with `ToNumber` → `NaN` → throw.
+      The truthiness guard in front of it passed, because a string is truthy.
+      PGlite parses it into a `Date`, so no test could have caught it.
+- [x] `queries/sql-types.ts` holds `toDate`, applied at every boundary that
+      returns such an aggregate. **`.mapWith()` was tried first and does not
+      work in that position** — the clients-directory tests caught it.
+- [x] The page also formats defensively now: one unparseable value costs a dash
+      in one row, not the console an operator opens *because* something is wrong.
+
+> **Surfaced by the fix:** the alerts page shows **7 failed sends**, all Resend
+> 403 "You can only send testing emails to your own email address". Client mail
+> is not being delivered in production — a domain needs verifying at Resend.
+
+### Phone-keyed client profile (0022) ✅
+
+- [x] `client_profiles`, keyed on `(business_id, client_phone)` — the identity
+      the rest of the product already uses. Keying on the name would merge two
+      people called דני and split one who typed their name two ways.
+- [x] Per business, never per platform; asserted by a test.
+- [x] Upsert on the unique key, so two open tabs cannot race into a constraint
+      violation.
+- [x] A drawer on `/dashboard/clients`: visits / cancellations / no-shows,
+      a "העדפות והערות" field, and the full booking history with statuses.
+      History and stats load **on demand**; the list carries only a marker.
+- [x] The calendar hover card shows the saved preferences, labelled and tinted
+      apart from the booking's own note — one is a request for today, the other
+      is what the shop knows about the person.
+- [x] 13 new query tests; `npm run verify` green at **815 across 59 files**.
+
+> **Migration `0022` is applied** — verified against the live database.
 
 #### 8d — The payment provider *(needs the provider decision)*
 

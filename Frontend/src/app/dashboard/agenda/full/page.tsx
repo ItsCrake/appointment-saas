@@ -13,6 +13,7 @@ import {
   listAppointmentsInRange,
   listTimeOffInRange,
   listWorkingHours,
+  mapClientNotes,
 } from "@/db/queries";
 import { listActiveStaff } from "@/db/queries/staff";
 import { shiftDays, toDaySpans, weekOf } from "@/lib/calendar-week";
@@ -71,7 +72,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
   const rangeStart = fromZonedTime(`${days[0]}T00:00:00`, business.timezone);
   const rangeEnd = new Date(rangeStart.getTime() + 7 * 86_400_000);
 
-  const [appointments, blocks, team, hours] = await Promise.all([
+  const [appointments, blocks, team, hours, clientNotes] = await Promise.all([
     listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
       "pending",
       "confirmed",
@@ -81,6 +82,9 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
     listTimeOffInRange(db, business.id, rangeStart, rangeEnd),
     listActiveStaff(db, business.id),
     listWorkingHours(db, business.id),
+    // One query for the tenant's whole annotated client list, rather than a
+    // lookup per card. See `mapClientNotes`.
+    mapClientNotes(db, business.id),
   ]);
 
   const staffById = new Map(team.map((member) => [member.id, member]));
@@ -104,6 +108,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         subtitle: appointment.serviceName,
         clientPhone: appointment.clientPhone,
         notes: appointment.notes,
+        clientProfileNotes: clientNotes.get(appointment.clientPhone) ?? null,
         status: appointment.status,
         priceCents: appointment.priceCents,
         staffName: team.length > 1 ? (member?.name ?? null) : null,
@@ -134,6 +139,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         ].join(" · "),
         clientPhone: null,
         notes: null,
+        clientProfileNotes: null,
         status: null,
         priceCents: null,
         staffName: member?.name ?? null,

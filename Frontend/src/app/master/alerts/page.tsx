@@ -12,6 +12,31 @@ import { daysUntil } from "@/lib/platform-metrics";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * A date, or null — and **never a throw**.
+ *
+ * `Intl.DateTimeFormat.format()` coerces its argument with `ToNumber`, so a
+ * date *string* becomes `NaN` and the call raises `RangeError: Invalid time
+ * value`. In a server component that is not a bad cell, it is the whole page:
+ * the render aborts and the browser gets a digest and "this page couldn't
+ * load". That is exactly how this page went down — a `max()` aggregate typed as
+ * `Date` came back from postgres.js as a string, and the truthiness guard in
+ * front of it happily let it through.
+ *
+ * The aggregate is now mapped at the query so the type is true. This stays
+ * because the failure mode is disproportionate: one unparseable value should
+ * cost a dash in one row, not the console an operator opens *because*
+ * something is wrong.
+ */
+function shortDate(value: Date | string | null): string | null {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("he-IL", { dateStyle: "short" }).format(date);
+}
+
 export default async function MasterAlertsPage() {
   await requireSuperAdmin();
 
@@ -56,7 +81,13 @@ export default async function MasterAlertsPage() {
               key={t.id}
               title={t.name}
               slug={t.slug}
-              detail={days === 0 ? "פג היום" : `נותרו ${days} ימים`}
+              detail={
+                days === null
+                  ? "מועד סיום לא ידוע"
+                  : days <= 0
+                    ? "פג היום"
+                    : `נותרו ${days} ימים`
+              }
               tone="warn"
             />
           );
@@ -74,8 +105,8 @@ export default async function MasterAlertsPage() {
             title={t.name}
             slug={t.slug}
             detail={
-              t.lastBookingAt
-                ? `תור אחרון: ${new Intl.DateTimeFormat("he-IL", { dateStyle: "short" }).format(t.lastBookingAt)}`
+              shortDate(t.lastBookingAt)
+                ? `תור אחרון: ${shortDate(t.lastBookingAt)}`
                 : "מעולם לא התקבל תור"
             }
             tone="danger"

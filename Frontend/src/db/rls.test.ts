@@ -5,6 +5,11 @@ import { createTestDb } from "@/test/pglite";
 const TABLES = [
   "appointments",
   "businesses",
+  /*
+   * A phone number next to a sentence somebody wrote about a named individual
+   * — the most sensitive pairing in the schema, and the newest.
+   */
+  "client_profiles",
   "invoices",
   /*
    * Bare phone numbers with no name beside them — a list of people who asked a

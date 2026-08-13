@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ClientsDirectory } from "@/components/dashboard/clients-directory";
 import { PageHeader } from "@/components/dashboard/ui";
 import { db } from "@/db";
-import { listClients } from "@/db/queries";
+import { listClients, mapClientNotes } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { formatFullDateTime } from "@/lib/format";
 
@@ -11,7 +11,12 @@ export const metadata: Metadata = { title: "לקוחות" };
 
 export default async function ClientsPage() {
   const { business } = await requireBusiness();
-  const clients = await listClients(db, business.id);
+  // One extra query for the whole list — a marker per row, not the text. The
+  // notes themselves load with the drawer.
+  const [clients, notesByPhone] = await Promise.all([
+    listClients(db, business.id),
+    mapClientNotes(db, business.id),
+  ]);
 
   return (
     <div>
@@ -34,6 +39,7 @@ export default async function ClientsPage() {
                 business.timezone,
               ).date
             : null,
+          hasNotes: notesByPhone.has(client.clientPhone),
         }))}
       />
     </div>

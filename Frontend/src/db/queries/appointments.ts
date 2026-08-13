@@ -9,6 +9,7 @@ import {
   type AppointmentStatus,
 } from "../schema";
 import type { Database } from "../types";
+import { toDate } from "./sql-types";
 
 /**
  * Statuses that occupy a slot. Cancelled, completed and no-show free the time.
@@ -394,7 +395,7 @@ export async function listClients(
 
   return rows.map((row) => ({
     ...row,
-    lastVisit: row.lastVisit ? new Date(row.lastVisit) : null,
+    lastVisit: toDate(row.lastVisit),
   }));
 }
 

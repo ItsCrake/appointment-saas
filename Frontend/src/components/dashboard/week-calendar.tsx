@@ -8,6 +8,7 @@ import {
   ChevronRight,
   MessageCircle,
   Phone,
+  StickyNote,
   Trash2,
   X,
 } from "lucide-react";
@@ -51,6 +52,13 @@ export type CalendarEntry = CalendarItem & {
   clientPhone: string | null;
   /** What the client typed when booking. Null when they typed nothing. */
   notes: string | null;
+  /**
+   * What the *owner* has saved about this client, keyed by phone — not tied to
+   * this booking. Deliberately separate from `notes`: one is a request for
+   * today, the other is what the shop knows about the person, and merging them
+   * would make a standing preference look like something they just asked for.
+   */
+  clientProfileNotes: string | null;
   status: string | null;
   priceCents: number | null;
   staffName: string | null;
@@ -748,6 +756,22 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
         <p className="mt-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 text-xs leading-relaxed text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           {entry.notes}
         </p>
+      ) : null}
+
+      {/* Labelled and tinted differently from the booking note above, because
+          the two answer different questions and an owner glancing at this card
+          has to be able to tell "they asked for X today" from "this is how they
+          always are". */}
+      {entry.clientProfileNotes?.trim() ? (
+        <div className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 dark:bg-amber-950/40">
+          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
+            <StickyNote className="size-3" aria-hidden />
+            העדפות הלקוח
+          </p>
+          <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+            {entry.clientProfileNotes}
+          </p>
+        </div>
       ) : null}
 
       {/* `pointer-events-auto` on the links only: the card itself must stay

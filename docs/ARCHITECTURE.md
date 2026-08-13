@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 802 tests; Playwright — 11 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 815 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -509,6 +509,53 @@ or relabel last quarter under this quarter's name.
 > All six aggregates were smoke-tested against real Supabase, not only PGlite —
 > the known driver gap is that a `sql` template which binds cleanly in PGlite can
 > still throw at bind time in production.
+
+## The client profile (0022)
+
+The first row in this schema that is a *client record* rather than a consequence
+of one. Everything else about a client is derived — the clients list is a
+`GROUP BY client_phone` over appointment history, and the name shown is whichever
+they typed last. That works because every fact about them is already a fact
+about a booking.
+
+**A preference is not.** "Prefers the 3rd chair", "always late, don't chase",
+"allergic to the blue dye" belongs to the person, and writing it onto their most
+recent appointment would attach it to a row that scrolls out of view and
+eventually gets cancelled.
+
+**Keyed on `(business_id, client_phone)`**, the identity the rest of the product
+already uses: a booking carries a phone, `/[slug]/my-appointments` searches by
+one, the win-back campaign groups by one. Keying on the name would merge two
+different people called דני and split one person who typed their own name two
+ways — the exact duplication this exists to prevent. Per business, never per
+platform: two shops reading each other's notes about a shared customer is a data
+leak dressed as a feature, and a test asserts it.
+
+The write is an **upsert on the unique key**, not a read-then-insert: two tabs
+open on the same client would otherwise both find nothing, both insert, and one
+would lose to the constraint with a Postgres error the owner cannot act on.
+
+### Two kinds of note, deliberately not merged
+
+`appointments.notes` is what the client typed when booking — a request for
+*today*. `client_profiles.notes` is what the shop knows about the person. The
+calendar's hover card renders them separately and labels the second, because an
+owner glancing at a card has to be able to tell "they asked for X today" from
+"this is how they always are". Merging them would make a standing preference
+look like something just requested.
+
+### Loaded on demand, marked in bulk
+
+The drawer's history and stats are fetched when a row is opened. A shop with
+four hundred clients would otherwise pay for four hundred histories and four
+hundred stat scans to render a table of names and counts. What *is* fetched with
+the list is `mapClientNotes` — one query returning phone → notes, which drives a
+marker icon per row and, on the calendar, the note on every card in the week
+without a lookup per booking.
+
+`getClientStats` counts a past `confirmed` booking as a visit, not just
+`completed`. Same rule as "last visit" below — a busy shop does not tidy
+statuses, and the two figures would read as contradicting each other otherwise.
 
 ## "Last visit" counts only visits
 
@@ -2438,11 +2485,27 @@ to call it; every existing call site inherits it for free.
 Tests run against **PGlite applying the real migration files**, so the
 exclusion constraint, enum casts and RLS are genuinely exercised.
 
-> **Known gap:** PGlite is more forgiving than postgres.js about parameter
-> binding. A raw `Date` inside a Drizzle `sql` template passes in tests and
+> **Known gap:** PGlite is more forgiving than postgres.js, in both directions.
+>
+> **Binding.** A raw `Date` inside a Drizzle `sql` template passes in tests and
 > throws at bind time in production — this happened once, in
-> `getDashboardStats`. Aggregate `sql` templates need a smoke test against real
-> Supabase after changes. The suite proves SQL _semantics_, not driver binding.
+> `getDashboardStats`.
+>
+> **Reading.** A bare `sql` fragment has no declared column type, so postgres.js
+> returns the value as the raw string Postgres sent while the annotation claims
+> `Date`. PGlite parses it. This took `/master/alerts` down: a `max()` aggregate
+> annotated `Date | null` arrived as `"2026-08-04 12:44:56.938+00"`,
+> `Intl.DateTimeFormat.format()` coerced it with `ToNumber` to `NaN`, and the
+> render threw `RangeError: Invalid time value` — a digest and a blank page. The
+> truthiness guard in front of it passed, because a non-empty string is truthy.
+>
+> `queries/sql-types.ts` holds `toDate`, applied where the rows are returned.
+> **`.mapWith()` is the tidy-looking fix and does not work in that position** —
+> the clients-directory tests proved it by failing on
+> `lastVisit.toISOString is not a function`.
+>
+> Aggregate `sql` templates still need a smoke test against real Supabase after
+> changes. The suite proves SQL _semantics_, not driver behaviour.
 
 Useful scripts: `db:migrate`, `db:seed`, `db:claim -- <uuid>` (point the demo
 shop at a real auth user), `storage:setup` (create the media bucket),

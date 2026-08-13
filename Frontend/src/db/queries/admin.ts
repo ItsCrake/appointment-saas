@@ -3,6 +3,7 @@ import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
 
 import { appointments, businesses, notifications } from "../schema";
 import type { Database } from "../types";
+import { toDate } from "./sql-types";
 
 /**
  * Supabase owns `auth.users`, so it is declared here rather than in
@@ -63,14 +64,18 @@ export async function listTenants(db: Database): Promise<TenantSummary[]> {
       subscriptionStatus: businesses.subscriptionStatus,
       trialEndsAt: businesses.trialEndsAt,
       bookings: sql<number>`count(${appointments.id})::int`,
-      lastBookingAt: sql<Date | null>`max(${appointments.createdAt})`,
+      lastBookingAt: sql<Date | string | null>`max(${appointments.createdAt})`,
     })
     .from(businesses)
     .leftJoin(appointments, eq(appointments.businessId, businesses.id))
     .groupBy(businesses.id)
     .orderBy(desc(businesses.createdAt));
 
-  return rows;
+  // Converted here, not trusted from the annotation — see `toDate`.
+  return rows.map((row) => ({
+    ...row,
+    lastBookingAt: toDate(row.lastBookingAt),
+  }));
 }
 
 export type PlatformPulse = {
@@ -202,7 +207,7 @@ export async function listChurnRisk(
       subscriptionStatus: businesses.subscriptionStatus,
       trialEndsAt: businesses.trialEndsAt,
       bookings: sql<number>`count(${appointments.id}) FILTER (WHERE ${appointments.createdAt} >= ${at(since)})::int`,
-      lastBookingAt: sql<Date | null>`max(${appointments.createdAt})`,
+      lastBookingAt: sql<Date | string | null>`max(${appointments.createdAt})`,
     })
     .from(businesses)
     .leftJoin(appointments, eq(appointments.businessId, businesses.id))
@@ -220,7 +225,11 @@ export async function listChurnRisk(
     )
     .orderBy(desc(businesses.createdAt));
 
-  return rows;
+  // Converted here, not trusted from the annotation — see `toDate`.
+  return rows.map((row) => ({
+    ...row,
+    lastBookingAt: toDate(row.lastBookingAt),
+  }));
 }
 
 /** Trials lapsing inside the window, soonest first. */
@@ -243,7 +252,7 @@ export async function listExpiringTrials(
       subscriptionStatus: businesses.subscriptionStatus,
       trialEndsAt: businesses.trialEndsAt,
       bookings: sql<number>`0::int`,
-      lastBookingAt: sql<Date | null>`NULL::timestamptz`,
+      lastBookingAt: sql<Date | string | null>`NULL::timestamptz`,
     })
     .from(businesses)
     .where(
@@ -255,7 +264,11 @@ export async function listExpiringTrials(
     )
     .orderBy(businesses.trialEndsAt);
 
-  return rows;
+  // Converted here, not trusted from the annotation — see `toDate`.
+  return rows.map((row) => ({
+    ...row,
+    lastBookingAt: toDate(row.lastBookingAt),
+  }));
 }
 
 /** Adds days to a trial, starting from now if the clock already lapsed. */

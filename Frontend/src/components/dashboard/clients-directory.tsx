@@ -1,11 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { MessageCircle, Phone, Search, Users, X } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import {
+  MessageCircle,
+  Phone,
+  Search,
+  StickyNote,
+  Users,
+  X,
+} from "lucide-react";
 
+import { loadClientProfileAction } from "@/app/dashboard/clients/actions";
+import { useToast } from "@/components/ui/toast";
 import { toE164 } from "@/lib/notifications/providers";
 import { cn } from "@/lib/utils";
 
+import {
+  ClientProfileDrawer,
+  type ClientProfileData,
+} from "./client-profile-drawer";
 import { cardClass, EmptyState, inputClass } from "./ui";
 
 export type DirectoryClient = {
@@ -14,6 +27,8 @@ export type DirectoryClient = {
   bookings: number;
   /** Null when they have booked but never actually been in. */
   lastVisitDate: string | null;
+  /** Whether the owner has saved preferences for them — a marker, not the text. */
+  hasNotes: boolean;
 };
 
 /** What a client with no completed visit shows instead of a date. */
@@ -28,6 +43,22 @@ const NEVER_VISITED = "טרם הגיע";
  */
 export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
   const [query, setQuery] = useState("");
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+  const [profile, setProfile] = useState<ClientProfileData | null>(null);
+
+  /**
+   * Fetched when a row is opened rather than shipped with the list. A shop with
+   * four hundred clients would otherwise pay for four hundred histories to
+   * render a table of names and counts.
+   */
+  function open(clientPhone: string) {
+    startTransition(async () => {
+      const result = await loadClientProfileAction(clientPhone);
+      if (result.ok) setProfile(result.profile);
+      else toast(result.error, "error");
+    });
+  }
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -117,9 +148,20 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                     className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                   >
                     <Td>
-                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => open(client.clientPhone)}
+                        className="flex items-center gap-1.5 rounded font-medium text-zinc-900 underline decoration-transparent underline-offset-4 transition-colors hover:decoration-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:text-zinc-100 dark:focus-visible:ring-white"
+                      >
                         {client.clientName}
-                      </span>
+                        {client.hasNotes ? (
+                          <StickyNote
+                            className="size-3.5 shrink-0 text-amber-500"
+                            aria-label="יש הערות שמורות"
+                          />
+                        ) : null}
+                      </button>
                     </Td>
                     <Td>
                       <span
@@ -159,9 +201,20 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
               <li key={client.clientPhone} className={cn("p-4", cardClass)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
-                      {client.clientName}
-                    </p>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => open(client.clientPhone)}
+                      className="flex max-w-full items-center gap-1.5 truncate font-semibold text-zinc-900 dark:text-zinc-100"
+                    >
+                      <span className="truncate">{client.clientName}</span>
+                      {client.hasNotes ? (
+                        <StickyNote
+                          className="size-3.5 shrink-0 text-amber-500"
+                          aria-label="יש הערות שמורות"
+                        />
+                      ) : null}
+                    </button>
                     <p className="mt-0.5 text-xs text-zinc-500">
                       {client.bookings} תורים ·{" "}
                       {client.lastVisitDate
@@ -182,6 +235,13 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
           </ul>
         </>
       )}
+
+      {profile ? (
+        <ClientProfileDrawer
+          profile={profile}
+          onClose={() => setProfile(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -30,7 +30,9 @@ week views and custom blocks that also block client bookings, manual booking for
 quick status actions, optional **approve/reject** on every incoming request,
 services CRUD with per-service buffer, weekly working hours with split shifts,
 **staff with their own hours, time off and colours**, a clients list derived
-from booking history, **analytics** (peak heatmap, top services, staff load,
+from booking history with a **per-client profile** — visit and no-show counts,
+full history, and saved preferences that follow the phone number onto the
+calendar card, **analytics** (peak heatmap, top services, staff load,
 trends), and an **installable app with push notifications** for new bookings.
 
 **Underneath**
@@ -49,7 +51,7 @@ trends), and an **installable app with push notifications** for new bookings.
 - Staff schedules **narrow** the shop's hours, never widen them — a personal
   shift is intersected with `working_hours`, so a provider can never be booked
   while the shop is shut.
-- Row Level Security is on for all 12 tables with **zero anon policies**, which
+- Row Level Security is on for all 14 tables with **zero anon policies**, which
   is what keeps the public Supabase anon key from reading every tenant's client
   names and phone numbers.
 - Owner image and video uploads go **straight from the browser to Supabase
@@ -80,7 +82,7 @@ trends), and an **installable app with push notifications** for new bookings.
 │   │   │              services, hours, clients, analytics, staff, billing,
 │   │   │              settings, setup
 │   │   ├── components/  booking/, dashboard/, marketing/, master/, ui/
-│   │   ├── db/        schema, migrations (0000–0021), queries/ (repository
+│   │   ├── db/        schema, migrations (0000–0022), queries/ (repository
 │   │   │              layer), scripts
 │   │   │              queries/admin.ts — the only cross-tenant queries
 │   │   ├── lib/       availability, calendar-layout, calendar-week, analytics,
@@ -254,7 +256,7 @@ unconfigured one.
 | `/dashboard/services`     | owner         | Services CRUD                                   |
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
 | `/dashboard/staff`        | owner         | Team, per-staff hours, per-staff time off       |
-| `/dashboard/clients`      | owner         | Derived from booking history                    |
+| `/dashboard/clients`      | owner         | Derived from booking history, per-client profile |
 | `/dashboard/settings`     | owner         | Business profile, booking rules, win-back              |
 | `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
 | `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
@@ -279,7 +281,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 802 unit tests, build
+npm run verify     # env, lint, types, 815 unit tests, build
 npm run test:e2e   # 11 Playwright specs, separate — needs a running server
 ```
 
@@ -395,7 +397,7 @@ Three things are known-outstanding and none of them are code:
    חשבונית מס). Only `getBillingProvider()` needs to learn the new name.
 
 > The fourth item here used to be "apply migration `0012`". It is retired:
-> verified against the live database, **all 21 migrations (0000–0021) are
+> verified against the live database, **all 21 migrations (0000–0022) are
 > applied**, twelve public tables, every `0012` billing column present. The
 > README and ARCHITECTURE.md had disagreed on this.
 
