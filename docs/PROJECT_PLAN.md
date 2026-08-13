@@ -879,6 +879,42 @@ produces free windows, then a packing rule places candidates inside them.
 > matches `/[slug]`, the public booking page, which is where both changes
 > landed.
 
+### Staff cleanup, notes badge, instant calendar ✅
+
+- [x] **Single-staff mode deactivates the rest.** The toggle used to change only
+      the flag, leaving the roster and a calendar column per person on screen
+      while the concept was supposedly off. Reversible by design — nobody is
+      deleted and no history moves.
+- [x] **Delete staff**, gated on having no appointments. `ON DELETE RESTRICT` is
+      the guarantee, not an obstacle: for anyone with history the action returns
+      a sentence naming how many bookings they hold and points at deactivation.
+      Two-step confirm, because it is the only control on that card that does
+      not undo with the same click that made it.
+- [x] **"ישנן הערות"** on agenda rows, pending requests and the calendar hover
+      card — and **nothing at all** when a client left no note, which is what
+      keeps the badge worth noticing. The note itself renders where there is
+      room to read it.
+- [x] **RTL arrows** swapped: back on the right, forward on the left. The
+      chevrons pointed correctly but sat on the wrong sides.
+- [x] **"חסימה חדשה" → "אירוע חדש".**
+- [x] **Instant day/week transitions.** The server now always sends the week, so
+      the toggle and steps within it are state changes rather than round trips
+      — **measured at zero requests** across a toggle, a step and a return.
+      Crossing a week boundary still navigates, via a real `<Link>` whose click
+      handler cancels only when memory can serve it. Bounds, rows and lane
+      assignment memoised; lane assignment is O(n²) per day and was re-running
+      for all seven columns on every hover.
+- [x] `npm run verify` green at **802 across 58 files**.
+
+> **Item 2 of that batch was not actioned.** There is no `/dashboard/notifications`
+> route and no nav entry for it, so "Error 2407341431" could not be reproduced;
+> `/master/*` is separately unreachable while `SUPER_ADMIN_EMAILS` is unset,
+> which is the console failing closed by design. Waiting on the exact URL.
+
+> **Item 3, the phone-keyed client profile with preferences/notes, is not built
+> yet.** It needs a migration and touches the clients page and the calendar
+> popover; it is the next thing.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

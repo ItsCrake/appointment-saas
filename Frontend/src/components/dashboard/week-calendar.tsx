@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   CalendarPlus,
@@ -35,6 +35,7 @@ import {
   btnSecondary,
   cardClass,
   inputClass,
+  NotesBadge,
   StatusChip,
 } from "./ui";
 
@@ -48,6 +49,8 @@ export type CalendarEntry = CalendarItem & {
   subtitle: string | null;
   /** Appointments only — powers the call and WhatsApp links in the hover card. */
   clientPhone: string | null;
+  /** What the client typed when booking. Null when they typed nothing. */
+  notes: string | null;
   status: string | null;
   priceCents: number | null;
   staffName: string | null;
@@ -116,8 +119,9 @@ export type CalendarDay = {
 export type CalendarView = "day" | "week";
 
 export function WeekCalendar({
-  view,
-  days,
+  initialView,
+  initialDate,
+  days: weekDays,
   entries,
   weekStart,
   previousWeek,
@@ -126,7 +130,10 @@ export function WeekCalendar({
   staff,
   timezone,
 }: {
-  view: CalendarView;
+  initialView: CalendarView;
+  /** The focused day, "YYYY-MM-DD". Only meaningful in the day view. */
+  initialDate: string;
+  /** Always the full week, whichever view is showing. */
   days: CalendarDay[];
   entries: CalendarEntry[];
   weekStart: string;
@@ -141,54 +148,150 @@ export function WeekCalendar({
   // escape the grid's scroll clipping. See `EntryPopover`.
   const [hovered, setHovered] = useState<HoveredEntry | null>(null);
 
+  /**
+   * View and focused day are **client state seeded from the server**, not props
+   * read on every render.
+   *
+   * They used to be links, so every toggle and every step between two days of
+   * the same week was a full RSC round trip — for data the browser already had,
+   * since the server now always sends the week. Holding them here makes both
+   * instant, and `history.replaceState` keeps the URL honest so a refresh or a
+   * shared link still lands where the owner was.
+   */
+  const [view, setView] = useState<CalendarView>(initialView);
+  const [focusedDate, setFocusedDate] = useState(initialDate);
+
   const dayView = view === "day";
   const hourRow = dayView ? HOUR_ROW_DAY : HOUR_ROW_WEEK;
+
+  const focusedIndex = Math.max(
+    0,
+    weekDays.findIndex((day) => day.date === focusedDate),
+  );
+
+  /**
+   * The columns actually on screen, and the entries remapped onto them.
+   *
+   * In the day view `dayIndex` has to be rewritten to 0, because everything
+   * downstream — lane assignment, placement — indexes by column and there is
+   * only one. Filtering without remapping would place every card in a column
+   * that does not exist.
+   */
+  const { days, visibleEntries } = useMemo(() => {
+    if (!dayView) return { days: weekDays, visibleEntries: entries };
+
+    return {
+      days: weekDays.slice(focusedIndex, focusedIndex + 1),
+      visibleEntries: entries
+        .filter((entry) => entry.dayIndex === focusedIndex)
+        .map((entry) => ({ ...entry, dayIndex: 0 })),
+    };
+  }, [dayView, weekDays, entries, focusedIndex]);
+
   // Tailwind cannot build a class from a runtime value, so the template is an
   // inline style — the same reason `data-accent` exists on the booking page.
   const gridTemplate = `3rem repeat(${days.length}, minmax(0, 1fr))`;
 
-  const bounds = gridBounds(
-    entries,
-    days.flatMap((day) => day.open),
+  /**
+   * Memoised because they are the expensive part and they are recomputed on
+   * every render otherwise — including on each hover, which sets state at the
+   * root. Lane assignment is O(n²) within a day and was running for all seven
+   * columns every time the pointer crossed a card.
+   */
+  const bounds = useMemo(
+    () =>
+      gridBounds(
+        visibleEntries,
+        days.flatMap((day) => day.open),
+      ),
+    [visibleEntries, days],
   );
-  const rows = hourRows(bounds);
+  const rows = useMemo(() => hourRows(bounds), [bounds]);
 
   // Lanes are assigned per day: an overlap on Tuesday must not narrow Monday.
-  const placedByDay = days.map((_, dayIndex) =>
-    assignLanes(entries.filter((entry) => entry.dayIndex === dayIndex)),
+  const placedByDay = useMemo(
+    () =>
+      days.map((_, dayIndex) =>
+        assignLanes(visibleEntries.filter((e) => e.dayIndex === dayIndex)),
+      ),
+    [days, visibleEntries],
+  );
+
+  /**
+   * Keeps the address bar in step without navigating.
+   *
+   * `replaceState` rather than `router.replace`: the latter re-runs the server
+   * component, which is exactly the round trip this whole change removes. The
+   * URL is a bookmark here, not a data source — the data for the week is
+   * already in memory.
+   */
+  const syncUrl = useCallback((nextView: CalendarView, nextDate: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", nextView);
+    url.searchParams.set("week", nextDate);
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  const showView = useCallback(
+    (next: CalendarView) => {
+      setView(next);
+      syncUrl(next, next === "day" ? focusedDate : weekStart);
+    },
+    [focusedDate, weekStart, syncUrl],
+  );
+
+  /** Steps within the loaded week; returns false when it would leave it. */
+  const stepDay = useCallback(
+    (delta: number) => {
+      const next = weekDays[focusedIndex + delta];
+      if (!next) return false;
+      setFocusedDate(next.date);
+      syncUrl("day", next.date);
+      return true;
+    },
+    [weekDays, focusedIndex, syncUrl],
   );
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* Order is DOM order, and the document is `dir="rtl"`, so the first
+            child renders **rightmost**.
+
+            Previous therefore comes first and next comes last, which puts back
+            on the right and forward on the left — the direction Hebrew reads.
+            It was the other way round, so the pair pointed correctly but sat
+            swapped: the left-pointing chevron, which means forward, was on the
+            right where a reader reaches for "back". */}
         <div className="flex items-center gap-1">
-          {/* Chevrons point the way time moves, which in RTL is the opposite of
-              the arrow's own direction. The step is a day or a week depending
-              on the view; the server decides which and hands back the date. */}
-          <WeekLink
-            href={`?view=${view}&week=${nextWeek}`}
-            label={dayView ? "היום הבא" : "השבוע הבא"}
+          <ArrowButton
+            label={dayView ? "היום הקודם" : "השבוע הקודם"}
+            href={`?view=${view}&week=${previousWeek}`}
+            // In the day view a step usually stays inside the week already in
+            // memory, so it is instant; only crossing the boundary navigates.
+            onStep={dayView ? () => stepDay(-1) : undefined}
           >
-            <ChevronLeft className="size-4" aria-hidden />
-          </WeekLink>
+            <ChevronRight className="size-4" aria-hidden />
+          </ArrowButton>
+
           <Link
             href={`?view=${view}&week=${thisWeek}`}
             className={cn(btnSecondary, "h-9 px-4 text-xs")}
           >
             {dayView ? "היום" : "השבוע"}
           </Link>
-          <WeekLink
-            href={`?view=${view}&week=${previousWeek}`}
-            label={dayView ? "היום הקודם" : "השבוע הקודם"}
+
+          <ArrowButton
+            label={dayView ? "היום הבא" : "השבוע הבא"}
+            href={`?view=${view}&week=${nextWeek}`}
+            onStep={dayView ? () => stepDay(1) : undefined}
           >
-            <ChevronRight className="size-4" aria-hidden />
-          </WeekLink>
+            <ChevronLeft className="size-4" aria-hidden />
+          </ArrowButton>
         </div>
 
-        {/* Links, not buttons with state: the view belongs in the URL so it
-            survives a refresh and can be shared, and the page stays a server
-            render with nothing to hydrate. `week` travels with it, or
-            switching to the day view would silently jump back to today. */}
+        {/* Buttons, not links: the whole week is already loaded, so switching
+            view is a state change rather than a navigation. */}
         <div
           role="group"
           aria-label="תצוגת יומן"
@@ -200,10 +303,11 @@ export function WeekCalendar({
               ["week", "שבועי"],
             ] as const
           ).map(([value, label]) => (
-            <Link
+            <button
               key={value}
-              href={`?view=${value}&week=${weekStart}`}
-              aria-current={view === value ? "true" : undefined}
+              type="button"
+              onClick={() => showView(value)}
+              aria-pressed={view === value}
               className={cn(
                 "rounded-full px-4 py-1.5 text-xs font-bold transition-colors",
                 view === value
@@ -212,7 +316,7 @@ export function WeekCalendar({
               )}
             >
               {label}
-            </Link>
+            </button>
           ))}
         </div>
 
@@ -222,7 +326,7 @@ export function WeekCalendar({
           className={cn(btnPrimary, "h-9 px-4 text-xs")}
         >
           <CalendarPlus className="size-4" aria-hidden />
-          חסימה חדשה
+          אירוע חדש
         </button>
       </div>
 
@@ -374,20 +478,39 @@ export function WeekCalendar({
   );
 }
 
-function WeekLink({
+/**
+ * A step through time that only touches the network when it has to.
+ *
+ * `onStep` is the in-memory move — the next day of the week already loaded —
+ * and returns false when the step would leave that week. Only then does this
+ * fall through to the link, which is a real navigation for data the browser
+ * does not have. A week-view arrow always navigates, so it has no `onStep` and
+ * stays a plain link, keeping middle-click and "open in new tab" working.
+ */
+function ArrowButton({
   href,
   label,
+  onStep,
   children,
 }: {
   href: string;
   label: string;
+  onStep?: () => boolean;
   children: React.ReactNode;
 }) {
+  const className =
+    "flex size-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100";
+
   return (
     <Link
       href={href}
       aria-label={label}
-      className="flex size-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+      className={className}
+      onClick={(event) => {
+        if (!onStep) return;
+        // Handled in memory — stop the navigation the href would otherwise do.
+        if (onStep()) event.preventDefault();
+      }}
     >
       {children}
     </Link>
@@ -612,10 +735,19 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
         ) : null}
       </dl>
 
-      {entry.status ? (
-        <div className="mt-2">
-          <StatusChip status={entry.status} />
+      {entry.status || entry.notes ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {entry.status ? <StatusChip status={entry.status} /> : null}
+          <NotesBadge notes={entry.notes} />
         </div>
+      ) : null}
+
+      {/* The badge says *look*; this is the thing to look at. The hover card is
+          the one place on the calendar with room for a sentence. */}
+      {entry.notes?.trim() ? (
+        <p className="mt-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 text-xs leading-relaxed text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+          {entry.notes}
+        </p>
       ) : null}
 
       {/* `pointer-events-auto` on the links only: the card itself must stay

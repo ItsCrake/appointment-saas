@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
-import { staff, staffSchedules } from "../schema";
+import { appointments, staff, staffSchedules } from "../schema";
 import type { Database } from "../types";
 
 /**
@@ -151,6 +151,87 @@ export async function updateStaff(
     .returning();
 
   return row ?? null;
+}
+
+/**
+ * Deactivates everyone except the primary provider.
+ *
+ * Driven by the same `primaryStaff()` rule availability uses, so the person
+ * left standing is exactly the one who will take the bookings — resolving it
+ * differently here would deactivate the provider the engine then tries to book
+ * into.
+ *
+ * Returns how many rows moved, so the caller can say so rather than reporting a
+ * silent success on a shop that already had one chair.
+ */
+export async function deactivateSecondaryStaff(
+  db: Database,
+  businessId: string,
+): Promise<number> {
+  const active = await listActiveStaff(db, businessId);
+  const primary = primaryStaff(active);
+  if (!primary) return 0;
+
+  const others = active.filter((member) => member.id !== primary.id);
+  if (others.length === 0) return 0;
+
+  await db
+    .update(staff)
+    .set({ isActive: false })
+    .where(
+      and(
+        eq(staff.businessId, businessId),
+        inArray(
+          staff.id,
+          others.map((member) => member.id),
+        ),
+      ),
+    );
+
+  return others.length;
+}
+
+/**
+ * How many appointments a provider holds, ever.
+ *
+ * The gate on deletion. `appointments.staff_id` is `ON DELETE RESTRICT`, so the
+ * database would refuse anyway — this exists to turn that refusal into a
+ * sentence naming the number, before anything is attempted.
+ */
+export async function countStaffAppointments(
+  db: Database,
+  businessId: string,
+  staffId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.staffId, staffId),
+      ),
+    );
+
+  return row?.count ?? 0;
+}
+
+/**
+ * Hard delete, tenant-scoped.
+ *
+ * Only ever reached for a provider with no appointments — the caller checks,
+ * and the FK is the backstop. `staff_schedules` and any staff-specific
+ * `time_off` cascade, which is right: a schedule and an absence describe a
+ * person who no longer exists here.
+ */
+export async function deleteStaff(
+  db: Database,
+  businessId: string,
+  staffId: string,
+) {
+  await db
+    .delete(staff)
+    .where(and(eq(staff.businessId, businessId), eq(staff.id, staffId)));
 }
 
 /** Replaces one staff member's weekly template wholesale. */

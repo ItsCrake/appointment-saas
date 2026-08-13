@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { StickyNote } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -198,5 +199,30 @@ export function PageHeader({
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </header>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * "There are notes" — shown **only** when a client actually left some.
+ *
+ * The absence is the design. A badge that renders "no notes" on every
+ * appointment trains an owner to stop reading badges, and the one booking that
+ * says "I'm bringing my son too" then looks exactly like the ninety that say
+ * nothing. Rendering nothing at all is what keeps the badge worth noticing.
+ *
+ * It is a flag, not the content: the note itself is a sentence someone typed
+ * and belongs where there is room to read it, which is the agenda row and the
+ * calendar's hover card. Here it only says *look*.
+ */
+export function NotesBadge({ notes }: { notes: string | null | undefined }) {
+  if (!notes?.trim()) return null;
+
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200 ring-inset dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-900">
+      <StickyNote className="size-3" aria-hidden />
+      ישנן הערות
+    </span>
   );
 }

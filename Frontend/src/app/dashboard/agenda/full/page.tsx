@@ -51,20 +51,25 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
   const anchor = week && DATE_PATTERN.test(week) ? week : today;
 
   /**
-   * Day and week are the *same grid* over a different number of columns.
+   * Day and week are the *same grid* over a different number of columns, and
+   * the server always sends **the whole week** regardless of which is showing.
    *
-   * A separate day component would be a second implementation of lane
-   * assignment, percentage placement and the block dialog — and the two would
-   * drift the first time either was fixed. One column is simply seven minus
-   * six, and every card gets seven times the width for free, which is the whole
-   * reason the day view is worth having.
+   * That last part is the performance fix. Fetching only the focused day made
+   * every toggle a server round trip for data the browser had just been given:
+   * a week view already holds the day, so switching to it needed no network at
+   * all. Sending seven days always costs one query either way — the range is a
+   * single indexed scan — and buys an instant toggle and instant movement
+   * between days inside the week.
+   *
+   * `view` and the focused day are therefore *initial* state for the client
+   * rather than a rendering instruction.
    */
   const view = rawView === "day" ? "day" : "week";
-  const days = view === "day" ? [anchor] : weekOf(anchor);
+  const days = weekOf(anchor);
 
-  // One query for the range on screen, converted from local days to UTC.
+  // One query for the week on screen, converted from local days to UTC.
   const rangeStart = fromZonedTime(`${days[0]}T00:00:00`, business.timezone);
-  const rangeEnd = new Date(rangeStart.getTime() + days.length * 86_400_000);
+  const rangeEnd = new Date(rangeStart.getTime() + 7 * 86_400_000);
 
   const [appointments, blocks, team, hours] = await Promise.all([
     listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
@@ -98,6 +103,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         title: appointment.clientName,
         subtitle: appointment.serviceName,
         clientPhone: appointment.clientPhone,
+        notes: appointment.notes,
         status: appointment.status,
         priceCents: appointment.priceCents,
         staffName: team.length > 1 ? (member?.name ?? null) : null,
@@ -127,6 +133,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
           `${formatInTimeZone(block.startsAt, business.timezone, "d.M HH:mm")}–${formatInTimeZone(block.endsAt, business.timezone, "HH:mm")}`,
         ].join(" · "),
         clientPhone: null,
+        notes: null,
         status: null,
         priceCents: null,
         staffName: member?.name ?? null,
@@ -175,12 +182,13 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
       />
 
       <WeekCalendar
-        view={view}
+        initialView={view}
+        initialDate={anchor}
         days={calendarDays}
         entries={entries}
         weekStart={days[0]}
-        previousWeek={shiftDays(days[0], view === "day" ? -1 : -7)}
-        nextWeek={shiftDays(days[0], view === "day" ? 1 : 7)}
+        previousWeek={shiftDays(days[0], -7)}
+        nextWeek={shiftDays(days[0], 7)}
         thisWeek={today}
         staff={team.map((member) => ({
           id: member.id,

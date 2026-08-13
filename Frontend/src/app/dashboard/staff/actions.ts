@@ -7,7 +7,10 @@ import { z } from "zod";
 import { db } from "@/db";
 import { createTimeOff, deleteTimeOff, updateBusiness } from "@/db/queries";
 import {
+  countStaffAppointments,
   createStaff,
+  deactivateSecondaryStaff,
+  deleteStaff,
   getStaff,
   listActiveStaff,
   replaceStaffSchedule,
@@ -106,10 +109,12 @@ export async function updateStaffAction(
 }
 
 /**
- * Activate or deactivate. There is no delete: `appointments.staff_id` is
- * `ON DELETE RESTRICT`, so anyone who has taken a booking cannot be removed at
- * all — their history is the reason. Deactivating is the operation that
- * actually exists.
+ * Activate or deactivate — the operation that applies to anyone with history.
+ *
+ * `deleteStaffAction` below exists too, but only reaches a provider with no
+ * bookings at all: `appointments.staff_id` is `ON DELETE RESTRICT`, so for
+ * everybody else this is the only way off the rota, and their history is the
+ * reason.
  */
 export async function setStaffActiveAction(
   staffId: string,
@@ -263,10 +268,20 @@ export async function deleteStaffTimeOffAction(
 /**
  * The single binary question, answerable from settings as well as setup.
  *
- * Turning it **off** hides the concept without touching data: every staff row
- * survives, so turning it back on restores the team exactly. Deleting or
- * deactivating people here would make a toggle destructive, which is not what a
- * yes/no question should ever be.
+ * **Turning it off now deactivates everybody but the primary provider**, where
+ * it used to change nothing but the flag. The old note argued a yes/no question
+ * should never be destructive, and that reasoning was right about *deletion* and
+ * wrong about this: the roster stayed visible on `/dashboard/staff`, the
+ * calendar kept a column per person, and the shop was left in a state where the
+ * concept was supposedly off and the evidence of it was still on screen.
+ *
+ * Deactivation is the reversible half of that argument. Nobody is deleted, no
+ * history moves, and turning the switch back on is one click per person — the
+ * same control an owner already uses to put someone back on the rota.
+ *
+ * The primary is exempt by the same rule availability uses: `primaryStaff()` is
+ * the head of `listActiveStaff`, and a tenant with no active provider takes no
+ * bookings at all.
  */
 export async function setMultiStaffAction(
   enabled: boolean,
@@ -275,10 +290,69 @@ export async function setMultiStaffAction(
 
   await updateBusiness(db, business.id, { hasMultipleStaff: enabled });
 
+  let deactivated = 0;
+  if (!enabled) {
+    deactivated = await deactivateSecondaryStaff(db, business.id);
+  }
+
   refresh();
   revalidatePath("/dashboard/settings");
   return {
     ok: true,
-    message: enabled ? "ניהול צוות הופעל" : "ניהול צוות כובה",
+    message: enabled
+      ? "ניהול צוות הופעל"
+      : deactivated > 0
+        ? `ניהול צוות כובה. ${deactivated === 1 ? "נותן שירות אחד הועבר" : `${deactivated} נותני שירות הועברו`} ללא פעיל`
+        : "ניהול צוות כובה",
   };
+}
+
+/**
+ * Removes a provider entirely, when the database will allow it.
+ *
+ * `appointments.staff_id` is `ON DELETE RESTRICT`, so anyone who has ever taken
+ * a booking **cannot** be deleted — their history is the reason, and cascading
+ * it would silently erase appointments an owner may need for tax or for a
+ * dispute. That is not a limitation to route around; it is the guarantee.
+ *
+ * So this deletes only providers with no bookings at all — a name typed twice,
+ * someone who never started — and for everyone else it says plainly why not and
+ * points at deactivation, which is the operation that actually applies. Doing
+ * the check in the application as well as relying on the constraint is what
+ * turns a Postgres error into a sentence.
+ */
+export async function deleteStaffAction(
+  staffId: string,
+): Promise<StaffActionResult> {
+  const { business } = await requireWritable();
+
+  const parsed = z.uuid().safeParse(staffId);
+  if (!parsed.success) return { ok: false, error: "מזהה לא תקין" };
+
+  const member = await getStaff(db, business.id, parsed.data);
+  if (!member) return { ok: false, error: "נותן השירות לא נמצא" };
+
+  const bookings = await countStaffAppointments(db, business.id, parsed.data);
+  if (bookings > 0) {
+    return {
+      ok: false,
+      error: `לא ניתן למחוק — ל${member.name} יש ${bookings} תורים בהיסטוריה. אפשר להעביר ללא פעיל במקום.`,
+    };
+  }
+
+  // The last active provider cannot go, deleted or deactivated: a tenant with
+  // none takes no bookings and the public page stops working with nothing on
+  // screen to explain it.
+  const active = await listActiveStaff(db, business.id);
+  if (member.isActive && active.length <= 1) {
+    return {
+      ok: false,
+      error: "זהו נותן השירות הפעיל האחרון. חייב להישאר אחד לפחות.",
+    };
+  }
+
+  await deleteStaff(db, business.id, parsed.data);
+
+  refresh();
+  return { ok: true, message: `${member.name} נמחק` };
 }

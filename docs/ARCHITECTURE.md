@@ -84,8 +84,12 @@ Eleven tables now. `staff` and `staff_schedules` arrived in `0013`, and
 `appointments.staff_id` with them.
 
 **One binary question, asked once.** `businesses.has_multiple_staff` is the
-answer to "האם יש יותר מנותן שירות אחד בעסק?". False hides the concept
-everywhere — no picker in the booking flow, no manager in the dashboard — and
+answer to "האם יש יותר מנותן שירות אחד בעסק?". **Turning it off now deactivates
+every provider but the primary**, where it once changed nothing but the flag —
+the roster stayed on screen and the calendar kept a column each, so the concept
+was supposedly off while all the evidence of it was still visible. Deactivation
+is the reversible half of that: nobody is deleted, no history moves, and turning
+it back on is one click per person. False hides the concept everywhere — no picker in the booking flow, no manager in the dashboard — and
 **only the primary staff row is bookable**, whatever else the roster holds. An
 explicit column rather than `count(staff) > 1`, because an owner must be able to
 answer *yes* before adding anyone, and to collapse back without deleting people
@@ -322,9 +326,13 @@ their weekly hours — a permanent change used to describe a one-off.
 CRUD over the roster, each person's weekly override, and time off for one person
 or the whole shop. Three rules worth stating:
 
-- **There is no delete.** `appointments.staff_id` is `ON DELETE RESTRICT`, so
-  anyone who has taken a booking cannot be removed at all — their history is the
-  reason. Deactivating is the operation that actually exists.
+- **Delete exists, and reaches almost nobody.** `appointments.staff_id` is
+  `ON DELETE RESTRICT`, so anyone who has ever taken a booking cannot be removed
+  — their history is the reason, and cascading it would erase appointments an
+  owner may need for tax or a dispute. `deleteStaffAction` therefore counts
+  their appointments first and, for everyone with any, returns a sentence naming
+  the number and pointing at deactivation. What it does delete is the case that
+  actually needed it: a name typed twice, someone who never started.
 - **The last active provider cannot be deactivated.** A tenant with none takes
   no bookings: availability returns an empty list for every day and the public
   page silently stops working with nothing to explain it. The action refuses,
@@ -417,10 +425,27 @@ was fixed. One column is seven minus six — the grid template is derived from
 `days.length` — and every card gets seven times the width for free, which is
 the whole reason the view is worth having.
 
-The view lives in the URL rather than in state: it survives a refresh, it can
-be shared, and the page stays a server render with nothing to hydrate. `week`
-travels with it in every control, or switching views would silently jump back
-to today.
+**The server always sends the whole week, and the view is client state.** It
+used to fetch only the focused day, which made every toggle a round trip for
+data the browser had just been handed: a week view already contains the day.
+Seven days cost one query either way — the range is a single indexed scan — and
+buy an instant toggle plus instant movement between days inside the week.
+Measured with Playwright: a day toggle, a day step and a return to the week
+issue **zero requests** to the route.
+
+Stepping *out* of the loaded week still navigates, because that is genuinely
+different data. The arrow is a `<Link>` whose click handler cancels the
+navigation when the step can be served from memory — so middle-click and
+"open in new tab" keep working, and the fallback is a real URL rather than a
+button that does nothing without JavaScript.
+
+`history.replaceState` keeps the address bar in step without re-running the
+server component. `router.replace` would have re-run it, which is exactly the
+round trip being removed; the URL here is a bookmark, not the data source.
+
+`gridBounds`, `hourRows` and lane assignment are memoised. Lane assignment is
+O(n²) within a day, and the hover card sets state at the calendar root — so
+before this it ran for all seven columns every time the pointer crossed a card.
 
 The day view spends its extra room vertically too — 112px an hour against 80 —
 so a 15-minute booking is 28 pixels and never falls back to the compact row.

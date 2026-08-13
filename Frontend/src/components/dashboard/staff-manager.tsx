@@ -8,6 +8,7 @@ import {
   createStaffTimeOffAction,
   deleteStaffTimeOffAction,
   saveStaffScheduleAction,
+  deleteStaffAction,
   setStaffActiveAction,
   updateStaffAction,
   type StaffActionResult,
@@ -184,6 +185,7 @@ export function StaffManager({
                   onSetActive={(active) =>
                     run(() => setStaffActiveAction(member.id, active))
                   }
+                  onDelete={() => run(() => deleteStaffAction(member.id))}
                   onSaveSchedule={(shifts) =>
                     run(
                       () => saveStaffScheduleAction(member.id, shifts),
@@ -315,6 +317,7 @@ function StaffCard({
   onToggleSchedule,
   onSave,
   onSetActive,
+  onDelete,
   onSaveSchedule,
 }: {
   member: StaffRow;
@@ -326,10 +329,14 @@ function StaffCard({
   onToggleSchedule: () => void;
   onSave: (draft: Draft) => void;
   onSetActive: (active: boolean) => void;
+  onDelete: () => void;
   onSaveSchedule: (
     shifts: { weekday: number; startTime: string; endTime: string }[],
   ) => void;
 }) {
+  // Local to the row, so opening one confirmation does not arm every other.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
   const [draft, setDraft] = useState<Draft>({
     name: member.name,
     title: member.title ?? "",
@@ -458,6 +465,42 @@ function StaffCard({
         >
           {member.isActive ? "השבתה" : "הפעלה"}
         </button>
+
+        {/* Two steps, because it is the one control here that destroys a row.
+            Everything else on this card is reversible with the same click that
+            made it. The action refuses anyone with booking history and says how
+            many they have, so the common outcome of pressing this is a sentence
+            explaining that deactivation is what they wanted. */}
+        {confirmingDelete ? (
+          <span className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onDelete}
+              className={cn(btnDanger, "h-9 px-3 text-xs")}
+            >
+              למחוק לצמיתות?
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              className={cn(btnSecondary, "h-9 px-3 text-xs")}
+            >
+              ביטול
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => setConfirmingDelete(true)}
+            aria-label={`מחיקת ${member.name}`}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-zinc-500 transition-colors hover:bg-red-50 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:outline-none dark:hover:bg-red-950/40 dark:hover:text-red-300"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            מחיקה
+          </button>
+        )}
       </div>
 
       {scheduling ? (

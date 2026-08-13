@@ -6,6 +6,7 @@ import { Check, Loader2, Phone, UserX, X } from "lucide-react";
 import { setAppointmentStatusAction } from "@/app/dashboard/actions";
 import { useToast } from "@/components/ui/toast";
 import {
+  NotesBadge,
   STATUS_LABEL,
   StatusChip,
   type AppointmentStatusName,
@@ -114,6 +115,10 @@ function AgendaRow({
               {appointment.clientName}
             </p>
             <StatusChip status={status} />
+            {/* On the header row rather than beside the note itself: this row
+                is what an owner scans down a list of twenty, and the note is a
+                paragraph below it that they only reach if something says to. */}
+            <NotesBadge notes={appointment.notes} />
           </div>
 
           <p className="mt-0.5 truncate text-sm text-zinc-500">
