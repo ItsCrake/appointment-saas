@@ -233,7 +233,7 @@ appointments
 
 ### Phase 6 — Ship
 
-- [x] Playwright E2E: booking flow + dashboard verification + cancel flow. _(10 specs in `e2e/`; self-cleaning via a marker phone number. Admin CRUD is still covered only by the PGlite suite, not through the browser.)_
+- [x] Playwright E2E: booking flow + dashboard verification + cancel flow. _(11 tests across 3 spec files in `e2e/`; self-cleaning via a marker phone number. Admin CRUD is still covered only by the PGlite suite, not through the browser.)_
 - [x] Rate limiting on booking endpoint, honeypot/anti-spam on the public form. _(Postgres fixed-window counters, `0007`; IP + phone-per-business layers; honeypot returns fabricated success.)_
 - [x] Structured error reporting at every server boundary (`src/lib/observability.ts`), with client identifiers redacted. _(**Sentry SDK not installed** — `reportError` is the single call site to wire it into.)_
 - [x] **Added:** security headers moved from `vercel.json` to `next.config.ts`, so they apply in dev and on any host — and are testable locally.
@@ -964,6 +964,50 @@ error digest and a blank page, not an auth problem.
       from **fixed** platform overhead amortised across active tenants, plus
       break-even tenant count. A blended per-tenant number would be a confident
       fiction, and this is a screen a pricing decision gets made on.
+
+---
+
+---
+
+## 5. Where things stand
+
+_Last updated after `0022_client_profiles`. This section is the handover between
+working sessions — if it disagrees with the code, the code is right and this is
+stale._
+
+**Green:** `npm run verify` at **815 tests across 59 files**; Playwright at
+**11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
+the live database — fourteen tables, RLS on every one, twelve owner policies,
+zero reachable by `anon`.
+
+### The one thing that is broken in production right now
+
+**Client email reaches nobody.** Resend rejects every recipient with a `403`
+because the account has no verified domain, so it may only mail its own owner.
+`/master/alerts` shows **7 failed sends**. Nothing in `check:env` catches this —
+the key is present and valid — and from the owner's side the booking simply
+worked. Verify a domain at resend.com → Domains and point
+`NOTIFICATIONS_FROM_EMAIL` at it. See
+[DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
+
+### Blocked on a decision or an account, not on code
+
+| What                | Needs                                                        |
+| ------------------- | ------------------------------------------------------------ |
+| Billing 8d–8e       | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
+| SMS                 | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
+| WhatsApp            | Green API credentials. Code-complete, never exercised on a wire. |
+| Web push            | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven end to end: no notification has reached a real device. |
+| Media uploads       | `npm run storage:setup` against the production project.       |
+| Legal text          | An Israeli lawyer. `LEGAL_ENTITY` still holds placeholder ח.פ. and address fields. |
+
+### Worth knowing before touching the data layer
+
+A bare `sql` aggregate comes back from postgres.js as a **string** and from
+PGlite as a `Date`, so the test suite proves the opposite of production. Convert
+at the boundary with `toDate` from `db/queries/sql-types.ts`; `.mapWith()` does
+not work in that position. This took `/master/alerts` down once already —
+[ARCHITECTURE.md](ARCHITECTURE.md#testing).
 
 ---
 

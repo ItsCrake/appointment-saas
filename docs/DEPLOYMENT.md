@@ -32,7 +32,7 @@ Preview. `.env.local` is not deployed.
 | `DATABASE_URL`                  | Supabase → Database → Connection string → **Transaction pooler** (port 6543)                                                                                    |
 | `DIRECT_URL`                    | Supabase → Database → Connection string → **Session pooler** (port 5432)                                                                                        |
 | `CRON_SECRET`                   | Generate: `openssl rand -hex 32`. Without it the cron route returns 401 and **no reminder is ever sent**.                                                       |
-| `RESEND_API_KEY`                | resend.com → API Keys. Without it email falls back to a console provider: messages are logged and marked sent, but **nothing is delivered**.                    |
+| `RESEND_API_KEY`                | resend.com → API Keys. Without it email falls back to a console provider: messages are logged and marked sent, but **nothing is delivered**. A key alone is not enough — see the domain warning below. |
 | `NOTIFICATIONS_FROM_EMAIL`      | A sender on a Resend-verified domain, e.g. `תורים <noreply@yourdomain.com>`. Required alongside the key — half-configured is an error in every mode.            |
 | `TWILIO_ACCOUNT_SID`            | twilio.com → Console → Account SID. **Newly required in production** — see below.                                                                              |
 | `TWILIO_AUTH_TOKEN`             | twilio.com → Console → Auth Token.                                                                                                                             |
@@ -41,6 +41,26 @@ Preview. `.env.local` is not deployed.
 
 Both connection strings contain a `[YOUR-PASSWORD]` placeholder — replace it,
 brackets included. `check:env` fails if the brackets survive.
+
+> ### A Resend key without a verified domain delivers to exactly one address
+>
+> This is live in production right now and it is worth reading before the next
+> deploy. An unverified Resend account may only send **to the address that owns
+> it**. Every other recipient is rejected with a `403`:
+>
+> ```
+> You can only send testing emails to your own email address (…).
+> To send emails to other recipients, please verify a domain.
+> ```
+>
+> `check:env` passes, because the key is present and valid. The outbox marks
+> those sends `failed` and `/master/alerts` counts them — which is how this
+> surfaced, at **7 failed sends, every one a client confirmation**. From the
+> owner's side the booking simply worked and the client never heard anything.
+>
+> **Verify a domain at resend.com → Domains**, add its DNS records, and make
+> `NOTIFICATIONS_FROM_EMAIL` an address on it. Until then treat email as
+> reaching nobody but yourself, and check `/master/alerts` after deploying.
 
 > **Why Twilio moved out of "optional".** The Pro tier now *sells* SMS
 > reminders, and an unconfigured channel resolves to the console provider,
@@ -70,16 +90,16 @@ pointing at production:
 npm --prefix Frontend run db:migrate
 ```
 
-All 21 migrations (`0000`–`0020`) are applied to the current production
-database. Run this after every deploy that adds one — nothing applies them for
-you.
+All 23 migrations (`0000`–`0022`) are applied to the current production
+database — verified directly, most recently after `0022_client_profiles`. Run
+this after every deploy that adds one; nothing applies them for you.
 
-Verify afterwards that RLS is on for all twelve tables and that no policy is
+Verify afterwards that RLS is on for all fourteen tables and that no policy is
 reachable by `anon` — the anon key is public, and RLS is the only thing
 standing between tenants:
 
 ```sql
--- Expect 12 rows, all rls_enabled = true.
+-- Expect 14 rows, all rls_enabled = true.
 select tablename, rowsecurity as rls_enabled
 from pg_tables where schemaname = 'public' order by tablename;
 
@@ -94,8 +114,15 @@ where schemaname = 'public' and roles::text[] && array['anon','public'];
 ```
 
 `rate_limits` and `subscription_events` correctly show RLS on with no policy
-at all, and `invoices` has a `SELECT`-only one. The other nine each carry one
-`authenticated` owner policy.
+at all, and `invoices` has a `SELECT`-only one. The other **eleven** each carry
+one `authenticated` owner policy — twelve policies over fourteen tables, none
+of them reachable by `anon`.
+
+> The newest two tables are the ones worth re-checking by name.
+> `client_profiles` pairs a phone number with a sentence somebody wrote about a
+> named individual, and `marketing_opt_outs` is a list of people who asked a
+> business to stop contacting them — leaking that is worse than leaking the
+> client list it derives from, because it also records the request.
 
 > **Migration `0008` will refuse to apply if any business points at a deleted
 > auth user.** It adds the owner FK, and it will not delete rows to make room
@@ -397,6 +424,10 @@ Then, against the deployed site:
 - `/sitemap.xml` lists active businesses
 - `/login` shows the sign-in form, not the "not configured" notice
 - a test booking creates rows in `appointments` and `notifications`
+- **`/master/alerts` shows no failed sends.** This is the one page that reports
+  a provider rejecting messages the app believes it sent — an unverified Resend
+  domain shows up here and nowhere else. A booking "working" proves the row was
+  written, not that the client was told.
 - `/login/forgot` accepts an address and returns the same notice for a
   registered and an unregistered one — if they differ, the enumeration guard
   has regressed

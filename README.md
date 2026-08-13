@@ -85,7 +85,10 @@ trends), and an **installable app with push notifications** for new bookings.
 │   │   ├── db/        schema, migrations (0000–0022), queries/ (repository
 │   │   │              layer), scripts
 │   │   │              queries/admin.ts — the only cross-tenant queries
+│   │   │              queries/client-profiles.ts — phone-keyed client notes
+│   │   │              queries/sql-types.ts — coercions for raw `sql` results
 │   │   ├── lib/       availability, calendar-layout, calendar-week, analytics,
+│   │   │              retention (the win-back window),
 │   │   │              notifications/ (+ whatsapp, reminder-policy), billing/,
 │   │   │              entitlements, stats, push, media-upload, booking-steps
 │   │   │              rate limiting, auth-validation, safe-redirect, app-url,
@@ -246,6 +249,7 @@ unconfigured one.
 | ------------------------- | ------------- | ----------------------------------------------- |
 | `/`                       | public        | Marketing landing page, static, no DB           |
 | `/[slug]`                 | public        | Booking flow: service → date & time → details   |
+| `/[slug]/my-appointments` | public        | Client looks up their own history by phone      |
 | `/b/[token]`              | token         | Self-service cancellation, `noindex`            |
 | `/login`                  | public        | Owner sign-in / sign-up                         |
 | `/login/forgot`           | public        | Request a password-reset link, `noindex`        |
@@ -257,6 +261,7 @@ unconfigured one.
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
 | `/dashboard/staff`        | owner         | Team, per-staff hours, per-staff time off       |
 | `/dashboard/clients`      | owner         | Derived from booking history, per-client profile |
+| `/dashboard/analytics`    | owner         | Peak heatmap, services, staff load — Pro-gated   |
 | `/dashboard/settings`     | owner         | Business profile, booking rules, win-back              |
 | `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
 | `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
@@ -282,14 +287,14 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 
 ```bash
 npm run verify     # env, lint, types, 815 unit tests, build
-npm run test:e2e   # 11 Playwright specs, separate — needs a running server
+npm run test:e2e   # 11 tests / 3 specs, separate — needs a running server
 ```
 
-> **The Playwright suite is green at 10/10**, dashboard specs included. Those
-> three skip unless `E2E_EMAIL` / `E2E_PASSWORD` name the account that owns
-> `demo-barber` — see below. The two long-standing failures are fixed: the
-> stale slot selector, and an unknown slug answering 200 rather than 404, which
-> was a real soft-404 and is described in
+> **The Playwright suite is green at 11/11**, dashboard specs included. Those
+> skip unless `E2E_EMAIL` / `E2E_PASSWORD` name the account that owns
+> `demo-barber` — see below. Both long-standing failures are fixed: the stale
+> slot selector, and an unknown slug answering 200 rather than 404, which was a
+> real soft-404 and is described in
 > [ARCHITECTURE.md](docs/ARCHITECTURE.md#unknown-slugs-return-a-real-404).
 
 Unit tests run against **PGlite applying the real migration files**, so the
@@ -308,9 +313,14 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 > reassigns the demo shop, which is how the two drift apart — re-run
 > `npm run db:claim -- <uuid>` afterwards.
 
-> **Known gap:** PGlite is more forgiving than postgres.js about parameter
-> binding, so the suite proves SQL _semantics_, not driver binding. Aggregate
-> `sql` templates need a smoke test against real Supabase after changes.
+> **Known gap:** PGlite is more forgiving than postgres.js in **both**
+> directions, so the suite proves SQL _semantics_, not driver behaviour.
+> Binding: a raw `Date` in a `sql` template passes here and throws in
+> production. Reading: a bare `sql` aggregate comes back as a string from
+> postgres.js and as a `Date` from PGlite, which took `/master/alerts` down with
+> a `RangeError` no test could have caught. Aggregate `sql` templates need a
+> smoke test against real Supabase after changes — the full account is in
+> [ARCHITECTURE.md](docs/ARCHITECTURE.md#testing).
 
 ---
 
@@ -343,6 +353,28 @@ navigation-performance pass, auth hardening, the Israeli legal surface,
 self-service password reset, one palette across the product — and then Phase 9:
 multi-staff, media uploads, booking approval, client self-service, analytics, a
 full week calendar, an installable app with push, and a WhatsApp backend.
+
+**Since Phase 9 closed**, in roughly the order it shipped:
+
+- **A real 404 for unknown slugs**, decided in the proxy before the response
+  streams, behind a bounded positive slug cache that fails open.
+- **Single-staff shops book only their primary provider.** A leftover second
+  provider was widening a one-chair shop's availability and taking bookings;
+  turning the team off now deactivates the others rather than hiding them.
+- **Availability rebuilt on free windows.** Slots come from contiguous gaps: a
+  one-chair shop packs each gap from its own start so nothing is wasted, a team
+  snaps to the shop's interval so two providers line up instead of interleaving
+  into apparent 5-minute increments.
+- **Client win-back** — the only marketing message here, and the only one
+  Israeli law treats differently. Default-off, Pro-gated, and gated again on the
+  owner's opt-in, the client's own consent, and a suppression list.
+- **The full calendar** got day and week views, cards that survive a glance,
+  and instant view/date switching. "Last visit" counts visits — not
+  cancellations, and not the future.
+- **Phone-keyed client profiles**: visit and no-show counts, full history, and
+  saved preferences that follow the phone number onto the calendar card.
+- Web push now demands a real `VAPID_SUBJECT`; iOS safe areas actually apply;
+  `/master/alerts` renders again.
 
 > **The whole product now runs on one palette.** Teal is gone from `/login`,
 > `/dashboard/*` and `/master`, and `neutral` and `slate` were collapsed into
@@ -397,9 +429,9 @@ Three things are known-outstanding and none of them are code:
    חשבונית מס). Only `getBillingProvider()` needs to learn the new name.
 
 > The fourth item here used to be "apply migration `0012`". It is retired:
-> verified against the live database, **all 21 migrations (0000–0022) are
-> applied**, twelve public tables, every `0012` billing column present. The
-> README and ARCHITECTURE.md had disagreed on this.
+> verified against the live database, **all 23 migrations (0000–0022) are
+> applied** — fourteen public tables, RLS on every one, twelve owner policies,
+> zero reachable by `anon`, and every `0012` billing column present.
 
 > **Deploy note:** the Pro tier sells SMS reminders, so
 > `check:env --production` now requires Twilio credentials. Without a Twilio

@@ -2540,8 +2540,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 
 **Done (Phases 0–9, bar the payment provider and a production pilot)**
 
-> **All 21 migrations (0000–0020) are applied.** Verified directly against the
-> live database: twelve public tables, RLS on every one. The long-standing
+> **All 23 migrations (0000–0022) are applied.** Verified directly against the
+> live database: fourteen public tables, RLS on every one, twelve owner
+> policies, and **zero policies reachable by `anon`** — the property the whole
+> tenant boundary rests on, since the anon key is public. The long-standing
 > "0012 has never been applied" warning is retired.
 
 
@@ -2562,8 +2564,8 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   `next.config.ts`, env validation CLI
 - Abuse defence: honeypot + Postgres rate limits on IP and phone-per-business
 - Observability: structured JSON logging with client identifiers redacted
-- Playwright E2E over the public booking and cancellation flows — **green**,
-  including a real 404 for an unknown slug
+- Playwright E2E over the public booking and cancellation flows plus dashboard
+  navigation — **green at 11/11**, including a real 404 for an unknown slug
 - **A real 404 for unknown slugs**, resolved in the proxy before the response
   streams, behind a bounded slug cache that fails open — see
   [Unknown slugs return a real 404](#unknown-slugs-return-a-real-404)
@@ -2622,6 +2624,23 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
   planned from the booking's lead time rather than a fixed 24 hours
 - Per-tenant theming across the whole booking page, including an accent-driven
   mesh banner and a video hero
+- **Availability as free windows**: contiguous gaps first, candidate times
+  second — dense packing for one chair, an anchored base grid for a team, so
+  two providers' offers line up instead of interleaving. See
+  [Availability is free windows first](#availability-is-free-windows-first-candidates-second)
+- **Single-staff isolation**: turning the team off deactivates the other
+  providers rather than hiding them, so a leftover second chair can no longer
+  widen a one-chair shop's hours or receive a booking
+- **Client win-back (0021)**: the one marketing message, default-off, Pro-gated,
+  and gated again on the owner's opt-in, the client's recorded consent and a
+  suppression list — see
+  [Client win-back](#client-win-back--the-only-marketing-message-0021)
+- **Phone-keyed client profiles (0022)**: the first row in the schema that is a
+  client record rather than a consequence of one — visit and no-show counts,
+  full history, and preferences that follow the phone onto the calendar card.
+  See [The client profile](#the-client-profile-0022)
+- **Day and week views** on the full calendar, with instant view and date
+  switching, and "last visit" that counts only visits
 
 **Not built**
 
