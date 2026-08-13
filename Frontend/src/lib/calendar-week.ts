@@ -110,10 +110,22 @@ export function weekOf(date: string): string[] {
   );
 }
 
-/** `date` shifted by whole weeks, for the previous/next controls. */
-export function shiftWeeks(date: string, weeks: number): string {
+/**
+ * `date` shifted by whole days, for the previous/next controls.
+ *
+ * Days rather than weeks because the same controls now step a **day** view by
+ * one and a week view by seven. Arithmetic on the UTC midnight of a plain
+ * calendar date, so it never crosses a DST boundary the way adding hours to a
+ * local instant would.
+ */
+export function shiftDays(date: string, days: number): string {
   const stamp = new Date(`${date}T00:00:00Z`);
-  return new Date(stamp.getTime() + weeks * 7 * 86_400_000)
+  return new Date(stamp.getTime() + days * 86_400_000)
     .toISOString()
     .slice(0, 10);
+}
+
+/** Kept for callers that think in weeks. */
+export function shiftWeeks(date: string, weeks: number): string {
+  return shiftDays(date, weeks * 7);
 }

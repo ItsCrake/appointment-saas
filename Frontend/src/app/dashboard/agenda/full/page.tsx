@@ -15,18 +15,20 @@ import {
   listWorkingHours,
 } from "@/db/queries";
 import { listActiveStaff } from "@/db/queries/staff";
-import { shiftWeeks, toDaySpans, weekOf } from "@/lib/calendar-week";
+import { shiftDays, toDaySpans, weekOf } from "@/lib/calendar-week";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { todayInTimezone } from "@/lib/format";
 
-export const metadata: Metadata = { title: "לוח שבועי" };
+export const metadata: Metadata = { title: "יומן מלא" };
 
 /** The week is always as of now; a cached page would show a stale one. */
 export const dynamic = "force-dynamic";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-type PageProps = { searchParams: Promise<{ week?: string }> };
+type PageProps = {
+  searchParams: Promise<{ week?: string; view?: string }>;
+};
 
 /**
  * The full week calendar.
@@ -43,15 +45,26 @@ type PageProps = { searchParams: Promise<{ week?: string }> };
  */
 export default async function FullCalendarPage({ searchParams }: PageProps) {
   const { business } = await requireBusiness();
-  const { week } = await searchParams;
+  const { week, view: rawView } = await searchParams;
 
   const today = todayInTimezone(business.timezone);
   const anchor = week && DATE_PATTERN.test(week) ? week : today;
-  const days = weekOf(anchor);
 
-  // One query for the whole week, converted from local days to UTC instants.
+  /**
+   * Day and week are the *same grid* over a different number of columns.
+   *
+   * A separate day component would be a second implementation of lane
+   * assignment, percentage placement and the block dialog — and the two would
+   * drift the first time either was fixed. One column is simply seven minus
+   * six, and every card gets seven times the width for free, which is the whole
+   * reason the day view is worth having.
+   */
+  const view = rawView === "day" ? "day" : "week";
+  const days = view === "day" ? [anchor] : weekOf(anchor);
+
+  // One query for the range on screen, converted from local days to UTC.
   const rangeStart = fromZonedTime(`${days[0]}T00:00:00`, business.timezone);
-  const rangeEnd = new Date(rangeStart.getTime() + 7 * 86_400_000);
+  const rangeEnd = new Date(rangeStart.getTime() + days.length * 86_400_000);
 
   const [appointments, blocks, team, hours] = await Promise.all([
     listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
@@ -157,16 +170,17 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
   return (
     <div className="pb-4">
       <PageHeader
-        title="לוח שבועי"
+        title="יומן מלא"
         subtitle="כל התורים, החסימות והצוות במקום אחד"
       />
 
       <WeekCalendar
+        view={view}
         days={calendarDays}
         entries={entries}
         weekStart={days[0]}
-        previousWeek={shiftWeeks(days[0], -1)}
-        nextWeek={shiftWeeks(days[0], 1)}
+        previousWeek={shiftDays(days[0], view === "day" ? -1 : -7)}
+        nextWeek={shiftDays(days[0], view === "day" ? 1 : 7)}
         thisWeek={today}
         staff={team.map((member) => ({
           id: member.id,

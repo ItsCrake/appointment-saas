@@ -77,9 +77,18 @@ test.describe("public booking → dashboard → cancellation", () => {
     await signInAsOwner(page);
     await page.goto(`/dashboard?view=day&date=${booked.date}`);
 
-    await expect(page.getByText(clientName)).toBeVisible();
+    /**
+     * `.first()` throughout, because a booking can legitimately appear twice.
+     *
+     * With `requires_approval` on it is also a pending request, and those are
+     * listed in their own panel above the agenda — deliberately, since a
+     * request can be for any day and an owner who has to navigate to find it
+     * never will. Both copies are correct; the spec only cares that the owner
+     * can see the booking at all.
+     */
+    await expect(page.getByText(clientName).first()).toBeVisible();
     await expect(page.getByText(booked.time).first()).toBeVisible();
-    await expect(page.getByText(E2E_PHONE)).toBeVisible();
+    await expect(page.getByText(E2E_PHONE).first()).toBeVisible();
   });
 
   test("today's empty agenda still points at the upcoming booking", async ({

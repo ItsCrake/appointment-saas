@@ -21,10 +21,12 @@
  * above rather than starting again — which is the whole job of the strip that
  * sits between the promise and the proof.
  *
- * **The glass is darker than what it sits on, not lighter.** That is the
- * opposite of the usual instinct and it is measured, not taste: this mesh is
- * mid-toned, so a white scrim washes it out *and* costs contrast in the one
- * place the page has none to spare. See the note on the tiles.
+ * **The panel is deep, and carries no pattern.** It used to be `.brand-mesh`
+ * under a dot grid: the brand's own mid-toned violet, textured, sitting
+ * between two white sections and competing with both the hero above it and the
+ * closing banner below — three surfaces in the same violet, one of them
+ * speckled. `.obsidian-mesh` is that family taken deep, and the dots are gone
+ * entirely. The band now reads as weight rather than as a third announcement.
  * ---------------------------------------------------------------------------
  */
 
@@ -56,17 +58,14 @@ export function ProofStrip() {
             content without needing a stacking context on every child. */}
         <div
           aria-hidden
-          className="brand-mesh pointer-events-none absolute inset-x-6 top-6 bottom-6 -z-10 rounded-[2.5rem] opacity-60 blur-2xl"
+          className="obsidian-mesh pointer-events-none absolute inset-x-6 top-6 bottom-6 -z-10 rounded-[2.5rem] opacity-60 blur-2xl"
         />
 
-        {/* `brand-mesh`, not `accent-mesh`: this is our page in our colours.
-            The accent mesh belongs to a tenant and reads from `data-accent`. */}
-        <div className="brand-mesh relative overflow-hidden rounded-3xl shadow-[0_30px_80px_-40px_rgb(30_27_75/0.8)]">
-          <div
-            aria-hidden
-            className="dot-matrix pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,#000_0%,transparent_85%)]"
-          />
-
+        {/* No dot pattern. A speckled surface between two clean white sections
+            is texture for its own sake, and it was the only thing on the page
+            drawing the eye to the *background* of a band whose entire job is to
+            carry three numbers. */}
+        <div className="obsidian-mesh relative overflow-hidden rounded-3xl shadow-[0_30px_80px_-40px_rgb(9_9_11/0.85)]">
           {/* A hairline of light along the top edge, which is what stops a
               filled panel reading as flat. Bright at the top, gone by the
               middle — the same direction the light comes from everywhere else
@@ -81,25 +80,21 @@ export function ProofStrip() {
               <div
                 key={claim.label}
                 /**
-                 * Dark glass, and the number is measured rather than chosen.
+                 * Light glass now, and the direction flipped with the panel.
                  *
-                 * The mesh's lightest possible composite is `rgb(106 77 230)`,
-                 * where plain white already sits at only 5.50:1. A white scrim
-                 * — the reflex for "glassmorphism" — lightens that further:
-                 * `bg-white/10` drops white text to 4.54:1 and the detail line
-                 * to about 3.1:1, under the AA floor for 12px type.
+                 * On the old mid-toned mesh a white scrim washed the surface
+                 * out and cost contrast, so the tiles were darkened instead.
+                 * On obsidian there is nothing left to darken — black on black
+                 * is a smudge — and a light scrim is what actually reads as
+                 * glass catching light.
                  *
-                 * `bg-black/20` moves the other way, to `rgb(85 62 184)`:
-                 * **7.59:1 for white and 5.05:1 for `white/75`**, both clear of
-                 * AA at the worst point on the panel. It also looks better,
-                 * because depth on a mid-toned field comes from the tile
-                 * receding rather than glowing.
-                 *
-                 * Re-measure before lightening any of this. The old strip put
-                 * `text-white/70` straight on the mesh at **3.55:1**, which is
-                 * the failure this replaces.
+                 * Measured at the panel's lightest composite:
+                 * `bg-white/[0.08]` gives **9.15:1 for white and 6.00:1 for
+                 * `white/75`**, both well clear of AA and both better than the
+                 * 7.59 / 5.05 the previous treatment managed. Re-measure before
+                 * going lighter.
                  */
-                className="rounded-2xl border border-white/20 bg-black/20 p-5 text-center shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] backdrop-blur-md sm:p-6 sm:text-start"
+                className="rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] backdrop-blur-md sm:p-6 sm:text-start"
               >
                 <p className="text-4xl font-black tracking-tighter text-white tabular-nums sm:text-5xl">
                   {claim.value}

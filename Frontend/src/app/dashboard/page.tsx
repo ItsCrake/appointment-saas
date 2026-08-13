@@ -78,15 +78,21 @@ export default async function AgendaPage({ searchParams }: PageProps) {
           <p className="mt-0.5 text-sm text-zinc-500">{business.name}</p>
         </div>
 
-        {/* The week grid is a sibling view of this one rather than a nav
-            entry: an owner arrives at "today" and reaches for the week from
-            here, not from a menu two taps away. */}
+        {/* The full calendar is a sibling view of this one rather than a nav
+            entry: an owner arrives at "today" and reaches for it from here,
+            not from a menu two taps away.
+
+            It is the one **gradient** control on this page, and larger than the
+            outline buttons beside it. That is the documented use of the brand
+            ramp — the thing being recommended — and it was previously
+            indistinguishable from "share the link", which is a far smaller
+            action an owner takes once. */}
         <Link
           href="/dashboard/agenda/full"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-2 rounded-full bg-[image:var(--brand-gradient)] px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-500/25 transition-all hover:shadow-lg hover:brightness-110 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:focus-visible:ring-offset-zinc-950"
         >
-          <CalendarRange className="size-3.5" aria-hidden />
-          לוח שבועי
+          <CalendarRange className="size-4" aria-hidden />
+          יומן מלא
         </Link>
 
         <Link

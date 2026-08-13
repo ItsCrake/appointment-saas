@@ -25,8 +25,8 @@ registration. Gets a confirmation with an `.ics` download and a personal link
 to cancel within the business's cancellation window, plus
 `/[slug]/my-appointments` to look up their history by phone.
 
-**For the owner** — day and week agenda plus a **full week calendar** with
-custom blocks that also block client bookings, manual booking for walk-ins,
+**For the owner** — day and week agenda plus a **full calendar** with day and
+week views and custom blocks that also block client bookings, manual booking for walk-ins,
 quick status actions, optional **approve/reject** on every incoming request,
 services CRUD with per-service buffer, weekly working hours with split shifts,
 **staff with their own hours, time off and colours**, a clients list derived
@@ -250,6 +250,7 @@ unconfigured one.
 | `/login/reset`            | recovery link | Choose a new password, `noindex`                |
 | `/auth/confirm`           | emailed token | Turns a recovery link into a session            |
 | `/dashboard`              | owner         | Day & week agenda, stats, manual booking        |
+| `/dashboard/agenda/full`  | owner         | Full calendar, `?view=day` or `?view=week`      |
 | `/dashboard/services`     | owner         | Services CRUD                                   |
 | `/dashboard/hours`        | owner         | Weekly hours + time off                         |
 | `/dashboard/staff`        | owner         | Team, per-staff hours, per-staff time off       |
@@ -279,7 +280,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 
 ```bash
 npm run verify     # env, lint, types, 802 unit tests, build
-npm run test:e2e   # 10 Playwright specs, separate — needs a running server
+npm run test:e2e   # 11 Playwright specs, separate — needs a running server
 ```
 
 > **The Playwright suite is green at 10/10**, dashboard specs included. Those

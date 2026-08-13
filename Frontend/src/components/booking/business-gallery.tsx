@@ -54,21 +54,31 @@ export function BusinessGallery({ images }: { images: string[] }) {
         מהעבודות שלנו
       </h2>
 
-      <ul className="grid grid-cols-3 gap-2">
+      {/* A snapping horizontal rail rather than a 3-up grid.
+
+          The grid put nine thumbnails in a block a client had to scroll *past*
+          to reach the thing the page is for. A rail shows the work at a size
+          worth looking at, bleeds off the screen edge so it plainly continues,
+          and costs one row of height however many photos a shop uploads.
+
+          Negative margin plus matching padding is the same edge-bleed trick as
+          the booking flow's day strip, and the scrollbar is hidden for the same
+          reason: on a phone it is a permanent grey line under a row of photos. */}
+      <ul className="-mx-5 flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto px-5 pb-2 [&::-webkit-scrollbar]:hidden">
         {images.map((url, index) => (
-          <li key={`${url}-${index}`}>
+          <li key={`${url}-${index}`} className="shrink-0 snap-start">
             <button
               type="button"
               onClick={() => setOpenAt(index)}
               aria-label={`הגדלת תמונה ${index + 1} מתוך ${count}`}
-              className="group block aspect-square w-full overflow-hidden rounded-xl bg-zinc-100 transition-all duration-150 hover:shadow-md focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 dark:bg-zinc-800"
+              className="group block h-40 w-36 overflow-hidden rounded-2xl bg-zinc-100 transition-all duration-150 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 sm:h-48 sm:w-44 dark:bg-zinc-800"
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time */}
               <img
                 src={url}
                 alt=""
                 loading="lazy"
-                className="size-full object-cover transition-transform duration-200 group-hover:scale-105"
+                className="size-full object-cover transition-transform duration-300 group-hover:scale-110"
               />
             </button>
           </li>

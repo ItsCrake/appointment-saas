@@ -213,6 +213,15 @@ export default async function BusinessPage({ params }: PageProps) {
         })}
       />
 
+      {/* Directly under the header, above the flow.
+
+          It used to sit below the booking steps, where a first-time visitor
+          reached it only after they had already decided. The work is what
+          convinces somebody to book at all, so it belongs where they are still
+          deciding — and it costs a returning client one short rail to scroll
+          past on their way to the services. */}
+      <BusinessGallery images={gallery} />
+
       {services.length === 0 ? (
         <p className="px-5 py-16 text-center text-sm text-zinc-500">
           העסק עדיין לא הגדיר שירותים לקביעת תור.
@@ -253,7 +262,6 @@ export default async function BusinessPage({ params }: PageProps) {
         />
       )}
 
-      <BusinessGallery images={gallery} />
       <BusinessReviews reviews={reviews} />
 
       {/* Below the booking flow, not above it. A returning client will look for
@@ -269,8 +277,22 @@ export default async function BusinessPage({ params }: PageProps) {
         </Link>
       </div>
 
-      <footer className="mt-auto px-5 py-8 text-center text-xs text-zinc-400">
-        מופעל על ידי {BRAND.name}
+      {/* Deliberately the quietest thing on the page, and last.
+
+          This is the platform advertising to the tenant's customers on the
+          tenant's own page, which is a real trade the shop is making in
+          exchange for the page being free to run. It earns its place by being
+          unmissable to the one visitor who is themselves a business owner and
+          invisible to everyone else — so it is a text link at the very bottom,
+          not a banner competing with the shop's own call to action. */}
+      <footer className="mt-auto space-y-2 px-5 py-8 text-center">
+        <p className="text-xs text-zinc-400">מופעל על ידי {BRAND.name}</p>
+        <Link
+          href="/"
+          className="inline-block text-xs font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-4 transition-colors hover:text-zinc-900 hover:decoration-zinc-500 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-400 dark:decoration-zinc-600 dark:hover:text-zinc-100"
+        >
+          רוצה עמוד כזה לעסק שלך? לחץ כאן
+        </Link>
       </footer>
     </div>
   );

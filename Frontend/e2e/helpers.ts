@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 import postgres from "postgres";
 
 import { DEMO_SLUG } from "../src/lib/demo";
@@ -29,12 +29,26 @@ function connect() {
   return postgres(url, { max: 1 });
 }
 
-/** Removes only rows this suite created. */
+/**
+ * Removes only rows this suite created — bookings **and the rate-limit
+ * counters they incremented**.
+ *
+ * The counters matter more than they look. The public booking action is
+ * limited per phone per business over a 30-minute window, and this suite books
+ * with the same number every run, so two or three runs in quick succession
+ * trip the app's own abuse defence and every later run fails on
+ * "נשלחו יותר מדי בקשות" rather than on anything in the product. That is the
+ * limiter working correctly; leaving its rows behind is the test's bug.
+ *
+ * Keyed on the marker phone, so nothing another tenant or a real client
+ * incremented is touched.
+ */
 export async function cleanupE2EBookings() {
   const sql = connect();
   try {
     const rows = await sql`
       DELETE FROM appointments WHERE client_phone = ${E2E_PHONE} RETURNING id`;
+    await sql`DELETE FROM rate_limits WHERE key LIKE ${"%" + E2E_PHONE + "%"}`;
     return rows.length;
   } finally {
     await sql.end();
@@ -240,8 +254,23 @@ export async function bookAppointment(
   await page.waitForTimeout(3000);
   await page.getByRole("button", { name: "אישור וקביעת התור" }).click();
 
+  /**
+   * Either confirmation, because the tenant decides which one exists.
+   *
+   * `requires_approval` turns a booking into a *request*, and the confirmation
+   * screen changes wholesale when it does — amber and "הבקשה נשלחה וממתינה
+   * לאישור" rather than green and "התור נקבע בהצלחה!", by design, because a
+   * client told their appointment is booked when it is not turns up.
+   *
+   * The suite runs against a real tenant whose settings its owner changes, so
+   * asserting one branch means the whole flow goes red the day they try the
+   * feature out. Both outcomes are a successful booking, and the row count in
+   * the spec is what proves it landed.
+   */
   await expect(
-    page.getByRole("heading", { name: "התור נקבע בהצלחה!" }),
+    page
+      .getByRole("heading", { name: "התור נקבע בהצלחה!" })
+      .or(page.getByRole("heading", { name: "הבקשה נשלחה וממתינה לאישור" })),
   ).toBeVisible();
 
   // The whole confirmation section, not the `dl` inside it: the date and time
@@ -252,8 +281,9 @@ export async function bookAppointment(
     .innerText();
   const { date, time } = parseConfirmationWhen(summary);
 
+  // Same reason: the manage link is labelled for the thing it manages.
   const manageHref = await page
-    .getByRole("link", { name: "צפייה או ביטול התור" })
+    .getByRole("link", { name: /^צפייה או ביטול ה(תור|בקשה)$/ })
     .getAttribute("href");
   if (!manageHref) throw new Error("Confirmation screen had no manage link");
 
@@ -261,7 +291,35 @@ export async function bookAppointment(
 }
 
 /** Signs the owner in and lands on the dashboard. */
+/**
+ * Cookies from the first real sign-in of the run, reused by every later spec.
+ *
+ * **The app rate-limits credential endpoints**, keyed on a hashed identity, and
+ * that is deliberate — it is what makes credential stuffing expensive. Five
+ * specs each posting the same email within one run is indistinguishable from
+ * exactly that, so the suite was tripping its own defence and failing on
+ * "נשלחו יותר מדי בקשות" rather than on anything in the product.
+ *
+ * One sign-in per run, then cookie reuse. Playwright gives each test a fresh
+ * context, so the cookies have to be carried across explicitly. Module scope is
+ * safe because `workers: 1` — the suite shares the database and the exclusion
+ * constraint, so it never ran in parallel anyway.
+ */
+type OwnerCookies = Awaited<ReturnType<BrowserContext["cookies"]>>;
+
+let ownerCookies: OwnerCookies | null = null;
+
 export async function signInAsOwner(page: Page) {
+  if (ownerCookies) {
+    await page.context().addCookies(ownerCookies);
+    await page.goto("/dashboard");
+
+    // A session can still expire or be evicted mid-run; fall through to a real
+    // sign-in rather than failing on a page that redirected back to /login.
+    if (/\/dashboard/.test(page.url())) return;
+    ownerCookies = null;
+  }
+
   await page.goto("/login");
   await page.locator("#email").fill(E2E_EMAIL);
   await page.locator("#password").fill(E2E_PASSWORD);
@@ -271,4 +329,6 @@ export async function signInAsOwner(page: Page) {
     .getByRole("button", { name: "התחברות" })
     .click();
   await page.waitForURL(/\/dashboard/, { timeout: 60_000 });
+
+  ownerCookies = await page.context().cookies();
 }

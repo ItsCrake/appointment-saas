@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 802 tests; Playwright — 10 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 802 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -407,6 +407,28 @@ across seven columns.
 > bar in any other colour would contradict the key the owner is reading it
 > against. `staffColor` is only populated for a team, so a one-chair shop has no
 > legend and the bar is free to carry the thing that actually varies there.
+
+### Day and week are the same grid over a different column count
+
+`/dashboard/agenda/full` takes a `?view=day|week`. A separate day component
+would have been a second implementation of lane assignment, percentage
+placement and the block dialog, and the two would drift the first time either
+was fixed. One column is seven minus six — the grid template is derived from
+`days.length` — and every card gets seven times the width for free, which is
+the whole reason the view is worth having.
+
+The view lives in the URL rather than in state: it survives a refresh, it can
+be shared, and the page stays a server render with nothing to hydrate. `week`
+travels with it in every control, or switching views would silently jump back
+to today.
+
+The day view spends its extra room vertically too — 112px an hour against 80 —
+so a 15-minute booking is 28 pixels and never falls back to the compact row.
+Cards there are **solid** rather than translucent, which is the opposite of the
+week rule and for the same reason behind it: across seven narrow columns a solid
+fill is a wall of colour, so the card lets the open-hours band read through; one
+wide column has nothing to compete with, and a washed card on a pale band is
+harder to read than a plain white one.
 
 ### The hover card is positioned `fixed`, and that is not a detail
 
@@ -1585,30 +1607,22 @@ not fit beside the copy and the actions: content overflowed the section and
 pushed the headline up underneath the header. The agenda is what sells the
 product, so the three summary figures are what give way.
 
-### The hero panel is obsidian, and carries no texture at all
+`hero-particles.tsx` is a Canvas client leaf drawing **hollow stroked bubbles**,
+varied in size, drifting upward with a sine sway and a slow radius pulse. Size
+drives parallax: bigger rings rise slower and sit fainter, which is where the
+depth comes from. Canvas rather than a swarm of animated DOM nodes — forty
+absolutely-positioned divs are forty composited layers, which is what turns a
+"subtle" effect into a 30fps phone. Nothing in it touches React state; positions
+live in a plain array mutated inside the rAF loop, so the component renders
+exactly once. It paints one frame synchronously before starting the loop,
+because `requestAnimationFrame` is suspended in a background tab and a page
+opened in one would otherwise show an empty black panel until focused.
 
-`hero-particles.tsx` is **deleted**, along with the dot grid that sat under it.
-Both were texture competing with the one piece of type on that half of the
-screen, and the Canvas field was a running `requestAnimationFrame` loop on a
-phone for something nobody looks at.
-
-`.brand-mesh` is replaced there by `.hero-obsidian`, a deep indigo-into-obsidian
-ramp. The difference is contrast, not taste: the mesh is the *brand's* colour
-spread across a panel, and white on its lightest composite measures **5.51:1**.
-The new ramp measures **11.51:1** at the equivalent point, and **9.15:1** read
-through the glass wall on top of it.
-
-It also does something the mesh could not. The mesh is the same violet→blue
-family as the closing banner, so the top and bottom of the page rhymed and the
-hero read as continuous with the white between them. A darker ramp separates it
-from the viewport, which is what a hero is for.
-
-**The glass wall behind the wordmark is new.** The wordmark previously sat
-directly on the mesh with nothing behind it. It now has a frosted panel —
-`bg-white/[0.07]`, hairline-lit along its top edge, sized by its own content so
-the type keeps the dimensions and cadence it always had. The fill is
-deliberately low: heavier turns the measured 11.51:1 behind it into a wash and
-the wordmark stops being the brightest thing in the composition.
+> **The hero was briefly rebuilt on a darker ramp with a glass wall behind the
+> wordmark, and that was reverted.** The panel above is the original and the one
+> that ships. What survived the round trip is `.obsidian-mesh`, which moved to
+> the proof strip below, where a deep band between two white sections is what
+> was actually wanted.
 
 The scroll affordance is a hairline that draws downward and retracts, with no
 label and no wheel icon. It exists because the 70/30 split is deliberate and
@@ -1656,22 +1670,25 @@ a `rounded-3xl` card with a blurred copy of its own colour bleeding out behind
 it, the colour now looks like the hero continuing rather than beginning again —
 which is the whole job of the strip that sits between the promise and the proof.
 
-**The glass is `bg-black/20`, not `bg-white/10`, and that is measured.** The
-reflex for glassmorphism is a white scrim, and on this mesh it is wrong in both
-senses. The mesh's lightest possible composite is `rgb(106 77 230)`, where plain
-white already sits at only **5.50:1**; a white scrim lightens that further,
-dropping white text to 4.54:1 and a `white/70` detail line to about 3.1:1 —
-under the AA floor for 12px type. Darkening instead gives `rgb(85 62 184)`:
+**The panel is `.obsidian-mesh`, and carries no pattern at all.** It was
+`.brand-mesh` under a dot grid — the brand's own mid-toned violet, textured,
+sitting between two white sections and competing with both the hero above it
+and the closing banner below. Three surfaces in the same violet, one of them
+speckled. The dots are gone and the panel went deep.
 
-| Text | On the bare mesh | On `bg-black/20` glass |
-| ---- | ---------------- | ---------------------- |
-| white | 5.50:1 | **7.59:1** |
-| `white/75` | 3.55:1 ✗ | **5.05:1** |
+**The glass flipped direction with the panel, and both directions were
+measured.** On the mid-toned mesh a white scrim washed the surface out and cost
+contrast, so the tiles were *darkened*. On obsidian there is nothing left to
+darken — black on black is a smudge — and a light scrim is what reads as glass
+catching light:
 
-So the old strip's `text-white/70` detail was **failing AA at 3.55:1** at the
-panel's lightest point, and the redesign fixes that rather than inheriting it.
-It also simply looks better: depth on a mid-toned field comes from a tile
-receding, not glowing. Re-measure before lightening any of it.
+| Text | Bare `.brand-mesh` | `bg-black/20` on mesh | `bg-white/[0.08]` on obsidian |
+| ---- | ------------------ | --------------------- | ----------------------------- |
+| white | 5.50:1 | 7.59:1 | **9.15:1** |
+| `white/75` | 3.55:1 ✗ | 5.05:1 | **6.00:1** |
+
+The original strip's `text-white/70` was **failing AA at 3.55:1** at the panel's
+lightest point. Re-measure before lightening any of it.
 
 ### Closing banner
 
@@ -1841,12 +1858,21 @@ belong outside it sit in a `NOT_IN_NAV` map with a stated reason, and a second
 test fails if an entry there goes stale. Verified by removing `/dashboard/staff`
 from `LINKS` and confirming it named it.
 
-> The sheet's open state is **derived from the pathname**, not a boolean: it
-> stores the route it was opened on and is open only while the path has not
-> moved. Navigation therefore closes it with no effect and no cleanup, including
-> for a back gesture or a redirect that a click handler would miss — and it
-> avoids a `setState` inside an effect body, which is the cascading render the
-> `set-state-in-effect` rule exists to stop.
+> **The sheet's open state used to be derived from the pathname** — it stored
+> the route it was opened on and was open only while the path had not moved.
+> That closed it on navigation with no effect and no cleanup, and it had a bug
+> that only appears on the way *back*: open it on `/dashboard`, tap a link
+> inside it, then return to `/dashboard` from the bottom bar, and the remembered
+> path matches again, so the sheet re-derives itself **open** on a page the
+> owner navigated to deliberately. Nothing was clicked, so no click handler
+> could have fixed it.
+>
+> It is a plain boolean now, reset **during render** when the route changes —
+> React's own documented pattern for resetting on a changed input, and not a
+> `setState` in an effect body, so it still avoids the cascading render the
+> original shape was written to dodge. Sheet links also close it explicitly,
+> for the one case the reset cannot see: tapping the link for the page you are
+> already on changes no pathname.
 
 ## Public booking components
 
@@ -2407,6 +2433,20 @@ The E2E suite books against `demo-barber` and tags every row it creates with
 the phone number `0559990001`, which is all teardown deletes. The dashboard
 specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 `.env.local`; without them those specs skip and the public ones still run.
+
+> **The specs run against a live tenant whose settings its owner changes, so
+> they must not assume a configuration.** Both of these have already broken the
+> suite once: `requires_approval` replaces the whole confirmation screen —
+> amber "הבקשה נשלחה" instead of green "התור נקבע בהצלחה" — and
+> `has_multiple_staff` inserts a provider step between the time and the details
+> form. The helpers accept either branch of both, because a suite that goes red
+> the day an owner tries a feature out is a suite that gets ignored.
+
+> **Sign-ins are rate limited, and the suite is close to the cap.** Four specs
+> authenticate, `AUTH_RULES` counts per hashed identity, and a run repeated
+> quickly enough will start failing on "נשלחו יותר מדי בקשות" rather than on
+> anything in the product. That is the limiter working; wait out the window
+> rather than debugging the tests.
 
 ## Feature status
 

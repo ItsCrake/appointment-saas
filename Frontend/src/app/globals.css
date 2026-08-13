@@ -572,26 +572,20 @@ body {
 }
 
 /* --------------------------------------------------------------------------
-   HERO OBSIDIAN — the dark half of the landing hero.
+   OBSIDIAN MESH — deep indigo into near-black.
 
-   Replaces `.brand-mesh` there, and the difference is contrast rather than
-   taste. The mesh is mid-toned by design: it is the *brand's* colour, spread
-   across a whole panel, and at its lightest composite white sits at 5.51:1.
-   That is fine behind decoration and thin behind a display wordmark which is
-   the only thing on that half of the screen.
+   A third mesh alongside `.brand-mesh` (ours, mid-toned violet→blue) and
+   `.accent-mesh` (the tenant's, resolved from `data-accent`). This one is for
+   a panel that has to read as *deep* rather than as branded: it sits between
+   two white sections and its job is to be a quiet band of weight, not a second
+   place the brand shouts.
 
-   This ramp runs deep indigo into obsidian instead. Measured the same way —
-   lightest possible composite, both radials at full strength over the lightest
-   linear stop — it is `rgb(49 50 113)`, **11.51:1 against white**, and
-   **9.15:1** through the glass wall that sits on it. Re-measure before
-   lightening any stop.
-
-   It also separates the hero from the rest of the viewport, which the mesh did
-   not: the closing banner uses the same violet-into-blue family, so top and
-   bottom read as one surface interrupted by white rather than as a beginning
-   and an end.
+   Measured the same way as the others — lightest possible composite, both
+   radials at full strength over the lightest linear stop — it is
+   `rgb(49 50 113)`, **11.51:1 against white**, where `.brand-mesh` measures
+   5.51:1. Re-measure before lightening any stop.
    -------------------------------------------------------------------------- */
-.hero-obsidian {
+.obsidian-mesh {
   /* Opaque floor first: every radial below is transparent at its edges. */
   background-color: #09090b;
   background-image:

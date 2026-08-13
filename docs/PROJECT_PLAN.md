@@ -849,6 +849,36 @@ produces free windows, then a packing rule places candidates inside them.
 > wordmark sat directly on the mesh. One was added to match the intent, with the
 > text content and the panel's dimensions unchanged.
 
+### Calendar views, nav fixes, booking-page polish ✅
+
+- [x] **Hero reverted.** The darker ramp and glass wall are gone; the panel is
+      `.brand-mesh` with the dot grid and the Canvas bubble field, exactly as it
+      was. `.obsidian-mesh` survived the round trip and moved to the proof strip.
+- [x] **Proof strip has no pattern and a deep panel.** Dots removed; the glass
+      flipped from dark to light with the base, measured at **9.15:1** for white
+      and **6.00:1** for `white/75` — better than the 7.59 / 5.05 it replaced.
+- [x] **"יומן מלא"**, renamed from "לוח שבועי" and rendered in the brand
+      gradient at a larger size — the one recommended action on the agenda,
+      where it was previously indistinguishable from "share the link".
+- [x] **יומי / שבועי toggle.** Same grid over a different column count, so
+      there is no second implementation of lane assignment or placement. The
+      view lives in the URL; `week` travels with it. The day view runs 112px an
+      hour and draws **solid** cards — the opposite of the week rule, because
+      one wide column has nothing to compete with.
+- [x] **The "עוד" sheet no longer reopens itself.** Derived-from-pathname state
+      resurrected on the way *back* to the route it was opened on. Now a boolean
+      reset during render. **Verified end to end** in a browser at phone width.
+- [x] **Gallery moved above the booking flow** and rebuilt as a snapping
+      horizontal rail — it used to sit below the steps, where a first-time
+      visitor reached it only after deciding.
+- [x] **Footer CTA** on `/[slug]`: "רוצה עמוד כזה לעסק שלך? לחץ כאן" → `/`.
+- [x] `npm run verify` green at **802 across 58 files**.
+
+> **The brief located the gallery work at `/b/[token]`.** That route is the
+> client's cancellation page and has never had a gallery; the description
+> matches `/[slug]`, the public booking page, which is where both changes
+> landed.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native

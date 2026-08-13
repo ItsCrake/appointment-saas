@@ -68,10 +68,22 @@ export type CalendarEntry = CalendarItem & {
  * it could only ever render as a clipped fragment of a name. At 80px it is 20,
  * which fits the single-row layout below with its padding.
  */
-const HOUR_ROW = "h-20";
+const HOUR_ROW_WEEK = "h-20";
+
+/**
+ * The day view spends its extra room vertically as well as horizontally.
+ *
+ * At 112px an hour a 15-minute booking is 28 pixels — enough for the two-line
+ * layout, so the day view never has to fall back to the compact row and every
+ * card on it reads at full size. That is the point of having the view at all.
+ */
+const HOUR_ROW_DAY = "h-28";
 
 /** Below this, a card gets one row instead of two. */
 const COMPACT_BELOW_MIN = 30;
+
+/** Same threshold in pixels, since the day view's rows are taller. */
+const COMPACT_BELOW_MIN_DAY = 15;
 
 export type CalendarDay = {
   /** "YYYY-MM-DD" in the business timezone. */
@@ -101,7 +113,10 @@ export type CalendarDay = {
  * first time somebody fixed one of them.
  * ---------------------------------------------------------------------------
  */
+export type CalendarView = "day" | "week";
+
 export function WeekCalendar({
+  view,
   days,
   entries,
   weekStart,
@@ -111,6 +126,7 @@ export function WeekCalendar({
   staff,
   timezone,
 }: {
+  view: CalendarView;
   days: CalendarDay[];
   entries: CalendarEntry[];
   weekStart: string;
@@ -124,6 +140,12 @@ export function WeekCalendar({
   // One at a time, held at the root so the card can be positioned `fixed` and
   // escape the grid's scroll clipping. See `EntryPopover`.
   const [hovered, setHovered] = useState<HoveredEntry | null>(null);
+
+  const dayView = view === "day";
+  const hourRow = dayView ? HOUR_ROW_DAY : HOUR_ROW_WEEK;
+  // Tailwind cannot build a class from a runtime value, so the template is an
+  // inline style — the same reason `data-accent` exists on the booking page.
+  const gridTemplate = `3rem repeat(${days.length}, minmax(0, 1fr))`;
 
   const bounds = gridBounds(
     entries,
@@ -140,20 +162,58 @@ export function WeekCalendar({
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1">
-          {/* Chevrons point the way the week moves, which in RTL is the
-              opposite of the arrow's own direction. */}
-          <WeekLink href={`?week=${nextWeek}`} label="השבוע הבא">
+          {/* Chevrons point the way time moves, which in RTL is the opposite of
+              the arrow's own direction. The step is a day or a week depending
+              on the view; the server decides which and hands back the date. */}
+          <WeekLink
+            href={`?view=${view}&week=${nextWeek}`}
+            label={dayView ? "היום הבא" : "השבוע הבא"}
+          >
             <ChevronLeft className="size-4" aria-hidden />
           </WeekLink>
           <Link
-            href={`?week=${thisWeek}`}
+            href={`?view=${view}&week=${thisWeek}`}
             className={cn(btnSecondary, "h-9 px-4 text-xs")}
           >
-            השבוע
+            {dayView ? "היום" : "השבוע"}
           </Link>
-          <WeekLink href={`?week=${previousWeek}`} label="השבוע הקודם">
+          <WeekLink
+            href={`?view=${view}&week=${previousWeek}`}
+            label={dayView ? "היום הקודם" : "השבוע הקודם"}
+          >
             <ChevronRight className="size-4" aria-hidden />
           </WeekLink>
+        </div>
+
+        {/* Links, not buttons with state: the view belongs in the URL so it
+            survives a refresh and can be shared, and the page stays a server
+            render with nothing to hydrate. `week` travels with it, or
+            switching to the day view would silently jump back to today. */}
+        <div
+          role="group"
+          aria-label="תצוגת יומן"
+          className="flex items-center gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-800"
+        >
+          {(
+            [
+              ["day", "יומי"],
+              ["week", "שבועי"],
+            ] as const
+          ).map(([value, label]) => (
+            <Link
+              key={value}
+              href={`?view=${value}&week=${weekStart}`}
+              aria-current={view === value ? "true" : undefined}
+              className={cn(
+                "rounded-full px-4 py-1.5 text-xs font-bold transition-colors",
+                view === value
+                  ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
+              )}
+            >
+              {label}
+            </Link>
+          ))}
         </div>
 
         <button
@@ -189,8 +249,14 @@ export function WeekCalendar({
       {/* One scroll container: the seven columns keep a usable width on a phone
           by scrolling sideways rather than compressing to nothing. */}
       <div className={cn(cardClass, "overflow-x-auto")}>
-        <div className="min-w-[46rem]">
-          <div className="grid grid-cols-[3rem_repeat(7,1fr)] border-b border-zinc-200 dark:border-zinc-800">
+        {/* Seven columns need a floor or they compress to nothing on a phone.
+            One column does not — a day view that scrolled sideways would be
+            hiding the very space it exists to give the cards. */}
+        <div className={dayView ? "" : "min-w-[46rem]"}>
+          <div
+            className="grid border-b border-zinc-200 dark:border-zinc-800"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
             <div />
             {days.map((day) => (
               <div
@@ -217,14 +283,14 @@ export function WeekCalendar({
             ))}
           </div>
 
-          <div className="grid grid-cols-[3rem_repeat(7,1fr)]">
+          <div className="grid" style={{ gridTemplateColumns: gridTemplate }}>
             {/* Hour rail */}
             <div>
               {rows.map((hour) => (
                 <div
                   key={hour}
                   className={cn(
-                    HOUR_ROW,
+                    hourRow,
                     "relative border-b border-zinc-100 dark:border-zinc-800/60",
                   )}
                 >
@@ -247,7 +313,7 @@ export function WeekCalendar({
                   <div
                     key={hour}
                     className={cn(
-                      HOUR_ROW,
+                      hourRow,
                       "border-b border-zinc-100 dark:border-zinc-800/60",
                     )}
                   />
@@ -276,6 +342,7 @@ export function WeekCalendar({
                     <EntryCard
                       key={entry.id}
                       entry={entry}
+                      dayView={dayView}
                       onHoverChange={setHovered}
                       style={{
                         top: `${box.top}%`,
@@ -360,10 +427,13 @@ function accentBar(entry: CalendarEntry): string {
 function EntryCard({
   entry,
   style,
+  dayView,
   onHoverChange,
 }: {
   entry: CalendarEntry;
   style: React.CSSProperties;
+  /** One column instead of seven — the card can afford to be read, not scanned. */
+  dayView: boolean;
   onHoverChange: (hover: HoveredEntry | null) => void;
 }) {
   const cancelled = entry.status === "cancelled" || entry.status === "no_show";
@@ -378,7 +448,9 @@ function EntryCard({
    * "09:00 · דני · תספורת" and truncates only at the end is the same data in
    * the order somebody scanning a week actually wants it.
    */
-  const compact = entry.endMinutes - entry.startMinutes < COMPACT_BELOW_MIN;
+  const compact =
+    entry.endMinutes - entry.startMinutes <
+    (dayView ? COMPACT_BELOW_MIN_DAY : COMPACT_BELOW_MIN);
 
   const show = (event: React.MouseEvent | React.FocusEvent) => {
     onHoverChange({
@@ -403,14 +475,27 @@ function EntryCard({
         "ring-1 backdrop-blur-sm transition-shadow",
         "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
         "hover:z-10 hover:shadow-lg",
+        // Type scales with the room available. Seven columns cannot afford
+        // more than 10px; one column can, and shrinking it there would be
+        // making the view smaller than the one it replaced.
+        dayView ? "text-xs sm:text-sm" : "text-[10px]",
         entry.kind === "block"
-          ? "bg-zinc-100/70 text-zinc-600 ring-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700"
+          ? dayView
+            ? "bg-zinc-200 text-zinc-700 ring-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700"
+            : "bg-zinc-100/70 text-zinc-600 ring-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700"
           : cn(
-              // Translucent and muted rather than a solid fill: the card sits
-              // over the open-hours band, and letting that read through is what
-              // keeps a busy week from turning into a wall of colour.
-              "bg-white/75 text-zinc-900 ring-zinc-200/80",
-              "dark:bg-zinc-900/70 dark:text-zinc-50 dark:ring-zinc-700/80",
+              // **Solid in the day view, translucent in the week.** Across
+              // seven narrow columns a solid fill is a wall of colour, so the
+              // card lets the open-hours band read through it. One wide column
+              // is the opposite problem: there is nothing to compete with, and
+              // a washed card on a pale band is harder to read than a plain
+              // white one.
+              dayView
+                ? "bg-white text-zinc-900 shadow-sm ring-zinc-300 dark:bg-zinc-900 dark:text-zinc-50 dark:ring-zinc-700"
+                : cn(
+                    "bg-white/75 text-zinc-900 ring-zinc-200/80",
+                    "dark:bg-zinc-900/70 dark:text-zinc-50 dark:ring-zinc-700/80",
+                  ),
               cancelled && "opacity-55",
             ),
       )}
@@ -419,10 +504,16 @@ function EntryCard({
           carry meaning at a glance across seven columns. */}
       <span
         aria-hidden
-        className={cn("w-1 shrink-0 rounded-s-lg", accentBar(entry))}
+        className={cn(
+          "shrink-0 rounded-s-lg",
+          dayView ? "w-1.5" : "w-1",
+          accentBar(entry),
+        )}
       />
 
-      <div className="min-w-0 flex-1 px-1.5 py-1">
+      <div
+        className={cn("min-w-0 flex-1", dayView ? "px-3 py-2" : "px-1.5 py-1")}
+      >
         {compact ? (
           <div className="flex items-baseline gap-1 overflow-hidden whitespace-nowrap">
             <span className="shrink-0 font-semibold tabular-nums">

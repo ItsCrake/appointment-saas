@@ -88,18 +88,32 @@ function MoreSheet({ isActive }: { isActive: (href: string) => boolean }) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   /**
-   * The route the sheet was opened on, rather than a boolean.
+   * A plain boolean, reset **during render** when the route changes.
    *
-   * Open-ness is then *derived*: the sheet is open only while the path has not
-   * moved, so navigating closes it with no effect and no cleanup — including
-   * for a back gesture or a redirect, which a click handler would miss. An
-   * effect that reset a boolean would also be a `setState` in an effect body,
-   * which is exactly the cascading render the lint rule is there to stop.
+   * This used to derive open-ness from "the path I was opened on still
+   * matches", which closed on navigation without an effect — and had a bug
+   * that only shows on the way *back*. Open the sheet on `/dashboard`, tap a
+   * link, then return to `/dashboard` from the bottom bar: the remembered path
+   * matches again, so the sheet re-derives itself **open**, unprompted, on a
+   * page the owner navigated to deliberately. That is the reported "it pops
+   * open again", and no click handler could have fixed it because nothing was
+   * being clicked.
+   *
+   * Adjusting state during render is React's own documented pattern for
+   * resetting on a changed input. It is not a `setState` in an effect body, so
+   * it does not trip the rule that shape was written to avoid — React discards
+   * the in-progress render and re-runs this component immediately, before
+   * anything commits or paints.
    */
-  const [openedAt, setOpenedAt] = useState<string | null>(null);
-  const open = openedAt === pathname;
+  const [open, setOpen] = useState(false);
+  const [renderedAt, setRenderedAt] = useState(pathname);
 
-  const close = useCallback(() => setOpenedAt(null), []);
+  if (renderedAt !== pathname) {
+    setRenderedAt(pathname);
+    setOpen(false);
+  }
+
+  const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
     if (!open) return;
@@ -128,7 +142,7 @@ function MoreSheet({ isActive }: { isActive: (href: string) => boolean }) {
     <>
       <button
         type="button"
-        onClick={() => setOpenedAt(pathname)}
+        onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="עוד"
@@ -188,6 +202,10 @@ function MoreSheet({ isActive }: { isActive: (href: string) => boolean }) {
                 <li key={href}>
                   <Link
                     href={href}
+                    // Belt and braces with the render-time reset above: tapping
+                    // the link for the page you are already on changes no
+                    // pathname, so nothing would close the sheet.
+                    onClick={close}
                     aria-current={isActive(href) ? "page" : undefined}
                     className={cn(
                       "flex items-center gap-3 rounded-2xl px-3 py-3.5 text-sm font-medium transition-colors",
@@ -311,7 +329,7 @@ export function DashboardNav() {
           The horizontal insets matter only in landscape on a notched phone.
           The manifest locks the installed app to portrait, so this is for the
           same page opened in Safari, where nothing locks anything. */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 pb-[max(env(safe-area-inset-bottom),0.25rem)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur md:hidden dark:border-zinc-800 dark:bg-zinc-900/95">
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 pr-[env(safe-area-inset-right)] pb-[max(env(safe-area-inset-bottom),0.25rem)] pl-[env(safe-area-inset-left)] backdrop-blur md:hidden dark:border-zinc-800 dark:bg-zinc-900/95">
         <ul className="grid grid-cols-4">
           {MOBILE_LINKS.map(({ href, label, icon: Icon }) => (
             <li key={href}>
