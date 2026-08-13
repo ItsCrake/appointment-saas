@@ -49,7 +49,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
     <section aria-labelledby="gallery-heading" className="px-5 pt-8">
       <h2
         id="gallery-heading"
-        className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-100"
+        className="mb-4 text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
         מהעבודות שלנו
       </h2>
@@ -64,14 +64,16 @@ export function BusinessGallery({ images }: { images: string[] }) {
           Negative margin plus matching padding is the same edge-bleed trick as
           the booking flow's day strip, and the scrollbar is hidden for the same
           reason: on a phone it is a permanent grey line under a row of photos. */}
-      <ul className="-mx-5 flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto px-5 pb-2 [&::-webkit-scrollbar]:hidden">
+      {/* `pt-2` for the same reason as the day strip: the thumbnails lift on
+          hover and an overflow container clips the travel without it. */}
+      <ul className="-mx-5 flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto px-5 pt-2 pb-3 [&::-webkit-scrollbar]:hidden">
         {images.map((url, index) => (
           <li key={`${url}-${index}`} className="shrink-0 snap-start">
             <button
               type="button"
               onClick={() => setOpenAt(index)}
               aria-label={`הגדלת תמונה ${index + 1} מתוך ${count}`}
-              className="group block h-40 w-36 overflow-hidden rounded-2xl bg-zinc-100 transition-all duration-150 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 sm:h-48 sm:w-44 dark:bg-zinc-800"
+              className="group shadow-lift hover:shadow-float block h-40 w-36 overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-900/8 transition-[box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ring-inset focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 sm:h-48 sm:w-44 dark:bg-zinc-800 dark:ring-white/10"
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time */}
               <img

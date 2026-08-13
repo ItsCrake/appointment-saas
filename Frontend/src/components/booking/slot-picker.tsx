@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { CalendarOff, Moon, Sun, Sunrise } from "lucide-react";
 
 import type { SlotWithStaff } from "@/lib/availability";
@@ -53,13 +54,17 @@ export function SlotPicker({
 
             return (
               <section key={period} aria-labelledby={`period-${period}`}>
+                {/* `uppercase` is dropped, not restyled. Hebrew has no case,
+                    so it did nothing to the label it was applied to — and
+                    `tracking-wide` on an unmodified Hebrew string only loosens
+                    letters that were never meant to be spaced. */}
                 <h3
                   id={`period-${period}`}
-                  className="mb-2.5 flex items-center gap-2 text-xs font-semibold tracking-wide text-zinc-500 uppercase"
+                  className="mb-3 flex items-center gap-2 text-xs font-semibold text-zinc-500"
                 >
                   <Icon className={cn("size-4", tint)} aria-hidden />
                   {label}
-                  <span className="font-normal text-zinc-400 tabular-nums">
+                  <span className="font-normal text-zinc-500 tabular-nums">
                     ({periodSlots.length})
                   </span>
                 </h3>
@@ -67,9 +72,9 @@ export function SlotPicker({
                 <div
                   role="radiogroup"
                   aria-labelledby={`period-${period}`}
-                  className="grid grid-cols-3 gap-2 sm:grid-cols-4"
+                  className="grid grid-cols-3 gap-2.5 sm:grid-cols-4"
                 >
-                  {periodSlots.map((slot) => {
+                  {periodSlots.map((slot, index) => {
                     const active = selectedSlot?.startsAt === slot.startsAt;
 
                     return (
@@ -79,13 +84,22 @@ export function SlotPicker({
                         role="radio"
                         aria-checked={active}
                         onClick={() => onSelectSlot(slot)}
+                        // Clamped hard: a busy morning can hold twenty of
+                        // these, and an unclamped stagger would still be
+                        // animating long after the thumb arrived.
+                        style={{ "--i": Math.min(index, 5) } as CSSProperties}
                         className={cn(
-                          "h-12 rounded-xl border text-sm font-semibold tabular-nums",
-                          "transition-all duration-150 active:scale-95",
+                          "animate-rise h-13 rounded-2xl text-sm font-semibold tabular-nums",
+                          "ring-1 ring-inset",
+                          // Transform excluded: the press scale snaps down and
+                          // back rather than easing, which both feels crisper
+                          // and keeps the button stable the instant it is
+                          // released.
+                          "transition-[background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-95",
                           "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
                           active
-                            ? "border-(--accent) bg-(--accent) text-(--accent-contrast) shadow-sm"
-                            : "border-zinc-200 bg-white text-zinc-800 hover:border-(--accent) hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200",
+                            ? "shadow-accent bg-(--accent) text-(--accent-contrast) ring-(--accent)"
+                            : "shadow-lift hover:shadow-raise bg-white text-zinc-800 ring-zinc-900/8 hover:ring-(--accent) dark:bg-zinc-900 dark:text-zinc-200 dark:ring-white/10",
                         )}
                       >
                         {slot.label}
@@ -111,13 +125,15 @@ function SlotSkeleton() {
     <div className="space-y-5">
       {[5, 8].map((count, group) => (
         <div key={group}>
-          <div className="mb-2.5 flex items-center gap-2">
+          <div className="mb-3 flex items-center gap-2">
             <div className="animate-shimmer size-4 rounded" />
             <div className="animate-shimmer h-3 w-16 rounded" />
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {/* Same height, radius and gap as the real grid, so the swap when
+              slots arrive shifts nothing. */}
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
             {Array.from({ length: count }).map((_, i) => (
-              <div key={i} className="animate-shimmer h-12 rounded-xl" />
+              <div key={i} className="animate-shimmer h-13 rounded-2xl" />
             ))}
           </div>
         </div>
@@ -129,12 +145,12 @@ function SlotSkeleton() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-300 px-4 py-12 text-center dark:border-zinc-700">
+    <div className="flex flex-col items-center gap-2 rounded-3xl border border-dashed border-zinc-300 bg-zinc-50/50 px-4 py-12 text-center dark:border-zinc-700 dark:bg-zinc-900/40">
       <div
         aria-hidden
-        className="mb-1 flex size-11 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800"
+        className="mb-1 flex size-12 items-center justify-center rounded-full bg-zinc-100 ring-1 ring-zinc-900/5 ring-inset dark:bg-zinc-800 dark:ring-white/10"
       >
-        <CalendarOff className="size-5 text-zinc-400" />
+        <CalendarOff className="size-5 text-zinc-500" />
       </div>
       <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
         אין מועדים פנויים ביום זה
@@ -151,7 +167,7 @@ function ErrorState({ message }: { message: string }) {
   return (
     <p
       role="alert"
-      className="rounded-2xl bg-red-50 px-4 py-6 text-center text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300"
+      className="rounded-2xl bg-red-50 px-4 py-6 text-center text-sm text-red-700 ring-1 ring-red-600/15 ring-inset dark:bg-red-950/40 dark:text-red-300"
     >
       {message}
     </p>

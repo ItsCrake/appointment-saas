@@ -50,21 +50,25 @@ export function DateTimeStep({
 
   return (
     <section aria-labelledby="datetime-heading" className="px-5">
-      <div className="mb-4 flex items-baseline justify-between gap-3">
+      <div className="mb-5 flex items-baseline justify-between gap-3">
         <h2
           id="datetime-heading"
-          className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
+          className="text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
         >
           בחרו מועד
         </h2>
-        <p className="text-xs text-zinc-500">{monthLabel(selectedDate)}</p>
+        <p className="text-xs font-medium text-zinc-500">
+          {monthLabel(selectedDate)}
+        </p>
       </div>
 
       {/* Horizontal day strip — thumb-friendly and avoids a full calendar on
           mobile. Negative margin lets it bleed to the screen edge so the last
           card is visibly cut off, which reads as "scrollable". */}
       <div
-        className="-mx-5 mb-6 flex snap-x [scrollbar-width:none] gap-2 overflow-x-auto px-5 pb-2 [&::-webkit-scrollbar]:hidden"
+        // `pt-2` is not decoration: the active chip translates upward and casts
+        // a shadow, and an overflow container clips both without it.
+        className="-mx-5 mb-6 flex snap-x [scrollbar-width:none] gap-2 overflow-x-auto px-5 pt-2 pb-3 [&::-webkit-scrollbar]:hidden"
         role="radiogroup"
         aria-label="בחירת יום"
       >
@@ -81,24 +85,33 @@ export function DateTimeStep({
               role="radio"
               aria-checked={active}
               className={cn(
-                "flex w-16 shrink-0 snap-center flex-col items-center gap-1 rounded-2xl border py-3",
-                "transition-all duration-150 active:scale-95",
+                "flex w-16 shrink-0 snap-center flex-col items-center gap-1.5 rounded-2xl py-3.5",
+                "ring-1 ring-inset",
+                // Transform is deliberately absent from the transition list.
+                // The selected chip's lift is a *state*, so it snaps; animating
+                // it would move the chip under the pointer for 200ms after every
+                // date change — on top of the smooth scroll this strip already
+                // performs — and a click landing in that window hits a target
+                // that is still travelling.
+                "transition-[background-color,box-shadow,color] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-95",
                 "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
                 active
-                  ? "border-(--accent) bg-(--accent) text-(--accent-contrast) shadow-md"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:border-(--accent) hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300",
+                  ? // The selected day is the only chip that leaves the strip,
+                    // which is what lets the eye find it after a scroll.
+                    "shadow-accent -translate-y-0.5 bg-(--accent) text-(--accent-contrast) ring-(--accent)"
+                  : "shadow-lift bg-white text-zinc-700 ring-zinc-900/8 hover:ring-(--accent) dark:bg-zinc-900 dark:text-zinc-300 dark:ring-white/10",
               )}
               onClick={() => onSelectDate(date)}
             >
               <span
                 className={cn(
                   "text-[11px] font-medium",
-                  active ? "opacity-80" : "text-zinc-500",
+                  active ? "opacity-85" : "text-zinc-500",
                 )}
               >
                 {relative}
               </span>
-              <span className="text-xl leading-none font-bold tabular-nums">
+              <span className="text-xl leading-none font-bold tracking-[-0.02em] tabular-nums">
                 {dayOfMonth(date)}
               </span>
             </button>
@@ -109,7 +122,7 @@ export function DateTimeStep({
       {notice ? (
         <p
           role="alert"
-          className="mb-4 flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-500/15 ring-inset dark:bg-amber-950/40 dark:text-amber-200"
         >
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
           {notice}

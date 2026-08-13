@@ -54,62 +54,64 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
           person standing in a shop that is not expecting them. The colour and
           the icon carry the meaning here as much as the sentence does. */}
       {awaiting ? (
-        <div className="rounded-3xl border border-amber-200 bg-gradient-to-b from-amber-50 to-white p-6 text-center dark:border-amber-900 dark:from-amber-950/40 dark:to-zinc-950">
+        <div className="shadow-raise rounded-3xl bg-gradient-to-b from-amber-50 to-white p-7 text-center ring-1 ring-amber-500/20 ring-inset dark:from-amber-950/40 dark:to-zinc-950 dark:ring-amber-400/20">
           <div
             aria-hidden
-            className="mx-auto mb-3 flex size-14 items-center justify-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/25"
+            className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-amber-500 text-white shadow-[0_2px_4px_-2px_rgb(245_158_11/0.4),0_12px_28px_-8px_rgb(245_158_11/0.5)]"
           >
-            <Hourglass className="size-7" strokeWidth={2.5} />
+            <Hourglass className="size-8" strokeWidth={2.5} />
           </div>
 
           <h2
             id="confirm-heading"
-            className="text-xl font-bold text-amber-900 dark:text-amber-100"
+            className="text-xl font-bold tracking-[-0.02em] text-balance text-amber-900 dark:text-amber-100"
           >
             הבקשה נשלחה וממתינה לאישור
           </h2>
-          <p className="mt-1 text-sm leading-relaxed text-amber-800/80 dark:text-amber-200/70">
+          <p className="mt-1.5 text-sm leading-relaxed text-pretty text-amber-800/80 dark:text-amber-200/70">
             {appointment.businessName} יאשרו את המועד ונעדכן אתכם. עד אז המועד
             שמור עבורכם.
           </p>
 
-          <p className="mt-4 text-2xl font-bold text-zinc-900 tabular-nums dark:text-zinc-50">
+          <p className="mt-5 text-4xl font-bold tracking-[-0.03em] text-zinc-900 tabular-nums dark:text-zinc-50">
             {when.time}
           </p>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
             יום {when.weekday}, {when.date}
           </p>
         </div>
       ) : (
-        <div className="rounded-3xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-6 text-center dark:border-emerald-900 dark:from-emerald-950/40 dark:to-zinc-950">
+        <div className="shadow-raise rounded-3xl bg-gradient-to-b from-emerald-50 to-white p-7 text-center ring-1 ring-emerald-600/20 ring-inset dark:from-emerald-950/40 dark:to-zinc-950 dark:ring-emerald-400/20">
           <div
             aria-hidden
-            className="mx-auto mb-3 flex size-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-600/25"
+            className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_2px_4px_-2px_rgb(5_150_105/0.4),0_12px_28px_-8px_rgb(5_150_105/0.5)]"
           >
-            <Check className="size-7" strokeWidth={3} />
+            <Check className="size-8" strokeWidth={3} />
           </div>
 
           <h2
             id="confirm-heading"
-            className="text-xl font-bold text-emerald-900 dark:text-emerald-100"
+            className="text-xl font-bold tracking-[-0.02em] text-balance text-emerald-900 dark:text-emerald-100"
           >
             התור נקבע בהצלחה!
           </h2>
-          <p className="mt-1 text-sm text-emerald-800/80 dark:text-emerald-200/70">
+          <p className="mt-1.5 text-sm text-emerald-800/80 dark:text-emerald-200/70">
             נתראה ב{appointment.businessName}
           </p>
 
-          {/* The date and time, large. This is the one fact worth remembering. */}
-          <p className="mt-4 text-2xl font-bold text-zinc-900 tabular-nums dark:text-zinc-50">
+          {/* The date and time, large. This is the one fact worth remembering,
+              and at 4xl it is the largest thing anywhere in the flow — which is
+              the point of the screen. */}
+          <p className="mt-5 text-4xl font-bold tracking-[-0.03em] text-zinc-900 tabular-nums dark:text-zinc-50">
             {when.time}
           </p>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
             יום {when.weekday}, {when.date}
           </p>
         </div>
       )}
 
-      <dl className="mt-4 divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+      <dl className="shadow-lift mt-4 divide-y divide-zinc-200 rounded-2xl bg-white ring-1 ring-zinc-900/8 ring-inset dark:divide-zinc-800 dark:bg-zinc-900 dark:ring-white/10">
         <Row
           icon={<CalendarCheck className="size-4" aria-hidden />}
           label="שירות"
@@ -134,7 +136,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
         <button
           type="button"
           onClick={addToCalendar}
-          className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-(--accent) text-sm font-semibold text-(--accent-contrast) shadow-sm transition-all hover:bg-(--accent-strong) hover:shadow-md focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99]"
+          className="shadow-accent mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-full bg-(--accent) text-[15px] font-semibold text-(--accent-contrast) transition-[background-color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-(--accent-strong) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99]"
         >
           <CalendarPlus className="size-4" aria-hidden />
           הוספה ליומן
@@ -146,7 +148,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
           rather than a quiet text link. */}
       <Link
         href={`/b/${appointment.cancelToken}`}
-        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold text-zinc-800 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none dark:text-zinc-200 dark:ring-white/15 dark:hover:bg-zinc-800"
       >
         <ShieldCheck className="size-4" aria-hidden />
         {awaiting ? "צפייה או ביטול הבקשה" : "צפייה או ביטול התור"}
@@ -161,7 +163,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
       <button
         type="button"
         onClick={onBookAnother}
-        className="mt-4 h-12 w-full rounded-xl text-sm font-semibold text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:text-zinc-100"
+        className="mt-4 h-12 w-full rounded-full text-sm font-semibold text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:text-zinc-100"
       >
         קביעת תור נוסף
       </button>

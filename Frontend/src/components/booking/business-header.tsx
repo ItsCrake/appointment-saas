@@ -56,8 +56,13 @@ export function BusinessHeader({
        * Sized by aspect ratio rather than a fixed height, so it holds the same
        * proportion of a phone and of a laptop. The cap stops a tablet turning it
        * into a full screen of decoration before anyone reaches a service.
+       *
+       * Rounded on the bottom edge only. The page is a `max-w-lg` column, so on
+       * a phone this is full-bleed and the curve reads as the top card of an app
+       * rather than as a picture that ran out; on a laptop the column is 512px
+       * and a square bottom edge would read as an unfinished crop.
        */}
-      <div className="accent-mesh relative aspect-[4/3] max-h-[26rem] w-full overflow-hidden sm:aspect-[16/9]">
+      <div className="accent-mesh relative aspect-[4/3] max-h-[26rem] w-full overflow-hidden rounded-b-[2rem] sm:aspect-[16/9]">
         {hasHero && heroMediaType === "video" ? (
           <video
             src={heroMediaUrl!}
@@ -109,7 +114,7 @@ export function BusinessHeader({
           <img
             src={logoUrl}
             alt=""
-            className="mx-auto mb-4 size-20 rounded-full object-cover ring-4 ring-white dark:ring-zinc-950"
+            className="shadow-float mx-auto mb-4 size-24 rounded-full object-cover ring-4 ring-white dark:ring-zinc-950"
           />
         ) : (
           // The monogram now carries the tenant's accent rather than ink. It
@@ -117,25 +122,34 @@ export function BusinessHeader({
           // it looking like their brand and not like a missing asset.
           <div
             aria-hidden
-            className="mx-auto mb-4 flex size-20 items-center justify-center rounded-full bg-(--accent) text-2xl font-bold text-(--accent-contrast) shadow-sm ring-4 ring-white dark:ring-zinc-950"
+            className="shadow-accent mx-auto mb-4 flex size-24 items-center justify-center rounded-full bg-(--accent) text-3xl font-bold text-(--accent-contrast) ring-4 ring-white dark:ring-zinc-950"
           >
             {name.trim().charAt(0)}
           </div>
         )}
 
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+        {/* The one display-sized moment on the page. Everything below it is
+            interface; this is the shop saying who they are, so it gets the
+            tighter tracking a large size needs and `text-balance` so a
+            two-word name never breaks to a lonely second line. */}
+        <h1 className="text-[1.75rem] leading-tight font-bold tracking-[-0.02em] text-balance text-zinc-900 sm:text-[2rem] dark:text-zinc-50">
           {name}
         </h1>
 
         {description ? (
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+          <p className="mx-auto mt-2.5 max-w-sm text-[15px] leading-relaxed text-pretty text-zinc-600 dark:text-zinc-400">
             {description}
           </p>
         ) : null}
 
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-zinc-500">
+        {/* One chip shape for all three, so the row reads as a set rather than
+            as a sentence with two links in it. The address chip is not
+            interactive and deliberately carries no hover state — same shape,
+            different affordance, which is what keeps the two that *are*
+            tappable honest. */}
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs text-zinc-500">
           {address ? (
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100/80 px-3 py-1.5 ring-1 ring-zinc-900/5 ring-inset dark:bg-zinc-800/60 dark:ring-white/10">
               <MapPin className="size-3.5 shrink-0" aria-hidden />
               {address}
             </span>
@@ -144,7 +158,7 @@ export function BusinessHeader({
           {phone ? (
             <a
               href={`tel:${phone}`}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100/80 px-3 py-1.5 font-medium ring-1 ring-zinc-900/5 transition-colors ring-inset hover:bg-zinc-200/80 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:bg-zinc-800/60 dark:ring-white/10 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-100"
             >
               <Phone className="size-3.5 shrink-0" aria-hidden />
               <span dir="ltr">{phone}</span>

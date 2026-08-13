@@ -77,27 +77,27 @@ export function DetailsStep({
     <section aria-labelledby="details-heading" className="px-5">
       <h2
         id="details-heading"
-        className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100"
+        className="mb-5 text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
         הפרטים שלכם
       </h2>
 
       {/* Summary of what is being booked, so nobody confirms blind. The time is
           the largest thing on the card — it is what people double-check. */}
-      <div className="mb-6 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
+      <div className="shadow-raise mb-6 overflow-hidden rounded-2xl ring-1 ring-zinc-900/8 ring-inset dark:ring-white/10">
         {/* The one filled surface on the final step, so it carries the shop's
             colour rather than ink. It is a summary of what is about to be
             booked — the most "theirs" thing on the page. */}
-        <div className="flex items-center justify-between gap-3 bg-(--accent) px-4 py-3 text-(--accent-contrast)">
+        <div className="flex items-center justify-between gap-3 bg-(--accent) px-4 py-3.5 text-(--accent-contrast)">
           <span className="min-w-0 truncate text-sm font-semibold">
             {service.name}
           </span>
-          <span className="shrink-0 text-lg leading-none font-bold tabular-nums">
+          <span className="shrink-0 text-xl leading-none font-bold tracking-[-0.02em] tabular-nums">
             {when.time}
           </span>
         </div>
 
-        <dl className="space-y-1.5 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+        <dl className="space-y-2 bg-zinc-50 px-4 py-3.5 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <div className="flex items-center gap-2">
             <dt className="sr-only">מועד</dt>
             <Clock className="size-4 shrink-0" aria-hidden />
@@ -121,7 +121,7 @@ export function DetailsStep({
       <form
         onSubmit={handleSubmit(submitWithTiming)}
         noValidate
-        className="relative space-y-4"
+        className="relative space-y-5"
       >
         <Field
           label="שם מלא"
@@ -231,7 +231,7 @@ export function DetailsStep({
         {serverError ? (
           <p
             role="alert"
-            className="flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300"
+            className="flex items-start gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-600/15 ring-inset dark:bg-red-950/40 dark:text-red-300"
           >
             <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
             {serverError}
@@ -241,7 +241,7 @@ export function DetailsStep({
         <button
           type="submit"
           disabled={submitting}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-(--accent) text-sm font-semibold text-(--accent-contrast) shadow-sm transition-all hover:bg-(--accent-strong) hover:shadow-md focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] disabled:opacity-60 disabled:active:scale-100"
+          className="shadow-accent flex h-14 w-full items-center justify-center gap-2 rounded-full bg-(--accent) text-[15px] font-semibold text-(--accent-contrast) transition-[background-color,box-shadow,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-(--accent-strong) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99] disabled:opacity-60 disabled:active:scale-100"
         >
           {submitting ? (
             <>
@@ -260,7 +260,7 @@ export function DetailsStep({
             messaging someone weeks later to drum up business is a different
             thing entirely, and it is opt-in, unticked, and separately worded. */}
         {askMarketingConsent ? (
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-zinc-50/60 px-4 py-3.5 ring-1 ring-zinc-900/8 ring-inset dark:bg-zinc-900/40 dark:ring-white/10">
             <input
               type="checkbox"
               className="mt-0.5 size-4 shrink-0 rounded border-zinc-300 text-(--accent) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:border-zinc-700"
@@ -273,7 +273,9 @@ export function DetailsStep({
         ) : null}
 
         <div className="space-y-1.5 pb-2 text-center">
-          <p className="text-xs text-zinc-400">
+          {/* zinc-500, not zinc-400: this is consent copy and it has to be
+              legible. zinc-400 on white measures 2.6:1. */}
+          <p className="text-xs text-zinc-500">
             בקביעת התור אתם מאשרים קבלת הודעות בנוגע לתור זה.
           </p>
           <ConsentNote action="קביעת תור" />
@@ -283,14 +285,23 @@ export function DetailsStep({
   );
 }
 
+/**
+ * `rounded-xl`, not the pill the rest of the page uses on interactive things —
+ * the documented departure for text inputs. A pill field wastes its horizontal
+ * ends and, in RTL, drops the caret against a curve.
+ *
+ * The placeholder moved from `zinc-400` to `zinc-500`: at 2.6:1 against white
+ * the old value was below the 4.5:1 floor, and a placeholder is text.
+ */
 function inputClass(invalid: boolean) {
   return cn(
-    "h-12 w-full rounded-xl border bg-white px-4 text-base text-zinc-900 placeholder:text-zinc-400",
-    "focus:outline-none focus:ring-2 focus:ring-(--accent) focus:border-transparent",
+    "h-13 w-full rounded-xl bg-white px-4 text-base text-zinc-900 placeholder:text-zinc-500",
+    "ring-1 ring-inset transition-shadow duration-200",
+    "focus:outline-none focus:ring-2 focus:ring-(--accent)",
     "dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100",
     invalid
-      ? "border-red-400 focus:ring-red-500"
-      : "border-zinc-200 dark:border-zinc-800",
+      ? "ring-red-400 focus:ring-red-500"
+      : "shadow-lift ring-zinc-900/8 dark:ring-white/10",
   );
 }
 
@@ -309,7 +320,7 @@ function Field({
     <div>
       <label
         htmlFor={htmlFor}
-        className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+        className="mb-2 block text-[13px] font-semibold text-zinc-700 dark:text-zinc-300"
       >
         {label}
       </label>

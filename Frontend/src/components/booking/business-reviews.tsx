@@ -12,13 +12,13 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
     <section aria-labelledby="reviews-heading" className="px-5 pt-8">
       <h2
         id="reviews-heading"
-        className="mb-3 text-base font-semibold text-zinc-900 dark:text-zinc-100"
+        className="mb-4 text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
         מה הלקוחות אומרים
       </h2>
 
-      <div className="mb-4 flex items-center gap-3 rounded-2xl border border-(--accent-soft-border) bg-(--accent-soft) px-4 py-3">
-        <p className="text-2xl leading-none font-bold text-(--accent-on-soft) tabular-nums">
+      <div className="shadow-lift mb-4 flex items-center gap-3.5 rounded-2xl bg-(--accent-soft) px-4 py-3.5 ring-1 ring-(--accent-soft-border) ring-inset">
+        <p className="text-3xl leading-none font-bold tracking-[-0.03em] text-(--accent-on-soft) tabular-nums">
           {average.toFixed(1)}
         </p>
         <div>
@@ -33,7 +33,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
         {reviews.map((review) => (
           <li
             key={review.id}
-            className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+            className="shadow-lift rounded-2xl bg-white p-4 ring-1 ring-zinc-900/8 ring-inset dark:bg-zinc-900 dark:ring-white/10"
           >
             <div className="flex items-baseline justify-between gap-3">
               <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -41,7 +41,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
               </p>
               <time
                 dateTime={review.date}
-                className="shrink-0 text-xs text-zinc-400 tabular-nums"
+                className="shrink-0 text-xs text-zinc-500 tabular-nums"
               >
                 {review.date.split("-").reverse().join("/")}
               </time>

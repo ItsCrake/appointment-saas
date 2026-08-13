@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 815 tests; Playwright — 11 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 819 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -52,8 +52,11 @@ Frontend/src/
 
 ## Database
 
-Eleven tables. Seven are tenant-scoped by `business_id`; `rate_limits` is not,
-and `subscription_events` only optionally is.
+Fourteen tables. Ten carry a required `business_id`; `businesses` is the tenant
+itself, `staff_schedules` is scoped through `staff` rather than directly,
+`subscription_events` only optionally is, and `rate_limits` is not scoped at
+all. `src/db/rls.test.ts` holds the authoritative list and fails the build when
+a table is added without a deliberate decision about its RLS.
 
 - **businesses** — slug, timezone, `slot_interval_min`, `buffer_min`,
   `min_notice_min`, `max_advance_days`, `cancel_window_hours`,
@@ -75,13 +78,17 @@ and `subscription_events` only optionally is.
   must not extend a paid period twice. RLS on, **zero policies**
 - **invoices** (`0012`) — billing history. RLS grants **SELECT only**
 
-Migrations `0000`–`0012` in `src/db/migrations/`, applied with
+The remaining five arrived later and are documented in their own sections:
+`staff` and `staff_schedules` (`0013`), `push_subscriptions` (`0020`),
+`marketing_opt_outs` (`0021`) and `client_profiles` (`0022`).
+
+Migrations `0000`–`0022` in `src/db/migrations/`, applied with
 `npm run db:migrate`. **Not automatic on deploy.**
 
 ## Multi-staff
 
-Eleven tables now. `staff` and `staff_schedules` arrived in `0013`, and
-`appointments.staff_id` with them.
+`staff` and `staff_schedules` arrived in `0013`, and `appointments.staff_id`
+with them.
 
 **One binary question, asked once.** `businesses.has_multiple_staff` is the
 answer to "האם יש יותר מנותן שירות אחד בעסק?". **Turning it off now deactivates
@@ -853,12 +860,14 @@ The migration refuses to apply if orphans already exist, rather than deleting
 them to make room for the constraint. `src/db/owner-cascade.test.ts` covers the
 cascade, the slug reclaim, tenant isolation, and that refusal.
 
-### RLS status: 12 of 12 tables, **0 anon policies**
+### RLS status: 14 of 14 tables, **0 anon policies**
 
-Migrations `0002`, `0005`, `0007`, `0012`, `0013` and `0020`. Nine tables carry
-one `FOR ALL TO authenticated` policy keyed on `auth.uid() = owner_user_id`,
-joined through `businesses` for child tables. Both `USING` and `WITH CHECK` are
-set, so an owner cannot insert rows pointing at someone else's business.
+Migrations `0002`, `0005`, `0007`, `0012`, `0013`, `0020`, `0021` and `0022`.
+Twelve tables carry an owner policy keyed on `auth.uid() = owner_user_id`,
+joined through `businesses` for child tables — eleven of them
+`FOR ALL TO authenticated`, plus `invoices` at `FOR SELECT` only. Both `USING`
+and `WITH CHECK` are set, so an owner cannot insert rows pointing at someone
+else's business.
 
 `db/rls.test.ts` asserts the whole table list, not only the policies — which is
 what caught `push_subscriptions` arriving without a policy. A new tenant table
@@ -1594,6 +1603,78 @@ tenant's colour can be as vivid as they chose it.
 > `theme-coverage.test.ts` now fails the build if a page rendering a booking
 > component omits the attribute, and `:root` carries a fallback accent so the
 > same slip can never produce an invisible control again.
+
+### The booking page has an elevation system, and geometry never animates
+
+`/[slug]` was internally coherent and read as competent default SaaS: every
+surface was a 1px `zinc-200` border on white, every section heading was the same
+`text-base font-semibold`, and depth came from Tailwind's stock `shadow-sm` /
+`shadow-md`. Three things changed, and all three are stated as tokens rather
+than as classes sprinkled per component.
+
+**Four shadow tokens, declared in `@theme inline`.** `--shadow-lift`,
+`--shadow-raise`, `--shadow-float` and `--shadow-accent` become real
+`shadow-*` utilities, so they compose through Tailwind's `--tw-shadow` variable.
+A plain `.elev { box-shadow: … }` class would have been *clobbered* by any
+`focus-visible:ring-2` on the same element — a ring is a box-shadow — and the
+focus ring would have taken the elevation with it. Every step carries a vertical
+offset with a soft blur, because light comes from above and a zero-offset halo
+is decoration rather than depth.
+
+> **`inline` is load-bearing on `--shadow-accent`.** It resolves
+> `color-mix(in oklab, var(--accent) …)` at the *element*, so a tenant's own
+> swatch reaches the glow. A non-inline theme token is substituted once at
+> `:root`, where `data-accent` has not applied yet — every shop would have
+> glowed indigo. Verified in a browser on the demo tenant: the computed shadow
+> is `oklab(0.511 0.032 -0.260)`, which is that tenant's indigo, not the token
+> default.
+
+**A typographic scale, where there was one size.** The business name is the
+single display moment at 32px with `-0.02em` tracking; section headings sit at
+17px; body and controls at 15px. Measured on the rendered page rather than
+specified.
+
+**Hierarchy is carried by depth and one static lift.** The selected day chip is
+the only element that leaves the page, which is what lets the eye find it after
+the strip scrolls.
+
+#### Geometry never animates on a click target
+
+This is the rule the pass actually turned on, and it was learned from a failure
+rather than chosen up front. Hover lifts (`hover:-translate-y-0.5`) with
+`transition-all` were added to the service cards, staff options, gallery
+thumbnails and every primary button. The Playwright suite then went red on
+`element is not stable`, retrying a click for the full 20-second action timeout.
+
+**Playwright hovers before it clicks.** The pointer lands, the hover transition
+starts, and the click arrives while the element is still travelling — a moving
+target for ~200ms after every pointer entry. That is not a test artefact: it is
+the same window a real user's tap lands in on a device that fires a hover first,
+and the original code avoided it by using shadow-only hovers.
+
+So the transition list is **explicit everywhere on this page**, never
+`transition-all`, and `transform` is excluded from it:
+
+| Effect | How it is expressed |
+| ------ | ------------------- |
+| hover | `box-shadow` deepens (`shadow-lift` → `shadow-raise`); nothing moves |
+| press | `active:scale-*`, untransitioned, so it snaps down and back |
+| selected day chip | a static `-translate-y-0.5`, applied instantly as a state |
+
+`box-shadow` in the transition list covers the ring colour too, since a ring is
+a shadow — so `hover:ring-(--accent)` still eases without transform being
+involved. The press reads crisper for it, and every click target is stable in
+the frame it is touched.
+
+#### Contrast was measured, and `zinc-400` was failing
+
+`text-zinc-400` on white measures **2.6:1** and was carrying real text in five
+places: the stepper's upcoming step labels, the slot period counts, review
+dates, the footer, and every input placeholder. All moved to `zinc-500`
+(**4.6:1**). A scripted pass over every rendered text node — comparing computed
+colour against its resolved background, with the large-text exemption applied at
+24px or 18.66px bold — returns **zero failures in both light and dark**, and no
+horizontal overflow at 375px or on desktop.
 
 ### Banner sizing is an aspect ratio, not a height
 
@@ -2506,6 +2587,30 @@ exclusion constraint, enum casts and RLS are genuinely exercised.
 >
 > Aggregate `sql` templates still need a smoke test against real Supabase after
 > changes. The suite proves SQL _semantics_, not driver behaviour.
+
+**`queries/sql-types.coverage.test.ts` is what keeps that discipline from being
+a habit.** Every call site was already correct when it was written; nothing
+stopped the next one being wrong, and a wrong one passes every test in this
+suite and fails only in production. So the check is syntactic, in the same mould
+as `nav-coverage` and `dashboard-session.coverage` — it scans every keyed
+`sql<…>` selection in `src/` and enforces two rules:
+
+| Annotation | Rule                                                    |
+| ---------- | ------------------------------------------------------- |
+| `Date`     | the key must pass through `toDate` in the same file     |
+| `number`   | the body must cast to a type postgres.js decodes as one |
+
+The second rule is the same lie from the other direction, and it had no prose
+anywhere before now: **`count(*)` is `int8`, and postgres.js returns `int8` and
+`numeric` as strings** rather than silently losing precision past 2^53. So an
+uncast `count(*)` annotated `number` yields `"51"`, and `+ 1` yields `"511"`.
+Every count in the repository is already written `::int` — `int8` and `numeric`
+are deliberately absent from the accepted-cast list, because casting to either
+is not a fix.
+
+Verified the way the other coverage tests were: by reverting `toDate` on
+`listClients` and dropping the `::int` from the analytics weekday bucket, and
+confirming it named both.
 
 Useful scripts: `db:migrate`, `db:seed`, `db:claim -- <uuid>` (point the demo
 shop at a real auth user), `storage:setup` (create the media bucket),

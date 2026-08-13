@@ -75,7 +75,7 @@ export function HoursDrawer({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100/80 px-3 py-1.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-900/5 transition-colors ring-inset hover:bg-zinc-200/80 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:bg-zinc-800/60 dark:ring-white/10 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-100"
       >
         <CalendarDays className="size-3.5 shrink-0" aria-hidden />
         שעות פעילות

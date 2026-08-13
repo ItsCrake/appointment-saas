@@ -44,10 +44,10 @@ export function StaffStep({
 }) {
   return (
     <section className="px-5">
-      <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+      <h2 className="text-[17px] font-bold tracking-[-0.015em] text-zinc-900 dark:text-zinc-50">
         עם מי בשעה {timeLabel}?
       </h2>
-      <p className="mt-1 mb-4 text-sm text-zinc-500">
+      <p className="mt-1 mb-5 text-sm text-zinc-500">
         {staff.length} נותני שירות פנויים במועד הזה.
       </p>
 
@@ -91,11 +91,13 @@ function Option({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "flex w-full items-center gap-3 rounded-2xl border p-4 text-start transition-colors",
+        "flex w-full items-center gap-3.5 rounded-2xl p-4 text-start",
+        "ring-1 ring-inset",
+        "transition-[background-color,box-shadow,color] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.99]",
         "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none",
         selected
-          ? "border-(--accent) bg-(--accent-soft)"
-          : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700",
+          ? "shadow-accent bg-(--accent-soft) ring-(--accent)"
+          : "shadow-lift hover:shadow-raise bg-white ring-zinc-900/8 hover:ring-(--accent) dark:bg-zinc-900 dark:ring-white/10",
       )}
     >
       {imageUrl ? (
@@ -104,7 +106,7 @@ function Option({
           src={imageUrl}
           alt=""
           className={cn(
-            "size-9 shrink-0 rounded-full object-cover",
+            "size-11 shrink-0 rounded-full object-cover",
             // Ringed rather than filled when selected: the photo is the point,
             // and tinting it would be the one place the accent covers content
             // instead of marking it.
@@ -117,10 +119,10 @@ function Option({
         <span
           aria-hidden
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-full",
+            "flex size-11 shrink-0 items-center justify-center rounded-full",
             selected
               ? "bg-(--accent) text-(--accent-contrast)"
-              : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+              : "bg-zinc-100 text-zinc-500 ring-1 ring-zinc-900/5 ring-inset dark:bg-zinc-800 dark:text-zinc-400 dark:ring-white/10",
           )}
         >
           {icon}

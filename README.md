@@ -103,7 +103,10 @@ trends), and an **installable app with push notifications** for new bookings.
 │   ├── e2e/           Playwright specs
 │   ├── next.config.ts security headers
 │   └── vercel.json    cron schedule + function limits
-└── docs/              architecture, deployment, project plan
+├── docs/              architecture, deployment, project plan
+└── PRODUCT.md         durable product truth — users, positioning, constraints,
+                       and what evidence may and may not be claimed. Written by
+                       `/impeccable init`; read before design work, not code.
 ```
 
 Server Actions and route handlers _are_ the backend. Every command below runs
@@ -286,7 +289,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 815 unit tests, build
+npm run verify     # env, lint, types, 819 unit tests, build
 npm run test:e2e   # 11 tests / 3 specs, separate — needs a running server
 ```
 
@@ -375,6 +378,16 @@ full week calendar, an installable app with push, and a WhatsApp backend.
   saved preferences that follow the phone number onto the calendar card.
 - Web push now demands a real `VAPID_SUBJECT`; iOS safe areas actually apply;
   `/master/alerts` renders again.
+- **The driver gap is enforced rather than remembered.** A coverage test fails
+  the build when a `sql<…>` selection annotated `Date` skips `toDate`, or one
+  annotated `number` is not cast to a type postgres.js decodes as a number —
+  `count(*)` is `int8` and comes back as a string.
+- **The booking page got an elevation system**: four shadow tokens (one of them
+  resolving the tenant's own accent), a real typographic scale, `zinc-400` text
+  lifted off a 2.6:1 contrast failure, and one rule learned the hard way —
+  geometry never animates on a click target, because a hover transition makes
+  every tap land on a moving element. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-booking-page-has-an-elevation-system-and-geometry-never-animates).
 
 > **The whole product now runs on one palette.** Teal is gone from `/login`,
 > `/dashboard/*` and `/master`, and `neutral` and `slate` were collapsed into

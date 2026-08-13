@@ -267,32 +267,47 @@ export default async function BusinessPage({ params }: PageProps) {
       {/* Below the booking flow, not above it. A returning client will look for
           it; a first-time visitor should meet the thing this page is for
           before an entrance that has nothing behind it for them. */}
-      <div className="px-5 pt-2 pb-6">
+      <div className="px-5 pt-4 pb-6">
         <Link
           href={`/${slug}/my-appointments`}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="flex h-13 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-zinc-700 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-zinc-800"
         >
           <CalendarClock className="size-4" aria-hidden />
           צפייה בתורים שלי
         </Link>
       </div>
 
-      {/* Deliberately the quietest thing on the page, and last.
+      {/* Last on the page, and now a designed panel rather than a text link.
 
           This is the platform advertising to the tenant's customers on the
-          tenant's own page, which is a real trade the shop is making in
-          exchange for the page being free to run. It earns its place by being
-          unmissable to the one visitor who is themselves a business owner and
-          invisible to everyone else — so it is a text link at the very bottom,
-          not a banner competing with the shop's own call to action. */}
-      <footer className="mt-auto space-y-2 px-5 py-8 text-center">
-        <p className="text-xs text-zinc-400">מופעל על ידי {BRAND.name}</p>
-        <Link
-          href="/"
-          className="inline-block text-xs font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-4 transition-colors hover:text-zinc-900 hover:decoration-zinc-500 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-400 dark:decoration-zinc-600 dark:hover:text-zinc-100"
-        >
-          רוצה עמוד כזה לעסק שלך? לחץ כאן
-        </Link>
+          tenant's own page — a real trade the shop makes in exchange for the
+          page being free to run. It used to be deliberately the quietest thing
+          here, on the grounds that it should be invisible to everyone but the
+          one visitor who is themselves a business owner. **That call has been
+          reversed**: `/[slug]` is now treated as genuinely dual-purpose, since
+          shop owners meet this product by receiving a competitor's booking
+          link, and a 12px underlined link is not something anyone arrives at.
+
+          What has *not* changed is the ordering rule that keeps it honest. It
+          is still below the booking flow, still below the client's own
+          "my appointments" entrance, and still monochrome — the tenant's accent
+          never touches it, so it cannot compete with the shop's own call to
+          action for a client who came here to book. It is the last thing on the
+          page, given weight rather than volume. */}
+      <footer className="mt-auto px-5 pt-2 pb-8">
+        <div className="rounded-3xl bg-zinc-50 px-5 py-6 text-center ring-1 ring-zinc-900/8 ring-inset dark:bg-zinc-900/50 dark:ring-white/10">
+          {/* The clickable surface is exactly what it was — this one link, and
+              nothing around it. The card is a container, not a target. */}
+          <Link
+            href="/"
+            className="shadow-lift hover:shadow-raise inline-flex h-12 items-center justify-center rounded-full bg-white px-6 text-sm font-semibold text-zinc-900 ring-1 ring-zinc-900/10 transition-[box-shadow,background-color] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ring-inset focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:bg-zinc-800 dark:text-zinc-100 dark:ring-white/10"
+          >
+            רוצה עמוד כזה לעסק שלך? לחץ כאן
+          </Link>
+          <p className="mt-3 text-xs text-zinc-500">
+            מופעל על ידי {BRAND.name}
+          </p>
+        </div>
       </footer>
     </div>
   );

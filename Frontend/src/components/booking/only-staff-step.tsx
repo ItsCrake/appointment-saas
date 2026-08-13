@@ -33,7 +33,7 @@ export function OnlyStaffStep({
 }) {
   return (
     <section className="px-5">
-      <div className="rounded-2xl border border-(--accent-soft-border) bg-(--accent-soft) p-5">
+      <div className="shadow-lift rounded-3xl bg-(--accent-soft) p-5 ring-1 ring-(--accent-soft-border) ring-inset">
         <div className="flex items-center gap-3">
           {staff.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time
@@ -51,7 +51,7 @@ export function OnlyStaffStep({
             </span>
           )}
           <div className="min-w-0">
-            <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+            <h2 className="text-[17px] font-bold tracking-[-0.015em] text-balance text-zinc-900 dark:text-zinc-50">
               בשעה {timeLabel} פנוי/ה רק {staff.name}
             </h2>
             {staff.title ? (
@@ -72,7 +72,7 @@ export function OnlyStaffStep({
         <button
           type="button"
           onClick={onProceed}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-(--accent) text-sm font-semibold text-(--accent-contrast) transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px"
+          className="shadow-accent flex h-14 w-full items-center justify-center gap-2 rounded-full bg-(--accent) text-[15px] font-semibold text-(--accent-contrast) transition-[background-color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-(--accent-strong) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99]"
         >
           להמשיך עם {staff.name}
           <ArrowRight className="size-4 rotate-180" aria-hidden />
@@ -81,7 +81,7 @@ export function OnlyStaffStep({
         <button
           type="button"
           onClick={onChooseAnotherTime}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold text-zinc-800 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-200 dark:ring-white/15 dark:hover:bg-zinc-800"
         >
           <CalendarSearch className="size-4" aria-hidden />
           בחירת מועד אחר

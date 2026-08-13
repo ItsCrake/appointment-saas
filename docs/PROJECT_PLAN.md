@@ -945,6 +945,65 @@ error digest and a blank page, not an auth problem.
 
 > **Migration `0022` is applied** — verified against the live database.
 
+### The driver gap is enforced, not remembered ✅
+
+- [x] `db/queries/sql-types.coverage.test.ts` — the same mechanical-coverage
+      pattern as `nav-coverage` and `dashboard-session.coverage`, aimed at the
+      one bug class this suite structurally *cannot* catch, because PGlite
+      parses what postgres.js hands back as a string.
+- [x] Two rules over every keyed `sql<…>` selection in `src/`: an annotation of
+      `Date` must pass through `toDate` in the same file, and an annotation of
+      `number` must carry a cast the driver decodes as one.
+- [x] The second rule had **no prose anywhere before now**: `count(*)` is
+      `int8`, which postgres.js returns as a *string* rather than lose precision
+      past 2^53 — so an uncast count annotated `number` yields `"51"`, and
+      `+ 1` yields `"511"`. Every count in the repo was already `::int`; that is
+      now a rule rather than a habit. `int8` and `numeric` are deliberately
+      absent from the accepted-cast list, because casting to either fixes
+      nothing.
+- [x] Verified the way the other coverage tests were — by breaking two real call
+      sites (`toDate` on `listClients`, `::int` on the analytics weekday bucket)
+      and confirming it named both, then restoring them.
+- [x] Every current call site was already correct, so this is regression
+      insurance rather than a fix. That is the point: the next one would have
+      passed every test here and failed only in production.
+
+### Booking page: an elevation system, and a stability rule ✅
+
+A visual-only pass over `/[slug]` — CSS, typography, spacing, shadows and
+micro-motion. No state, hooks, actions, props or data flow were touched, and
+every accessible name, role and string is unchanged, which is what let the
+Playwright suite stay the check on it.
+
+- [x] **Four shadow tokens in `@theme inline`**, so they compose through
+      `--tw-shadow` instead of being clobbered by a focus ring. `--shadow-accent`
+      resolves the *tenant's* colour at the element — verified in-browser as
+      `oklab(0.511 0.032 -0.260)` on the demo shop rather than the token default.
+- [x] **A typographic scale where there was one size**: 32px business name,
+      17px section headings, 15px body and controls.
+- [x] **`text-zinc-400` was failing AA at 2.6:1** on real text in five places —
+      stepper labels, slot period counts, review dates, the footer and every
+      input placeholder. All at `zinc-500` (4.6:1) now. A scripted pass over
+      every rendered text node returns zero failures in light *and* dark.
+- [x] **Geometry never animates on a click target.** Hover lifts plus
+      `transition-all` took the E2E suite red on `element is not stable`:
+      Playwright hovers before it clicks, so the pointer starts a 200ms
+      transition and the click lands mid-flight — the same window a real tap
+      lands in on a device that fires hover first. Hover now deepens the shadow
+      and moves nothing, press snaps untransitioned, and the one lift left is
+      the selected day chip's, applied instantly as a state.
+- [x] The footer platform CTA is a designed panel rather than a 12px underlined
+      link, following the decision that `/[slug]` is **genuinely dual-purpose**.
+      It stays monochrome and stays last, so it cannot compete with the shop's
+      own call to action.
+- [x] `npm run verify` green at **819 across 60 files**; Playwright **11/11**.
+
+> **Screenshots were not available for this pass** — the Browser pane was not
+> displayed, so nothing could composite frames. Verification was done against
+> the DOM and computed styles instead, which is the stricter path for contrast
+> and token resolution, plus the full Playwright run for the interactive flow.
+> The rendered composition still wants a human eye.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
@@ -975,7 +1034,7 @@ _Last updated after `0022_client_profiles`. This section is the handover between
 working sessions — if it disagrees with the code, the code is right and this is
 stale._
 
-**Green:** `npm run verify` at **815 tests across 59 files**; Playwright at
+**Green:** `npm run verify` at **819 tests across 60 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`.
@@ -1008,6 +1067,13 @@ PGlite as a `Date`, so the test suite proves the opposite of production. Convert
 at the boundary with `toDate` from `db/queries/sql-types.ts`; `.mapWith()` does
 not work in that position. This took `/master/alerts` down once already —
 [ARCHITECTURE.md](ARCHITECTURE.md#testing).
+
+**This is now enforced rather than remembered.**
+`db/queries/sql-types.coverage.test.ts` fails the build when a `sql<…>`
+selection annotated `Date` skips `toDate`, or one annotated `number` is not cast
+to a type the driver decodes as a number — `count(*)` is `int8`, which
+postgres.js hands back as a string for the same reason. Both rules were verified
+by breaking a real call site and confirming the test named it.
 
 ---
 
