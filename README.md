@@ -269,7 +269,7 @@ unconfigured one.
 | `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
 | `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
 | `/master`                 | super admin   | Platform overview: tenants, MRR, conversion     |
-| `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, change tier, freeze |
+| `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, change tier, freeze/unfreeze |
 | `/master/live`            | super admin   | Global booking feed across all tenants          |
 | `/master/alerts`          | super admin   | Churn risk, expiring trials, failed sends       |
 | `/legal/terms`            | public        | Terms, refunds, subscription, communications    |
@@ -289,7 +289,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 870 unit tests, build
+npm run verify     # env, lint, types, 880 unit tests, build
 npm run test:e2e   # 11 tests / 3 specs, separate — needs a running server
 ```
 
@@ -382,6 +382,15 @@ full week calendar, an installable app with push, and a WhatsApp backend.
   the build when a `sql<…>` selection annotated `Date` skips `toDate`, or one
   annotated `number` is not cast to a type postgres.js decodes as a number —
   `count(*)` is `int8` and comes back as a string.
+- **A freeze now outranks everything.** `effectivePlan` resolves to `free` when
+  a tenant is frozen, ahead of both a live subscription and a running trial —
+  `/master` used to report a frozen tenant as "מקצועי" while the pill beside it
+  said frozen. Extending a trial also writes `subscription_status` back to
+  `trialing` and clears the grace clock, so the console reflects it immediately
+  instead of appearing to do nothing.
+- **The three approved Meta WhatsApp templates** (`appointment_confirmation`,
+  `reminder_24h`, `reminder_2h`) on the official Business API path, with the
+  reminder chosen from the booking's lead time. Green API still sends free text.
 - **"ליבי" — booking by Hebrew voice command.** A microphone beside "תור ידני"
   on `/dashboard`: the owner speaks, Libi extracts the fields, asks in Hebrew
   for whatever is missing, and books through the *existing* manual path. The

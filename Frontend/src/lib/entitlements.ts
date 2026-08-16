@@ -135,7 +135,29 @@ const ENTITLED_STATUSES: readonly SubscriptionStatus[] = ["trialing", "active"];
 export type SubscriptionState = {
   planType: unknown;
   subscriptionStatus: unknown;
+  /**
+   * The freeze flag, optional so a caller reasoning about a plan alone still
+   * type-checks.
+   *
+   * There is no `frozen_at` column: a freeze is `is_active = false` plus a
+   * `frozen_reason` of `admin` or `billing`. Passing the business row — which
+   * every real caller does — picks it up for free.
+   */
+  isActive?: unknown;
 };
+
+/**
+ * Whether this tenant is frozen: public page dark, dashboard read-only.
+ *
+ * **Only an explicit `false` counts.** Absent or malformed means "not frozen",
+ * so a caller constructing a partial state does not silently lose every
+ * entitlement. That is failing *open* on purpose and it is not a hole: the
+ * freeze is enforced for real by `requireWritable()`, which blocks the writes.
+ * This function decides what a frozen tenant is *served*, not what they may do.
+ */
+export function isFrozen(state: SubscriptionState): boolean {
+  return state.isActive === false;
+}
 
 /**
  * Deliberately matches the raw column rather than routing it through
@@ -170,16 +192,27 @@ export function isTrialing(state: SubscriptionState): boolean {
  * on the row. Both columns are varchar, so neither is trusted as written: a
  * value put there by psql or a seed cannot grant a feature.
  *
- * Three cases, in order:
+ * Four cases, in order:
  *
+ * 0. **Frozen → `free`.** A freeze outranks everything, including a live
+ *    subscription and a running trial. Their public page is dark and their
+ *    dashboard is read-only; serving them Pro on top of that would be a tier
+ *    nobody can use, and it is what made `/master` report a frozen tenant as
+ *    "מקצועי" while the status pill beside it said frozen.
  * 1. **Trialing → `TRIAL_PLAN`**, whatever they picked. The chosen tier is a
  *    statement of intent for *after* the trial; during it they get the whole
  *    product. Without this, a tenant who picked Basic hit "upgrade your plan"
  *    walls during the exact window they were evaluating.
  * 2. **Active → the tier they actually pay for.**
  * 3. **Anything else → `free`.** Grace, cancelled, unrecognised.
+ *
+ * > **The consequence worth stating**: analytics is the one *read* gated on an
+ * > entitlement, so a frozen tenant now loses it. The calendar, the client list
+ * > and the booking history are ungated and stay readable, which is what
+ * > "reads stay open" has always meant in practice.
  */
 export function effectivePlan(state: SubscriptionState): PlanType {
+  if (isFrozen(state)) return "free";
   if (isTrialing(state)) return TRIAL_PLAN;
   if (statusIs(state.subscriptionStatus, ["active"])) {
     return toPlanType(state.planType);

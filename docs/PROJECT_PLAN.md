@@ -1117,6 +1117,49 @@ manual path.
 > — the mapping, the parameter order and the refusal path are tested; the
 > Meta round trip is not.
 
+### `/master` tenant status, fixed ✅
+
+Three symptoms, one cause: the console answered "what is this tenant served"
+from `plan_type` and `subscription_status` while ignoring the freeze flag, and
+the trial extension moved a clock nothing else read.
+
+- [x] **A freeze now outranks everything.** `effectivePlan` returns `free` when
+      `is_active` is false, ahead of the trial and the paid tier — a frozen
+      tenant used to resolve to `pro` while the status pill beside it said
+      frozen. There is **no `frozen_at` column**: a freeze is `is_active = false`
+      plus `frozen_reason` of `admin` or `billing`.
+- [x] **Extending a trial writes the status, not just the clock.** Pushing
+      `trial_ends_at` forward on a lapsed tenant left them `past_due` with a
+      grace clock running, so the console went on saying "מושהה" and nothing an
+      admin could see had changed. It now sets `trialing`, clears
+      `grace_started_at`, and lifts a **billing** freeze — all in one statement,
+      for the reason the sweep states.
+- [x] **An admin freeze is never lifted as a side effect.** Only
+      `frozen_reason = 'billing'` comes back on a trial extension; an admin
+      freeze is a deliberate act and `setTenantActiveAction` is where it is
+      undone.
+- [x] **`setTenantActive` moves `frozen_reason` with the flag.** It previously
+      left the old reason behind, so a hand-unfrozen tenant still looked
+      billing-frozen to `canAutoUnfreeze` — meaning a later admin freeze could
+      be lifted automatically by a payment.
+- [x] **The plan cell says *why*.** "מושהה" has three causes with three
+      different fixes; the reason is printed beside it, which is what stops
+      "I unfroze them and it still says מושהה" — unfreezing a `past_due` tenant
+      genuinely leaves them served nothing.
+- [x] 14 new tests against real Postgres, verified by reverting each fix and
+      confirming the suite named it. `npm run verify` green at **880 across 64
+      files**.
+
+> **The consequence worth knowing:** analytics is the one *read* gated on an
+> entitlement, so a frozen tenant now loses it. The calendar, client list and
+> history are ungated and stay readable — which is what "reads stay open" has
+> always meant in practice.
+
+> **Caught by the suite, not by review:** ordering. `retentionBlockedReason`
+> checked the entitlement before the freeze, so a frozen tenant started
+> reporting "not entitled" — true, but it sends somebody to look at a plan that
+> is fine. Frozen is checked first now.
+
 > **The brief asked for `basic`; the column stores `starter`.** "Basic" is the
 > display name — `0012` pinned the CHECK to `free|starter|pro`. Implemented as
 > `starter` and labelled בסיסי.
@@ -1147,14 +1190,52 @@ manual path.
 
 ## 5. Where things stand
 
-_Last updated after `0022_client_profiles`. This section is the handover between
-working sessions — if it disagrees with the code, the code is right and this is
-stale._
+_This section is the handover between working sessions — if it disagrees with
+the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **870 tests across 64 files**; Playwright at
+**Green:** `npm run verify` at **880 tests across 64 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
-zero reachable by `anon`.
+zero reachable by `anon`. **No migration is pending**; everything below is
+application code.
+
+### The three rules a new session most needs
+
+**1. What a tier buys.** `lib/entitlements.ts` is the only place that decides,
+and it is pure. Starter owns the entire design surface — branding, landing
+content, calendar management are ungated. Pro adds the four things that cost
+*us* per tenant:
+
+| | starter (₪69) | pro (₪99) | trialing | frozen |
+| --- | --- | --- | --- | --- |
+| `customBranding` | ✓ | ✓ | ✓ | · |
+| `smsReminders` | · | ✓ | ✓ | · |
+| `canSendWhatsapp` | · | ✓ | ✓ | · |
+| `canAccessAnalytics` | · | ✓ | ✓ | · |
+| `clientRetention` | · | ✓ | ✓ | · |
+| `canAccessLibi` | · | ✓ | ✓ | · |
+| `prioritySupport` | · | ✓ | ✓ | · |
+
+`effectivePlan` resolves in four steps, in order: **frozen → `free`**, trialing
+→ `TRIAL_PLAN` (Pro), active → the stored tier, anything else → `free`. Frozen
+outranks a live subscription *and* a running trial. Never read `plan_type`
+without the status and the freeze flag — `entitlementsFor` takes the row for
+exactly that reason.
+
+**2. WhatsApp sends Meta templates on the official path only.** Three approved:
+`appointment_confirmation`, `reminder_24h`, `reminder_2h`, mapped in
+`lib/notifications/whatsapp-templates.ts` with five shared positional
+parameters. Green API keeps sending free text — it drives the shop's own
+account and has no template concept. Twilio **refuses** to send WhatsApp with
+no template rather than posting text Meta drops silently. Reminder scheduling:
+booked more than 24h ahead → 24h before; 24h or less → 2h before; exactly 24h →
+nothing.
+
+**3. `/master` shows the tier a tenant is *served*, not the one stored.** They
+differ constantly — trialing, past_due and frozen all diverge — and the plan
+cell prints the served tier plus the reason. Extending a trial now also sets
+`subscription_status` back to `trialing`, clears the grace clock and lifts a
+*billing* freeze (never an admin one).
 
 ### The one thing that is broken in production right now
 
@@ -1172,7 +1253,8 @@ worked. Verify a domain at resend.com → Domains and point
 | ------------------- | ------------------------------------------------------------ |
 | Billing 8d–8e       | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
 | SMS                 | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
-| WhatsApp            | Green API credentials. Code-complete, never exercised on a wire. |
+| WhatsApp            | Green API credentials **or** a Twilio account plus the three `TWILIO_TEMPLATE_*` Content SIDs. Code-complete and template-aware; no message has left on either backend. |
+| Voice ("ליבי")      | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated. No real utterance has been parsed. |
 | Web push            | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven end to end: no notification has reached a real device. |
 | Media uploads       | `npm run storage:setup` against the production project.       |
 | Legal text          | An Israeli lawyer. `LEGAL_ENTITY` still holds placeholder ח.פ. and address fields. |

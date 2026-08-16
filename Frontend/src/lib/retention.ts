@@ -73,8 +73,17 @@ function skip(summary: RetentionSummary, reason: string) {
  */
 export function retentionBlockedReason(business: Business): string | null {
   if (!business.retentionEnabled) return "not enabled";
-  if (!entitlementsFor(business).clientRetention) return "not entitled";
+  /**
+   * Frozen is checked **before** the entitlement, and the order is load-bearing
+   * now that a freeze resolves `effectivePlan` to `free`.
+   *
+   * Both are true of a frozen tenant, so whichever runs first is the reason
+   * that gets logged and counted in the sweep summary. "frozen" is the more
+   * specific and the more actionable of the two — "not entitled" would send
+   * somebody looking at a plan that is fine.
+   */
   if (!business.isActive) return "frozen";
+  if (!entitlementsFor(business).clientRetention) return "not entitled";
 
   /**
    * WhatsApp specifically, with no fallback to email or SMS.

@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 870 tests; Playwright — 11 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 880 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -1579,6 +1579,78 @@ is denied. Starter buys *the right to keep using it*, not an extra capability.
 The consequence is worth stating rather than discovering: **for a Starter
 tenant the coming grace window applies no pressure at all**, and the freeze at
 the end of it is the only enforcement they will feel.
+
+### A freeze outranks everything, including a trial
+
+`effectivePlan` resolves in four steps and the first is the freeze:
+
+```
+frozen        → free          (is_active = false)
+trialing      → TRIAL_PLAN    (Pro, whatever tier is stored)
+active        → the stored tier
+anything else → free          (grace, cancelled, unrecognised)
+```
+
+It did not used to read the flag at all, which is how `/master` came to report a
+frozen tenant as **מקצועי** while the status pill beside it said frozen. A
+frozen tenant's public page is dark and their dashboard is read-only; serving
+them Pro on top of that is a tier nobody can use.
+
+> **There is no `frozen_at` column.** A freeze is `is_active = false` plus a
+> `frozen_reason` of `admin` or `billing`, and the distinction is load-bearing:
+> only a `billing` freeze is ever lifted without a person deciding
+> (`canAutoUnfreeze`).
+
+`isFrozen()` counts **only an explicit `false`**. Absent or malformed means not
+frozen, so a caller constructing a partial state does not silently lose every
+entitlement. That fails *open* on purpose and is not a hole — the freeze is
+enforced for real by `requireWritable()`, which blocks the writes. This function
+decides what a frozen tenant is *served*, not what they may do.
+
+**The consequence, stated rather than discovered:** analytics is the one *read*
+gated on an entitlement, so a frozen tenant loses it. The calendar, the client
+list and the booking history are ungated and stay readable — which is what
+"reads stay open" has always meant in practice.
+
+> **Order matters wherever both are checked.** `retentionBlockedReason` used to
+> test the entitlement before the freeze, so a frozen tenant reported "not
+> entitled" — true, and it sends somebody to look at a plan that is fine.
+> Frozen is the more specific and more actionable reason, so it goes first.
+
+### Extending a trial writes the status, not just the clock
+
+`extendTrial` used to set `trial_ends_at` alone. Once the sweep has lapsed a
+trial the tenant is `past_due` with a grace clock running, so pushing the date
+forward changed nothing anybody could see: `effectivePlan` still resolved to
+`free` and the console went on printing "מושהה". An admin extended a trial and
+the product did not move.
+
+It now writes, in **one statement** — the same reason the sweep gives, that a
+failure between two writes strands a tenant `past_due` with no clock:
+
+| Column | New value |
+| ------ | --------- |
+| `trial_ends_at` | `greatest(existing, now) + N days` |
+| `subscription_status` | `trialing` |
+| `grace_started_at` | `NULL` |
+| `is_active` / `frozen_reason` | cleared **only** when the reason was `billing` |
+
+The last row is the asymmetry that keeps the two controls separate: an admin
+froze that tenant deliberately, and undoing it as a side effect of a support
+action would make one decision quietly reverse another.
+
+`setTenantActive` was fixed alongside it — it toggled `is_active` and left
+`frozen_reason` behind, so a hand-unfrozen tenant still looked billing-frozen to
+`canAutoUnfreeze`, and a later admin freeze could then be lifted automatically
+by a payment. The pair moves together now, and a console freeze always records
+`admin`.
+
+> **`/master` prints the reason, not only the outcome.** "מושהה" has three
+> causes — frozen, not paying, no subscription — with three different fixes, and
+> the word alone cannot tell an admin which control to reach for. That is
+> exactly how "I unfroze them and it still says מושהה" happens: unfreezing a
+> `past_due` tenant genuinely leaves them served nothing, and only paying or a
+> trial extension changes it.
 
 ### Two rules that carry the weight
 

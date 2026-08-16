@@ -286,6 +286,34 @@ export async function extendTrial(
       // greatest(): extending a trial that ended last week should give the
       // full window from today, not a date still in the past.
       trialEndsAt: sql`greatest(coalesce(${businesses.trialEndsAt}, ${at(now)}), ${at(now)}) + ${sql.raw(`interval '${Math.trunc(days)} days'`)}`,
+
+      /**
+       * The clock alone was not enough, and that was the bug.
+       *
+       * Once the sweep has lapsed a trial the tenant is `past_due` with a grace
+       * clock running. Pushing `trial_ends_at` forward left both untouched, so
+       * `effectivePlan` still resolved to `free` — an admin extended a trial,
+       * the console went on reporting "מושהה", and nothing they could see had
+       * changed. Extending a trial *means* the tenant is trialing again, so the
+       * status says so and the grace clock is cleared with it.
+       *
+       * All of it in one statement, for the reason the sweep states: split
+       * across two, a failure between them strands a tenant `past_due` with no
+       * clock — degraded forever, never frozen, never recovered.
+       */
+      subscriptionStatus: "trialing",
+      graceStartedAt: null,
+
+      /**
+       * A billing freeze is lifted; an admin freeze is not.
+       *
+       * Same rule as `canAutoUnfreeze`, expressed in SQL because it has to hold
+       * in the same statement. An admin who froze a tenant deliberately should
+       * not have that undone as a side effect of extending their trial — that
+       * is a second decision, and `setTenantActiveAction` is where it is made.
+       */
+      isActive: sql`CASE WHEN ${businesses.frozenReason} = 'billing' THEN true ELSE ${businesses.isActive} END`,
+      frozenReason: sql`CASE WHEN ${businesses.frozenReason} = 'billing' THEN NULL ELSE ${businesses.frozenReason} END`,
     })
     .where(eq(businesses.id, businessId))
     .returning({ trialEndsAt: businesses.trialEndsAt });
@@ -293,6 +321,20 @@ export async function extendTrial(
   return row?.trialEndsAt ?? null;
 }
 
+/**
+ * Freeze or unfreeze a tenant from `/master`.
+ *
+ * **`frozen_reason` moves with the flag**, which it previously did not. The
+ * schema says the column is NULL whenever `is_active` is true, and unfreezing
+ * left the old reason behind — so a tenant unfrozen by hand still looked
+ * billing-frozen to `canAutoUnfreeze`, and a later admin freeze could then be
+ * lifted automatically by a payment. Setting both together is what keeps that
+ * pair honest.
+ *
+ * Freezing from here always records `admin`, never `billing`: this is a
+ * deliberate act by a person, and only a `billing` freeze is ever undone
+ * without one.
+ */
 export async function setTenantActive(
   db: Database,
   businessId: string,
@@ -300,7 +342,10 @@ export async function setTenantActive(
 ): Promise<boolean> {
   const [row] = await db
     .update(businesses)
-    .set({ isActive })
+    .set({
+      isActive,
+      frozenReason: isActive ? null : "admin",
+    })
     .where(eq(businesses.id, businessId))
     .returning({ id: businesses.id });
 

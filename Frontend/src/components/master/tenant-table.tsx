@@ -16,7 +16,7 @@ import {
   setTenantActiveAction,
   updateTenantPlanAction,
 } from "@/app/master/actions";
-import { effectivePlan } from "@/lib/entitlements";
+import { effectivePlan, isFrozen, isTrialing } from "@/lib/entitlements";
 import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -333,10 +333,32 @@ function PlanCell({ tenant }: { tenant: TenantRowView }) {
       {served !== stored ? (
         <span className="mt-0.5 block text-[11px] text-amber-300">
           בפועל: {planLabel(served)}
+          {/* The reason, not just the outcome. "מושהה" has three different
+              causes with three different fixes, and an admin looking at the
+              word alone cannot tell which control to reach for — which is
+              exactly how "I unfroze them and it still says מושהה" happens.
+              Unfreezing a past_due tenant genuinely leaves them served
+              nothing; only paying or a trial extension changes that. */}
+          <span className="text-zinc-500"> · {servedReason(tenant)}</span>
         </span>
       ) : null}
     </div>
   );
+}
+
+/** Why the served tier differs from the stored one, in the admin's language. */
+function servedReason(tenant: TenantRowView): string {
+  if (isFrozen(tenant)) return "העסק מוקפא";
+  if (isTrialing(tenant)) return "בתקופת ניסיון";
+
+  switch (tenant.subscriptionStatus) {
+    case "past_due":
+      return "התשלום לא נקלט";
+    case "cancelled":
+      return "המנוי בוטל";
+    default:
+      return "אין מנוי פעיל";
+  }
 }
 
 function Th({ children }: { children: React.ReactNode }) {
