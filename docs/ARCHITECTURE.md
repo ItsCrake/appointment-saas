@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 839 tests; Playwright — 11 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 849 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -1616,6 +1616,55 @@ id under `master.impersonate.*`.
 > held back as a product decision, not a technical gap. An impersonating admin
 > *does* inherit a frozen tenant's read-only access, because that reflects the
 > account's state rather than who is looking at it.
+
+### Moving a tenant between tiers by hand
+
+`updateTenantPlanAction` sits beside the trial extension in the tenant table:
+a select between בסיסי and מקצועי, applied immediately with the same notice
+banner the other master actions use.
+
+**It writes `plan_type` and never `subscription_status`, and that line is the
+whole safety property.** Status is what says money is arriving. A support
+control that could set it to `active` would be **inventing revenue** — exactly
+what the console billing provider refuses to do in production, and the reason
+that refusal exists. Assigning a tier says *which* product a tenant gets; it
+does not say they have paid for it.
+
+**`free` is not assignable.** It is not a tier anyone is put on — it is the
+degraded state `effectivePlan` produces from a non-paying status. Offering it
+here would let an admin manufacture a state indistinguishable from a lapsed
+subscription, which is the ambiguity the lifecycle exists to remove. The enum
+is built from `ASSIGNABLE_PLANS`, derived from `PRICING_TIERS`, so a third tier
+becomes selectable without anyone remembering to update a second list.
+
+> **`basic` is not a value.** The tier displayed as "בסיסי" is stored as
+> `starter` — migration `0012` pinned the plan CHECK to `free|starter|pro` when
+> it folded the retired `business` tier into `pro`. `planLabel()` derives the
+> Hebrew name from `PRICING_TIERS`, so the console and the pricing page cannot
+> end up calling the same tier two different things.
+
+#### The table shows the served tier as well as the stored one
+
+Entitlements resolve from plan **and** status, so the stored value alone is
+misleading in the two states an admin looks at most:
+
+| Status | What changing the plan does |
+| ------ | --------------------------- |
+| `active` | Takes effect immediately — this is the case it is for |
+| `trialing` | **Nothing visible.** A trial already grants `TRIAL_PLAN`; this sets where they land when it ends |
+| `past_due` / `cancelled` | Nothing until they are paying again |
+
+Without surfacing that, moving a trialing tenant to Basic reads as a control
+that did not work: the write succeeded and the product did not change. The plan
+cell therefore prints the served tier in amber whenever it differs from the
+stored one, using the same pure `effectivePlan` the server gates on — so the
+console cannot describe a tenant's access differently from the way it is
+enforced.
+
+`db/tenant-plan.test.ts` pins all of it against real Postgres, including that
+the CHECK constraint rejects a tier the type system would have allowed past a
+cast, and that a trialing tenant's entitlements are byte-identical before and
+after a change.
 
 ### Trial column (0011)
 

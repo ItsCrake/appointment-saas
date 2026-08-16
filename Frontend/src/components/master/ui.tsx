@@ -22,6 +22,18 @@ export const masterInput =
 export const masterBtn =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-zinc-700 px-3.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-zinc-100 hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none disabled:opacity-50";
 
+/**
+ * Sized to match `masterBtn` so the plan control sits level with the buttons it
+ * lives beside.
+ *
+ * The **native** appearance is kept deliberately: `appearance-none` would strip
+ * the disclosure arrow, and in a row of pill buttons a select with no arrow
+ * reads as just another button — one whose behaviour on click is a surprise.
+ * The browser also puts that arrow on the correct side under RTL by itself.
+ */
+export const masterSelect =
+  "h-9 rounded-full border border-zinc-700 bg-zinc-950 px-3 text-xs font-semibold text-zinc-200 transition-colors hover:border-zinc-100 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none disabled:opacity-50";
+
 export const masterBtnDanger =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-rose-900 px-3.5 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-950/50 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:outline-none disabled:opacity-50";
 

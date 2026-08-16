@@ -1054,6 +1054,32 @@ manual path.
 > extra is stored, but the privacy text should say so before this runs against
 > real client data.
 
+### Manual tier changes from `/master` ✅
+
+- [x] `updateTenantPlanAction` beside the trial extension: a select between
+      בסיסי and מקצועי, guarded by `requireSuperAdmin()` re-run inside the
+      action, audited under `master.tenant.plan` with the admin's own id.
+- [x] **Writes `plan_type`, never `subscription_status`.** A support control
+      that could mark a tenant `active` would be inventing revenue — the thing
+      the console billing provider refuses to do in production.
+- [x] **`free` is unassignable.** It is the degraded state a non-paying status
+      produces, not a tier anyone is put on; offering it would manufacture a
+      state indistinguishable from a lapsed subscription. The enum derives from
+      `ASSIGNABLE_PLANS`, so a third tier needs no second list.
+- [x] **The table now shows the served tier beside the stored one.** Changing a
+      *trialing* tenant's plan is invisible by design — a trial already grants
+      `TRIAL_PLAN` — and without saying so the control reads as broken.
+- [x] `planLabel()` derives Hebrew names from `PRICING_TIERS`, so the console
+      and the pricing page cannot name the same tier differently.
+- [x] 10 new tests against real Postgres, including the CHECK constraint
+      rejecting a tier pushed past the type, and a trialing tenant's
+      entitlements being identical before and after.
+- [x] `npm run verify` green at **849 across 63 files**.
+
+> **The brief asked for `basic`; the column stores `starter`.** "Basic" is the
+> display name — `0012` pinned the CHECK to `free|starter|pro`. Implemented as
+> `starter` and labelled בסיסי.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
@@ -1084,7 +1110,7 @@ _Last updated after `0022_client_profiles`. This section is the handover between
 working sessions — if it disagrees with the code, the code is right and this is
 stale._
 
-**Green:** `npm run verify` at **839 tests across 62 files**; Playwright at
+**Green:** `npm run verify` at **849 tests across 63 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`.

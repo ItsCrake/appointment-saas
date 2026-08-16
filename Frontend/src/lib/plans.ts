@@ -165,3 +165,27 @@ export function headlineSavingsPercent(
 export function priceForCycle(tier: PricingTier, cycle: BillingCycle): number {
   return cycle === "yearly" ? monthlyEquivalentCents(tier) : tier.monthlyCents;
 }
+
+/**
+ * Tiers a human may be moved between by hand.
+ *
+ * `free` is deliberately absent. It is not a tier anyone is *put on* — it is
+ * the degraded state a tenant falls into during the grace window, produced by
+ * `effectivePlan` from a non-paying status rather than stored. Offering it in a
+ * support tool would let an admin manufacture a state indistinguishable from a
+ * lapsed subscription, which is exactly the ambiguity the lifecycle exists to
+ * remove.
+ */
+export const ASSIGNABLE_PLANS = PRICING_TIERS.map((tier) => tier.id);
+
+/**
+ * The Hebrew name of a tier, derived from `PRICING_TIERS` rather than restated.
+ *
+ * The console and the pricing page must call a tier the same thing — an admin
+ * moving somebody to "מקצועי" and a customer buying "Pro" have to be talking
+ * about the same product. `free` has no marketing name, so it gets the one word
+ * that describes what it actually is.
+ */
+export function planLabel(plan: PlanType): string {
+  return PRICING_TIERS.find((tier) => tier.id === plan)?.name ?? "מושהה";
+}

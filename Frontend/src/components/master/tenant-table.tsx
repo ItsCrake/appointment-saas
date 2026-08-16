@@ -14,7 +14,10 @@ import {
   extendTrialAction,
   impersonateAction,
   setTenantActiveAction,
+  updateTenantPlanAction,
 } from "@/app/master/actions";
+import { effectivePlan } from "@/lib/entitlements";
+import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 import {
@@ -22,6 +25,7 @@ import {
   masterBtn,
   masterBtnDanger,
   masterInput,
+  masterSelect,
   panel,
   TenantPill,
   tenantState,
@@ -140,6 +144,7 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                 <Th>בעלים</Th>
                 <Th>נוצר</Th>
                 <Th>סטטוס</Th>
+                <Th>מסלול</Th>
                 <Th>ניסיון</Th>
                 <Th>תורים</Th>
                 <Th>פעולות</Th>
@@ -178,6 +183,9 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                       <TenantPill
                         state={tenantState(t.isActive, t.subscriptionStatus)}
                       />
+                    </Td>
+                    <Td>
+                      <PlanCell tenant={t} />
                     </Td>
                     <Td>
                       <span
@@ -234,6 +242,32 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                           7+ ימים
                         </button>
 
+                        {/* Beside the trial button, because the two are the
+                            same job: deciding what this tenant is entitled to
+                            without a payment provider in the loop. */}
+                        <label className="contents">
+                          <span className="sr-only">מסלול עבור {t.name}</span>
+                          <select
+                            disabled={busy}
+                            value={toPlanType(t.planType)}
+                            onChange={(event) =>
+                              run(t.id, () =>
+                                updateTenantPlanAction({
+                                  businessId: t.id,
+                                  planType: event.target.value,
+                                }),
+                              )
+                            }
+                            className={masterSelect}
+                          >
+                            {ASSIGNABLE_PLANS.map((plan) => (
+                              <option key={plan} value={plan}>
+                                {planLabel(plan)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
                         <button
                           type="button"
                           disabled={busy}
@@ -268,6 +302,39 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The tier stored on the row, and — when they differ — the tier the tenant is
+ * actually being served.
+ *
+ * Both are shown because entitlements resolve from plan *and* status, so the
+ * stored value alone is misleading in the two commonest states an admin looks
+ * at. A trialing tenant is served Pro whatever is stored, and a `past_due` one
+ * is served nothing. Without this, moving a trialing tenant to Basic looks like
+ * a control that did not work — the write succeeded and the product did not
+ * change, which is the single most likely support ticket this feature creates.
+ *
+ * `effectivePlan` is the same pure function the server gates on, imported
+ * rather than reimplemented, so the console cannot describe a tenant's access
+ * differently from the way it is enforced.
+ */
+function PlanCell({ tenant }: { tenant: TenantRowView }) {
+  const stored = toPlanType(tenant.planType);
+  const served = effectivePlan(tenant);
+
+  return (
+    <div className="text-xs">
+      <span className="block font-medium text-zinc-200">
+        {planLabel(stored)}
+      </span>
+      {served !== stored ? (
+        <span className="mt-0.5 block text-[11px] text-amber-300">
+          בפועל: {planLabel(served)}
+        </span>
+      ) : null}
     </div>
   );
 }

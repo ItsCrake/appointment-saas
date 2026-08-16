@@ -1,6 +1,8 @@
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
 
+import type { PlanType } from "@/lib/plans";
+
 import { appointments, businesses, notifications } from "../schema";
 import type { Database } from "../types";
 import { toDate } from "./sql-types";
@@ -299,6 +301,35 @@ export async function setTenantActive(
   const [row] = await db
     .update(businesses)
     .set({ isActive })
+    .where(eq(businesses.id, businessId))
+    .returning({ id: businesses.id });
+
+  return Boolean(row);
+}
+
+/**
+ * Moves a tenant between paid tiers by hand.
+ *
+ * **Writes `plan_type` and nothing else.** It deliberately does not touch
+ * `subscription_status`, and that separation is the whole safety property here:
+ * status is what says whether money is arriving, and a support tool that could
+ * silently mark a tenant `active` would be inventing revenue — the same thing
+ * the console billing provider refuses to do in production. Assigning a tier is
+ * a statement about *which* product they get; whether they are entitled to it
+ * at all stays with the lifecycle and the (eventual) payment webhook.
+ *
+ * The value is a `PlanType` at the type level and CHECK-constrained in the
+ * database, so `free` is representable but the action above refuses it — see
+ * the note there.
+ */
+export async function setTenantPlan(
+  db: Database,
+  businessId: string,
+  planType: PlanType,
+): Promise<boolean> {
+  const [row] = await db
+    .update(businesses)
+    .set({ planType })
     .where(eq(businesses.id, businessId))
     .returning({ id: businesses.id });
 

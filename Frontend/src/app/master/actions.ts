@@ -5,7 +5,13 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { db } from "@/db";
-import { extendTrial, getBusinessById, setTenantActive } from "@/db/queries";
+import {
+  extendTrial,
+  getBusinessById,
+  setTenantActive,
+  setTenantPlan,
+} from "@/db/queries";
+import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
 import { clearImpersonation, setImpersonation } from "@/lib/impersonation";
 import { requireSuperAdmin } from "@/lib/master-session";
 import { reportError, reportWarning } from "@/lib/observability";
@@ -85,6 +91,81 @@ export async function extendTrialAction(input: unknown): Promise<MasterResult> {
       businessId: parsed.data.businessId,
     });
     return { ok: false, error: "הארכת הניסיון נכשלה" };
+  }
+}
+
+/**
+ * Only the tiers a human may assign, and the enum is built from
+ * `ASSIGNABLE_PLANS` rather than written out — so a third tier added to the
+ * pricing table becomes selectable here without anyone remembering to come
+ * back, and `free` stays unassignable without a second list to keep in step.
+ */
+const planSchema = idSchema.extend({
+  planType: z.enum(ASSIGNABLE_PLANS as [string, ...string[]], {
+    message: "מסלול לא תקין",
+  }),
+});
+
+/**
+ * Moves a tenant between paid tiers by hand — support, migrations, and the
+ * "they paid me by bank transfer" case that has no webhook behind it.
+ *
+ * **It writes `plan_type` and never `subscription_status`.** That line is the
+ * safety property. Status is what says money is arriving; a support control
+ * that could set it to `active` would be inventing revenue, which is precisely
+ * what the console billing provider refuses to do in production. Assigning a
+ * tier says *which* product they get, not that they have paid for it.
+ *
+ * The consequence is worth stating because it looks like a bug from the
+ * console: on a **trialing** tenant this changes nothing they can see, because
+ * a trial grants `TRIAL_PLAN` whatever tier is stored — it sets what they drop
+ * to when the trial ends. On a `past_due` or `cancelled` tenant it also changes
+ * nothing until they are paying again. It bites immediately only on `active`.
+ * The table surfaces the effective plan beside the stored one for that reason.
+ */
+export async function updateTenantPlanAction(
+  input: unknown,
+): Promise<MasterResult> {
+  const parsed = planSchema.safeParse(input);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0].message };
+
+  const admin = await requireSuperAdmin();
+
+  // Resolved before the write, for the slug the revalidation needs and to turn
+  // "no such tenant" into a sentence rather than a silent no-op update.
+  const target = await getBusinessById(db, parsed.data.businessId);
+  if (!target) return { ok: false, error: "העסק לא נמצא" };
+
+  const planType = toPlanType(parsed.data.planType);
+
+  try {
+    const found = await setTenantPlan(db, parsed.data.businessId, planType);
+    if (!found) return { ok: false, error: "העסק לא נמצא" };
+
+    // Money-adjacent, so it is logged at the same level as impersonation and
+    // freezing — with the admin's own id, never the tenant's.
+    reportWarning("master.tenant.plan", "tenant plan changed by admin", {
+      adminUserId: admin.id,
+      businessId: parsed.data.businessId,
+      from: target.planType,
+      to: planType,
+    });
+
+    revalidatePath("/master");
+    revalidatePath("/master/businesses");
+    // The tenant's own surfaces are `force-dynamic`, so nothing is actually
+    // cached to drop — this is here so a future move to a cached render cannot
+    // leave an owner looking at the tier they used to be on.
+    revalidatePath("/dashboard");
+    revalidatePath(`/${target.slug}`);
+
+    return { ok: true, message: `המסלול עודכן ל${planLabel(planType)}` };
+  } catch (error) {
+    reportError("master.tenant.plan", error, {
+      businessId: parsed.data.businessId,
+    });
+    return { ok: false, error: "עדכון המסלול נכשל" };
   }
 }
 

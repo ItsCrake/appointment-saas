@@ -269,7 +269,7 @@ unconfigured one.
 | `/dashboard/billing`      | owner         | Plan, status, grace deadline, invoices          |
 | `/dashboard/setup`        | owner         | 5-step onboarding, incl. plan selection         |
 | `/master`                 | super admin   | Platform overview: tenants, MRR, conversion     |
-| `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, freeze |
+| `/master/businesses`      | super admin   | Tenant table: impersonate, extend trial, change tier, freeze |
 | `/master/live`            | super admin   | Global booking feed across all tenants          |
 | `/master/alerts`          | super admin   | Churn risk, expiring trials, failed sends       |
 | `/legal/terms`            | public        | Terms, refunds, subscription, communications    |
@@ -289,7 +289,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 839 unit tests, build
+npm run verify     # env, lint, types, 849 unit tests, build
 npm run test:e2e   # 11 tests / 3 specs, separate — needs a running server
 ```
 
