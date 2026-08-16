@@ -1,0 +1,36 @@
+# Repo-root ignores.
+#
+# `Frontend/.gitignore` covers the application's own build output — node_modules,
+# .next, coverage, Playwright results, env files. This file covers what sits
+# *beside* it at the root: agent tooling installed into the working copy, and OS
+# droppings.
+#
+# Nothing here is deleted by being listed — these paths stay on disk and keep
+# working. They are simply not this repository's source.
+
+# --- Agent tooling (Impeccable) ---
+# Installed per working copy, ~140k lines across two near-identical trees, and
+# not source for this product. Scoped to the exact directories the installer
+# creates rather than to `.claude/` and `.github/` wholesale, because both of
+# those are places real project config belongs: a shared `.claude/settings.json`
+# and `.github/workflows/` must stay committable.
+.claude/skills/
+.github/skills/
+.github/agents/
+.github/hooks/
+
+# Per-developer Claude Code settings. The `.local` suffix is the convention for
+# "mine, not the team's" — a shared `.claude/settings.json` is deliberately not
+# matched by this.
+.claude/settings.local.json
+
+# Impeccable's per-checkout state: hook consent and its scan cache. Previously
+# excluded only via `.git/info/exclude`, which lives in one clone and travels to
+# nobody — so a teammate saw it as untracked noise. Listed here so the ignore is
+# shared.
+.impeccable/
+**/.impeccable/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
