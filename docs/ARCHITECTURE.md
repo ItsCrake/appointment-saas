@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 849 tests; Playwright — 11 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 870 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -823,6 +823,59 @@ with no WhatsApp credentials the channel resolves to the console provider and
 the loop falls through to SMS and then email, rather than logging a confirmation
 nobody receives.
 
+## The three approved WhatsApp templates
+
+Meta requires a pre-approved template for a **business-initiated** message —
+one the shop sends first, outside the 24-hour window a client's own message
+opens. Three are approved: `appointment_confirmation`, `reminder_24h` and
+`reminder_2h`.
+
+**This binds only the official Business API path.** Green API drives the shop's
+own account, has no template concept, and keeps sending the rendered Hebrew
+body. The split is why WhatsApp shipped before either account existed, and it is
+unchanged: both are still `NotificationProvider`s and the outbox does not know
+which is behind it.
+
+`lib/notifications/whatsapp-templates.ts` owns the mapping. Four decisions in
+it carry weight:
+
+- **Parameters are positional and shared across all three.** Meta numbers body
+  variables `{{1}}`…`{{5}}` and freezes that numbering at approval, so
+  reordering the array silently reorders the sentence a client reads. One
+  substitution list — name, business, date-and-time, location, manage link —
+  also stops the reminder and the confirmation drifting into disagreeing about
+  how a date is written. A test pins the order.
+- **Date and time are one slot, not two.** The approved copy reads
+  "יום שלישי, 20.08.2026 בשעה 14:30" as a phrase; splitting it invites a later
+  edit to put them in the wrong order.
+- **A blank field becomes `—`, never `""`.** The Cloud API rejects an empty body
+  parameter outright, so a shop with no address on file would have *every*
+  templated message fail rather than arrive without a location.
+- **Which reminder template is derived, not stored.** The outbox has one
+  `reminder` kind for both; the lead lives in the dedupe key, which is not
+  something to parse. `leadHoursFor(startsAt, scheduledFor)` recomputes it from
+  the two columns that decide it, so a reminder rescheduled by any future path
+  stays correctly labelled without a migration.
+
+### No template is a real answer, and the provider refuses on it
+
+`whatsappTemplateFor` returns null for kinds Meta never approved — the approval
+request, the rejection, the cancellation, the win-back — and for any lead time
+that is neither 24h nor 2h. Deliberately **not** a nearest match: rounding a
+36-hour reminder onto `reminder_24h` would send copy saying *tomorrow*, a day
+and a half early.
+
+The Twilio provider then refuses to send WhatsApp without a template rather than
+posting free text Meta accepts and silently drops — a non-retryable failure,
+because a missing template is a configuration fact and retrying would burn the
+outbox's five attempts on the same refusal. `clientDelivery()` falls through to
+SMS or email, which is the right outcome for a kind with no approved copy.
+
+> **Twilio addresses a template by Content SID, not by name.** A SID is issued
+> per Twilio account at approval, so two deployments of this code have different
+> ones — they live in `TWILIO_TEMPLATE_<NAME>` and a configured template with no
+> SID is reported as the deployment mistake it is.
+
 ## Reminders are planned from the lead time, not fixed at 24 hours
 
 A fixed "24 hours before" loses half of all bookings. Someone who books at 09:00
@@ -830,17 +883,32 @@ for 14:00 the same day gets **nothing** — the send time is already in the past
 and that is exactly the client most likely to forget, because they booked in a
 hurry.
 
-| Booked this far ahead | Reminder goes out |
-| --------------------- | ----------------- |
-| 30h or more           | 24h before        |
-| less than 30h         | 2h before         |
+| Booked this far ahead | Reminder goes out | Meta template  |
+| --------------------- | ----------------- | -------------- |
+| more than 24h         | 24h before        | `reminder_24h` |
+| 24h or less           | 2h before         | `reminder_2h`  |
 
-> **The brief specified `>30h → 24h` and `<24h → 2h`, which leaves 24–30h
-> undefined.** Rules are expressed as ordered thresholds matched longest-first,
-> so every lead time hits exactly one — a gap in a table like this does not fail
-> loudly, it silently sends nothing. The 24–30h band resolves to the 2h rule on
-> purpose: a booking made 26 hours ahead would otherwise be reminded two hours
-> after it was made, which reads as a duplicate confirmation.
+Rules are expressed as ordered thresholds matched longest-first, so every lead
+time hits exactly one — a gap in a table like this does not fail loudly, it
+silently sends nothing.
+
+**Exactly 24 hours resolves to no reminder at all**, and that is what makes
+"more than 24 hours" true without a strict-inequality special case: the long
+rule matches on `>=`, its send time then lands precisely on the booking instant,
+and `planReminder` discards a send time that has already passed.
+
+> ⚠️ **The threshold was 30h and is now 24h, which reintroduces the case the 30h
+> floor existed to prevent.** A booking made 25 hours ahead now gets its "24
+> hours before" reminder **one hour after it was made**, reading as a duplicate
+> confirmation rather than a reminder. The old table sent the 24–30h band to the
+> 2h rule for exactly that reason.
+>
+> It moved because the approved templates are `reminder_24h` / `reminder_2h` and
+> the scheduling rule is now tied to their copy. If the duplicate-confirmation
+> effect shows up in practice, the fix is a **minimum gap between booking and
+> reminder** — not moving the boundary back, which would strand 24–30h bookings
+> on a template whose text no longer matches their timing. A test pins the
+> one-hour gap so it stays a known trade rather than a surprise.
 
 The tenant's own `reminder_hours_before` replaces the **long** rule's lead, so a
 shop that prefers 48 hours keeps 48 for advance bookings and still gets the
@@ -1472,12 +1540,29 @@ turning a booking page into a paywall at the worst possible moment.
 
 ```
                     starter (₪69)   pro (₪99)   trialing
-customBranding            ·             ✓           ✓
+customBranding            ✓             ✓           ✓
 smsReminders              ·             ✓           ✓
-whatsappReminders         ·             ✓           ✓
-advancedAnalytics         ·             ✓           ✓
+canSendWhatsapp           ·             ✓           ✓
+canAccessAnalytics        ·             ✓           ✓
+clientRetention           ·             ✓           ✓
+canAccessLibi             ·             ✓           ✓
 prioritySupport           ·             ✓           ✓
 ```
+
+**Starter owns the whole design surface**, and that is the line, not an
+oversight: branding, landing content and calendar management are ungated above
+Starter. A shop paying anything at all should not have a booking page in
+somebody else's colours — it is the one screen their clients actually see. What
+Pro sells is the set of things that cost *us* something per tenant.
+
+> **`canSendWhatsapp` was `whatsappReminders`, and the rename fixed a real
+> misstatement.** It is the flag `clientDelivery()` consults when choosing a
+> channel, so it has always gated the confirmation, the approval, the rejection
+> and the cancellation as much as the reminder — a name describing a quarter of
+> what a gate controls is one somebody eventually reasons from.
+> `advancedAnalytics` and `voiceAssistant` became `canAccessAnalytics` and
+> `canAccessLibi` in the same pass for consistency. **No tenant's access
+> changed**; the table above is what it already was.
 
 **A trial grants `TRIAL_PLAN` (Pro) regardless of the tier picked at signup.**
 The chosen tier is a statement of intent for *after* the trial. Before this

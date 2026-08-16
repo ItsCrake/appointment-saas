@@ -144,7 +144,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
            rendered — no paywall teaser on a toolbar icon, and no control that
            cannot work. */
         canUseVoice={
-          entitlementsFor(business).voiceAssistant && isLibiConfigured()
+          entitlementsFor(business).canAccessLibi && isLibiConfigured()
         }
         upcomingCount={stats.upcomingCount}
         nextUpcoming={

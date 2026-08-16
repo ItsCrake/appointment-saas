@@ -16,9 +16,9 @@ const state = (planType: unknown, subscriptionStatus: unknown) => ({
 const FEATURES = [
   "customBranding",
   "smsReminders",
-  "whatsappReminders",
-  "advancedAnalytics",
-  "voiceAssistant",
+  "canSendWhatsapp",
+  "canAccessAnalytics",
+  "canAccessLibi",
   "prioritySupport",
 ] as const satisfies readonly (keyof Entitlements)[];
 
@@ -66,23 +66,52 @@ describe("entitlementsFor", () => {
     }
   });
 
-  it("gives an actively-paying starter tenant their own branding", () => {
-    // Moved down from Pro deliberately: the cheapest paying tenant should not
-    // have a booking page in somebody else's colours. It is the one screen
-    // their clients actually see.
+  /**
+   * The Starter line, asserted from both sides in one place.
+   *
+   * Design is the half people get wrong, because branding used to be the
+   * headline *Pro* feature. It is not: a shop paying anything at all should
+   * look like themselves, and the tier line is drawn around what costs us
+   * something per tenant instead.
+   */
+  it("gives an actively-paying starter tenant the whole design surface", () => {
     const entitlements = entitlementsFor(state("starter", "active"));
     expect(entitlements.customBranding).toBe(true);
   });
 
-  it("keeps what Pro sells behind Pro", () => {
-    // The three things that cost us something per tenant: analytics, message
-    // delivery, and human setup time.
+  it("gates nothing about design, landing content or the calendar", () => {
+    // Stated as an assertion about the *shape* of the type rather than about a
+    // value: if somebody adds a `customLandingPage` or `fullCalendar` key and
+    // sets it false for Starter, this fails and they have to argue for it.
+    const starter = entitlementsFor(state("starter", "active"));
+    const design = (Object.keys(starter) as (keyof Entitlements)[]).filter(
+      (k) => /branding|design|landing|calendar|theme/i.test(k),
+    );
+
+    expect(design.length).toBeGreaterThan(0);
+    for (const key of design) expect(starter[key]).toBe(true);
+  });
+
+  it("blocks starter from WhatsApp, analytics and Libi", () => {
+    // The three the spec names, plus the two that share their reasoning. All
+    // of them cost us something per tenant, which is the whole basis of the
+    // tier line — `canSendWhatsapp` covers every client WhatsApp message, not
+    // only the reminder.
     const entitlements = entitlementsFor(state("starter", "active"));
 
-    expect(entitlements.advancedAnalytics).toBe(false);
+    expect(entitlements.canSendWhatsapp).toBe(false);
+    expect(entitlements.canAccessAnalytics).toBe(false);
+    expect(entitlements.canAccessLibi).toBe(false);
+
     expect(entitlements.smsReminders).toBe(false);
-    expect(entitlements.whatsappReminders).toBe(false);
     expect(entitlements.prioritySupport).toBe(false);
+  });
+
+  it("gives pro every feature there is", () => {
+    // Not a list to maintain: iterating the object means a new entitlement
+    // added without a Pro value fails here rather than shipping half-gated.
+    const entitlements = entitlementsFor(state("pro", "active"));
+    for (const value of Object.values(entitlements)) expect(value).toBe(true);
   });
 
   it("unlocks every paid feature for a trialing starter tenant", () => {

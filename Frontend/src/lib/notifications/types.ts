@@ -8,6 +8,25 @@ export type OutboundMessage = {
   /** Email only; ignored by SMS/WhatsApp. */
   subject?: string;
   body: string;
+  /**
+   * The Meta-approved WhatsApp template for this message, when one exists.
+   *
+   * Carried **beside** `body` rather than replacing it, because the two
+   * backends need different things: the official Business API (Twilio) must
+   * send the template or Meta drops the message, while Green API drives the
+   * shop's own account and sends the rendered Hebrew text. One field each
+   * means neither backend has to reconstruct the other's payload.
+   *
+   * Absent for email, SMS, and for WhatsApp kinds with no approved template.
+   */
+  template?: WhatsAppTemplateRef;
+};
+
+/** Positional parameters for Meta's `body` component — index 0 fills `{{1}}`. */
+export type WhatsAppTemplateRef = {
+  name: string;
+  language: string;
+  parameters: string[];
 };
 
 export type SendResult =

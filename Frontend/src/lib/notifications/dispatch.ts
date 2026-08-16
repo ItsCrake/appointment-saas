@@ -17,6 +17,7 @@ import { buildUrls } from "./enqueue";
 import { getProvider } from "./providers";
 import { renderNotification } from "./templates";
 import { isBillingKind, type NotificationContext } from "./types";
+import { leadHoursFor, whatsappTemplateFor } from "./whatsapp-templates";
 
 function appBaseUrl() {
   return (
@@ -177,11 +178,29 @@ export async function dispatchDueNotifications(
     const { subject, body } = renderNotification(context);
     const provider = getProvider(notification.channel);
 
+    /**
+     * Resolved here, at dispatch, rather than stored on the row.
+     *
+     * The lead time is what picks between `reminder_24h` and `reminder_2h`, and
+     * it is derivable from two columns the row already has — so deriving it
+     * keeps a rescheduled reminder correctly labelled without a migration, and
+     * without a second source of truth to drift.
+     */
+    const template =
+      notification.channel === "whatsapp"
+        ? whatsappTemplateFor(context, {
+            leadHours: appointment
+              ? leadHoursFor(appointment.startsAt, notification.scheduledFor)
+              : undefined,
+          })
+        : null;
+
     const result = await provider.send({
       channel: notification.channel,
       recipient: notification.recipient,
       subject,
       body,
+      ...(template ? { template } : {}),
     });
 
     if (result.ok) {

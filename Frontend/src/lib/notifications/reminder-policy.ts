@@ -11,19 +11,26 @@ const HOUR_MS = 3_600_000;
  *
  * So the lead time decides the reminder:
  *
- * | Booked this far ahead | Reminder goes out |
- * | --------------------- | ----------------- |
- * | 30h or more           | 24h before        |
- * | less than 30h         | 2h before         |
+ * | Booked this far ahead | Reminder goes out | Meta template  |
+ * | --------------------- | ----------------- | -------------- |
+ * | more than 24h         | 24h before        | `reminder_24h` |
+ * | 24h or less           | 2h before         | `reminder_2h`  |
  *
- * **The brief specified `>30h → 24h` and `<24h → 2h`, which leaves 24–30h
- * undefined.** Rules are therefore expressed as ordered thresholds and matched
- * longest-first, so every possible lead time hits exactly one — a gap in a
- * table like this does not fail loudly, it silently sends nothing.
+ * Rules are expressed as ordered thresholds and matched longest-first, so every
+ * possible lead time hits exactly one — a gap in a table like this does not
+ * fail loudly, it silently sends nothing.
  *
- * The 24–30h band resolves to the 2h rule on purpose. A booking made 26 hours
- * ahead would otherwise be reminded two hours after it was made, which reads as
- * a duplicate confirmation rather than a reminder.
+ * > **The threshold was 30h and is now 24h, and that reintroduces a case the
+ * > 30h floor existed to prevent.** A booking made 25 hours ahead now gets its
+ * > "24 hours before" reminder **one hour after it was made**, which reads as a
+ * > duplicate confirmation rather than a reminder. The old table resolved the
+ * > 24–30h band to the 2h rule for exactly that reason.
+ * >
+ * > It is 24h because the approved Meta templates are `reminder_24h` and
+ * > `reminder_2h` and the specification ties the boundary to them. If the
+ * > duplicate-confirmation effect shows up in practice, the fix is a minimum
+ * > gap between booking and reminder — not moving the boundary back, which
+ * > would leave 24–30h bookings on a template whose copy no longer matches.
  * ---------------------------------------------------------------------------
  */
 export type ReminderRule = {
@@ -38,7 +45,11 @@ export type ReminderRule = {
  * bookings fall through the table and get nothing.
  */
 export const DEFAULT_REMINDER_RULES: readonly ReminderRule[] = [
-  { minLeadHours: 30, hoursBefore: 24 },
+  // `minLeadHours: 24` with a `>=` match means a booking made exactly 24 hours
+  // ahead takes the long rule — and `planReminder` then discards it, because
+  // the send time lands precisely on the booking instant. The spec's "more
+  // than 24 hours" therefore holds without a strict-inequality special case.
+  { minLeadHours: 24, hoursBefore: 24 },
   { minLeadHours: 0, hoursBefore: 2 },
 ];
 

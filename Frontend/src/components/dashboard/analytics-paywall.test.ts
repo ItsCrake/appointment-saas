@@ -49,7 +49,7 @@ describe("analytics paywall", () => {
 
 describe("the analytics page", () => {
   it("checks the entitlement before it runs any query", () => {
-    const gate = page.indexOf("advancedAnalytics");
+    const gate = page.indexOf("canAccessAnalytics");
     const firstQuery = page.indexOf("await Promise.all");
 
     expect(gate).toBeGreaterThan(-1);
@@ -62,7 +62,7 @@ describe("the analytics page", () => {
   it("returns the paywall rather than falling through to the real panels", () => {
     expect(page).toContain("<AnalyticsPaywall />");
     expect(page).toMatch(
-      /if \(!entitlementsFor\(business\)\.advancedAnalytics\)/,
+      /if \(!entitlementsFor\(business\)\.canAccessAnalytics\)/,
     );
   });
 });

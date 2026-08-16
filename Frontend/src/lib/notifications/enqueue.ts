@@ -59,7 +59,7 @@ function clientDelivery(
      * logging a confirmation nobody receives.
      */
     if (channel === "whatsapp") {
-      if (!entitlements.whatsappReminders) continue;
+      if (!entitlements.canSendWhatsapp) continue;
       if (!isChannelLive("whatsapp")) continue;
       const phone = appointment.clientPhone?.trim();
       if (phone) return { channel: "whatsapp", recipient: phone };

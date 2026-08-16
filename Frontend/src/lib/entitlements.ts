@@ -16,14 +16,30 @@ import type { PlanType, SubscriptionStatus } from "./plans";
  * possible moment.
  */
 export type Entitlements = {
-  /** Accent colour, hero media, gallery and reviews on the public page. */
+  /**
+   * The tenant's own look: accent colour, hero image or video, gallery,
+   * reviews — everything that makes `/[slug]` theirs rather than ours.
+   *
+   * **Included in Starter, deliberately.** A shop paying anything at all
+   * should not have a booking page in somebody else's colours; that page is
+   * the one screen their clients actually see. Nothing about design,
+   * landing-page content or calendar management is gated above Starter.
+   */
   customBranding: boolean;
-  /** Client reminders over SMS rather than email. */
+  /** Client messages over SMS rather than email. */
   smsReminders: boolean;
-  /** Client reminders over WhatsApp. */
-  whatsappReminders: boolean;
+  /**
+   * Client messages over WhatsApp — **all** of them, not only reminders.
+   *
+   * Renamed from `whatsappReminders`, which understated it: this is the flag
+   * `clientDelivery()` consults when choosing a channel, so it gates the
+   * confirmation, the approval, the rejection and the cancellation as much as
+   * the reminder. A name that describes a quarter of what a gate controls is a
+   * name somebody eventually reasons from.
+   */
+  canSendWhatsapp: boolean;
   /** Revenue and new-client breakdowns beyond the basic counts. */
-  advancedAnalytics: boolean;
+  canAccessAnalytics: boolean;
   /**
    * The automated win-back message to lapsed clients (0021).
    *
@@ -45,17 +61,17 @@ export type Entitlements = {
    * Entitlement is necessary and not sufficient: the assistant also needs a
    * configured API key, and with none the control is not rendered at all.
    */
-  voiceAssistant: boolean;
+  canAccessLibi: boolean;
   prioritySupport: boolean;
 };
 
 const NOTHING: Entitlements = {
   customBranding: false,
   smsReminders: false,
-  whatsappReminders: false,
-  advancedAnalytics: false,
+  canSendWhatsapp: false,
+  canAccessAnalytics: false,
   clientRetention: false,
-  voiceAssistant: false,
+  canAccessLibi: false,
   prioritySupport: false,
 };
 
@@ -88,19 +104,19 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
   starter: {
     customBranding: true,
     smsReminders: false,
-    whatsappReminders: false,
-    advancedAnalytics: false,
+    canSendWhatsapp: false,
+    canAccessAnalytics: false,
     clientRetention: false,
-    voiceAssistant: false,
+    canAccessLibi: false,
     prioritySupport: false,
   },
   pro: {
     customBranding: true,
     smsReminders: true,
-    whatsappReminders: true,
-    advancedAnalytics: true,
+    canSendWhatsapp: true,
+    canAccessAnalytics: true,
     clientRetention: true,
-    voiceAssistant: true,
+    canAccessLibi: true,
     prioritySupport: true,
   },
 };

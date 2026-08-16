@@ -136,7 +136,7 @@ describe("entitlements after a plan change", () => {
 
     expect(
       entitlementsFor((await getBusinessById(db, business.id))!)
-        .advancedAnalytics,
+        .canAccessAnalytics,
     ).toBe(false);
 
     await setTenantPlan(db, business.id, "pro");
@@ -145,7 +145,7 @@ describe("entitlements after a plan change", () => {
     // the next request after the write already sees the new tier.
     expect(
       entitlementsFor((await getBusinessById(db, business.id))!)
-        .advancedAnalytics,
+        .canAccessAnalytics,
     ).toBe(true);
   });
 
@@ -179,7 +179,7 @@ describe("entitlements after a plan change", () => {
     const entitlements = entitlementsFor(
       (await getBusinessById(db, business.id))!,
     );
-    expect(entitlements.advancedAnalytics).toBe(false);
-    expect(entitlements.voiceAssistant).toBe(false);
+    expect(entitlements.canAccessAnalytics).toBe(false);
+    expect(entitlements.canAccessLibi).toBe(false);
   });
 });

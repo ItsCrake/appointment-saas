@@ -36,19 +36,44 @@ describe("planReminder", () => {
     expect(result?.sendAt.toISOString()).toBe("2026-08-10T10:00:00.000Z");
   });
 
-  it("covers the 24–30h band the brief left undefined", () => {
-    // `>30h → 24h` and `<24h → 2h` say nothing about 26 hours. A gap in a table
-    // like this does not fail loudly — it silently sends nothing.
-    for (const lead of [24, 26, 29.9]) {
+  /**
+   * The boundary moved from 30h to 24h when the Meta templates landed, because
+   * the approved copy is `reminder_24h` / `reminder_2h` and the scheduling rule
+   * is now tied to those names.
+   *
+   * The 24–30h band therefore changed sides: it used to take the 2h rule, and
+   * now takes the 24h one. That is the trade the move makes — see the note in
+   * `reminder-policy.ts` and the gap assertion below.
+   */
+  it("gives the 24–30h band the long rule now, not the short one", () => {
+    for (const lead of [25, 26, 29.9]) {
       const result = plan(lead);
       expect(result).not.toBeNull();
-      expect(result?.hoursBefore).toBe(2);
+      expect(result?.hoursBefore).toBe(24);
     }
   });
 
   it("switches rules exactly at the threshold", () => {
-    expect(plan(30)?.hoursBefore).toBe(24);
-    expect(plan(29.99)?.hoursBefore).toBe(2);
+    expect(plan(24.01)?.hoursBefore).toBe(24);
+    expect(plan(23.99)?.hoursBefore).toBe(2);
+  });
+
+  it("sends nothing at exactly 24h, where the reminder would land on the booking", () => {
+    // The long rule matches (`>=`), then its send time lands precisely on the
+    // booking instant and is discarded. This is what makes the specification's
+    // "more than 24 hours" hold without a strict-inequality special case.
+    expect(plan(24)).toBeNull();
+  });
+
+  /**
+   * The cost of the move, pinned so it stays a known trade. Under the old 30h
+   * floor this booking got a 2h reminder; it now gets its "24 hours before"
+   * reminder one hour after it was made.
+   */
+  it("reminds a 25h-ahead booking an hour after it was made", () => {
+    const result = plan(25);
+    const gapMs = result!.sendAt.getTime() - bookedAhead(25).getTime();
+    expect(gapMs / 3_600_000).toBe(1);
   });
 
   it("sends nothing when reminders are switched off", () => {
@@ -122,7 +147,7 @@ describe("rulesForBusiness", () => {
   it("replaces the long rule's lead and leaves the fallback alone", () => {
     const rules = rulesForBusiness(48);
 
-    expect(rules[0]).toEqual({ minLeadHours: 30, hoursBefore: 48 });
+    expect(rules[0]).toEqual({ minLeadHours: 24, hoursBefore: 48 });
     expect(rules[1]).toEqual({ minLeadHours: 0, hoursBefore: 2 });
   });
 

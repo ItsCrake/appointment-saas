@@ -101,8 +101,58 @@ function twilioProvider(
       const params = new URLSearchParams({
         From: `${prefix}${from}`,
         To: `${prefix}${toE164(message.recipient)}`,
-        Body: message.body,
       });
+
+      /**
+       * WhatsApp over the official Business API must send an approved template
+       * for a business-initiated message, so this path refuses rather than
+       * sending free text Meta will drop after accepting it — a silent loss is
+       * the one outcome the outbox exists to prevent.
+       *
+       * Twilio addresses an approved template by **Content SID**, not by name,
+       * so the mapping from `reminder_24h` to `HX…` lives in the environment:
+       * the SIDs are issued per Twilio account and a name is not addressable.
+       * A configured template with no SID is a deployment mistake, and it is
+       * reported as one.
+       */
+      if (channel === "whatsapp") {
+        if (!message.template) {
+          return {
+            ok: false,
+            error:
+              "whatsapp: no approved Meta template for this message kind — refusing to send free text",
+            // A missing template is a configuration fact, not a blip. Retrying
+            // would burn the outbox's five attempts on the same refusal.
+            retryable: false,
+          };
+        }
+
+        const contentSid = templateContentSid(message.template.name);
+        if (!contentSid) {
+          return {
+            ok: false,
+            error: `whatsapp: no Content SID configured for template "${message.template.name}"`,
+            retryable: false,
+          };
+        }
+
+        params.set("ContentSid", contentSid);
+        // Twilio takes the positional body parameters as a JSON object keyed
+        // "1", "2", … which is Meta's own {{1}} numbering, one-based.
+        params.set(
+          "ContentVariables",
+          JSON.stringify(
+            Object.fromEntries(
+              message.template.parameters.map((value, index) => [
+                String(index + 1),
+                value,
+              ]),
+            ),
+          ),
+        );
+      } else {
+        params.set("Body", message.body);
+      }
 
       try {
         const response = await fetch(
@@ -137,6 +187,20 @@ function twilioProvider(
       }
     },
   };
+}
+
+/**
+ * The Twilio Content SID for an approved template, from the environment.
+ *
+ * A SID is issued per Twilio account when a template is approved, so it cannot
+ * be a constant in this repository — two deployments of the same code have
+ * different SIDs for the same Meta template. The variable name is derived from
+ * the template name so adding a fourth template needs no code here, only
+ * `TWILIO_TEMPLATE_<NAME>` in the environment.
+ */
+export function templateContentSid(templateName: string): string | null {
+  const key = `TWILIO_TEMPLATE_${templateName.toUpperCase()}`;
+  return process.env[key]?.trim() || null;
 }
 
 /** Israeli local numbers (05XXXXXXXX) to E.164, which Twilio requires. */

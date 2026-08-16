@@ -58,7 +58,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
    * into a payload behind a CSS blur, which is the way this feature is usually
    * built wrong.
    */
-  if (!entitlementsFor(business).advancedAnalytics) {
+  if (!entitlementsFor(business).canAccessAnalytics) {
     return (
       <div className="pb-4">
         <PageHeader

@@ -1076,6 +1076,47 @@ manual path.
       entitlements being identical before and after.
 - [x] `npm run verify` green at **849 across 63 files**.
 
+### Entitlement names, and the three Meta templates ✅
+
+- [x] **Starter owns the whole design surface** — branding, landing content and
+      calendar management are ungated above Starter, and a test now asserts it
+      from the shape of the type rather than one key, so a future
+      `customLandingPage: false` for Starter fails rather than ships.
+- [x] **Starter blocked from WhatsApp, analytics and Libi**, which is what it
+      already was. **No tenant's access changed in this pass.**
+- [x] `whatsappReminders` → `canSendWhatsapp`, `advancedAnalytics` →
+      `canAccessAnalytics`, `voiceAssistant` → `canAccessLibi`. The first is a
+      real correction: it is the flag `clientDelivery()` reads, so it has always
+      gated the confirmation, approval, rejection and cancellation too.
+- [x] **The three approved templates** (`appointment_confirmation`,
+      `reminder_24h`, `reminder_2h`) in `whatsapp-templates.ts`, with five
+      positional parameters shared across all three — Meta freezes `{{n}}`
+      numbering at approval, so the order is pinned by test.
+- [x] **A blank field becomes `—`, never `""`** — the Cloud API rejects an empty
+      body parameter, so a shop with no address would have every templated
+      message fail rather than arrive without a location.
+- [x] **Which reminder template is derived, not stored.** `leadHoursFor` recomputes
+      it from `starts_at` and `scheduled_for`, so no migration and no second
+      source of truth.
+- [x] **No template is a real answer.** Kinds Meta never approved, and any lead
+      that is not 24h or 2h, return null — deliberately not a nearest match, since
+      rounding 36h onto `reminder_24h` would say *tomorrow* a day and a half early.
+      Twilio then refuses rather than posting free text Meta drops silently.
+- [x] 21 new tests; `npm run verify` green at **870 across 64 files**.
+
+> ⚠️ **The reminder boundary moved from 30h to 24h, reintroducing what the 30h
+> floor prevented.** A booking made 25 hours ahead is now reminded **one hour
+> after it was made**. It moved because the approved copy is `reminder_24h` /
+> `reminder_2h` and the spec ties the boundary to it. The fix, if it bites, is a
+> minimum gap between booking and reminder — not moving the boundary back, which
+> would strand 24–30h bookings on a template whose text no longer matches. A test
+> pins the one-hour gap so it stays a known trade.
+
+> **Unproven on a wire.** No template has been sent. Twilio addresses them by
+> Content SID (`TWILIO_TEMPLATE_*`), and this environment has no Twilio account
+> — the mapping, the parameter order and the refusal path are tested; the
+> Meta round trip is not.
+
 > **The brief asked for `basic`; the column stores `starter`.** "Basic" is the
 > display name — `0012` pinned the CHECK to `free|starter|pro`. Implemented as
 > `starter` and labelled בסיסי.
@@ -1110,7 +1151,7 @@ _Last updated after `0022_client_profiles`. This section is the handover between
 working sessions — if it disagrees with the code, the code is right and this is
 stale._
 
-**Green:** `npm run verify` at **849 tests across 63 files**; Playwright at
+**Green:** `npm run verify` at **870 tests across 64 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`.

@@ -92,7 +92,7 @@ export async function parseVoiceAppointment(
    * proves nothing about who can call this, and this one costs money per call.
    * Same reasoning as the analytics gate and every `/master` action.
    */
-  if (!entitlementsFor(business).voiceAssistant) {
+  if (!entitlementsFor(business).canAccessLibi) {
     return { ok: false, error: "העוזרת הקולית זמינה במסלול המקצועי." };
   }
 
