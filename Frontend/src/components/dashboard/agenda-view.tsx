@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { AgendaList, type AgendaAppointment } from "./agenda-list";
+import { LibiButton } from "./libi-button";
 import { ManualBookingDialog } from "./manual-booking-dialog";
 import { dayOfMonth, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,7 @@ export function AgendaView({
   appointments,
   upcomingCount,
   nextUpcoming,
+  canUseVoice,
 }: {
   today: string;
   selectedDate: string;
@@ -47,6 +49,12 @@ export function AgendaView({
   /** Everything still ahead, across all days. */
   upcomingCount: number;
   nextUpcoming: NextUpcoming | null;
+  /**
+   * Resolved on the server from the tenant's entitlements and the presence of
+   * an API key. Passed in rather than checked here because this is a client
+   * component — an entitlement decided in the browser is not a decision.
+   */
+  canUseVoice: boolean;
 }) {
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const router = useRouter();
@@ -111,16 +119,26 @@ export function AgendaView({
           </Link>
         ) : null}
 
-        <button
-          type="button"
-          onClick={() =>
-            setDialogDate(view === "week" ? days[0] : selectedDate)
-          }
-          className="ms-auto inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-800"
-        >
-          <Plus className="size-4" aria-hidden />
-          תור ידני
-        </button>
+        <div className="ms-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setDialogDate(view === "week" ? days[0] : selectedDate)
+            }
+            className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-800"
+          >
+            <Plus className="size-4" aria-hidden />
+            תור ידני
+          </button>
+
+          {/* Libi sits beside manual booking because it is the same job done a
+              faster way, not a different feature. Rendered only for a tenant
+              entitled to it *and* on a deploy with a key — the component
+              removes itself when the browser cannot do speech recognition. */}
+          {canUseVoice ? (
+            <LibiButton services={services} onBooked={() => router.refresh()} />
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-6">

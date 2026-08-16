@@ -289,7 +289,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 819 unit tests, build
+npm run verify     # env, lint, types, 839 unit tests, build
 npm run test:e2e   # 11 tests / 3 specs, separate — needs a running server
 ```
 
@@ -382,6 +382,13 @@ full week calendar, an installable app with push, and a WhatsApp backend.
   the build when a `sql<…>` selection annotated `Date` skips `toDate`, or one
   annotated `number` is not cast to a type postgres.js decodes as a number —
   `count(*)` is `int8` and comes back as a string.
+- **"ליבי" — booking by Hebrew voice command.** A microphone beside "תור ידני"
+  on `/dashboard`: the owner speaks, Libi extracts the fields, asks in Hebrew
+  for whatever is missing, and books through the *existing* manual path. The
+  browser does the speech-to-text (`he-IL`, no audio leaves the device); Claude
+  turns the transcript into structured fields. Pro-gated, and hidden entirely
+  without an `ANTHROPIC_API_KEY`. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#ליבי--booking-by-hebrew-voice-command).
 - **The booking page got an elevation system**: four shadow tokens (one of them
   resolving the tenant's own accent), a real typographic scale, `zinc-400` text
   lifted off a 2.6:1 contrast failure, and one rule learned the hard way —

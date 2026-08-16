@@ -26,6 +26,7 @@
     "push:keys": "tsx src/db/generate-vapid-keys.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@hookform/resolvers": "^5.5.7",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",

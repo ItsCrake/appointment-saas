@@ -18,6 +18,7 @@ const FEATURES = [
   "smsReminders",
   "whatsappReminders",
   "advancedAnalytics",
+  "voiceAssistant",
   "prioritySupport",
 ] as const satisfies readonly (keyof Entitlements)[];
 

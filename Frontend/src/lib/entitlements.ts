@@ -33,6 +33,19 @@ export type Entitlements = {
    * must also switch it on, and each client must have consented.
    */
   clientRetention: boolean;
+  /**
+   * "ליבי" — booking by Hebrew voice command from the dashboard.
+   *
+   * Pro for the same reason `clientRetention` is: it costs per tenant on every
+   * use. Each command is a model call, and unlike every other feature here the
+   * cost scales with how much a tenant *likes* it. That makes it the fourth
+   * member of the set Pro already sells — the things that cost us something per
+   * tenant rather than the things that merely took work to build once.
+   *
+   * Entitlement is necessary and not sufficient: the assistant also needs a
+   * configured API key, and with none the control is not rendered at all.
+   */
+  voiceAssistant: boolean;
   prioritySupport: boolean;
 };
 
@@ -42,6 +55,7 @@ const NOTHING: Entitlements = {
   whatsappReminders: false,
   advancedAnalytics: false,
   clientRetention: false,
+  voiceAssistant: false,
   prioritySupport: false,
 };
 
@@ -54,8 +68,10 @@ const NOTHING: Entitlements = {
  * paying anything at all should look like themselves; what Pro sells is the
  * work the *owner* does, not how the shop appears.
  *
- * Pro is therefore three things that all cost us something per tenant:
- * analytics, message delivery over SMS/WhatsApp, and human setup time.
+ * Pro is therefore four things that all cost us something per tenant:
+ * analytics, message delivery over SMS/WhatsApp, human setup time, and — since
+ * Libi — model calls. The last one is the first whose cost scales with *use*
+ * rather than with headcount, which is worth watching when 8e prices this.
  *
  * Staff management and the full calendar are in Basic's copy but appear
  * nowhere here on purpose. They are **ungated** — no entitlement key, no
@@ -75,6 +91,7 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
     whatsappReminders: false,
     advancedAnalytics: false,
     clientRetention: false,
+    voiceAssistant: false,
     prioritySupport: false,
   },
   pro: {
@@ -83,6 +100,7 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
     whatsappReminders: true,
     advancedAnalytics: true,
     clientRetention: true,
+    voiceAssistant: true,
     prioritySupport: true,
   },
 };

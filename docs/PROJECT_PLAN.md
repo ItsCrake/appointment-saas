@@ -1004,6 +1004,56 @@ Playwright suite stay the check on it.
 > and token resolution, plus the full Playwright run for the interactive flow.
 > The rendered composition still wants a human eye.
 
+### "ליבי" — Hebrew voice booking ✅
+
+A microphone beside "תור ידני" on `/dashboard`. The owner speaks; Libi extracts
+the fields, asks in Hebrew for what is missing, and books through the existing
+manual path.
+
+- [x] **The browser does the audio, Claude does the meaning.**
+      `webkitSpeechRecognition` at `he-IL` — no recording leaves the device, no
+      per-minute cost, and only a short string reaches the server. The price is
+      browser support, so the control removes itself on Firefox rather than
+      failing on click.
+- [x] **`parseVoiceAppointment` writes nothing.** It returns a draft;
+      `createManualBookingAction` still does the booking, so voice adds no
+      second path into `appointments` and inherits the exclusion constraint,
+      staff resolution and notification dispatch unchanged.
+- [x] **Multi-turn, because `client_phone` is NOT NULL** and is the identity the
+      clients list, `client_profiles` and the win-back campaign are all keyed
+      on. A placeholder number would merge distinct people; Libi asks instead.
+      A null never overwrites a gathered value, or the conversation could never
+      finish.
+- [x] **She never reopens the microphone herself.** Each turn needs a press —
+      an assistant that reopens the mic on its own is listening to a room the
+      owner did not agree to have listened to.
+- [x] **The model is not trusted with what it cannot be trusted with.**
+      `serviceId` is re-matched against the tenant's catalogue, `missingFields`
+      is recomputed server-side, and `startLocal` stays a **wall clock** for
+      `fromZonedTime` — a model doing timezone arithmetic is wrong twice a year,
+      silently.
+- [x] `claude-opus-5` at **`low` effort**, adaptive thinking left on. The model
+      is not downgraded for cost — a mis-parse books the wrong person — and
+      effort is where the latency/cost lever belongs. Structured outputs over
+      the same Zod schema the server validates with, so grammar, validator and
+      type cannot drift.
+- [x] **Pro-gated** (`voiceAssistant`), re-checked inside the action rather than
+      only at the button, and gated again on `ANTHROPIC_API_KEY`. No console
+      fallback: a fake parse would invent an appointment or refuse everything.
+- [x] `libi-isolation.test.ts` keeps the key out of the browser, mirroring
+      `admin-isolation.test.ts`. Verified by adding the forbidden import and
+      confirming both assertions named the file.
+- [x] 20 new unit tests; `npm run verify` green at **839 across 62 files**.
+
+> **Unproven on a wire.** No real utterance has been parsed — this environment
+> has no `ANTHROPIC_API_KEY` and no microphone. The logic, the isolation and the
+> gates are tested; the model call and Hebrew STT accuracy are not.
+
+> **`/legal/privacy` does not yet name a model provider as a processor.** A
+> transcript can carry a client's name and phone. No audio is sent and nothing
+> extra is stored, but the privacy text should say so before this runs against
+> real client data.
+
 #### 8d — The payment provider *(needs the provider decision)*
 
 - [ ] Concrete `BillingProvider` (Stripe, or Cardcom/Meshulam/Grow for native
@@ -1034,7 +1084,7 @@ _Last updated after `0022_client_profiles`. This section is the handover between
 working sessions — if it disagrees with the code, the code is right and this is
 stale._
 
-**Green:** `npm run verify` at **819 tests across 60 files**; Playwright at
+**Green:** `npm run verify` at **839 tests across 62 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`.

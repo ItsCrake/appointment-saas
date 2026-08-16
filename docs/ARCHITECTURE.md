@@ -16,7 +16,7 @@ Companion docs: [PROJECT_PLAN.md](PROJECT_PLAN.md) (roadmap), [DEPLOYMENT.md](DE
 | Auth       | Supabase Auth (`@supabase/ssr`), email + password                  |
 | Validation | Zod v4 (shared client/server), react-hook-form on the public form  |
 | Dates      | date-fns + date-fns-tz                                             |
-| Tests      | Vitest + PGlite (WASM Postgres) — 819 tests; Playwright — 11 specs, all green |
+| Tests      | Vitest + PGlite (WASM Postgres) — 839 tests; Playwright — 11 specs, all green |
 | Hosting    | Vercel. **Root Directory must be `Frontend`.**                     |
 
 Everything lives in `Frontend/`. There is no separate backend tier — Server
@@ -477,6 +477,126 @@ inside the thing it is trying to escape.
 native `title` so the same summary survives without a pointer. The card itself
 is `pointer-events-none` except for the call and WhatsApp links — otherwise
 moving the cursor toward it would leave the trigger and close it before arriving.
+
+## "ליבי" — booking by Hebrew voice command
+
+A microphone beside "תור ידני" on `/dashboard`. The owner speaks —
+*"היי ליבי, תוסיפי תור מחר בעשר לדני לתספורת"* — and Libi extracts the fields,
+asks in Hebrew for whatever is missing, and books through the existing manual
+path.
+
+**Speech recognition is the browser's, the parsing is Claude's, and the split is
+the point.** `webkitSpeechRecognition` locked to `he-IL` does the audio: no
+recording leaves the device for a transcription service, there is no per-minute
+cost, and the only thing that reaches the server is a short string. What crosses
+the wire to Anthropic is one sentence plus the tenant's service catalogue. The
+cost of that choice is browser support — Chromium and Safari have the API,
+Firefox does not — so the control removes itself rather than failing on click.
+
+### It writes nothing
+
+`parseVoiceAppointment` resolves the tenant, reads the catalogue and returns a
+**draft**. Creating the appointment is `createManualBookingAction`, unchanged.
+That keeps voice from becoming a second path into `appointments`: the exclusion
+constraint, `getDefaultStaff`, the notification enqueue and the inline dispatch
+all stay in exactly one place, and a bug fixed in manual booking is fixed here
+for free.
+
+It still calls `requireWritable()` rather than `requireBusiness()`. It writes
+nothing, but it spends money on the tenant's behalf and exists only to produce a
+write, so a frozen tenant has no business reaching it.
+
+### The conversation is multi-turn because the phone number forces it
+
+`appointments.client_phone` is NOT NULL, and it is the identity everything else
+is keyed on — the clients list, `client_profiles`, the win-back campaign,
+`/[slug]/my-appointments`. A spoken booking almost never contains one.
+
+Three options were considered and two rejected. A **placeholder number** would
+merge distinct people in the clients directory and silently corrupt the win-back
+pool — the exact duplication `0022` exists to prevent. **Dropping NOT NULL**
+would push the same problem into every consumer. So Libi asks, in Hebrew, for
+the first missing field and waits to be pressed again.
+
+The draft lives in the client component and travels to the server on each turn;
+**the server holds no conversation state**. Two rules make that work:
+
+- **A null never overwrites a value.** The second utterance ("לתספורת")
+  mentions nothing else, so every other field comes back null — treating that as
+  a retraction would make the flow unable to ever finish. The model can add or
+  replace, never clear.
+- **Libi never reopens the microphone by herself.** She asks and stops; the next
+  turn needs a press. An assistant that reopens the mic on its own is listening
+  to a room the owner did not agree to have listened to, and in a shop that room
+  has clients in it.
+
+### What the model is not trusted with
+
+| Returned | What the server does with it |
+| -------- | ---------------------------- |
+| `serviceId` | Re-matched against the tenant's own catalogue; anything else becomes null and a question |
+| `missingFields` | Ignored; recomputed from the fields actually present |
+| `startLocal` | Kept as a **wall clock**, resolved by `fromZonedTime` like every other input |
+| `feedbackMessage` | Used, unless it claims a completeness the recomputation disagrees with |
+
+The timezone rule is the one worth dwelling on. The schema rejects an ISO
+instant with an offset, so the model reports what the owner *said* and the
+server decides what instant that is — asking a language model to do timezone
+arithmetic across a DST boundary is asking it to be wrong twice a year in a way
+nobody notices until somebody misses an appointment.
+
+Re-matching `serviceId` closes a subtler hole than hallucination:
+`createManualBookingAction` resolves the service *through the business*, so a
+foreign uuid would have been refused there anyway — late, as an error. Here it
+becomes a question Libi can ask.
+
+### Model, effort, and where the cost lever is
+
+`claude-opus-5`, at **`low` effort**. The model is not downgraded for cost: a
+mis-parsed utterance books the wrong person at the wrong time and the owner
+finds out when somebody turns up. Effort is the right lever instead — the task
+is single-turn extraction against a supplied list, and the call sits between an
+owner speaking and a spinner stopping, so latency is the felt cost.
+
+Thinking is left **on** (adaptive is Opus 5's default). Disabling it is the
+documented cause of two failure modes — tool calls emitted as plain text, and
+`<thinking>` tags leaking into output — and buys nothing that low effort does
+not already buy. `max_tokens` is generous for the same reason: on Opus 5 it caps
+thinking *plus* response, and a tight cap truncates mid-JSON, which structured
+outputs surface as a parse failure that names nothing useful.
+
+Output shape is a **structured output** (`zodOutputFormat` over the same Zod
+schema the server validates with), so the model's grammar, the server's
+validator and the client's type are one object rather than three that drift.
+
+### Pro-gated, and gated again on a key
+
+`voiceAssistant` joins `clientRetention` as a Pro entitlement, and for the same
+reason: it costs per tenant on every use. It is the **fourth** thing Pro sells
+and the first whose cost scales with how much a tenant *likes* it — worth
+remembering when 8e prices the cost model.
+
+Both halves are resolved on the server. The entitlement is re-checked **inside
+the action**, not only where the button renders: a Server Action is a plain POST
+endpoint, a hidden microphone proves nothing about who can call it, and this one
+spends money. With no `ANTHROPIC_API_KEY` the control is not rendered at all —
+no console fallback, because a fake parse would either invent an appointment or
+refuse every sentence.
+
+> **The key is kept out of the browser the way the service-role key is.**
+> `lib/voice/libi.ts` carries a `typeof window` throw and
+> `libi-isolation.test.ts` fails the build if a `"use client"` module imports
+> it — the same pair as `lib/supabase/admin.ts`. `libi-schema.ts` is the pure
+> half and *is* imported by the client component, so the test also asserts that
+> file never touches the SDK or the key. Verified by adding the forbidden import
+> and confirming both assertions named the file.
+
+> **Privacy, stated rather than assumed.** A transcript can contain a client's
+> name and phone number, and it is sent to Anthropic to be parsed. No audio is
+> sent, nothing is stored by this app beyond the appointment it produces, and
+> `reportError` still redacts identifiers from logs. `/legal/privacy` does not
+> yet mention a model provider as a processor — it should before this is used
+> with real client data.
 
 ## Analytics (`/dashboard/analytics`)
 

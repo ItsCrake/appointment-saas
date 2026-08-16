@@ -15,8 +15,10 @@ import {
   listServices,
 } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
+import { entitlementsFor } from "@/lib/entitlements";
 import { dateRange, todayInTimezone } from "@/lib/format";
 import { getStatsWindows, toPercent } from "@/lib/stats";
+import { isLibiConfigured } from "@/lib/voice/libi";
 
 export const metadata: Metadata = { title: "היומן" };
 
@@ -137,6 +139,13 @@ export default async function AgendaPage({ searchParams }: PageProps) {
       />
 
       <AgendaView
+        /* Both halves, resolved server-side: the tenant must be entitled *and*
+           the deploy must have a key. Either missing and the microphone is not
+           rendered — no paywall teaser on a toolbar icon, and no control that
+           cannot work. */
+        canUseVoice={
+          entitlementsFor(business).voiceAssistant && isLibiConfigured()
+        }
         upcomingCount={stats.upcomingCount}
         nextUpcoming={
           nextUpcoming

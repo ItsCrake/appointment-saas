@@ -156,6 +156,25 @@ export const ENV_VARS: EnvVar[] = [
         : "must contain an email address",
   },
   /*
+   * "ליבי", the Hebrew voice assistant. `optional` for the same reason web push
+   * is: the failure is visible and self-limiting. With no key the microphone is
+   * not rendered at all, so an owner is never offered a control that cannot
+   * work — and there is deliberately no console fallback, because a fake parse
+   * would either invent an appointment or refuse every sentence.
+   */
+  {
+    name: "ANTHROPIC_API_KEY",
+    requirement: "optional",
+    group: "Voice assistant",
+    description:
+      "Claude API key for Libi, the Hebrew voice booking assistant. Without it the microphone is hidden and manual booking is unaffected.",
+    howTo: "platform.claude.com → API Keys. Pro-tier tenants only.",
+    validate: (value) =>
+      value.startsWith("sk-ant-")
+        ? null
+        : 'does not look like an Anthropic key — they start with "sk-ant-"',
+  },
+  /*
    * Web push. `optional` rather than `production` because the failure is
    * visible and self-limiting: with no keys the settings card says push is not
    * configured, and every other alert channel still fires. Nothing is silently
