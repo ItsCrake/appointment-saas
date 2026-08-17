@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **880 tests across 64 files**; Playwright at
+**Green:** `npm run verify` at **903 tests across 64 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1222,14 +1222,29 @@ outranks a live subscription *and* a running trial. Never read `plan_type`
 without the status and the freeze flag — `entitlementsFor` takes the row for
 exactly that reason.
 
-**2. WhatsApp sends Meta templates on the official path only.** Three approved:
-`appointment_confirmation`, `reminder_24h`, `reminder_2h`, mapped in
-`lib/notifications/whatsapp-templates.ts` with five shared positional
-parameters. Green API keeps sending free text — it drives the shop's own
-account and has no template concept. Twilio **refuses** to send WhatsApp with
-no template rather than posting text Meta drops silently. Reminder scheduling:
-booked more than 24h ahead → 24h before; 24h or less → 2h before; exactly 24h →
-nothing.
+**2. WhatsApp sends Meta templates on the official paths only, and the shapes
+are transcribed from Meta, not designed here.** Three are approved on the
+platform's own Business account:
+
+| Template | Header | Body `{{1}}` `{{2}}` `{{3}}` | Button |
+| --- | --- | --- | --- |
+| `appointment_confirmation` | client name | business · 📅 date · ⏰ time | ✓ |
+| `reminder_24h` | — | business · ⏰ time · 📍 place | ✓ |
+| `reminder_2h` | — | business · ⏰ time · 📍 place | · |
+
+**Each component is numbered from 1 independently** — that is why the approved
+confirmation contains two `{{1}}`, one header and one body, filled from
+different values. They do **not** share a parameter list; an earlier version
+assumed they did and was wrong. The button's base URL was registered as
+`https://www.bazman.app/` (no `b/`), so the parameter is a **bare cancel
+token** and `proxy.ts` redirects `/{token}` → `/b/{token}`.
+
+There are **three backends** now, preferred in this order: **Meta Cloud API**
+(the account actually in use, templates by name) → Green API (free text, no
+approval, unofficial) → Twilio (templates by per-account Content SID, no
+account here). Both official paths **refuse** to send with no template rather
+than posting text Meta drops silently. Reminder scheduling: booked more than
+24h ahead → 24h before; 24h or less → 2h before; exactly 24h → nothing.
 
 **3. `/master` shows the tier a tenant is *served*, not the one stored.** They
 differ constantly — trialing, past_due and frozen all diverge — and the plan
@@ -1253,7 +1268,8 @@ worked. Verify a domain at resend.com → Domains and point
 | ------------------- | ------------------------------------------------------------ |
 | Billing 8d–8e       | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
 | SMS                 | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
-| WhatsApp            | Green API credentials **or** a Twilio account plus the three `TWILIO_TEMPLATE_*` Content SIDs. Code-complete and template-aware; no message has left on either backend. |
+| WhatsApp            | `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_ACCESS_TOKEN` from the platform's Meta app. The three templates **are approved**; the transport is code-complete and matched to their exact shapes, but no message has left on any backend. Green API or Twilio remain alternatives. |
+| WhatsApp, the other five | Meta's template builder, which is currently refusing to create new templates. `cancellation_confirmation`, `booking_pending`, `booking_approved`, `booking_rejected` (all UTILITY) and `client_winback` (MARKETING) are drafted and unsubmitted. Until they exist those kinds are refused on the official path, and with SMS and email dark they reach nobody — a cancelled appointment currently tells the client nothing. |
 | Voice ("ליבי")      | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated. No real utterance has been parsed. |
 | Web push            | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven end to end: no notification has reached a real device. |
 | Media uploads       | `npm run storage:setup` against the production project.       |

@@ -239,7 +239,7 @@ unconfigured one.
 | Validation     | Zod v4 shared client/server, react-hook-form on the public form             |
 | Dates          | date-fns + date-fns-tz                                                      |
 | Email          | Resend (falls back to a console provider)                                   |
-| SMS / WhatsApp | Twilio adapters — code-complete, unproven                                   |
+| SMS / WhatsApp | Meta Cloud API, Green API and Twilio adapters — code-complete, unproven     |
 | Unit tests     | Vitest against PGlite (WASM Postgres) running the real migrations           |
 | E2E            | Playwright, Chromium                                                        |
 | Hosting        | Vercel — **Root Directory must be `Frontend`**                              |
@@ -289,7 +289,7 @@ every action — see [ARCHITECTURE.md](docs/ARCHITECTURE.md#platform-console-mas
 ## Testing
 
 ```bash
-npm run verify     # env, lint, types, 880 unit tests, build
+npm run verify     # env, lint, types, 903 unit tests, build
 npm run test:e2e   # 11 tests / 3 specs, separate — needs a running server
 ```
 
@@ -391,6 +391,13 @@ full week calendar, an installable app with push, and a WhatsApp backend.
 - **The three approved Meta WhatsApp templates** (`appointment_confirmation`,
   `reminder_24h`, `reminder_2h`) on the official Business API path, with the
   reminder chosen from the booking's lead time. Green API still sends free text.
+- **A Meta Cloud API backend, matched to the copy Meta actually approved.**
+  Templates addressed by name, with header, body and button as separate
+  components — Meta numbers each from 1 independently, which is why the approved
+  confirmation carries two `{{1}}`. The button's base URL was registered without
+  `b/`, so it sends a bare cancel token and the proxy redirects `/{token}` to
+  `/b/{token}` rather than 404ing a link a client was just sent. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#whatsapp-has-three-backends-and-they-are-not-interchangeable).
 - **"ליבי" — booking by Hebrew voice command.** A microphone beside "תור ידני"
   on `/dashboard`: the owner speaks, Libi extracts the fields, asks in Hebrew
   for whatever is missing, and books through the *existing* manual path. The
@@ -433,8 +440,16 @@ properly in production; both fail quietly if skipped, and both are in
 **Four newer surfaces are code-complete but have never run on real
 infrastructure**, and each needs one credential before it can: media uploads
 (`SUPABASE_SERVICE_ROLE_KEY` + `npm run storage:setup`), web push
-(`npm run push:keys`), WhatsApp (Green API), and SMS (Twilio). Everything
-around them is tested; the wire itself has not been exercised. The post-deploy
+(`npm run push:keys`), WhatsApp (`WHATSAPP_PHONE_NUMBER_ID` +
+`WHATSAPP_ACCESS_TOKEN`), and SMS (Twilio). Everything around them is tested;
+the wire itself has not been exercised.
+
+> **Five WhatsApp templates are still missing**, and on a WhatsApp-only
+> deployment that is a gap rather than a nicety: `cancellation_confirmation`,
+> `booking_pending`, `booking_approved`, `booking_rejected` and
+> `client_winback`. Without an approved template the official path refuses to
+> send, and with SMS and email dark there is nothing to fall through to — so a
+> cancelled appointment currently tells the client nothing at all. The post-deploy
 checklist in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#6-post-deploy-checks)
 walks each one.
 

@@ -372,6 +372,7 @@ describe("templates", () => {
     businessTimezone: "Asia/Jerusalem",
     bookingUrl: "https://example.test/demo-barber",
     manageUrl: "https://example.test/b/token",
+    manageToken: "token",
     clientName: "דני",
     serviceName: "תספורת גבר",
     priceCents: 7000,

@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest";
 import { planReminder } from "./reminder-policy";
 import type { AppointmentContext } from "./types";
 import {
+  datePhrase,
   leadHoursFor,
   reminderTemplateFor,
-  templateParameters,
+  timePhrase,
   whatsappTemplateFor,
   WHATSAPP_TEMPLATES,
 } from "./whatsapp-templates";
 
 const HOUR = 3_600_000;
+
+const TOKEN = "34e64171-cb3e-47b3-8548-82297eff1270";
 
 const context = (
   overrides: Partial<AppointmentContext> = {},
@@ -20,11 +23,13 @@ const context = (
   businessPhone: "03-1234567",
   businessAddress: "הרצל 10, תל אביב",
   businessTimezone: "Asia/Jerusalem",
-  bookingUrl: "https://bazman.app/demo-barber",
-  manageUrl: "https://bazman.app/b/tok123",
+  bookingUrl: "https://www.bazman.app/demo-barber",
+  manageUrl: `https://www.bazman.app/b/${TOKEN}`,
+  manageToken: TOKEN,
   clientName: "דני",
   serviceName: "תספורת גבר",
   priceCents: 7000,
+  // 14:30 on Thursday 20/08/2026 in Asia/Jerusalem — summer time.
   startsAt: "2026-08-20T11:30:00.000Z",
   status: "confirmed",
   ...overrides,
@@ -60,9 +65,10 @@ describe("template selection", () => {
     expect(reminderTemplateFor(undefined)).toBeNull();
   });
 
-  it("has no template for kinds Meta never approved", () => {
-    // Not an oversight: only three were approved. On the official API these
-    // fall through to SMS or email rather than being dropped by Meta.
+  it("has no template for kinds Meta has not approved", () => {
+    // Not an oversight: three are approved and five are drafted but not yet
+    // submitted. On the official path these fall through to SMS or email
+    // rather than being accepted by Meta and dropped.
     for (const kind of [
       "booking_pending",
       "booking_approved",
@@ -81,52 +87,10 @@ describe("template selection", () => {
         kind: "trial_ending",
         businessName: "מספרת בלאק",
         businessTimezone: "Asia/Jerusalem",
-        billingUrl: "https://bazman.app/dashboard/billing",
+        billingUrl: "https://www.bazman.app/dashboard/billing",
         planName: "מקצועי",
       }),
     ).toBeNull();
-  });
-});
-
-describe("template parameters", () => {
-  /**
-   * Meta numbers body variables `{{1}}`…`{{5}}` and the numbering is frozen at
-   * approval. Reordering this array silently reorders the sentence a client
-   * reads, so the order is pinned here rather than left to review.
-   */
-  it("fills the five slots in the approved order", () => {
-    const [name, business, when, location, manage] =
-      templateParameters(context());
-
-    expect(name).toBe("דני");
-    expect(business).toBe("מספרת בלאק");
-    expect(when).toContain("14:30"); // 11:30Z in Asia/Jerusalem, summer
-    expect(when).toContain("20");
-    expect(location).toBe("הרצל 10, תל אביב");
-    expect(manage).toBe("https://bazman.app/b/tok123");
-  });
-
-  /**
-   * The Cloud API rejects an empty body parameter outright, so a shop with no
-   * address would have every templated message fail rather than arrive without
-   * a location.
-   */
-  it("substitutes a placeholder rather than an empty string", () => {
-    const params = templateParameters(
-      context({ businessAddress: null, clientName: "  " }),
-    );
-    expect(params).not.toContain("");
-    expect(params[0]).toBe("—");
-    expect(params[3]).toBe("—");
-  });
-
-  it("gives every template the same five parameters", () => {
-    // One substitution list across all three is what stops the reminder and the
-    // confirmation drifting into disagreeing about how a date is written.
-    const reminder = context({ kind: "reminder" });
-    expect(whatsappTemplateFor(reminder, { leadHours: 2 })?.parameters).toEqual(
-      whatsappTemplateFor(context())?.parameters,
-    );
   });
 
   it("declares the three approved names and no others", () => {
@@ -135,6 +99,128 @@ describe("template parameters", () => {
       "reminder_24h",
       "reminder_2h",
     ]);
+  });
+});
+
+/**
+ * These three shapes are transcriptions of copy Meta has already approved, and
+ * the numbering is frozen until it is resubmitted. Every assertion here is
+ * therefore pinning an external fact rather than a preference — which is the
+ * whole reason they are asserted instead of reviewed.
+ */
+describe("approved template shapes", () => {
+  /**
+   * The regression this file exists for.
+   *
+   * `appointment_confirmation` contains two `{{1}}` — one in the header, one in
+   * the body — because Meta numbers each component from 1 independently. An
+   * earlier version of this module sent one flat list of five parameters shared
+   * across all three templates, which would have put the client's name where
+   * the business name belongs and dropped the last two on the floor.
+   */
+  it("fills the confirmation's header and body from different values", () => {
+    const template = whatsappTemplateFor(context())!;
+
+    expect(template.header).toEqual(["דני"]);
+    expect(template.parameters).toEqual([
+      "מספרת בלאק",
+      "יום חמישי, 20/08/2026",
+      "14:30",
+    ]);
+    // Header {{1}} and body {{1}} are different variables, not a duplicate.
+    expect(template.header![0]).not.toBe(template.parameters[0]);
+  });
+
+  it("gives both reminders the business, the time and the place", () => {
+    const reminder = context({ kind: "reminder" });
+
+    for (const leadHours of [24, 2]) {
+      const template = whatsappTemplateFor(reminder, { leadHours })!;
+      expect(template.header).toBeUndefined();
+      expect(template.parameters).toEqual([
+        "מספרת בלאק",
+        "14:30",
+        "הרצל 10, תל אביב",
+      ]);
+    }
+  });
+
+  /**
+   * The confirmation carries no address and the reminders carry no client name,
+   * which is why one shared parameter list could not survive the real copy.
+   */
+  it("does not give the three templates the same parameters", () => {
+    const confirmation = whatsappTemplateFor(context())!;
+    const reminder = whatsappTemplateFor(context({ kind: "reminder" }), {
+      leadHours: 24,
+    })!;
+
+    expect(reminder.parameters).not.toEqual(confirmation.parameters);
+  });
+});
+
+describe("the management button", () => {
+  /**
+   * Meta stores the button's base URL at approval time and appends only the
+   * tail. The base registered here is `https://www.bazman.app/` — **without**
+   * `b/` — so sending the whole `manageUrl` would render
+   * `https://www.bazman.app/https://www.bazman.app/b/…` and reach nobody.
+   */
+  it("sends the bare token, never a URL", () => {
+    const confirmation = whatsappTemplateFor(context())!;
+
+    expect(confirmation.buttonUrlSuffix).toBe(TOKEN);
+    expect(confirmation.buttonUrlSuffix).not.toContain("http");
+    expect(confirmation.buttonUrlSuffix).not.toContain("/");
+  });
+
+  it("is on the 24h reminder and absent from the 2h one", () => {
+    const reminder = context({ kind: "reminder" });
+
+    expect(
+      whatsappTemplateFor(reminder, { leadHours: 24 })!.buttonUrlSuffix,
+    ).toBe(TOKEN);
+    /**
+     * `reminder_2h` was approved without a button. Sending a button parameter
+     * for a template that has none is rejected outright by the Cloud API, so
+     * this is a property of the approved artifact rather than a choice.
+     */
+    expect(
+      whatsappTemplateFor(reminder, { leadHours: 2 })!.buttonUrlSuffix,
+    ).toBeUndefined();
+  });
+});
+
+describe("parameter values", () => {
+  it("writes the date and the time as separate slots", () => {
+    // The approved copy puts 📅 and ⏰ on their own lines, so they are two
+    // variables. An earlier version fused them into one phrase.
+    expect(datePhrase(context())).toBe("יום חמישי, 20/08/2026");
+    expect(timePhrase(context())).toBe("14:30");
+  });
+
+  it("renders in the business timezone, not UTC", () => {
+    expect(timePhrase(context())).not.toBe("11:30");
+  });
+
+  /**
+   * The Cloud API rejects an empty body parameter outright, so a shop with no
+   * address would have every templated message fail rather than arrive without
+   * a location.
+   */
+  it("substitutes a placeholder rather than an empty string", () => {
+    const confirmation = whatsappTemplateFor(
+      context({ clientName: "  ", businessName: "" }),
+    )!;
+    expect(confirmation.header).toEqual(["—"]);
+    expect(confirmation.parameters[0]).toBe("—");
+
+    const reminder = whatsappTemplateFor(
+      context({ kind: "reminder", businessAddress: null }),
+      { leadHours: 24 },
+    )!;
+    expect(reminder.parameters).not.toContain("");
+    expect(reminder.parameters[2]).toBe("—");
   });
 });
 

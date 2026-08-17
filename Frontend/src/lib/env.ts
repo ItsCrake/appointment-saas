@@ -252,6 +252,42 @@ export const ENV_VARS: EnvVar[] = [
     howTo: "twilio.com → Messaging → WhatsApp senders.",
   },
   /*
+   * The Meta WhatsApp Cloud API — the platform's own Business account, talking
+   * to Meta directly rather than through a reseller. This is the preferred
+   * backend when configured: templates are addressed by name, so they are
+   * portable between deployments in a way Twilio's per-account Content SIDs are
+   * not.
+   *
+   * Optional for the same reason as everything else in this group: WhatsApp
+   * falls through to SMS and then email when it is not configured, so nothing
+   * breaks — the message arrives by another route.
+   */
+  {
+    name: "WHATSAPP_PHONE_NUMBER_ID",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description:
+      "Phone number ID from the Meta WhatsApp Business account. Preferred WhatsApp backend; needs the three approved templates.",
+    howTo: "developers.facebook.com → your app → WhatsApp → API Setup.",
+  },
+  {
+    name: "WHATSAPP_ACCESS_TOKEN",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description:
+      "Permanent access token for the Meta app. Required alongside the phone number ID.",
+    howTo:
+      "developers.facebook.com → System Users → generate a token with whatsapp_business_messaging.",
+  },
+  {
+    name: "WHATSAPP_API_VERSION",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description:
+      "Graph API version to call. Defaults to v23.0. Set it when Meta retires that version.",
+    howTo: "developers.facebook.com → Graph API → Changelog.",
+  },
+  /*
    * Green API is the WhatsApp backend that works on day one. It drives the
    * shop's own account rather than the official Business API, so a booking
    * confirmation needs no template approval. Optional because WhatsApp falls

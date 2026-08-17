@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyPublicPath, RESERVED_SEGMENTS } from "./public-slug";
+import {
+  classifyPublicPath,
+  isManageTokenShape,
+  RESERVED_SEGMENTS,
+} from "./public-slug";
 
 /**
  * The classifier decides, for every request that reaches the proxy, whether a
@@ -100,5 +104,66 @@ describe("classifyPublicPath", () => {
     expect(classifyPublicPath("https://evil.example/demo").kind).toBe(
       "platform",
     );
+  });
+
+  /**
+   * WhatsApp's approved templates carry a URL button whose base was registered
+   * with Meta as `https://www.bazman.app/` — without the `b/` — and Meta appends
+   * only the varying tail to a base frozen at approval time. So every
+   * confirmation and 24-hour reminder sends the client here.
+   */
+  describe("a bare cancel token belongs at /b/", () => {
+    const TOKEN = "34e64171-cb3e-47b3-8548-82297eff1270";
+
+    it("recognises a token at the root", () => {
+      expect(classifyPublicPath(`/${TOKEN}`)).toEqual({
+        kind: "manage-token",
+        token: TOKEN,
+      });
+    });
+
+    /**
+     * The regression. A UUID is 36 lowercase hex characters and hyphens, so it
+     * satisfies `SLUG_SHAPE` — without an explicit answer first, the proxy
+     * looks it up as a shop, misses, and 404s the link a client was just sent.
+     */
+    it("would otherwise have been resolved as a shop", () => {
+      expect(TOKEN).toMatch(/^[a-z0-9-]{1,40}$/);
+    });
+
+    it("leaves a near-miss to the database", () => {
+      // One character short of a UUID: a real shop could be called this.
+      const almost = TOKEN.slice(0, -1);
+      expect(classifyPublicPath(`/${almost}`)).toEqual({
+        kind: "tenant",
+        slug: almost,
+      });
+    });
+
+    it("does not claim an uppercase token", () => {
+      // Tokens are written by `randomUUID()`, which is always lowercase.
+      expect(classifyPublicPath(`/${TOKEN.toUpperCase()}`).kind).toBe(
+        "impossible",
+      );
+    });
+
+    it("does not claim a token carrying a sub-path", () => {
+      expect(classifyPublicPath(`/${TOKEN}/my-appointments`).kind).toBe(
+        "tenant",
+      );
+    });
+
+    /**
+     * The two halves of the same rule: whatever the router swallows, the forms
+     * that let an owner choose an address must refuse, or a shop could save a
+     * slug that silently resolves to somebody's cancellation page.
+     */
+    it("is the same shape the slug forms refuse", () => {
+      expect(isManageTokenShape(TOKEN)).toBe(true);
+      expect(isManageTokenShape(TOKEN.toUpperCase())).toBe(true);
+      expect(isManageTokenShape(`  ${TOKEN}  `)).toBe(true);
+      expect(isManageTokenShape("demo-barber")).toBe(false);
+      expect(isManageTokenShape(TOKEN.slice(0, -1))).toBe(false);
+    });
   });
 });

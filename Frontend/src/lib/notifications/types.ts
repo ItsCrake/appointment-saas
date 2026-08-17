@@ -22,11 +22,40 @@ export type OutboundMessage = {
   template?: WhatsAppTemplateRef;
 };
 
-/** Positional parameters for Meta's `body` component — index 0 fills `{{1}}`. */
+/**
+ * One approved WhatsApp template, in Meta's component shape.
+ *
+ * **Every component is numbered from 1 independently.** That is not a detail —
+ * it is why `appointment_confirmation` has two `{{1}}`: one in its header and
+ * one in its body, filled from different values. A single flat array cannot
+ * express that, which is what this type replaced.
+ *
+ * Twilio, by contrast, flattens a Content Template into one namespace. That
+ * difference lives in the Twilio adapter rather than here, because the shape
+ * Meta approved is the one this repository has to be true to.
+ */
 export type WhatsAppTemplateRef = {
   name: string;
   language: string;
+  /**
+   * `header` component text parameters. Absent when the approved copy has no
+   * header at all — which is the case for both reminders.
+   */
+  header?: string[];
+  /** `body` component parameters — index 0 fills body `{{1}}`. */
   parameters: string[];
+  /**
+   * Appended to the *static base* of the approved URL button.
+   *
+   * Meta stores the base (`https://www.bazman.app/`) at approval time and takes
+   * only the varying tail, so this is a bare cancel token and never a whole
+   * URL. Sending the full `manageUrl` here would render
+   * `https://www.bazman.app/https://www.bazman.app/b/…`.
+   *
+   * Absent when the template has no button — `reminder_2h` is sent two hours
+   * out with nothing to press.
+   */
+  buttonUrlSuffix?: string;
 };
 
 export type SendResult =
@@ -69,6 +98,15 @@ export type AppointmentContext = {
   businessTimezone: string;
   bookingUrl: string;
   manageUrl: string;
+  /**
+   * The bare cancel token behind `manageUrl`.
+   *
+   * Carried beside the URL rather than parsed back out of it: Meta's URL button
+   * takes only the tail after an approved static base, so the token is a value
+   * this layer needs in its own right, and recovering it with a regex over a
+   * string this module also builds would be a second source of truth.
+   */
+  manageToken: string;
   clientName: string;
   serviceName: string;
   priceCents: number;

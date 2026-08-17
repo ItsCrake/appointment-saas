@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { isSlugTaken, updateBusiness } from "@/db/queries";
 import { requireWritable } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
+import { isManageTokenShape } from "@/lib/public-slug";
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
 
@@ -18,7 +19,10 @@ const settingsSchema = z.object({
     .toLowerCase()
     .min(3, "הכתובת חייבת להכיל לפחות 3 תווים")
     .max(40)
-    .regex(/^[a-z0-9-]+$/, "אותיות באנגלית, מספרים ומקפים בלבד"),
+    .regex(/^[a-z0-9-]+$/, "אותיות באנגלית, מספרים ומקפים בלבד")
+    // A UUID-shaped address is routed to a cancellation link before it is ever
+    // looked up as a shop — see `isManageTokenShape`.
+    .refine((value) => !isManageTokenShape(value), "כתובת זו שמורה למערכת"),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
   address: z.string().trim().max(160).optional().or(z.literal("")),
   description: z.string().trim().max(300).optional().or(z.literal("")),

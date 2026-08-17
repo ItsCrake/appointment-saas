@@ -137,16 +137,32 @@ function twilioProvider(
         }
 
         params.set("ContentSid", contentSid);
-        // Twilio takes the positional body parameters as a JSON object keyed
-        // "1", "2", … which is Meta's own {{1}} numbering, one-based.
+        /**
+         * Twilio takes every variable as one JSON object keyed "1", "2", …
+         *
+         * That is **not** Meta's numbering. Meta numbers each component from 1
+         * separately, so an approved template can hold a header `{{1}}` and a
+         * body `{{1}}` that are different variables; a Twilio Content Template
+         * flattens the whole thing into a single sequence. The order below —
+         * header, then body, then the button's URL tail — is that flattening.
+         *
+         * Unverified against a live account, because no Twilio account exists
+         * here and the Content SIDs these would need are issued per account.
+         * Written to the documented shape rather than left to crash.
+         */
+        const flattened = [
+          ...(message.template.header ?? []),
+          ...message.template.parameters,
+          ...(message.template.buttonUrlSuffix !== undefined
+            ? [message.template.buttonUrlSuffix]
+            : []),
+        ];
+
         params.set(
           "ContentVariables",
           JSON.stringify(
             Object.fromEntries(
-              message.template.parameters.map((value, index) => [
-                String(index + 1),
-                value,
-              ]),
+              flattened.map((value, index) => [String(index + 1), value]),
             ),
           ),
         );

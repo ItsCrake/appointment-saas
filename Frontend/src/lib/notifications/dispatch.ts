@@ -167,6 +167,7 @@ export async function dispatchDueNotifications(
         businessTimezone: business.timezone,
         bookingUrl: urls.bookingUrl,
         manageUrl: urls.manageUrl,
+        manageToken: appointment.cancelToken,
         clientName: appointment.clientName,
         serviceName: appointment.serviceName,
         priceCents: appointment.priceCents,

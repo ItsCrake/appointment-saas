@@ -797,25 +797,33 @@ an owner could not undo with "ביטול", so it joined the bar.
 `beforeunload` is registered only while something is unsaved. A page that always
 warns on leaving is a page people learn to click through.
 
-## WhatsApp has two backends, and they are not interchangeable
+## WhatsApp has three backends, and they are not interchangeable
 
-`lib/notifications/whatsapp.ts` puts one interface over both, because the
+`lib/notifications/whatsapp.ts` puts one interface over all three, because the
 difference decides the product rather than only the plumbing:
 
-| Backend       | Business-initiated message                                        |
-| ------------- | ----------------------------------------------------------------- |
-| **Twilio**    | Official Business API — needs a **Meta-approved template**         |
-| **Green API** | Drives the shop's own account — **no template approval**           |
+| Backend            | Business-initiated message                                   | Template addressed by |
+| ------------------ | ------------------------------------------------------------ | --------------------- |
+| **Meta Cloud API** | Official — needs a **Meta-approved template**                | name                  |
+| **Twilio**         | Official, as a reseller — needs a **Meta-approved template** | Content SID           |
+| **Green API**      | Drives the shop's own account — **no template approval**     | n/a, sends free text  |
 
-A confirmation and a reminder are both business-initiated, so over Twilio they
-need template approval before they deliver anything. Green API is therefore
-preferred when both are configured: it is the one that works for an Israeli
-barber on the day they sign up. It is also unofficial, which is a risk the
-operator takes knowingly and should not learn from a support ticket.
+A confirmation and a reminder are both business-initiated, so on either official
+path they need template approval before they deliver anything.
 
-Both satisfy `NotificationProvider`, so the outbox, the dedupe key, the retry
-policy and the templates are identical either way — choosing is a credential,
-not a rewrite.
+**Meta Cloud is preferred when more than one is configured.** An earlier rule
+preferred Green API on the grounds that it needs no approval and therefore
+delivers on day one — sound while no templates existed. This deployment now has
+three approved on its own Business account, so configuring the official
+credentials is a deliberate act and the unofficial gateway must not quietly
+outrank it. Green API still comes ahead of Twilio, for the original reason.
+
+Green API remains unofficial, which is a risk the operator takes knowingly and
+should not learn from a support ticket.
+
+All three satisfy `NotificationProvider`, so the outbox, the dedupe key, the
+retry policy and the templates are identical either way — choosing is a
+credential, not a rewrite.
 
 **WhatsApp now leads `CLIENT_CHANNEL_PREFERENCE`**, where it used to be excluded
 outright for the template reason above. `isChannelLive` is what makes that safe:
@@ -836,18 +844,33 @@ body. The split is why WhatsApp shipped before either account existed, and it is
 unchanged: both are still `NotificationProvider`s and the outbox does not know
 which is behind it.
 
-`lib/notifications/whatsapp-templates.ts` owns the mapping. Four decisions in
-it carry weight:
+`lib/notifications/whatsapp-templates.ts` owns the mapping. **Every shape in it
+is transcribed from copy Meta has already approved, not designed here** — names,
+language, component layout and parameter order are frozen until the template is
+resubmitted and reviewed again, so the code follows Meta rather than the reverse.
 
-- **Parameters are positional and shared across all three.** Meta numbers body
-  variables `{{1}}`…`{{5}}` and freezes that numbering at approval, so
-  reordering the array silently reorders the sentence a client reads. One
-  substitution list — name, business, date-and-time, location, manage link —
-  also stops the reminder and the confirmation drifting into disagreeing about
-  how a date is written. A test pins the order.
-- **Date and time are one slot, not two.** The approved copy reads
-  "יום שלישי, 20.08.2026 בשעה 14:30" as a phrase; splitting it invites a later
-  edit to put them in the wrong order.
+The approved shapes:
+
+| Template                   | Header      | Body `{{1}}` `{{2}}` `{{3}}` | URL button |
+| -------------------------- | ----------- | ---------------------------- | ---------- |
+| `appointment_confirmation` | client name | business · 📅 date · ⏰ time  | yes        |
+| `reminder_24h`             | —           | business · ⏰ time · 📍 place | yes        |
+| `reminder_2h`              | —           | business · ⏰ time · 📍 place | no         |
+
+Four decisions carry weight:
+
+- **Each component is numbered from 1 independently.** This is why the approved
+  confirmation contains two `{{1}}` — one in the header, one in the body,
+  filled from different values. `WhatsAppTemplateRef` therefore has separate
+  `header`, `parameters` and `buttonUrlSuffix` fields. An earlier version sent
+  one flat list of five parameters shared across all three templates, which
+  would have put the client's name where the business name belongs. Twilio
+  *does* flatten the three into one namespace; that difference lives in the
+  Twilio adapter, not in the template layer.
+- **The three do not share a parameter list.** The confirmation carries no
+  address and the reminders carry no client name, so one list cannot describe
+  them. Date and time are separate slots because the approved copy puts 📅 and
+  ⏰ on their own lines.
 - **A blank field becomes `—`, never `""`.** The Cloud API rejects an empty body
   parameter outright, so a shop with no address on file would have *every*
   templated message fail rather than arrive without a location.
@@ -857,19 +880,56 @@ it carry weight:
   the two columns that decide it, so a reminder rescheduled by any future path
   stays correctly labelled without a migration.
 
+### The button sends a token, and the proxy is the other half of it
+
+Meta freezes a URL button's **base** at approval and appends only the varying
+tail. The base registered here is `https://www.bazman.app/` — **without** `b/` —
+so the parameter is a bare `cancel_token` and the resulting link is
+`https://www.bazman.app/<token>`. Sending the whole `manageUrl` instead would
+render `https://www.bazman.app/https://www.bazman.app/b/…` and reach nobody; a
+test pins it.
+
+That URL did not resolve. A `randomUUID` is 36 lowercase hex characters and
+hyphens, so it satisfies `SLUG_SHAPE` — the proxy would look it up as a shop,
+miss, and 404 the link a client had just been sent. `classifyPublicPath` now
+answers `manage-token` for a single UUID-shaped segment, checked **before** the
+slug shape, and the proxy redirects to `/b/<token>`.
+
+**Redirected, not rewritten.** `next.config.ts` attaches `noindex, nofollow` and
+`private, no-store` by matching the request path against `/b/:path*`. A rewrite
+keeps the visitor on `/<token>`, where neither header matches — putting a
+client's name, appointment time and live cancellation control at a cacheable,
+indexable URL. 308 rather than 307 because the mapping is permanent by
+construction: the base cannot change without a fresh Meta review.
+
+The cost is that a UUID can no longer be a slug, so the setup and settings forms
+refuse one through `isManageTokenShape` — the rule lives beside the routing
+decision that creates the conflict, so the two cannot drift.
+
 ### No template is a real answer, and the provider refuses on it
 
-`whatsappTemplateFor` returns null for kinds Meta never approved — the approval
-request, the rejection, the cancellation, the win-back — and for any lead time
-that is neither 24h nor 2h. Deliberately **not** a nearest match: rounding a
-36-hour reminder onto `reminder_24h` would send copy saying *tomorrow*, a day
-and a half early.
+`whatsappTemplateFor` returns null for kinds Meta has not approved — the
+approval request, the approval, the rejection, the cancellation, the win-back —
+and for any lead time that is neither 24h nor 2h. Deliberately **not** a nearest
+match: rounding a 36-hour reminder onto `reminder_24h` would send copy saying
+*tomorrow*, a day and a half early.
 
-The Twilio provider then refuses to send WhatsApp without a template rather than
-posting free text Meta accepts and silently drops — a non-retryable failure,
-because a missing template is a configuration fact and retrying would burn the
-outbox's five attempts on the same refusal. `clientDelivery()` falls through to
-SMS or email, which is the right outcome for a kind with no approved copy.
+Both official providers then refuse to send WhatsApp without a template rather
+than posting free text Meta accepts and silently drops — a non-retryable
+failure, because a missing template is a configuration fact and retrying would
+burn the outbox's five attempts on the same refusal. `clientDelivery()` falls
+through to SMS or email, which is the right outcome for a kind with no approved
+copy.
+
+> **On a WhatsApp-only deployment there is no fall-through**, because SMS and
+> email are not configured. Those five kinds therefore reach nobody, and
+> `cancellation_confirmation` is the one that matters: a client is told their
+> appointment was booked and never told it was called off. Copy for all five is
+> drafted and awaiting submission — blocked on Meta's template builder, not on
+> this repository. `client_winback` is **MARKETING** rather than UTILITY and
+> needs an inbound webhook to record opt-outs before it should be submitted at
+> all; `isOptedOutOfMarketing` is checked on every send but nothing writes to
+> the suppression list from WhatsApp yet.
 
 > **Twilio addresses a template by Content SID, not by name.** A SID is issued
 > per Twilio account at approval, so two deployments of this code have different

@@ -44,6 +44,26 @@ function notFound(request: NextRequest) {
 }
 
 /**
+ * Sends a bare cancel token at the root to the page that serves it.
+ *
+ * **Redirected, not rewritten** — and this is the one decision in this function.
+ * `next.config.ts` attaches `noindex, nofollow` and `private, no-store` by
+ * matching the request path against `/b/:path*`. A rewrite keeps the visitor on
+ * `/<token>`, so those headers would not match, and a client's appointment —
+ * their name, their time, a live cancellation control — would sit at a
+ * cacheable, indexable URL. The address bar changing is the smaller cost.
+ *
+ * 308 rather than 307 because the mapping is permanent by construction: the
+ * base URL is frozen inside an approved Meta template and cannot be edited
+ * without a fresh review.
+ */
+function manageRedirect(request: NextRequest, token: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = `/b/${token}`;
+  return NextResponse.redirect(url, 308);
+}
+
+/**
  * Answers "should this render, or 404?" for a tenant path.
  *
  * **Fails open.** If the lookup throws — pooler down, connection exhausted, a
@@ -135,6 +155,8 @@ export async function proxy(request: NextRequest) {
   if (verdict.kind === "tenant") {
     return resolvePublicSlug(request, verdict.slug);
   }
+  if (verdict.kind === "manage-token")
+    return manageRedirect(request, verdict.token);
   if (verdict.kind === "impossible") return notFound(request);
 
   if (pathname === "/login" || pathname.startsWith("/dashboard")) {

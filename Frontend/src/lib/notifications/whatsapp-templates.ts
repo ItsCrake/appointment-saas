@@ -1,6 +1,10 @@
 import { formatFullDateTime } from "@/lib/format";
 
-import type { AppointmentContext, NotificationContext } from "./types";
+import type {
+  AppointmentContext,
+  NotificationContext,
+  WhatsAppTemplateRef,
+} from "./types";
 import { isBillingKind } from "./types";
 
 /**
@@ -12,16 +16,22 @@ import { isBillingKind } from "./types";
  * window. Free text is accepted by the API and then dropped by the platform, so
  * the failure is silent unless something on this side refuses first.
  *
- * **This only binds the official Business API path (Twilio).** Green API drives
- * the shop's own account and has no template concept at all, so it keeps
- * sending the rendered Hebrew body. Both remain `NotificationProvider`s and the
- * outbox does not know the difference — which is the same separation that let
- * WhatsApp ship before either account existed.
+ * **This binds the official Business API paths — Meta Cloud and Twilio.** Green
+ * API drives the shop's own account and has no template concept at all, so it
+ * keeps sending the rendered Hebrew body. All three remain
+ * `NotificationProvider`s and the outbox does not know the difference — which is
+ * the same separation that let WhatsApp ship before any account existed.
  *
- * Parameters are **positional**, because Meta's `body` component takes an
- * ordered array and the numbering in the approved copy (`{{1}}`, `{{2}}` …) is
- * fixed at approval time. Reordering this array silently reorders the message a
- * client reads, so the order is asserted by test rather than trusted to review.
+ * **These three shapes are transcribed from the copy Meta actually approved,
+ * not designed here.** Names, language, component layout and parameter order
+ * are all frozen at approval: changing any of them requires resubmission and a
+ * fresh review, so this file follows Meta rather than the other way round.
+ *
+ * The three do **not** share one parameter list, and an earlier version of this
+ * file was wrong to assume they could. The confirmation carries no address; the
+ * reminders carry no client name; the confirmation puts the client's name in a
+ * *header*, which Meta numbers separately from the body. That is why the
+ * approved copy contains two `{{1}}`.
  * ---------------------------------------------------------------------------
  */
 
@@ -34,12 +44,8 @@ export const WHATSAPP_TEMPLATES = [
 
 export type WhatsAppTemplateName = (typeof WHATSAPP_TEMPLATES)[number];
 
-export type WhatsAppTemplate = {
+export type WhatsAppTemplate = WhatsAppTemplateRef & {
   name: WhatsAppTemplateName;
-  /** Meta's language code for the approved copy. */
-  language: string;
-  /** Ordered body parameters — index 0 fills `{{1}}`. */
-  parameters: string[];
 };
 
 /** Hebrew is the only language the three templates were approved in. */
@@ -55,61 +61,40 @@ const LANGUAGE = "he";
  */
 const ABSENT = "—";
 
-/**
- * The five variables the approved copy uses, in the order it uses them.
- *
- * Shared across all three templates on purpose: one substitution list means the
- * reminder and the confirmation cannot drift into disagreeing about how a date
- * is written, and Meta approval is per-template so keeping the shapes identical
- * is what makes a fourth template cheap to add.
- *
- * | Slot | Variable          |
- * | ---- | ----------------- |
- * | 1    | client name       |
- * | 2    | business name     |
- * | 3    | date and time     |
- * | 4    | location          |
- * | 5    | manage/cancel URL |
- */
-export function templateParameters(context: AppointmentContext): string[] {
-  const when = formatFullDateTime(context.startsAt, context.businessTimezone);
-
-  return [
-    context.clientName.trim() || ABSENT,
-    context.businessName.trim() || ABSENT,
-    // One string rather than separate date and time slots: the approved copy
-    // reads "ביום שלישי, 20.08.2026 בשעה 14:30" as a single phrase, and
-    // splitting it would let a future edit put them in the wrong order.
-    `יום ${when.weekday}, ${when.date} בשעה ${when.time}`,
-    context.businessAddress?.trim() || ABSENT,
-    context.manageUrl.trim() || ABSENT,
-  ];
+function filled(value: string | null | undefined): string {
+  return value?.trim() || ABSENT;
 }
 
 /**
- * How far before the appointment a reminder goes out, derived from when it is
- * actually scheduled rather than stored.
+ * The 📅 slot: "יום שלישי, 20/08/2026".
  *
- * The outbox has one `reminder` kind for both reminders — the lead lives in the
- * dedupe key, which is not something to parse. Recomputing it from
- * `scheduledFor` against `startsAt` is derived from the two columns that
- * decide it, so a reminder rescheduled by any future path stays correctly
- * labelled.
+ * The weekday is part of the string rather than a fourth variable because the
+ * approved copy has one placeholder on that line. `formatFullDateTime` is the
+ * same formatter the confirmation screen uses, so the message and the page
+ * cannot disagree about what day an appointment is on.
  */
-export function leadHoursFor(startsAt: Date, scheduledFor: Date): number {
-  return Math.round((startsAt.getTime() - scheduledFor.getTime()) / 3_600_000);
+export function datePhrase(context: AppointmentContext): string {
+  const when = formatFullDateTime(context.startsAt, context.businessTimezone);
+  return `יום ${when.weekday}, ${when.date}`;
+}
+
+/** The ⏰ slot: "14:30", in the business's own timezone. */
+export function timePhrase(context: AppointmentContext): string {
+  return formatFullDateTime(context.startsAt, context.businessTimezone).time;
 }
 
 /**
  * The template for one outbound message, or null when there is no approved one.
  *
- * Null is a real answer rather than an error, and it is what a caller on the
+ * Null is a real answer rather than an error, and it is what a caller on an
  * official API must refuse to send on:
  *
  * - **Kinds with no template.** Only three were approved. An approval request, a
- *   rejection, a cancellation and the win-back message have none, so on Twilio
- *   they cannot be sent as WhatsApp at all — `clientDelivery` falls through to
- *   SMS or email, which is the correct outcome rather than a dropped message.
+ *   rejection, a cancellation and the win-back message have none, so on the
+ *   official path they cannot be sent as WhatsApp at all — `clientDelivery`
+ *   falls through to SMS or email, which is the correct outcome rather than a
+ *   dropped message. Five more are drafted and awaiting submission; until they
+ *   are approved this list is the truth.
  * - **A lead time neither reminder covers.** A tenant who sets
  *   `reminder_hours_before` to 48 gets a reminder scheduled 48 hours out, and
  *   `reminder_24h` says "tomorrow". Sending it would be a template whose text
@@ -124,25 +109,97 @@ export function whatsappTemplateFor(
 
   const appointment = context as AppointmentContext;
 
+  /**
+   * Approved copy:
+   *
+   *   header  שלום {{1}},
+   *   body    *התור ל{{1}} נקבע בהצלחה!*
+   *           📅 {{2}}
+   *           ⏰ {{3}}
+   *   button  ניהול התור → https://www.bazman.app/{{1}}
+   *
+   * Header `{{1}}` is the client; body `{{1}}` is the business. Two variables
+   * with the same number, in different components — see `WhatsAppTemplateRef`.
+   */
   if (appointment.kind === "booking_confirmation") {
     return {
       name: "appointment_confirmation",
       language: LANGUAGE,
-      parameters: templateParameters(appointment),
+      header: [filled(appointment.clientName)],
+      parameters: [
+        filled(appointment.businessName),
+        datePhrase(appointment),
+        timePhrase(appointment),
+      ],
+      buttonUrlSuffix: manageSuffix(appointment),
     };
   }
 
+  /**
+   * Approved copy, both reminders — no header, and the same three body slots:
+   *
+   *   body    *מחר מתוכנן לך תור ל{{1}}.*   /   בעוד שעתיים יגיע תורך ב{{1}}.
+   *           ⏰ {{2}}
+   *           📍 {{3}}
+   *
+   * The two differ only in their prose and in whether they carry a button.
+   */
   if (appointment.kind === "reminder") {
     const name = reminderTemplateFor(options.leadHours);
     if (!name) return null;
+
     return {
       name,
       language: LANGUAGE,
-      parameters: templateParameters(appointment),
+      parameters: [
+        filled(appointment.businessName),
+        timePhrase(appointment),
+        filled(appointment.businessAddress),
+      ],
+      /**
+       * `reminder_24h` was approved with a management button and `reminder_2h`
+       * without one. Sending a button parameter for a template that has no
+       * button is rejected by the Cloud API, so this is a property of the
+       * approved artifact rather than a preference.
+       */
+      ...(name === "reminder_24h"
+        ? { buttonUrlSuffix: manageSuffix(appointment) }
+        : {}),
     };
   }
 
   return null;
+}
+
+/**
+ * What goes after the button's approved base URL.
+ *
+ * The base is `https://www.bazman.app/` — **without** `b/`, because that is how
+ * it was registered — so the tail is the bare cancel token and the resulting
+ * link is `https://www.bazman.app/<token>`. `proxy.ts` is what makes that URL
+ * resolve; see `classifyPublicPath`.
+ *
+ * `filled` rather than the raw token because a blank body or button parameter
+ * fails the *entire* send: a dud link is a worse message, but no message at all
+ * is a worse outcome. The column is `not null` and always a `randomUUID`, so
+ * this is a guard rather than a path anything reaches.
+ */
+function manageSuffix(context: AppointmentContext): string {
+  return filled(context.manageToken);
+}
+
+/**
+ * How far before the appointment a reminder goes out, derived from when it is
+ * actually scheduled rather than stored.
+ *
+ * The outbox has one `reminder` kind for both reminders — the lead lives in the
+ * dedupe key, which is not something to parse. Recomputing it from
+ * `scheduledFor` against `startsAt` is derived from the two columns that
+ * decide it, so a reminder rescheduled by any future path stays correctly
+ * labelled.
+ */
+export function leadHoursFor(startsAt: Date, scheduledFor: Date): number {
+  return Math.round((startsAt.getTime() - scheduledFor.getTime()) / 3_600_000);
 }
 
 /**
