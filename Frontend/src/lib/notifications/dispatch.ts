@@ -17,6 +17,7 @@ import { buildUrls } from "./enqueue";
 import { getProvider } from "./providers";
 import { renderNotification } from "./templates";
 import { isBillingKind, type NotificationContext } from "./types";
+import { isWhatsappDispatchDisabled } from "./whatsapp";
 import { leadHoursFor, whatsappTemplateFor } from "./whatsapp-templates";
 
 function appBaseUrl() {
@@ -174,6 +175,26 @@ export async function dispatchDueNotifications(
         startsAt: appointment.startsAt.toISOString(),
         status: appointment.status,
       };
+    }
+
+    /**
+     * The kill switch, resolved before a provider is even constructed.
+     *
+     * `whatsapp.ts` refuses to reach the network on its own, so this is not
+     * what prevents the charge — it is what keeps the *record* honest.
+     * Suppression is a decision we made, so the row is `skipped` with the
+     * reason, not `failed`; a fortnight of internal testing would otherwise
+     * fill `/master/alerts` with failures that were nothing of the kind, and
+     * bury the real ones.
+     */
+    if (notification.channel === "whatsapp" && isWhatsappDispatchDisabled()) {
+      await markNotificationSkipped(
+        db,
+        notification.id,
+        "whatsapp dispatch disabled (DISABLE_WHATSAPP_DISPATCH)",
+      );
+      summary.skipped++;
+      continue;
     }
 
     const { subject, body } = renderNotification(context);

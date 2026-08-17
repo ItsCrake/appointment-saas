@@ -1264,6 +1264,15 @@ failure this change exists to remove. What makes awaiting safe is the 10-second
 otherwise hold the booking response open until the platform killed it. A timeout
 is retryable, so the row stays pending and the sweep collects it.
 
+**`DISABLE_WHATSAPP_DISPATCH` is the cost guard.** Set it and no WhatsApp
+message reaches the network: `whatsappProvider()` swaps the configured backend
+for a stand-in that logs the full payload and refuses, and the dispatcher marks
+the row `skipped` — never `sent`, so nothing reads as delivered. Fail-safe
+parsing: **any** value other than `false/0/no/off` suppresses, because a typo
+compared against `"true"` would have read as enabled and started billing.
+`check:env --production` **fails** while it is set, since WhatsApp is the only
+live client channel and a deploy carrying it would tell nobody anything.
+
 **Emoji-adjacent template parameters are wrapped in U+200F.** `⏰ 16:00` has no
 strong directional character, so the Bidi algorithm defaults it to LTR and iOS
 rendered the clock on the wrong side. `anchorRtl()` in

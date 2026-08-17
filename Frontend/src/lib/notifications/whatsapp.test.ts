@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describeWhatsApp,
   greenApiProvider,
+  isWhatsappDispatchDisabled,
   metaCloudProvider,
   toWhatsAppChatId,
 } from "@/lib/notifications/whatsapp";
@@ -18,6 +19,7 @@ import type { WhatsAppTemplateRef } from "@/lib/notifications/types";
  */
 
 const KEYS = [
+  "DISABLE_WHATSAPP_DISPATCH",
   "WHATSAPP_PHONE_NUMBER_ID",
   "WHATSAPP_ACCESS_TOKEN",
   "WHATSAPP_API_VERSION",
@@ -246,6 +248,97 @@ describe("metaCloudProvider", () => {
       });
       vi.restoreAllMocks();
     }
+  });
+});
+
+/**
+ * The cost guard. Every assertion here is about money, so the important one is
+ * not "it returns a failure" — it is that **no HTTP call leaves**.
+ */
+describe("DISABLE_WHATSAPP_DISPATCH", () => {
+  const configured = () => {
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "123456789";
+    process.env.WHATSAPP_ACCESS_TOKEN = "EAAG-token";
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("makes no network call at all when suppressed", async () => {
+    configured();
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const result = await getProvider("whatsapp").send({
+      channel: "whatsapp",
+      recipient: "0501234567",
+      body: "body",
+      template: {
+        name: "appointment_confirmation",
+        language: "he",
+        header: ["דני"],
+        parameters: ["מספרת בלאק", "a", "b"],
+        buttonUrlSuffix: "tok",
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, retryable: false });
+  });
+
+  it("names the backend it stood in for", () => {
+    configured();
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    expect(getProvider("whatsapp").name).toBe("whatsapp-disabled(meta-cloud)");
+  });
+
+  /**
+   * Fail-safe parsing, and the reason it is not `=== "true"`. A typo compared
+   * strictly against "true" reads as *enabled* and starts billing on a run
+   * somebody believed was suppressed.
+   */
+  it("treats any non-off value as suppressed, typos included", () => {
+    configured();
+    for (const value of ["1", "true", "TRUE", "yes", "ture", " on "]) {
+      process.env.DISABLE_WHATSAPP_DISPATCH = value;
+      expect(isWhatsappDispatchDisabled()).toBe(true);
+    }
+  });
+
+  it("permits sending only on an explicit off value", () => {
+    configured();
+    for (const value of ["", "false", "FALSE", "0", "no", "off"]) {
+      process.env.DISABLE_WHATSAPP_DISPATCH = value;
+      expect(isWhatsappDispatchDisabled()).toBe(false);
+      expect(getProvider("whatsapp").name).toBe("meta-cloud");
+    }
+
+    delete process.env.DISABLE_WHATSAPP_DISPATCH;
+    expect(isWhatsappDispatchDisabled()).toBe(false);
+  });
+
+  /**
+   * Inert without credentials, which is what stops the guard changing routing
+   * on a deploy that has no WhatsApp at all: the channel still resolves to the
+   * console provider, so `clientDelivery` still falls through to SMS and email.
+   */
+  it("changes nothing when no backend is configured", () => {
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    expect(getProvider("whatsapp").name).toBe("console");
+    expect(isChannelLive("whatsapp")).toBe(false);
+  });
+
+  /**
+   * With a backend configured the channel stays "live" on purpose. Reporting it
+   * dead would route every message to the email fallback — which on this
+   * deployment is the console provider that marks things sent, turning a cost
+   * guard into silent fake delivery.
+   */
+  it("keeps the channel live so messages are not rerouted to a fake one", () => {
+    configured();
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    expect(isChannelLive("whatsapp")).toBe(true);
   });
 });
 

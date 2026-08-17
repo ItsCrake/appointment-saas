@@ -1,7 +1,16 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import {
   cancelPendingNotificationsForAppointment,
+  enqueueNotification,
   listDueNotifications,
   listRecentNotifications,
 } from "@/db/queries/notifications";
@@ -62,6 +71,72 @@ async function scenario(
   );
   return { business, service, appointment };
 }
+
+/**
+ * The kill switch, from the dispatcher's side. `whatsapp.ts` is what guarantees
+ * no HTTP call leaves; this is what keeps the *record* honest.
+ */
+describe("DISABLE_WHATSAPP_DISPATCH marks the row skipped", () => {
+  const saved = process.env.DISABLE_WHATSAPP_DISPATCH;
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.DISABLE_WHATSAPP_DISPATCH;
+    else process.env.DISABLE_WHATSAPP_DISPATCH = saved;
+  });
+
+  async function queueWhatsapp() {
+    const { business, appointment } = await scenario();
+    const row = await enqueueNotification(db, {
+      businessId: business.id,
+      appointmentId: appointment.id,
+      channel: "whatsapp",
+      kind: "booking_confirmation",
+      recipient: "0501234567",
+      scheduledFor: NOW,
+      dedupeKey: `wa:${appointment.id}`,
+    });
+    return { business, row: row! };
+  }
+
+  it("skips rather than fails, so real failures stay findable", async () => {
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    const { business } = await queueWhatsapp();
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(1);
+    expect(summary.sent).toBe(0);
+    expect(summary.failed).toBe(0);
+
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.status).toBe("skipped");
+    expect(stored.lastError).toContain("DISABLE_WHATSAPP_DISPATCH");
+    // Never `sent`: a suppressed message must not read as delivered.
+    expect(stored.sentAt).toBeNull();
+  });
+
+  it("leaves the row alone to send once the guard is lifted", async () => {
+    process.env.DISABLE_WHATSAPP_DISPATCH = "false";
+    const { business } = await queueWhatsapp();
+
+    // No WhatsApp credentials in the test environment, so this resolves to the
+    // console provider — the point is only that it was *attempted*.
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(0);
+
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.status).toBe("sent");
+  });
+
+  it("does not touch email or SMS", async () => {
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    const { business, appointment } = await scenario();
+    await enqueueBookingNotifications({ db, business, appointment, now: NOW });
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(0);
+    expect(summary.sent).toBeGreaterThan(0);
+  });
+});
 
 describe("enqueueBookingNotifications", () => {
   it("queues the client confirmation, owner alert and reminder", async () => {

@@ -79,7 +79,18 @@ if (report.emailChannel === "resend") {
  * to the console provider that reports success and delivers nothing.
  */
 const whatsapp = describeWhatsApp();
-if (whatsapp.provider) {
+if (report.whatsappSuppressed) {
+  // Stated before the backend line and in the loudest colour available: this
+  // is the only variable whose presence silences the product while every
+  // screen still looks like it worked.
+  const mark = production ? `${RED}✗${RESET}` : `${YELLOW}!${RESET}`;
+  const colour = production ? RED : YELLOW;
+  console.log(
+    `  ${mark} whatsapp → ${colour}SUPPRESSED by DISABLE_WHATSAPP_DISPATCH${RESET}\n` +
+      `      ${DIM}No message reaches Meta and no charge is incurred. Outbox rows${RESET}\n` +
+      `      ${DIM}are marked skipped. Backend that would have sent: ${whatsapp.provider ?? "none"}.${RESET}`,
+  );
+} else if (whatsapp.provider) {
   console.log(
     `  ${GREEN}✓${RESET} whatsapp → ${whatsapp.provider} ${DIM}(messages are delivered)${RESET}` +
       (whatsapp.needsTemplateApproval

@@ -1,3 +1,5 @@
+import { whatsappDispatchDisabled } from "@/lib/env";
+
 import { toE164 } from "./providers";
 import type {
   NotificationProvider,
@@ -38,6 +40,58 @@ import type {
  * retry policy and the templates are identical either way.
  * ---------------------------------------------------------------------------
  */
+
+/**
+ * The kill switch, read at call time so flipping it needs no deploy.
+ *
+ * The predicate itself lives in `lib/env.ts` beside every other environment
+ * rule — including the fail-safe parsing that makes a typo suppress sends
+ * rather than start billing. This module owns the *interception*; that one owns
+ * what the variable means.
+ */
+export function isWhatsappDispatchDisabled(): boolean {
+  return whatsappDispatchDisabled(process.env);
+}
+
+/**
+ * Stands in for a configured backend while the kill switch is on.
+ *
+ * Reports the message it *would* have sent and refuses, non-retryably, without
+ * touching the network — there is no `fetch` in this function and that is the
+ * whole point. `suppressing` names the backend it replaced, so a log line says
+ * which account was spared rather than only that something was skipped.
+ *
+ * Returns a failure rather than a cheerful `ok: true` because the console
+ * provider's habit of reporting success for a message nobody received is the
+ * exact thing this codebase keeps having to design around. The dispatcher marks
+ * these `skipped` before ever reaching here; this is the guarantee for any
+ * other caller.
+ */
+function suppressedProvider(suppressing: string): NotificationProvider {
+  return {
+    name: `whatsapp-disabled(${suppressing})`,
+    channel: "whatsapp",
+    async send(message): Promise<SendResult> {
+      console.info(
+        `[notifications:whatsapp:disabled] would have sent via ${suppressing} → ${message.recipient}\n` +
+          (message.template
+            ? `template: ${message.template.name} (${message.template.language})\n` +
+              `header: ${JSON.stringify(message.template.header ?? [])}\n` +
+              `body:   ${JSON.stringify(message.template.parameters)}\n` +
+              `button: ${message.template.buttonUrlSuffix ?? "—"}`
+            : message.body),
+      );
+
+      return {
+        ok: false,
+        error: `whatsapp dispatch disabled by DISABLE_WHATSAPP_DISPATCH — nothing was sent to ${suppressing}`,
+        // A deliberate configuration, not a blip. Retrying would burn the
+        // outbox's five attempts on a decision.
+        retryable: false,
+      };
+    },
+  };
+}
 
 /**
  * Green API addresses a chat, not a phone: `<international digits>@c.us`, with
@@ -275,7 +329,27 @@ export function greenApiProvider(): NotificationProvider | null {
 export function whatsappProvider(
   twilioFallback: () => NotificationProvider | null,
 ): NotificationProvider | null {
-  return metaCloudProvider() ?? greenApiProvider() ?? twilioFallback();
+  const backend = metaCloudProvider() ?? greenApiProvider() ?? twilioFallback();
+
+  /**
+   * The single interception point, deliberately *after* the backend is chosen
+   * rather than before.
+   *
+   * Suppressing only a backend that would otherwise have sent keeps the switch
+   * inert on a deploy with no WhatsApp credentials at all — there, the channel
+   * still resolves to the console provider and `clientDelivery` still falls
+   * through to SMS and email, exactly as it did before this existed.
+   *
+   * With a backend configured, the stand-in keeps `isChannelLive("whatsapp")`
+   * true on purpose. Reporting the channel dead would send every message down
+   * the email fallback, which on this deployment is the console provider that
+   * marks things sent — turning a cost guard into silent fake delivery.
+   */
+  if (backend && isWhatsappDispatchDisabled()) {
+    return suppressedProvider(backend.name);
+  }
+
+  return backend;
 }
 
 /** Which backend is live, for `check:env` and the deployment docs. */

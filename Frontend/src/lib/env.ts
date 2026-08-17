@@ -287,6 +287,14 @@ export const ENV_VARS: EnvVar[] = [
       "Graph API version to call. Defaults to v23.0. Set it when Meta retires that version.",
     howTo: "developers.facebook.com → Graph API → Changelog.",
   },
+  {
+    name: "DISABLE_WHATSAPP_DISPATCH",
+    requirement: "optional",
+    group: "Notifications (SMS/WhatsApp)",
+    description:
+      "Cost guard. Any value other than false/0/no/off stops every WhatsApp send before the HTTP call. Messages are logged and the outbox row is marked skipped.",
+    howTo: "Leave unset in production. Set it to 1 while testing internally.",
+  },
   /*
    * Green API is the WhatsApp backend that works on day one. It drives the
    * shop's own account rather than the official Business API, so a booking
@@ -355,7 +363,37 @@ export type EnvReport = {
    * Flip this to a hard error when the concrete adapter lands.
    */
   billingLive: boolean;
+  /**
+   * Whether the WhatsApp cost guard is currently suppressing every send.
+   *
+   * Reported prominently because this is the one variable whose *presence*
+   * breaks the product: WhatsApp is the only live client channel here, so a
+   * deploy that ships with it set tells no client anything, and every screen
+   * still looks like it worked.
+   */
+  whatsappSuppressed: boolean;
 };
+
+/**
+ * Values of `DISABLE_WHATSAPP_DISPATCH` that still permit sending.
+ *
+ * **Deliberately an allowlist of *off* values rather than a check for "true",
+ * because this guard protects money.** The expensive direction is a typo:
+ * `DISABLE_WHATSAPP_DISPATCH=ture` compared strictly against `"true"` reads as
+ * *enabled* and starts billing on a run somebody believed was suppressed. So
+ * anything set that is not explicitly off disables dispatch. A typo costs a
+ * confusing quiet hour; the opposite costs money and, on the official API,
+ * message-quality rating.
+ */
+const DISPATCH_PERMITTED_VALUES = ["", "false", "0", "no", "off"];
+
+export function whatsappDispatchDisabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = env.DISABLE_WHATSAPP_DISPATCH;
+  if (raw === undefined) return false;
+  return !DISPATCH_PERMITTED_VALUES.includes(raw.trim().toLowerCase());
+}
 
 /**
  * Pure check so it can run from a CLI, a test, or a health endpoint.
@@ -482,6 +520,27 @@ export function checkEnv(
 
   const pushLive = allPushSet && subjectProblem === null;
 
+  /**
+   * A deploy that suppresses WhatsApp is a deploy where no client hears
+   * anything, because WhatsApp is the only live client channel on this
+   * product — and unlike a missing credential, nothing else in the system
+   * looks wrong. The booking succeeds, the screen confirms, the outbox row
+   * reads `skipped`, and only somebody reading the database would know.
+   *
+   * So it is an **error** under production rules, by the same principle that
+   * makes Resend and Twilio production requirements: a channel a tier sells
+   * must not resolve to something that delivers nothing. It stays a plain
+   * warning in development, which is where the flag is meant to be used.
+   */
+  const whatsappSuppressed = whatsappDispatchDisabled(env);
+  if (whatsappSuppressed && production) {
+    raise(
+      "DISABLE_WHATSAPP_DISPATCH",
+      "every WhatsApp message is suppressed — clients would be told nothing",
+      "Unset it, or set it to `false`, before deploying.",
+    );
+  }
+
   return {
     ok: issues.every((issue) => issue.level !== "error"),
     issues,
@@ -492,5 +551,6 @@ export function checkEnv(
     // so `check:env` states it outright instead of leaving it to be discovered
     // by a tenant clicking a disabled button.
     billingLive: false,
+    whatsappSuppressed,
   };
 }
