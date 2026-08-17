@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import {
@@ -10,6 +10,7 @@ import {
   CalendarOff,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   Plus,
 } from "lucide-react";
 
@@ -250,8 +251,30 @@ function ArrowLink({
       aria-label={label}
       className="p-2.5 text-zinc-600 transition-colors hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
-      {icon}
+      <NavIcon>{icon}</NavIcon>
     </Link>
+  );
+}
+
+/**
+ * Swaps the arrow for a spinner while its navigation is in flight.
+ *
+ * Changing the day is a server round trip — the agenda is per-tenant, live, and
+ * cannot be cached without risking a stale calendar — so some wait is real. What
+ * was missing was any sign it had started: the owner tapped, nothing moved for a
+ * few hundred milliseconds, and tapped again.
+ *
+ * Must be a descendant of the `<Link>` it reports on, which is why it is its own
+ * component. It replaces the glyph in place rather than adding anything, so the
+ * control does not resize and the tap target stays where the thumb left it —
+ * the same rule the toolbar's always-rendered "היום" follows.
+ */
+function NavIcon({ children }: { children: React.ReactNode }) {
+  const { pending } = useLinkStatus();
+  return pending ? (
+    <Loader2 className="size-4 animate-spin" aria-hidden />
+  ) : (
+    children
   );
 }
 

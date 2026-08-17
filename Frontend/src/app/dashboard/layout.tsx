@@ -5,7 +5,8 @@ import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { FrozenBanner } from "@/components/dashboard/frozen-banner";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { ToastProvider } from "@/components/ui/toast";
-import { getBusinessById, getBusinessByOwner } from "@/db/queries";
+import { getBusinessById } from "@/db/queries";
+import { businessForOwner } from "@/lib/dashboard-session";
 import { readImpersonatedBusinessId } from "@/lib/impersonation";
 import { currentSuperAdmin } from "@/lib/master-session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -53,7 +54,9 @@ async function frozenState(): Promise<{ reason: string | null } | null> {
     ? (await currentSuperAdmin())
       ? await getBusinessById(db, impersonatedId)
       : null
-    : await getBusinessByOwner(db, user.id);
+    : // Shared with the page's `requireBusiness()` rather than a second
+      // identical query — see `businessForOwner`.
+      await businessForOwner(user.id);
 
   if (!business || business.isActive) return null;
   return { reason: business.frozenReason };

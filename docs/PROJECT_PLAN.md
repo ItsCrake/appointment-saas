@@ -1291,6 +1291,30 @@ no trailing slash) — and fails the run loudly if either is missing.
 alongside email, push and billing, so "which of the three is live" is visible
 without reading credentials.
 
+### Why the dashboard felt slow, and what is left
+
+Every agenda interaction — an arrow, a day/week switch, an appointment status
+button — re-renders the whole route. That render used to make **three Supabase
+auth round trips and two identical business lookups**: one auth call in the
+proxy, one in the layout's freeze check, one in the page's `requireBusiness()`,
+with a `getBusinessByOwner` beside each of the last two. `getUser()` is a real
+network call to the auth server, deliberately, because `getSession()` trusts a
+spoofable cookie.
+
+React `cache` on `getCurrentUser` and on `businessForOwner` collapses the
+layout's and the page's work into one of each, and
+`request-dedup.coverage.test.ts` fails the build if either is unwrapped. It is
+per-request only, so nothing is weakened — each new request still revalidates.
+
+**Prefetching is not the remaining lever, despite looking like it.**
+`/dashboard` has a `loading.tsx`, so Next prefetches only down to that boundary,
+and the client cache TTL for dynamic routes is **off by default** — a
+`prefetch={true}` payload would be fetched and then discarded. Making it stick
+means `staleTimes.dynamic` in `next.config.ts`, which trades a live calendar for
+speed: an owner stepping to tomorrow and back would see a cached "today" that
+can be missing a booking made seconds ago. **Deliberately not enabled** — that
+is a product call, not a performance one.
+
 ### The one thing that is broken in production right now
 
 **Client email reaches nobody.** Resend rejects every recipient with a `403`

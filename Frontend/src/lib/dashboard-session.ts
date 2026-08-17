@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { db } from "@/db";
@@ -20,6 +21,21 @@ function accessFor(business: { isActive: boolean }): DashboardAccess {
   // should be able to write, and `frozen_reason` only decides who may thaw it.
   return business.isActive ? "full" : "read-only";
 }
+
+/**
+ * The owner's business, resolved once per request.
+ *
+ * The layout's freeze banner and the page's `requireBusiness()` both need this
+ * row, and before this they each queried for it — two identical lookups on
+ * every navigation and every server action. Shared here so the layout and the
+ * page it wraps agree by construction as well as by cost.
+ *
+ * Per-request only, like `getCurrentUser`: a freeze applied between two
+ * requests is still seen on the next one.
+ */
+export const businessForOwner = cache(async (userId: string) =>
+  getBusinessByOwner(db, userId),
+);
 
 /**
  * Resolves the owner's business for every dashboard page and action.
@@ -57,7 +73,7 @@ export async function requireBusiness() {
     }
   }
 
-  const business = await getBusinessByOwner(db, user.id);
+  const business = await businessForOwner(user.id);
   if (!business) redirect("/dashboard/setup");
 
   // A business row exists but the owner never finished setup — most likely
@@ -103,7 +119,7 @@ export async function requireBusinessForSetup() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const business = await getBusinessByOwner(db, user.id);
+  const business = await businessForOwner(user.id);
   return { user, business };
 }
 
