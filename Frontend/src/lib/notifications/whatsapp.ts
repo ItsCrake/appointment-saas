@@ -59,6 +59,18 @@ export function toWhatsAppChatId(phone: string): string {
 const DEFAULT_GRAPH_VERSION = "v23.0";
 
 /**
+ * How long to wait on Meta before giving up.
+ *
+ * Load-bearing rather than hygiene: the public booking action **awaits** this
+ * send, so an unbounded fetch would hold a client's confirmation screen open
+ * until the platform killed the function. Ten seconds is far above Meta's
+ * normal few hundred milliseconds and far below any timeout a user would sit
+ * through. A timeout lands in the catch below as retryable, so the row stays
+ * pending and the sweep picks it up — late, but never lost.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/**
  * Meta's own component payload for one approved template.
  *
  * Each component is a separate object with its own parameter array, and Meta
@@ -138,6 +150,7 @@ export function metaCloudProvider(): NotificationProvider | null {
       try {
         const response = await fetch(url, {
           method: "POST",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",

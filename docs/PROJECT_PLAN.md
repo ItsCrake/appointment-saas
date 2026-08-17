@@ -1254,10 +1254,21 @@ cell prints the served tier plus the reason. Extending a trial now also sets
 
 ### How a message actually gets out
 
-**Both booking paths dispatch their own messages.** The dashboard's manual
-booking awaits the send inline; the public page does it inside `after()` from
-`next/server`, so the client's confirmation screen never waits on Meta. A
-failure never fails the booking either way.
+**Both booking paths dispatch their own messages, both awaited inline.** A
+failure never fails the booking either way. The public path briefly deferred its
+send into `after()` so the confirmation screen could not wait on a provider —
+better on paper, but it made delivery depend on the platform running deferred
+work after the response, and a message quietly falling back to the cron is the
+failure this change exists to remove. What makes awaiting safe is the 10-second
+`AbortSignal.timeout` inside the Meta provider's fetch: a hung connection would
+otherwise hold the booking response open until the platform killed it. A timeout
+is retryable, so the row stays pending and the sweep collects it.
+
+**Emoji-adjacent template parameters are wrapped in U+200F.** `⏰ 16:00` has no
+strong directional character, so the Bidi algorithm defaults it to LTR and iOS
+rendered the clock on the wrong side. `anchorRtl()` in
+`whatsapp-templates.ts` fixes date, time and address; the business name is left
+alone because it sits mid-sentence after Hebrew.
 
 That leaves the sweep responsible for **reminders, retries, billing warnings and
 win-back** — and reminders are the ones that care, because `reminder_2h` targets

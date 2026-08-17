@@ -880,6 +880,43 @@ Four decisions carry weight:
   the two columns that decide it, so a reminder rescheduled by any future path
   stays correctly labelled without a migration.
 
+### Every emoji-adjacent parameter is anchored right-to-left
+
+The approved copy opens three lines with an emoji — `⏰ {{2}}`, `📅 {{2}}`,
+`📍 {{3}}` — and on iOS the clock rendered on the **left**, mirrored against
+every other line of a Hebrew message.
+
+Not a WhatsApp bug. `⏰ 16:00` contains **no strong directional character at
+all**: the emoji is Bidi class ON, the digits are EN, which is *weak*. The
+Unicode Bidi Algorithm resolves paragraph direction by scanning for the first
+strong character (UAX #9, rules P2/P3) and defaults to **left-to-right** when it
+finds none — so a client resolving direction per line lays that one line out
+LTR and the neutral emoji goes to the other end.
+
+`anchorRtl()` wraps the value in U+200F RIGHT-TO-LEFT MARK, a zero-width
+character whose Bidi class is R. That is the strong character P2 was looking
+for. Digits still render internally left-to-right — `16:00`, never `00:61` —
+because number handling is a separate part of the same algorithm.
+
+Reproduced in a browser against `dir="auto"`, which implements the same
+first-strong-character rule:
+
+| Parameter | Resolves | Emoji lands |
+| --- | --- | --- |
+| `⏰ 16:00` | `ltr` | left |
+| `⏰ ‏16:00‏` | `rtl` | right |
+| `📍 Dizengoff 100` | `ltr` | left |
+| `📍 ‏Dizengoff 100‏` | `rtl` | right |
+
+The address is anchored for exactly the reason the second row shows: it is the
+parameter most likely to *start* with a strong left-to-right character. The
+business name is deliberately left alone — it sits mid-sentence after Hebrew
+that has already resolved the line.
+
+RLM rather than the directional isolates (U+2066–2069), which express this more
+precisely: RLM is older and far more widely honoured, and this text is rendered
+by clients we do not control on platforms we cannot test.
+
 ### The button sends a token, and the proxy is the other half of it
 
 Meta freezes a URL button's **base** at approval and appends only the varying

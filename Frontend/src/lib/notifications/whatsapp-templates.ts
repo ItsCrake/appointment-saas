@@ -65,6 +65,50 @@ function filled(value: string | null | undefined): string {
   return value?.trim() || ABSENT;
 }
 
+/** U+200F RIGHT-TO-LEFT MARK — zero width, Bidi class R. */
+const RLM = "‏";
+
+/**
+ * Anchors a parameter to right-to-left, so the emoji beside it stays put.
+ *
+ * ---------------------------------------------------------------------------
+ * The approved copy puts an emoji at the start of three lines:
+ *
+ *     ⏰ {{2}}      📅 {{2}}      📍 {{3}}
+ *
+ * Take the worst one. `⏰ 16:00` contains **no strong directional character at
+ * all**: the emoji is Bidi class ON (Other Neutral), the digits are EN
+ * (European Number, which is *weak*), and the colon is CS. The Unicode Bidi
+ * Algorithm resolves paragraph direction by scanning for the first strong
+ * character (rules P2/P3) and defaults to **left-to-right** when it finds none.
+ *
+ * A client that resolves direction per line rather than per message therefore
+ * lays that one line out LTR — putting ⏰ on the left with the time to its
+ * right, mirrored against every other line in a Hebrew message. This is the
+ * iOS report, and it is not a WhatsApp bug: the text genuinely is directionally
+ * ambiguous.
+ *
+ * RLM is a zero-width character whose Bidi class is R, so it gives P2 the
+ * strong right-to-left character it was looking for. The line resolves RTL, the
+ * neutral emoji takes the paragraph direction, and it lands on the right where
+ * the rest of the message is. Digits still render internally left-to-right —
+ * "16:00", never "00:61" — because that is the number handling in the same
+ * algorithm and RLM does not touch it.
+ *
+ * Both ends, not just the front: a trailing number run reaching the end of the
+ * line is the other half of the same ambiguity, and a closing mark costs
+ * nothing.
+ *
+ * Chosen over the directional isolates (U+2066–2069), which express this more
+ * precisely, because RLM is the older and far more widely honoured control and
+ * this text is rendered by clients we do not control on platforms we cannot
+ * test.
+ * ---------------------------------------------------------------------------
+ */
+export function anchorRtl(value: string): string {
+  return `${RLM}${value}${RLM}`;
+}
+
 /**
  * The 📅 slot: "יום שלישי, 20/08/2026".
  *
@@ -75,12 +119,14 @@ function filled(value: string | null | undefined): string {
  */
 export function datePhrase(context: AppointmentContext): string {
   const when = formatFullDateTime(context.startsAt, context.businessTimezone);
-  return `יום ${when.weekday}, ${when.date}`;
+  return anchorRtl(`יום ${when.weekday}, ${when.date}`);
 }
 
 /** The ⏰ slot: "14:30", in the business's own timezone. */
 export function timePhrase(context: AppointmentContext): string {
-  return formatFullDateTime(context.startsAt, context.businessTimezone).time;
+  return anchorRtl(
+    formatFullDateTime(context.startsAt, context.businessTimezone).time,
+  );
 }
 
 /**
@@ -154,7 +200,11 @@ export function whatsappTemplateFor(
       parameters: [
         filled(appointment.businessName),
         timePhrase(appointment),
-        filled(appointment.businessAddress),
+        // 📍 is the third emoji line, and an address is the parameter most
+        // likely to *start* with a strong left-to-right character — "Dizengoff
+        // 100" resolves that line LTR and mirrors the pin exactly as the time
+        // line does.
+        anchorRtl(filled(appointment.businessAddress)),
       ],
       /**
        * `reminder_24h` was approved with a management button and `reminder_2h`

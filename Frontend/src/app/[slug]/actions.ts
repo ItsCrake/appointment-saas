@@ -2,7 +2,6 @@
 
 import { randomUUID } from "node:crypto";
 
-import { after } from "next/server";
 import { formatInTimeZone } from "date-fns-tz";
 
 import { db } from "@/db";
@@ -295,32 +294,34 @@ export async function createBookingAction(
        * The outbox still owns durability — the row stays pending and the cron
        * retries it — but "next sweep" is up to 15 minutes on the external
        * scheduler and a full day on Vercel's Hobby cron. A client who has just
-       * tapped "book" and is looking at the confirmation screen should not wait
-       * either of those for the WhatsApp that proves it worked. The dashboard's
-       * manual booking has done this inline since it shipped; this is the same
-       * rule applied to the path almost every booking actually takes.
+       * tapped "book" should not wait either of those for the WhatsApp that
+       * proves it worked. The sweep keeps the jobs only it can do: the 24h and
+       * 2h reminders, retries, billing warnings and win-back.
        *
-       * **Inside `after`**, which is the difference from the dashboard version.
-       * That one runs with an owner watching a spinner they understand; this one
-       * runs in front of a client, and a slow provider must not hold the
-       * confirmation screen hostage. `after` runs the send once the response has
-       * already been streamed, so the page is instant either way and the send
-       * still happens in the same invocation.
+       * **Awaited**, exactly as the dashboard's manual booking does it. An
+       * earlier version deferred this into `after()` so the confirmation screen
+       * could never wait on a provider — better on paper, but it makes delivery
+       * depend on the platform actually running deferred work after the
+       * response, and a message that quietly falls back to the cron is the
+       * failure mode this whole change exists to remove. Determinism wins: the
+       * send either happened or it is reported.
+       *
+       * What makes awaiting safe is the timeout inside the provider's own
+       * fetch. Without it a hung Meta connection would hold the booking
+       * response open until the platform killed the function.
        */
       if (queued.length > 0) {
-        after(async () => {
-          try {
-            await dispatchDueNotifications(db, {
-              appointmentId: appointment.id,
-              limit: 10,
-            });
-          } catch (error) {
-            reportError("booking.dispatch", error, {
-              businessId,
-              appointmentId: appointment.id,
-            });
-          }
-        });
+        try {
+          await dispatchDueNotifications(db, {
+            appointmentId: appointment.id,
+            limit: 10,
+          });
+        } catch (error) {
+          reportError("booking.dispatch", error, {
+            businessId,
+            appointmentId: appointment.id,
+          });
+        }
       }
     } catch (error) {
       reportError("booking.notify", error, {

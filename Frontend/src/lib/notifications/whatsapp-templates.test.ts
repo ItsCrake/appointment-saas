@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { planReminder } from "./reminder-policy";
 import type { AppointmentContext } from "./types";
 import {
+  anchorRtl,
   datePhrase,
   leadHoursFor,
   reminderTemplateFor,
@@ -12,6 +13,9 @@ import {
 } from "./whatsapp-templates";
 
 const HOUR = 3_600_000;
+
+/** U+200F RIGHT-TO-LEFT MARK, spelled out so the tests below stay readable. */
+const RLM = "‏";
 
 const TOKEN = "34e64171-cb3e-47b3-8548-82297eff1270";
 
@@ -124,8 +128,8 @@ describe("approved template shapes", () => {
     expect(template.header).toEqual(["דני"]);
     expect(template.parameters).toEqual([
       "מספרת בלאק",
-      "יום חמישי, 20/08/2026",
-      "14:30",
+      anchorRtl("יום חמישי, 20/08/2026"),
+      anchorRtl("14:30"),
     ]);
     // Header {{1}} and body {{1}} are different variables, not a duplicate.
     expect(template.header![0]).not.toBe(template.parameters[0]);
@@ -139,8 +143,8 @@ describe("approved template shapes", () => {
       expect(template.header).toBeUndefined();
       expect(template.parameters).toEqual([
         "מספרת בלאק",
-        "14:30",
-        "הרצל 10, תל אביב",
+        anchorRtl("14:30"),
+        anchorRtl("הרצל 10, תל אביב"),
       ]);
     }
   });
@@ -195,12 +199,12 @@ describe("parameter values", () => {
   it("writes the date and the time as separate slots", () => {
     // The approved copy puts 📅 and ⏰ on their own lines, so they are two
     // variables. An earlier version fused them into one phrase.
-    expect(datePhrase(context())).toBe("יום חמישי, 20/08/2026");
-    expect(timePhrase(context())).toBe("14:30");
+    expect(datePhrase(context())).toContain("יום חמישי, 20/08/2026");
+    expect(timePhrase(context())).toContain("14:30");
   });
 
   it("renders in the business timezone, not UTC", () => {
-    expect(timePhrase(context())).not.toBe("11:30");
+    expect(timePhrase(context())).not.toContain("11:30");
   });
 
   /**
@@ -220,7 +224,75 @@ describe("parameter values", () => {
       { leadHours: 24 },
     )!;
     expect(reminder.parameters).not.toContain("");
-    expect(reminder.parameters[2]).toBe("—");
+    // Anchored like every other emoji-adjacent parameter — see the direction
+    // marks block below.
+    expect(reminder.parameters[2]).toBe(anchorRtl("—"));
+  });
+});
+
+/**
+ * The iOS report: `⏰ 16:00` rendered with the clock on the *left*, mirrored
+ * against every other line of a Hebrew message.
+ */
+describe("direction marks keep the emoji beside the number", () => {
+  /** Strong right-to-left: Hebrew, or the mark itself. */
+  const STRONG_RTL = /[‏֐-׿]/;
+  const strip = (value: string) => value.replaceAll(RLM, "");
+
+  /**
+   * The defect and the fix in one assertion.
+   *
+   * "16:00" contains no strong directional character at all — digits are EN,
+   * which is *weak* — so the Bidi algorithm falls back to left-to-right and a
+   * client resolving direction per line flips the neutral emoji to the other
+   * end. The mark is what gives that line something strong to resolve on.
+   */
+  it("gives the time the strong character it otherwise has none of", () => {
+    expect(STRONG_RTL.test("16:00")).toBe(false);
+    expect(STRONG_RTL.test(timePhrase(context()))).toBe(true);
+  });
+
+  it("anchors every parameter that shares a line with an emoji", () => {
+    const confirmation = whatsappTemplateFor(context())!;
+    const reminder = whatsappTemplateFor(context({ kind: "reminder" }), {
+      leadHours: 24,
+    })!;
+
+    // 📅 date, ⏰ time on the confirmation; ⏰ time, 📍 place on the reminder.
+    for (const value of [
+      confirmation.parameters[1],
+      confirmation.parameters[2],
+      reminder.parameters[1],
+      reminder.parameters[2],
+    ]) {
+      expect(value.startsWith(RLM)).toBe(true);
+      expect(value.endsWith(RLM)).toBe(true);
+    }
+  });
+
+  /**
+   * The business name sits mid-sentence after Hebrew that already resolves the
+   * line — "התור ל{{1}}". Marking it would be noise, and the point of anchoring
+   * only the ambiguous parameters is that the rule stays legible.
+   */
+  it("leaves a parameter that is already inside Hebrew alone", () => {
+    expect(whatsappTemplateFor(context())!.parameters[0]).toBe("מספרת בלאק");
+  });
+
+  it("changes not one visible character", () => {
+    // Zero-width by definition: strip the marks and the client reads exactly
+    // what it read before. In particular the digits stay in order.
+    expect(strip(timePhrase(context()))).toBe("14:30");
+    expect(strip(datePhrase(context()))).toBe("יום חמישי, 20/08/2026");
+  });
+
+  it("still anchors the placeholder when a shop has no address", () => {
+    const reminder = whatsappTemplateFor(
+      context({ kind: "reminder", businessAddress: null }),
+      { leadHours: 2 },
+    )!;
+    expect(strip(reminder.parameters[2])).toBe("—");
+    expect(STRONG_RTL.test(reminder.parameters[2])).toBe(true);
   });
 });
 
