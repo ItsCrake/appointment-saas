@@ -2,11 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "booking-dev",
+      "name": "bazman",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "Frontend", "run", "dev"],
-      "port": 3000,
-      "autoPort": true
+      "runtimeArgs": ["--prefix", "D:\\AppointmentSaaS\\Frontend", "run", "dev"],
+      "port": 3000
     }
   ]
 }

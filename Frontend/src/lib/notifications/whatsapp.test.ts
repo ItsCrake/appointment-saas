@@ -253,6 +253,12 @@ describe("channel selection", () => {
   it("falls back to the console when nothing is configured", () => {
     expect(getProvider("whatsapp").name).toBe("console");
     expect(isChannelLive("whatsapp")).toBe(false);
+    // `check:env` prints this verdict under Delivery, and "off" is the branch
+    // that tells an operator no client will hear anything by WhatsApp.
+    expect(describeWhatsApp()).toEqual({
+      provider: null,
+      needsTemplateApproval: false,
+    });
   });
 
   /**

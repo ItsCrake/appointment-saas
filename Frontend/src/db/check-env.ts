@@ -1,6 +1,11 @@
 import dotenv from "dotenv";
 
 import { checkEnv, ENV_VARS } from "@/lib/env";
+// Safe to import above `dotenv.config()` below: nothing in that module reads
+// the environment at load time — `describeWhatsApp` resolves the backend on
+// every call, which is the same property that lets the runtime pick one up
+// from a variable added after boot.
+import { describeWhatsApp } from "@/lib/notifications/whatsapp";
 
 dotenv.config({ path: ".env.local", quiet: true });
 
@@ -63,6 +68,31 @@ if (report.emailChannel === "resend") {
     `  ${mark} email → console ${colour}nothing is delivered${RESET}\n` +
       `      ${DIM}Messages are logged and marked sent. Set RESEND_API_KEY and${RESET}\n` +
       `      ${DIM}NOTIFICATIONS_FROM_EMAIL to send real mail.${RESET}`,
+  );
+}
+
+/**
+ * WhatsApp is the client channel on this deployment, so "which backend" is the
+ * single most useful line in this section — and it was the one missing. The
+ * variable list above cannot answer it: three different credential sets resolve
+ * here, they have a precedence order, and an unconfigured channel falls through
+ * to the console provider that reports success and delivers nothing.
+ */
+const whatsapp = describeWhatsApp();
+if (whatsapp.provider) {
+  console.log(
+    `  ${GREEN}✓${RESET} whatsapp → ${whatsapp.provider} ${DIM}(messages are delivered)${RESET}` +
+      (whatsapp.needsTemplateApproval
+        ? `\n      ${DIM}Official API: only Meta-approved templates send. Kinds without${RESET}` +
+          `\n      ${DIM}one are refused rather than dropped silently.${RESET}`
+        : `\n      ${DIM}Unofficial gateway driving the shop's own account — no template${RESET}` +
+          `\n      ${DIM}approval, and no Meta support if it stops.${RESET}`),
+  );
+} else {
+  console.log(
+    `  ${YELLOW}!${RESET} whatsapp → off ${DIM}(clients fall back to SMS, then email)${RESET}\n` +
+      `      ${DIM}Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN for the${RESET}\n` +
+      `      ${DIM}Meta Cloud API, or the GREEN_API_* pair for the unofficial one.${RESET}`,
   );
 }
 

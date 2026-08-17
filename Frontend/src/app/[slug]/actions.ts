@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { after } from "next/server";
 import { formatInTimeZone } from "date-fns-tz";
 
 import { db } from "@/db";
@@ -16,6 +17,7 @@ import {
   staffAvailableAt,
   type SlotWithStaff,
 } from "@/lib/availability";
+import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError, reportWarning } from "@/lib/observability";
 import { sendPushToBusiness } from "@/lib/push";
@@ -281,11 +283,45 @@ export async function createBookingAction(
     // Best-effort: the booking is already committed, so a notification
     // problem must never turn a successful booking into an error.
     try {
-      await enqueueBookingNotifications({
+      const queued = await enqueueBookingNotifications({
         db,
         business: businessRow,
         appointment,
       });
+
+      /**
+       * Send this booking's messages now rather than on the next sweep.
+       *
+       * The outbox still owns durability — the row stays pending and the cron
+       * retries it — but "next sweep" is up to 15 minutes on the external
+       * scheduler and a full day on Vercel's Hobby cron. A client who has just
+       * tapped "book" and is looking at the confirmation screen should not wait
+       * either of those for the WhatsApp that proves it worked. The dashboard's
+       * manual booking has done this inline since it shipped; this is the same
+       * rule applied to the path almost every booking actually takes.
+       *
+       * **Inside `after`**, which is the difference from the dashboard version.
+       * That one runs with an owner watching a spinner they understand; this one
+       * runs in front of a client, and a slow provider must not hold the
+       * confirmation screen hostage. `after` runs the send once the response has
+       * already been streamed, so the page is instant either way and the send
+       * still happens in the same invocation.
+       */
+      if (queued.length > 0) {
+        after(async () => {
+          try {
+            await dispatchDueNotifications(db, {
+              appointmentId: appointment.id,
+              limit: 10,
+            });
+          } catch (error) {
+            reportError("booking.dispatch", error, {
+              businessId,
+              appointmentId: appointment.id,
+            });
+          }
+        });
+      }
     } catch (error) {
       reportError("booking.notify", error, {
         businessId,

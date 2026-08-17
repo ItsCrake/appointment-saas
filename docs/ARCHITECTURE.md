@@ -1377,12 +1377,26 @@ rather than loses; `dedupe_key` prevents double-sends; and the dispatcher
 re-checks appointment state before sending, so a reminder for a
 since-cancelled appointment is skipped rather than delivered.
 
-**A manual booking dispatches inline.** `dispatchDueNotifications` takes an
-optional `appointmentId`, and the dashboard's manual-booking action calls it
-straight after enqueueing. The outbox still owns durability — the row stays
-pending and the daily run retries it — but an owner standing in front of a
-client should not have to explain that the confirmation arrives tomorrow
-morning. A failure there never fails the booking.
+**Both booking paths dispatch inline.** `dispatchDueNotifications` takes an
+optional `appointmentId`, and both the dashboard's manual-booking action and the
+public booking action call it straight after enqueueing. The outbox still owns
+durability — the row stays pending and the sweep retries it — but neither an
+owner standing in front of a client nor a client staring at a confirmation
+screen should wait a sweep for the message that proves it worked. A failure
+there never fails the booking.
+
+The two differ in *when* they dispatch, and the reason is who is watching:
+
+| Path | Dispatch | Why |
+| --- | --- | --- |
+| Dashboard manual booking | inline, awaited | The owner is watching a spinner they understand, and wants to know before the client leaves |
+| Public booking page | inside `after()` | The client is watching the confirmation screen; a slow provider must not hold it hostage |
+
+`after` — from `next/server`, stable in Next 16 — runs the callback once the
+response has already been streamed, in the same invocation. So the confirmation
+screen is instant whether Meta answers in 200ms or times out, and the send still
+happens immediately rather than waiting up to fifteen minutes for the external
+scheduler.
 
 > **The manual-booking bug was not a missing call.** The action always
 > enqueued. The problem is that a walk-in booked over the phone has a number
@@ -1392,13 +1406,20 @@ morning. A failure there never fails the booking.
 > looking like a broken confirmation. It resolves properly once Twilio is
 > configured and the SMS branch can take phone-only clients.
 
-**Dispatch cadence is the outbox's one hard constraint.** Confirmations and
-owner alerts are enqueued with `scheduledFor: now`, so a client sees them only
-as fast as the dispatcher runs. `vercel.json` is set to `0 8 * * *` because
-Vercel's Hobby plan rejects any expression that fires more than once a day — at
-that cadence a booking made at 14:00 gets its confirmation the next morning.
-Anything approaching real-time needs Pro, or an external scheduler hitting the
-same URL with the same bearer token. See [DEPLOYMENT.md](DEPLOYMENT.md).
+**Dispatch cadence still matters, but no longer for confirmations.** Now that
+both booking paths dispatch their own messages, the sweep's cadence governs what
+is left: **reminders**, retries of a failed send, billing warnings and the
+win-back message.
+
+Reminders are the ones that care. A `reminder_2h` is scheduled for a precise
+instant two hours before the appointment, so the sweep interval is the error bar
+on when it actually lands. `vercel.json` is pinned to `0 8 * * *` only because
+Vercel's Hobby plan rejects any expression firing more than once a day — at that
+cadence a two-hour reminder is meaningless. `.github/workflows/dispatch-notifications.yml`
+is what makes it work: the same authenticated URL, every 15 minutes, offset off
+the quarter-hour because GitHub's scheduler is busiest at `:00`. It needs two
+repository secrets, `CRON_SECRET` and `APP_URL`, and fails loudly without them.
+See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Providers resolve at send time.** `getProvider(channel)` checks credentials
 on every call, so adding a key switches a channel live with no code change.

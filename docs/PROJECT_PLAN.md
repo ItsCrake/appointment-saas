@@ -1252,6 +1252,25 @@ cell prints the served tier plus the reason. Extending a trial now also sets
 `subscription_status` back to `trialing`, clears the grace clock and lifts a
 *billing* freeze (never an admin one).
 
+### How a message actually gets out
+
+**Both booking paths dispatch their own messages.** The dashboard's manual
+booking awaits the send inline; the public page does it inside `after()` from
+`next/server`, so the client's confirmation screen never waits on Meta. A
+failure never fails the booking either way.
+
+That leaves the sweep responsible for **reminders, retries, billing warnings and
+win-back** — and reminders are the ones that care, because `reminder_2h` targets
+a precise instant. `vercel.json` is pinned to daily only to satisfy Vercel Hobby;
+`.github/workflows/dispatch-notifications.yml` hits the same authenticated URL
+every 15 minutes and is what makes reminders land. It needs two repository
+secrets — `CRON_SECRET` (same value as Vercel's) and `APP_URL` (deployed origin,
+no trailing slash) — and fails the run loudly if either is missing.
+
+`check:env` now prints the resolved WhatsApp backend under **Delivery**
+alongside email, push and billing, so "which of the three is live" is visible
+without reading credentials.
+
 ### The one thing that is broken in production right now
 
 **Client email reaches nobody.** Resend rejects every recipient with a `403`
