@@ -96,28 +96,42 @@ export function AgendaView({
           ))}
         </div>
 
-        <nav className="flex items-center gap-1" aria-label="ניווט בתאריכים">
+        {/* One bordered group rather than three loose buttons, and "היום" is
+            always rendered.
+
+            It used to appear only when the owner had navigated away, so the
+            row reflowed and every control beside it moved the moment they
+            stepped a day forward — the worst possible behaviour for someone
+            aiming a thumb between clients. Present and marked as current costs
+            one segment and holds the layout still. */}
+        <nav
+          className="flex items-center overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+          aria-label="ניווט בתאריכים"
+        >
           {/* RTL: "previous" sits on the right, so the chevron points that way. */}
           <ArrowLink
             href={`/dashboard?view=${view}&date=${prev}`}
             label="הקודם"
             icon={<ChevronRight className="size-4" aria-hidden />}
           />
+          <Link
+            href={`/dashboard?view=${view}`}
+            aria-current={selectedDate === today ? "date" : undefined}
+            className={cn(
+              "border-x border-zinc-200 px-3 py-2 text-xs font-semibold transition-colors dark:border-zinc-800",
+              selectedDate === today
+                ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                : "text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800",
+            )}
+          >
+            היום
+          </Link>
           <ArrowLink
             href={`/dashboard?view=${view}&date=${next}`}
             label="הבא"
             icon={<ChevronLeft className="size-4" aria-hidden />}
           />
         </nav>
-
-        {selectedDate !== today ? (
-          <Link
-            href={`/dashboard?view=${view}`}
-            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-          >
-            היום
-          </Link>
-        ) : null}
 
         <div className="ms-auto flex items-center gap-2">
           <button
@@ -234,7 +248,7 @@ function ArrowLink({
     <Link
       href={href}
       aria-label={label}
-      className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+      className="p-2.5 text-zinc-600 transition-colors hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {icon}
     </Link>

@@ -5,7 +5,7 @@ import { CalendarRange, ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
 import { PendingRequests } from "@/components/dashboard/pending-requests";
-import { StatsCards } from "@/components/dashboard/stats-cards";
+import { TodaySummary } from "@/components/dashboard/today-summary";
 import { db } from "@/db";
 import {
   getDashboardStats,
@@ -72,42 +72,49 @@ export default async function AgendaPage({ searchParams }: PageProps) {
 
   return (
     <div>
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            היומן
-          </h1>
-          <p className="mt-0.5 text-sm text-zinc-500">{business.name}</p>
+      {/* Three flex children under `justify-between` used to wrap into each
+          other on a phone, and the subtitle restated a shop name its only
+          reader already owns — the impersonation banner is what names a
+          business when that is genuinely in doubt. Title on one side, both
+          destinations grouped on the other, one row at every width. */}
+      <header className="mb-5 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+          היומן
+        </h1>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Rare enough to be quiet: an owner opens their own public page to
+              check or share it, not to work. Icon-only below `sm`, where the
+              label was what forced the header onto a second line. */}
+          <Link
+            href={`/${business.slug}`}
+            target="_blank"
+            aria-label="עמוד ההזמנות"
+            className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white p-2.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 sm:px-3 sm:py-2 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <ExternalLink className="size-4" aria-hidden />
+            <span className="hidden sm:inline">עמוד ההזמנות</span>
+          </Link>
+
+          {/* The full calendar is a sibling view of this one rather than a nav
+              entry: an owner arrives at "today" and reaches for it from here,
+              not from a menu two taps away.
+
+              It is the one **gradient** control on this page. That is the
+              documented use of the brand ramp — the thing being recommended —
+              and it sits at the outer edge, which is the easiest place on a
+              phone to hit. */}
+          <Link
+            href="/dashboard/agenda/full"
+            className="inline-flex items-center gap-2 rounded-full bg-[image:var(--brand-gradient)] px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-500/25 transition-all hover:shadow-lg hover:brightness-110 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:focus-visible:ring-offset-zinc-950"
+          >
+            <CalendarRange className="size-4" aria-hidden />
+            יומן מלא
+          </Link>
         </div>
-
-        {/* The full calendar is a sibling view of this one rather than a nav
-            entry: an owner arrives at "today" and reaches for it from here,
-            not from a menu two taps away.
-
-            It is the one **gradient** control on this page, and larger than the
-            outline buttons beside it. That is the documented use of the brand
-            ramp — the thing being recommended — and it was previously
-            indistinguishable from "share the link", which is a far smaller
-            action an owner takes once. */}
-        <Link
-          href="/dashboard/agenda/full"
-          className="inline-flex items-center gap-2 rounded-full bg-[image:var(--brand-gradient)] px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-500/25 transition-all hover:shadow-lg hover:brightness-110 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:focus-visible:ring-offset-zinc-950"
-        >
-          <CalendarRange className="size-4" aria-hidden />
-          יומן מלא
-        </Link>
-
-        <Link
-          href={`/${business.slug}`}
-          target="_blank"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-        >
-          <ExternalLink className="size-3.5" aria-hidden />
-          עמוד ההזמנות
-        </Link>
       </header>
 
-      <StatsCards
+      <TodaySummary
         todayCount={stats.todayCount}
         weekCount={stats.weekCount}
         upcomingCount={stats.upcomingCount}

@@ -2304,6 +2304,43 @@ called from whatever renders the `<form>`. Disabling on submit is not only
 feedback — a form action posted twice runs twice, and "nothing happened so I
 clicked again" is precisely what was reported.
 
+## The agenda answers one question before it offers anything
+
+`/dashboard` is opened between clients, on a phone, by an owner who wants to
+know who is next. It used to answer that fourth.
+
+Above the first appointment sat a header of three flex children that wrapped
+into each other, then **six equal-weight metric cards** — `grid-cols-2` on a
+phone, so three full rows of numbers — then the toolbar. Equal weight is the
+part that did the damage: nothing told the owner which of the six to read, and
+two of them were 30-day *rates*, which is analysis rather than the next hour.
+Worse, those two rendered `—` and "אין מספיק נתונים" for any shop with fewer
+than five past bookings, so a new owner's first sight of their own dashboard was
+two empty boxes.
+
+The cards are now one sentence — `היום 7 תורים · צפי ₪640` — and the other four
+figures open from it on request.
+
+- **Nothing was removed.** The four secondary figures are one tap away in a
+  native `<details>`. Moving the rates to `/dashboard/analytics` would have been
+  the tidier-looking cut and the wrong one: analytics is Pro-gated, so a Starter
+  tenant would have lost them entirely.
+- **`<details>`/`<summary>`, not React state.** Keyboard operation and screen-
+  reader announcement come free, the page stays a server component with no
+  hydration for this, and the whole 50px row is the target.
+- **The secondary figures are not cards either.** Label above value, separated by
+  rules. Cards were the lazy container the first time.
+- **`היום` is always rendered in the date nav.** It used to appear only once the
+  owner had navigated away, so the row reflowed and every control beside it moved
+  the instant they stepped a day forward — the worst possible behaviour for
+  someone aiming a thumb between clients.
+
+Measured rather than eyeballed, at 375px and 750px: 17.7:1 on the headline,
+4.83:1 on every label and hint, 5.03:1 on the amber warning, no horizontal
+overflow open or closed. The old hint colour was `zinc-400`, which measures
+2.6:1 on white — the same AA failure the booking page was lifted off, still
+shipping here.
+
 ## One palette, one ramp
 
 The landing page was rebuilt monochrome while `/login`, `/dashboard/*` and

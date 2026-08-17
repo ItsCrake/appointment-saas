@@ -405,6 +405,14 @@ full week calendar, an installable app with push, and a WhatsApp backend.
   turns the transcript into structured fields. Pro-gated, and hidden entirely
   without an `ANTHROPIC_API_KEY`. See
   [ARCHITECTURE.md](docs/ARCHITECTURE.md#ליבי--booking-by-hebrew-voice-command).
+- **The agenda answers "who is next" first.** Six equal-weight metric cards
+  above the appointments — three rows of them on a phone, two of which were
+  30-day rates that read `—` for any new shop — became one sentence with the
+  rest behind a native disclosure. Nothing was removed: the rates stay
+  reachable by a Starter tenant, which moving them to the Pro-gated analytics
+  page would have prevented. `היום` is now always rendered in the date nav, so
+  the toolbar stops reflowing under a thumb. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#the-agenda-answers-one-question-before-it-offers-anything).
 - **The booking page got an elevation system**: four shadow tokens (one of them
   resolving the tenant's own accent), a real typographic scale, `zinc-400` text
   lifted off a 2.6:1 contrast failure, and one rule learned the hard way —
