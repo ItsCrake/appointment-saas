@@ -229,6 +229,17 @@ async function seedTenant(tenant: TenantSeed, ownerUserId: string) {
         // Pro so the demo shows the whole product. Branding is a Pro
         // entitlement, and a demo shop that cannot demo it is not much of one.
         planType: "pro",
+        /**
+         * Without this the dashboard bounces the owner straight into
+         * `/dashboard/setup`: `requireBusiness()` treats a null here as "closed
+         * the tab mid-flow" and puts them back. So a claimed demo looked like it
+         * had no business at all — the owner was offered the create-a-business
+         * wizard while already owning a fully configured shop.
+         *
+         * The seed builds services and hours itself, so onboarding genuinely is
+         * complete; saying so is the accurate value, not a shortcut.
+         */
+        onboardingCompletedAt: new Date(),
       })
       .returning();
 
