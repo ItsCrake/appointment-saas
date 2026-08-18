@@ -8,6 +8,7 @@ import {
   hasNoUpcomingBooking,
   isOptedOutOfMarketing,
 } from "@/db/queries/retention-guards";
+import { whatsappSuppressedByConsole } from "@/db/queries/platform-settings";
 import type { Database } from "@/db/types";
 
 import { daysUntil, GRACE_DAYS } from "@/lib/billing/lifecycle";
@@ -63,6 +64,17 @@ export async function dispatchDueNotifications(
     failed: 0,
     skipped: 0,
   };
+
+  /**
+   * Read once, before the loop. Fails safe: an unreadable settings table
+   * answers "suppressed", because the cost of being wrong here is money and
+   * messages to real clients from a deploy that believed it was muted.
+   */
+  const consoleSuppressed = due.some(
+    (r) => r.notification.channel === "whatsapp",
+  )
+    ? await whatsappSuppressedByConsole(db)
+    : false;
 
   for (const row of due) {
     const { notification, business, appointment } = row;
@@ -186,15 +198,24 @@ export async function dispatchDueNotifications(
      * reason, not `failed`; a fortnight of internal testing would otherwise
      * fill `/master/alerts` with failures that were nothing of the kind, and
      * bury the real ones.
+     *
+     * **Two sources, combined by OR.** The environment variable is the
+     * deploy-time guard; the `/master` toggle is the runtime one. Either can
+     * suppress and neither can force sending back on over the other — a switch
+     * in a web UI must not be able to start spending money on a deploy whose
+     * environment deliberately said no.
+     *
+     * The console read is resolved once per run rather than per row: it cannot
+     * change mid-sweep in any way that matters, and a hundred-row batch should
+     * not be a hundred queries.
      */
-    if (notification.channel === "whatsapp" && isWhatsappDispatchDisabled()) {
-      await markNotificationSkipped(
-        db,
-        notification.id,
-        "whatsapp dispatch disabled (DISABLE_WHATSAPP_DISPATCH)",
-      );
-      summary.skipped++;
-      continue;
+    if (notification.channel === "whatsapp") {
+      const reason = whatsappSuppressionReason(consoleSuppressed);
+      if (reason) {
+        await markNotificationSkipped(db, notification.id, reason);
+        summary.skipped++;
+        continue;
+      }
     }
 
     const { subject, body } = renderNotification(context);
@@ -240,4 +261,23 @@ export async function dispatchDueNotifications(
   }
 
   return summary;
+}
+
+/**
+ * Why a WhatsApp message is being suppressed, or null when it may send.
+ *
+ * Returns the *reason string* rather than a boolean so the outbox row records
+ * which of the two guards stopped it — "it was skipped" is not a useful thing
+ * to read three weeks later when nobody remembers which switch was on.
+ */
+export function whatsappSuppressionReason(
+  consoleSuppressed: boolean,
+): string | null {
+  if (isWhatsappDispatchDisabled()) {
+    return "whatsapp dispatch disabled (DISABLE_WHATSAPP_DISPATCH)";
+  }
+  if (consoleSuppressed) {
+    return "whatsapp dispatch disabled (master console toggle)";
+  }
+  return null;
 }

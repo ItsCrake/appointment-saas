@@ -73,6 +73,107 @@ async function scenario(
 }
 
 /**
+ * The console toggle: the same guard, flippable from /master without a deploy.
+ *
+ * The rule under test is that the two sources combine by **OR, never
+ * override** — a switch in a web UI must not be able to start spending money on
+ * a deploy whose environment deliberately said no.
+ */
+describe("the master console toggle suppresses WhatsApp", () => {
+  const saved = process.env.DISABLE_WHATSAPP_DISPATCH;
+
+  beforeEach(async () => {
+    delete process.env.DISABLE_WHATSAPP_DISPATCH;
+    await harness.pg.exec(
+      "UPDATE platform_settings SET whatsapp_dispatch_disabled = false",
+    );
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.DISABLE_WHATSAPP_DISPATCH;
+    else process.env.DISABLE_WHATSAPP_DISPATCH = saved;
+  });
+
+  async function queueWhatsapp() {
+    const { business, appointment } = await scenario();
+    await enqueueNotification(db, {
+      businessId: business.id,
+      appointmentId: appointment.id,
+      channel: "whatsapp",
+      kind: "booking_confirmation",
+      recipient: "0501234567",
+      scheduledFor: NOW,
+      dedupeKey: `wa-console:${appointment.id}`,
+    });
+    return business;
+  }
+
+  it("skips when the console toggle is on, naming that source", async () => {
+    await harness.pg.exec(
+      "UPDATE platform_settings SET whatsapp_dispatch_disabled = true",
+    );
+    const business = await queueWhatsapp();
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(1);
+
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.status).toBe("skipped");
+    expect(stored.lastError).toContain("master console toggle");
+    expect(stored.sentAt).toBeNull();
+  });
+
+  it("sends when both sources permit it", async () => {
+    const business = await queueWhatsapp();
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(0);
+
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.status).toBe("sent");
+  });
+
+  /**
+   * The precedence rule. With the environment variable set, a console toggle
+   * reading "allowed" must not re-enable sending — and the recorded reason must
+   * name the environment, because that is the one the operator has to go and
+   * change.
+   */
+  it("cannot re-enable sending over the environment variable", async () => {
+    process.env.DISABLE_WHATSAPP_DISPATCH = "1";
+    // Console says "allowed"; the env still wins.
+    await harness.pg.exec(
+      "UPDATE platform_settings SET whatsapp_dispatch_disabled = false",
+    );
+    const business = await queueWhatsapp();
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(1);
+
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.lastError).toContain("DISABLE_WHATSAPP_DISPATCH");
+  });
+
+  /**
+   * Fails safe. Every other fail-open decision in this codebase errs toward
+   * letting the request through; here the cost of being wrong is money and
+   * messages to real clients, so an unreadable settings table means "suppress".
+   */
+  it("suppresses when the settings row cannot be read", async () => {
+    await harness.pg.exec("DELETE FROM platform_settings");
+    const business = await queueWhatsapp();
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+    expect(summary.skipped).toBe(1);
+
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.status).toBe("skipped");
+
+    await harness.pg.exec("INSERT INTO platform_settings (id) VALUES (true)");
+  });
+});
+
+/**
  * The kill switch, from the dispatcher's side. `whatsapp.ts` is what guarantees
  * no HTTP call leaves; this is what keeps the *record* honest.
  */

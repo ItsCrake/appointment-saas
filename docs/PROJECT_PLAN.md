@@ -1264,6 +1264,17 @@ failure this change exists to remove. What makes awaiting safe is the 10-second
 otherwise hold the booking response open until the platform killed it. A timeout
 is retryable, so the row stays pending and the sweep collects it.
 
+**The WhatsApp cost guard has two switches, combined by OR.** The `/master`
+overview carries a toggle backed by `platform_settings` (migration 0023, a
+single enforced row, RLS on with zero policies); `DISABLE_WHATSAPP_DISPATCH` is
+the deploy-time one. **Either suppresses; neither can force sending back on over
+the other** — a button in a web UI must not start spending money on a deploy
+whose environment said no, so the toggle renders disabled and says why when the
+variable is set. The console read fails safe: an unreadable settings row means
+*suppress*, inverting this codebase's usual fail-open bias because the cost of
+being wrong is money and messages to real clients. The outbox records which
+source stopped it, not just that something did.
+
 **`DISABLE_WHATSAPP_DISPATCH` is the cost guard.** Set it and no WhatsApp
 message reaches the network: `whatsappProvider()` swaps the configured backend
 for a stand-in that logs the full payload and refuses, and the dispatcher marks

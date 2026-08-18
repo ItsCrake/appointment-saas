@@ -19,6 +19,15 @@ const TABLES = [
   "marketing_opt_outs",
   "notifications",
   /*
+   * The one table here with no `business_id`, and therefore no owner policy to
+   * write. RLS is enabled with **zero policies**, which denies everyone — the
+   * server's service role bypasses RLS and is the only thing that should read
+   * it. Listed rather than exempted: a platform-wide table is exactly the kind
+   * that would otherwise be forgotten, and it holds the switch that decides
+   * whether every client on the platform hears anything.
+   */
+  "platform_settings",
+  /*
    * A push endpoint is not a credential, but it is a URL that lets whoever
    * holds it buzz somebody's phone. The anon key is public and a table without
    * RLS is readable by anyone who knows its name, so this one gets the same
@@ -40,7 +49,11 @@ const TABLES = [
 ];
 
 /** Tables deliberately shipped with RLS on and *no* policy, denying everyone. */
-const NO_POLICY_TABLES = ["rate_limits", "subscription_events"];
+const NO_POLICY_TABLES = [
+  "platform_settings",
+  "rate_limits",
+  "subscription_events",
+];
 
 /** Tables that carry tenant data and therefore need an owner policy. */
 const TENANT_TABLES = TABLES.filter((t) => !NO_POLICY_TABLES.includes(t));

@@ -891,3 +891,33 @@ export type SubscriptionEvent = typeof subscriptionEvents.$inferSelect;
 export type NewSubscriptionEvent = typeof subscriptionEvents.$inferInsert;
 export type Invoice = typeof invoices.$inferSelect;
 export type NewInvoice = typeof invoices.$inferInsert;
+
+/**
+ * Platform-wide operational settings. Exactly one row, enforced by a CHECK.
+ *
+ * The only table here with no `business_id`. Everything else in this database
+ * belongs to a tenant; this belongs to the platform, and RLS is enabled with
+ * **zero policies** so nothing but the server's service role can read it.
+ */
+export const platformSettings = pgTable("platform_settings", {
+  /** Always `true`. The CHECK constraint is what makes the row a singleton. */
+  id: boolean("id").primaryKey().default(true),
+  /**
+   * The runtime half of the WhatsApp cost guard, flippable from `/master`.
+   *
+   * Combines with `DISABLE_WHATSAPP_DISPATCH` by **OR, never override**: either
+   * source can suppress sending, neither can force it back on over the other. A
+   * toggle in a web UI must not be able to start spending money on a deploy
+   * whose environment deliberately said no.
+   */
+  whatsappDispatchDisabled: boolean("whatsapp_dispatch_disabled")
+    .notNull()
+    .default(false),
+  /** Email of the super admin who last flipped it. */
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type PlatformSettings = typeof platformSettings.$inferSelect;

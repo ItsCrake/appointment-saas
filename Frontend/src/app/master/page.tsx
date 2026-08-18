@@ -8,9 +8,16 @@ import {
 } from "lucide-react";
 
 import { EmptyPanel, MetricCard, panel } from "@/components/master/ui";
+import { WhatsappToggle } from "@/components/master/whatsapp-toggle";
 import { db } from "@/db";
 import { requireSuperAdmin } from "@/lib/master-session";
-import { getPlatformPulse, listTenants } from "@/db/queries";
+import {
+  getPlatformPulse,
+  getPlatformSettings,
+  listTenants,
+} from "@/db/queries";
+import { whatsappDispatchDisabled } from "@/lib/env";
+import { formatInTimeZone } from "date-fns-tz";
 import { formatPrice } from "@/lib/format";
 import {
   breakdownTenants,
@@ -29,9 +36,10 @@ export default async function MasterOverviewPage() {
   await requireSuperAdmin();
 
   const now = new Date();
-  const [tenants, pulse] = await Promise.all([
+  const [tenants, pulse, settings] = await Promise.all([
     listTenants(db),
     getPlatformPulse(db, now),
+    getPlatformSettings(db),
   ]);
 
   // The columns are varchar, so every read is normalised before the maths —
@@ -123,6 +131,27 @@ export default async function MasterOverviewPage() {
               icon={<CalendarPlus className="size-3.5" aria-hidden />}
               label="30 יום"
               value={String(pulse.month)}
+            />
+          </div>
+
+          {/* Operational rather than analytical, so it sits after the numbers
+              — but on this page, not behind a tab: it decides whether every
+              client on the platform hears anything, and a switch that matters
+              that much should be visible without being looked for. */}
+          <div className="mt-6">
+            <WhatsappToggle
+              disabled={settings?.whatsappDispatchDisabled ?? true}
+              envLocked={whatsappDispatchDisabled(process.env)}
+              updatedBy={settings?.updatedBy ?? null}
+              updatedAt={
+                settings?.updatedAt
+                  ? formatInTimeZone(
+                      settings.updatedAt,
+                      "Asia/Jerusalem",
+                      "dd/MM/yyyy HH:mm",
+                    )
+                  : null
+              }
             />
           </div>
 

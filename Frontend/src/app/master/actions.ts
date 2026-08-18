@@ -10,6 +10,7 @@ import {
   getBusinessById,
   setTenantActive,
   setTenantPlan,
+  setWhatsappDispatchDisabled,
 } from "@/db/queries";
 import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
 import { clearImpersonation, setImpersonation } from "@/lib/impersonation";
@@ -207,5 +208,51 @@ export async function setTenantActiveAction(
       businessId: parsed.data.businessId,
     });
     return { ok: false, error: "עדכון הסטטוס נכשל" };
+  }
+}
+
+/**
+ * The WhatsApp cost guard, flipped from the console.
+ *
+ * Re-runs `requireSuperAdmin()` like every action in this file — being rendered
+ * inside `/master` proves nothing about who is POSTing.
+ *
+ * It can only ever change the *console* half. `DISABLE_WHATSAPP_DISPATCH` is
+ * unreachable from here by design: the environment is the deploy-time guard,
+ * and a button in a web UI must not be able to start spending money on a deploy
+ * whose environment deliberately said no. Turning this off while the variable is
+ * set therefore changes nothing, and the UI says so rather than appearing to
+ * work.
+ */
+export async function setWhatsappDispatchAction(
+  input: unknown,
+): Promise<MasterResult> {
+  const parsed = z.object({ disabled: z.boolean() }).safeParse(input);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0].message };
+
+  const admin = await requireSuperAdmin();
+
+  try {
+    const row = await setWhatsappDispatchDisabled(
+      db,
+      parsed.data.disabled,
+      admin.email,
+    );
+    if (!row) return { ok: false, error: "טבלת ההגדרות לא נמצאה" };
+
+    revalidatePath("/master");
+
+    return {
+      ok: true,
+      message: parsed.data.disabled
+        ? "שליחת וואטסאפ הושבתה"
+        : "שליחת וואטסאפ הופעלה",
+    };
+  } catch (error) {
+    reportError("master.setWhatsappDispatch", error, {
+      disabled: parsed.data.disabled,
+    });
+    return { ok: false, error: "העדכון נכשל" };
   }
 }
