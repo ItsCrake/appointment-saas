@@ -1344,6 +1344,49 @@ redirect so the button does not flash back to "ready" for a frame.
 `call-action.test.ts` builds the case with the real `redirect()` rather than a
 hand-made error object, so it keeps testing what Next actually throws.
 
+### Next up: the glassmorphic calendar and its edit modal
+
+Not started. The analysis below is done so the next session can build rather
+than re-derive it.
+
+**Scope.** `/dashboard/agenda/full` — translucent appointment blocks tinted with
+the tenant's accent, client notes visible on the block, and a modal on click
+offering view / status / edit / reschedule / cancel.
+
+**Five things that decide whether it works:**
+
+1. **`--accent` is a CSS custom property, not a Tailwind class.** PRODUCT.md is
+   explicit: the colour is a swatch *name* because Tailwind cannot emit a class
+   from a runtime value, and it arrives via `data-accent` on a wrapper. So the
+   glass tint has to be `color-mix(in oklch, var(--accent) 18%, transparent)`
+   or similar — never an interpolated class name.
+
+2. **Measure contrast on the composited surface, not the token.** A translucent
+   fill over a page background is not the colour you wrote. Paint the ground and
+   the layer onto a 1×1 canvas, read the pixel, then compute the ratio. Reading
+   `getComputedStyle().backgroundColor` on a translucent element returns the
+   *unblended* value and produced a 1.8:1 reading for a surface that actually
+   measured 13:1 — a wrong number that looks like a finding is worse than none.
+
+3. **Reschedule is a booking.** Moving an appointment must re-run availability
+   server-side and go through the same insert/update path as
+   `createAppointment`, so the guard that catches a clash is
+   `appointments_no_overlap_staff` — `business_id` + `staff_id`, `WHERE status
+   NOT IN ('cancelled','completed','no_show')`. Anything that writes
+   `starts_at`/`ends_at` without passing that constraint makes the calendar the
+   one route in the product that can double-book.
+
+4. **Every mutating action calls `requireWritable()`**, never
+   `requireBusiness()`. `dashboard-session.coverage.test.ts` fails the build on
+   omission, so the test will catch it — but knowing costs one less cycle.
+
+5. **`appointments.notes` already exists.** The note icon and the modal body
+   need no migration.
+
+**Prior art to reuse rather than re-invent:** `agenda-list.tsx` already does
+optimistic status changes with rollback and a toast;
+`manual-booking-dialog.tsx` is the existing dialog shape and focus behaviour.
+
 ### The one thing that is broken in production right now
 
 **Client email reaches nobody.** Resend rejects every recipient with a `403`
