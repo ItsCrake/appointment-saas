@@ -24,13 +24,29 @@ export function ForgotPasswordForm() {
     setError(undefined);
     setNotice(undefined);
 
-    const result = await callAuthAction(() =>
-      requestPasswordResetAction(email),
-    );
+    try {
+      // This one answers with a message rather than redirecting, but the guard
+      // is the same shape so the three auth forms cannot drift apart.
+      const result = await callAuthAction(() =>
+        requestPasswordResetAction(email),
+      );
 
-    setPending(false);
-    if (!result.ok) setError(result.error);
-    else setNotice(result.message);
+      setPending(false);
+      if (!result.ok) setError(result.error);
+      else setNotice(result.message);
+    } catch {
+      /**
+       * Only framework control flow reaches here: `callAuthAction` converts
+       * every real failure into a result, and rethrows nothing else. So this is
+       * a `redirect()` in flight — the router is already navigating.
+       *
+       * Swallowed rather than rethrown, because an async submit handler that
+       * rejects becomes an unhandled rejection, which the dev overlay reports
+       * as an error on a login that worked. `pending` is deliberately left true:
+       * releasing the button here would flash it back to "ready" for a frame
+       * before the route changes.
+       */
+    }
   }
 
   // Once the notice is up the form is replaced rather than left submittable.

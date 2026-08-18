@@ -1326,6 +1326,24 @@ speed: an owner stepping to tomorrow and back would see a cached "today" that
 can be missing a booking made seconds ago. **Deliberately not enabled** — that
 is a product call, not a performance one.
 
+### A successful login used to report a connection error
+
+`redirect()` signals success by **throwing**, and that control-flow error
+crosses the wire: the client-side action promise rejects while the router
+performs the navigation. `lib/call-action.ts` caught everything, so every
+successful sign-in came back as `{ ok: false }` and the reader was told the
+connection had dropped while being taken to their dashboard.
+
+`typedFailure` on the server already had the rule — `unstable_rethrow` first,
+always — and the client wrapper simply never got it. The three auth forms then
+swallow the rethrown control-flow error, because an async submit handler that
+rejects becomes an unhandled rejection and the dev overlay reports *that* as an
+error on a login that worked. `pending` is deliberately left true through the
+redirect so the button does not flash back to "ready" for a frame.
+
+`call-action.test.ts` builds the case with the real `redirect()` rather than a
+hand-made error object, so it keeps testing what Next actually throws.
+
 ### The one thing that is broken in production right now
 
 **Client email reaches nobody.** Resend rejects every recipient with a `403`

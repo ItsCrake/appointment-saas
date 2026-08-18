@@ -1,3 +1,5 @@
+import { unstable_rethrow } from "next/navigation";
+
 import type { AuthResult } from "@/app/login/actions";
 
 /**
@@ -19,6 +21,22 @@ import type { AuthResult } from "@/app/login/actions";
  * `AuthResult` shape the action would have. It is not a general error boundary
  * and must not grow into one — swallowing render errors here would hide real
  * bugs behind a polite message.
+ *
+ * ---------------------------------------------------------------------------
+ * **`unstable_rethrow` first, always** — the same rule `typedFailure` follows on
+ * the server, and it was missing here.
+ *
+ * `redirect()` signals success by *throwing*, and that control-flow error
+ * crosses the wire: the client-side action promise rejects while the router
+ * performs the navigation. A bare `catch` therefore treats every successful
+ * sign-in as a failure. The visible symptom was the connection-error toast
+ * appearing on a login that had, in fact, worked — the reader was told the
+ * connection dropped while being taken to their dashboard.
+ *
+ * Rethrowing leaves `pending` true, which is correct: the page is navigating
+ * away, and releasing the button first would flash it back to "ready" for a
+ * frame before the route changes.
+ * ---------------------------------------------------------------------------
  */
 export async function callAuthAction(
   run: () => Promise<AuthResult>,
@@ -26,6 +44,10 @@ export async function callAuthAction(
   try {
     return await run();
   } catch (thrown) {
+    // Framework control flow, not an error. `redirect()` and `notFound()` both
+    // land here, and a successful sign-in is exactly a `redirect()`.
+    unstable_rethrow(thrown);
+
     // Not reported to the server: the server is the thing that just failed to
     // answer, so a second request is unlikely to land and would double the load
     // on whatever is already struggling. The browser console keeps the detail.

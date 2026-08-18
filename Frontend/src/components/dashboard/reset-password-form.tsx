@@ -22,13 +22,27 @@ export function ResetPasswordForm() {
     setPending(true);
     setError(undefined);
 
-    // On success this redirects to /dashboard, so control does not return.
-    const result = await callAuthAction(() =>
-      updatePasswordAction(password, confirm),
-    );
+    try {
+      // On success this redirects to /dashboard, throwing past the await.
+      const result = await callAuthAction(() =>
+        updatePasswordAction(password, confirm),
+      );
 
-    setPending(false);
-    if (!result.ok) setError(result.error);
+      setPending(false);
+      if (!result.ok) setError(result.error);
+    } catch {
+      /**
+       * Only framework control flow reaches here: `callAuthAction` converts
+       * every real failure into a result, and rethrows nothing else. So this is
+       * a `redirect()` in flight — the router is already navigating.
+       *
+       * Swallowed rather than rethrown, because an async submit handler that
+       * rejects becomes an unhandled rejection, which the dev overlay reports
+       * as an error on a login that worked. `pending` is deliberately left true:
+       * releasing the button here would flash it back to "ready" for a frame
+       * before the route changes.
+       */
+    }
   }
 
   const field = cn(inputClass, "h-12 px-4 text-base");

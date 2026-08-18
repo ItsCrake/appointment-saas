@@ -30,16 +30,31 @@ export function LoginForm({ next }: { next?: string }) {
     setError(undefined);
     setNotice(undefined);
 
-    // On success these redirect, so control does not return here.
-    const result = await callAuthAction(() =>
-      mode === "signin"
-        ? signInAction(email, password, next)
-        : signUpAction(email, password),
-    );
+    try {
+      // A successful sign-in redirects, so control does not return from the
+      // await — it throws past it. See the catch below.
+      const result = await callAuthAction(() =>
+        mode === "signin"
+          ? signInAction(email, password, next)
+          : signUpAction(email, password),
+      );
 
-    setPending(false);
-    if (!result.ok) setError(result.error);
-    else if (result.message) setNotice(result.message);
+      setPending(false);
+      if (!result.ok) setError(result.error);
+      else if (result.message) setNotice(result.message);
+    } catch {
+      /**
+       * Only framework control flow reaches here: `callAuthAction` converts
+       * every real failure into a result, and rethrows nothing else. So this is
+       * a `redirect()` in flight — the router is already navigating.
+       *
+       * Swallowed rather than rethrown, because an async submit handler that
+       * rejects becomes an unhandled rejection, which the dev overlay reports
+       * as an error on a login that worked. `pending` is deliberately left true:
+       * releasing the button here would flash it back to "ready" for a frame
+       * before the route changes.
+       */
+    }
   }
 
   const field = cn(inputClass, "h-12 px-4 text-base");
