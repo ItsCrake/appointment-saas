@@ -114,8 +114,8 @@ describe("monthlyRecurringCents", () => {
 
   it("counts only active, unfrozen tenants", () => {
     const rows = [
-      tenant({ planType: "pro", subscriptionStatus: "active" }), // 9900
-      tenant({ planType: "starter", subscriptionStatus: "active" }), // 6900
+      tenant({ planType: "pro", subscriptionStatus: "active" }), // 11900
+      tenant({ planType: "starter", subscriptionStatus: "active" }), // 7900
       tenant({ planType: "starter", subscriptionStatus: "trialing" }), // no
       tenant({
         planType: "pro",
@@ -125,7 +125,7 @@ describe("monthlyRecurringCents", () => {
       tenant({ planType: "pro", subscriptionStatus: "cancelled" }), // no
     ];
 
-    expect(monthlyRecurringCents(rows)).toBe(16800);
+    expect(monthlyRecurringCents(rows)).toBe(19800); // 11900 + 7900
   });
 
   it("contributes nothing for a free plan", () => {
@@ -142,8 +142,8 @@ describe("monthlyRecurringCents", () => {
       tenant({ planType: "starter", subscriptionStatus: "trialing" }),
     ];
 
-    expect(monthlyRecurringCents(rows)).toBe(9900);
-    expect(trialPipelineCents(rows)).toBe(6900);
+    expect(monthlyRecurringCents(rows)).toBe(11900);
+    expect(trialPipelineCents(rows)).toBe(7900);
   });
 });
 

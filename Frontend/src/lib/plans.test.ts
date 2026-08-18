@@ -114,8 +114,8 @@ describe("shipped config", () => {
 
   it("ships the two-tier line at the agreed prices", () => {
     expect(PRICING_TIERS.map((t) => t.id)).toEqual(["starter", "pro"]);
-    expect(findTier("starter")?.monthlyCents).toBe(6900);
-    expect(findTier("pro")?.monthlyCents).toBe(9900);
+    expect(findTier("starter")?.monthlyCents).toBe(7900);
+    expect(findTier("pro")?.monthlyCents).toBe(11900);
   });
 
   it("sells no tier on booking volume", () => {

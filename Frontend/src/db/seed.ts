@@ -68,7 +68,7 @@ type TenantSeed = {
 const TENANTS: TenantSeed[] = [
   {
     slug: DEMO_SLUG,
-    name: "מספרת ברקאי",
+    name: "מספרת בלאק",
     description: "מספרה לגברים בלב תל אביב. תספורות, עיצוב זקן וטיפוח.",
     phone: "050-1234567",
     address: "דיזנגוף 100, תל אביב",
@@ -95,7 +95,7 @@ const TENANTS: TenantSeed[] = [
       },
     ],
     staff: [
-      { name: "ניר ברקאי", title: "ספר בכיר", color: "indigo" },
+      { name: "ניר בלאק", title: "ספר בכיר", color: "indigo" },
       { name: "אבי כהן", title: "ספר", color: "emerald" },
     ],
     // A split shift with a 13:00–14:00 break.

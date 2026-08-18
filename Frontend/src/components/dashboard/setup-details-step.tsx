@@ -7,7 +7,7 @@ import type { SetupBusiness } from "./setup-flow";
 const FIELD =
   "h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 text-base text-zinc-900 focus:border-transparent focus:ring-2 focus:ring-zinc-950 dark:focus:ring-white focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100";
 
-/** Turns "מספרת ברקאי" into a usable latin slug suggestion, or nothing. */
+/** Turns "מספרת בלאק" into a usable latin slug suggestion, or nothing. */
 function suggestSlug(name: string) {
   return name
     .toLowerCase()
@@ -53,7 +53,7 @@ export function SetupDetailsStep({
         <input
           value={name}
           onChange={(e) => handleName(e.target.value)}
-          placeholder="מספרת ברקאי"
+          placeholder="מספרת בלאק"
           className={FIELD}
         />
       </label>

@@ -120,9 +120,21 @@ export function AgendaView({
             aria-current={selectedDate === today ? "date" : undefined}
             className={cn(
               "border-x border-zinc-200 px-3 py-2 text-xs font-semibold transition-colors dark:border-zinc-800",
+              /**
+               * Quiet when you are already on today, loud when you are not —
+               * which is the reverse of what this used to do.
+               *
+               * It filled grey on today, and a filled grey control between two
+               * arrows reads as disabled: the one state where the button has
+               * nothing to do was the state that drew the eye. Now the fill
+               * means "there is somewhere to go back to", so it appears exactly
+               * when it is worth pressing. Ink rather than the brand gradient —
+               * the gradient is reserved for what is active or recommended, and
+               * this is an ordinary primary action.
+               */
               selectedDate === today
-                ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-                : "text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                ? "text-zinc-500 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
+                : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white",
             )}
           >
             היום

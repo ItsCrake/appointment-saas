@@ -98,8 +98,17 @@ export type PricingTier = {
 /**
  * Two tiers, separated by features only — never by volume. Both include
  * unlimited bookings, so a busy month can never turn into a surprise bill or a
- * client turned away at the door. Nothing here may reintroduce a usage cap
- * without `lib/entitlements.ts` gaining a counter to enforce it.
+ * client turned away at the door.
+ *
+ * **The WhatsApp allowances below are advertised but NOT enforced.** There is
+ * no counter in `lib/entitlements.ts` and nothing stops a tenant at message 51
+ * or 151. That is a deliberate, temporary state — the alternative on the day
+ * this shipped was either silently dropping a client's confirmation or blocking
+ * a booking, and neither is acceptable. Prices include VAT.
+ *
+ * Whoever adds the counter owns both halves: the tally *and* what happens when
+ * it runs out. Until then this repository is claiming something it does not
+ * check, which is the one thing PRODUCT.md's first principle forbids.
  *
  * Yearly is ten months for twelve, which is where the ~16% badge comes from.
  */
@@ -108,25 +117,27 @@ export const PRICING_TIERS: PricingTier[] = [
     id: "starter",
     name: "בסיסי",
     tagline: "לעסק שרק מתחיל לקבל תורים אונליין",
-    monthlyCents: 6900,
-    yearlyCents: 69000,
+    monthlyCents: 7900,
+    yearlyCents: 79000,
     features: [
       "עמוד הזמנות אישי",
       "תורים ללא הגבלה",
       "צבע מותאם, גלריה וחוות דעת",
       "ניהול צוות ולוח שבועי מלא",
       "תזכורות במייל וביטול עצמאי ללקוח",
+      "עד 50 הודעות וואטסאפ בחודש",
     ],
   },
   {
     id: "pro",
     name: "מקצועי",
     tagline: "לעסק פעיל שרוצה פחות חלונות ריקים",
-    monthlyCents: 9900,
-    yearlyCents: 99000,
+    monthlyCents: 11900,
+    yearlyCents: 119000,
     features: [
       "כל מה שבבסיסי",
       "דוחות וסטטיסטיקות מתקדמים",
+      "עד 150 הודעות וואטסאפ בחודש",
       "תזכורות בוואטסאפ ו-SMS",
       "ליווי אישי בהקמה",
       "תמיכה בעדיפות",

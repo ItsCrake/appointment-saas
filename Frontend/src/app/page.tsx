@@ -235,7 +235,7 @@ export default function LandingPage() {
                   אפשר לראות איך זה נראה ללקוח
                 </span>
                 <span className="mt-3 block text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-                  עמוד ההדגמה של מספרת ברקאי פתוח לכולם. קבעו בו תור אמיתי,
+                  עמוד ההדגמה של מספרת בלאק פתוח לכולם. קבעו בו תור אמיתי,
                   מהטלפון, בפחות מדקה.
                 </span>
               </span>
