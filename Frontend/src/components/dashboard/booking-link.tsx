@@ -94,8 +94,11 @@ export function BookingLink({
             </>
           )}
         </button>
+        {/* `?preview=1` asks for the owner bar. It grants nothing on its own —
+            the page resolves the session and checks ownership before rendering
+            it — but without the flag an owner arriving here has no way back. */}
         <a
-          href={`/${slug}`}
+          href={`/${slug}?preview=1`}
           target="_blank"
           rel="noreferrer"
           className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"

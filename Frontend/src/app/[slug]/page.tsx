@@ -24,12 +24,17 @@ import {
 } from "@/lib/branding";
 import { BRAND } from "@/lib/brand";
 import { isDemoBusiness } from "@/lib/demo";
+import { getCurrentUser } from "@/lib/supabase/server";
+import { PreviewBar } from "@/components/booking/preview-bar";
 import { todayInTimezone } from "@/lib/format";
 
 // Availability changes by the minute — never serve this from a static cache.
 export const dynamic = "force-dynamic";
 
-type PageProps = { params: Promise<{ slug: string }> };
+type PageProps = {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ preview?: string }>;
+};
 
 export async function generateMetadata({
   params,
@@ -126,11 +131,34 @@ function buildStructuredData(
   };
 }
 
-export default async function BusinessPage({ params }: PageProps) {
+export default async function BusinessPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { slug } = await params;
 
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) notFound();
+
+  /**
+   * The preview bar, gated on ownership rather than on the query string.
+   *
+   * The parameter is checked *first* purely as a cost gate: without it this
+   * page never calls `getUser()`, which is a network round trip to the auth
+   * server and would otherwise be paid by every client opening a booking link.
+   * With it, the session is what actually decides — a stranger who guesses
+   * `?preview=1` resolves to no user, or to a user who owns a different shop,
+   * and sees the ordinary page.
+   */
+  const { preview } = await searchParams;
+  let previewFor: string | null = null;
+
+  if (preview) {
+    const viewer = await getCurrentUser();
+    if (viewer && viewer.id === business.ownerUserId) {
+      previewFor = business.name;
+    }
+  }
 
   const [services, hours, activeStaff] = await Promise.all([
     listServices(db, business.id),
@@ -175,6 +203,7 @@ export default async function BusinessPage({ params }: PageProps) {
       data-accent={toThemeColor(business.themeColor)}
       className="mx-auto flex w-full max-w-lg flex-1 flex-col"
     >
+      {previewFor ? <PreviewBar businessName={previewFor} /> : null}
       {structuredData ? (
         <script
           type="application/ld+json"
