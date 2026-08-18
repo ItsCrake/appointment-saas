@@ -13,7 +13,10 @@ import {
   SettingsDirtyProvider,
   SettingsSaveBar,
 } from "@/components/dashboard/settings-dirty";
+import { headers } from "next/headers";
+
 import { SettingsForm } from "@/components/dashboard/settings-form";
+import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
 import { btnAccent } from "@/components/dashboard/ui";
 import {
   parseGallery,
@@ -29,6 +32,14 @@ export const metadata: Metadata = { title: "הגדרות" };
 
 export default async function SettingsPage() {
   const { business } = await requireBusiness();
+
+  // Same resolution the onboarding step uses: the configured origin, rescued by
+  // the request's own if a deploy still says localhost.
+  const requestHeaders = await headers();
+  const appUrl = pickAppUrl(
+    configuredAppUrl(),
+    originFromHeaders((name) => requestHeaders.get(name)),
+  );
   const canBrand = entitlementsFor(business).customBranding;
 
   return (
@@ -46,6 +57,7 @@ export default async function SettingsPage() {
         </header>
 
         <SettingsForm
+          appUrl={appUrl}
           business={{
             name: business.name,
             slug: business.slug,

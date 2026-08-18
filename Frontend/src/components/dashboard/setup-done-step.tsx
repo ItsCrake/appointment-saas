@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
-import { Check, Copy, ExternalLink, PartyPopper } from "lucide-react";
+import { PartyPopper } from "lucide-react";
 
-import { bookingUrlFor, browserOrigin, pickAppUrl } from "@/lib/app-url";
+import { BookingLink } from "@/components/dashboard/booking-link";
 import { formatDuration, formatPrice } from "@/lib/format";
 
 import type { SetupBusiness } from "./setup-flow";
@@ -26,34 +25,6 @@ export function SetupDoneStep({
   pending: boolean;
   onFinish: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  // The server already resolved this from the request, so `appUrl` is normally
-  // right. This is the last line of defence for the case that actually reached
-  // an owner: a deploy where the origin still resolved to localhost.
-  //
-  // `useSyncExternalStore` rather than an effect: it is built for exactly this
-  // shape — a value the server cannot know, with an explicit server snapshot —
-  // so there is no hydration mismatch and no setState inside an effect.
-  const origin = useSyncExternalStore(
-    () => () => {},
-    browserOrigin,
-    () => null,
-  );
-
-  const liveUrl = bookingUrlFor(pickAppUrl(appUrl, origin), business.slug);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(liveUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard is blocked on insecure origins; the link is selectable.
-      setCopied(false);
-    }
-  }
-
   return (
     <div>
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-900 dark:bg-emerald-950/30">
@@ -72,41 +43,7 @@ export function SetupDoneStep({
       </div>
 
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <p
-          dir="ltr"
-          className="mb-3 truncate rounded-lg bg-zinc-50 px-3 py-2.5 text-start text-sm font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
-        >
-          {liveUrl}
-        </p>
-
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={copy}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-300 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            {copied ? (
-              <>
-                <Check className="size-4 text-emerald-600" aria-hidden />
-                הועתק
-              </>
-            ) : (
-              <>
-                <Copy className="size-4" aria-hidden />
-                העתקת הקישור
-              </>
-            )}
-          </button>
-          <a
-            href={`/${business.slug}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            <ExternalLink className="size-4" aria-hidden />
-            תצוגה
-          </a>
-        </div>
+        <BookingLink appUrl={appUrl} slug={business.slug} />
       </div>
 
       <ul className="mt-4 space-y-1.5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">

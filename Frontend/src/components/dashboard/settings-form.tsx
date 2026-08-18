@@ -2,7 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ExternalLink } from "lucide-react";
+import { AlertCircle } from "lucide-react";
+
+import { BookingLink } from "@/components/dashboard/booking-link";
 
 import { saveSettingsAction } from "@/app/dashboard/settings/actions";
 import { INACTIVE_DAYS } from "@/lib/retention";
@@ -35,9 +37,12 @@ type Values = Omit<
 };
 
 export function SettingsForm({
+  appUrl,
   business,
   canUseRetention,
 }: {
+  /** Resolved server-side from the request, for the shareable link. */
+  appUrl: string;
   business: Business;
   /** Pro-only. The action re-checks it; this decides whether to offer it. */
   canUseRetention: boolean;
@@ -132,16 +137,20 @@ export function SettingsForm({
               onChange={(e) => set("slug", e.target.value)}
               className={`${FIELD} text-start`}
             />
-            <a
-              href={`/${business.slug}`}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="פתיחת עמוד ההזמנות"
-              className="shrink-0 rounded-lg border border-zinc-200 p-2.5 text-zinc-500 hover:text-zinc-900 dark:border-zinc-700"
-            >
-              <ExternalLink className="size-4" />
-            </a>
           </div>
+        </Field>
+
+        {/*
+          Built from `business.slug` — the **saved** value — not `form.slug`.
+          Copying a link assembled from the field being edited would hand a
+          client a URL that 404s: the shop still lives at the old address until
+          this form is submitted.
+        */}
+        <Field
+          label="הקישור לשיתוף"
+          hint="זה מה ששולחים ללקוחות. אפשר להעתיק ולהדביק בוואטסאפ, באינסטגרם או בכל מקום אחר."
+        >
+          <BookingLink appUrl={appUrl} slug={business.slug} />
         </Field>
 
         <Field label="תיאור קצר" htmlFor="description">
@@ -351,20 +360,30 @@ function Field({
   children,
 }: {
   label: string;
-  htmlFor: string;
+  /**
+   * Optional: most fields label a single control, but some wrap a composite
+   * (the share link is a URL, a copy button and a preview link) where there is
+   * no one input for the label to point at.
+   */
+  htmlFor?: string;
   hint?: string;
   children: React.ReactNode;
 }) {
+  // A `<label>` with no `for` is a label pointing at nothing, which is worse
+  // than a plain heading: assistive technology announces it as associated with
+  // a control that does not exist. So the element changes with the prop.
+  const Tag = htmlFor ? "label" : "p";
+
   return (
     <div>
-      <label
+      <Tag
         htmlFor={htmlFor}
         className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
       >
         {label}
-      </label>
+      </Tag>
       {children}
-      {hint ? <p className="mt-1.5 text-xs text-zinc-400">{hint}</p> : null}
+      {hint ? <p className="mt-1.5 text-xs text-zinc-500">{hint}</p> : null}
     </div>
   );
 }
