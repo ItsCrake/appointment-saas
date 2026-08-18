@@ -43,6 +43,9 @@ export type TenantRowView = {
   trialLabel: string;
   trialUrgent: boolean;
   bookings: number;
+  /** WhatsApp sent this calendar month, and the plan's advertised ceiling. */
+  whatsappThisMonth: number;
+  whatsappCap: number | null;
 };
 
 export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
@@ -147,6 +150,7 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                 <Th>מסלול</Th>
                 <Th>ניסיון</Th>
                 <Th>תורים</Th>
+                <Th>וואטסאפ החודש</Th>
                 <Th>פעולות</Th>
               </tr>
             </thead>
@@ -202,6 +206,29 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                     <Td>
                       <span className="text-xs text-zinc-300 tabular-nums">
                         {t.bookings}
+                      </span>
+                    </Td>
+                    <Td>
+                      {/* Usage against the advertised ceiling. Amber past it
+                          rather than red: nothing is enforced, so this is a
+                          number to look at, not a failure. The ratio is always
+                          spelled out — never the colour alone. */}
+                      <span
+                        className={cn(
+                          "text-xs tabular-nums",
+                          t.whatsappCap !== null &&
+                            t.whatsappThisMonth > t.whatsappCap
+                            ? "font-semibold text-amber-300"
+                            : "text-zinc-300",
+                        )}
+                      >
+                        {t.whatsappThisMonth}
+                        {t.whatsappCap !== null ? (
+                          <span className="text-zinc-500">
+                            {" / "}
+                            {t.whatsappCap}
+                          </span>
+                        ) : null}
                       </span>
                     </Td>
                     <Td>

@@ -44,6 +44,8 @@ export type TenantSummary = {
   trialEndsAt: Date | null;
   bookings: number;
   lastBookingAt: Date | null;
+  /** WhatsApp messages actually sent this calendar month. */
+  whatsappThisMonth: number;
 };
 
 /**
@@ -67,6 +69,24 @@ export async function listTenants(db: Database): Promise<TenantSummary[]> {
       trialEndsAt: businesses.trialEndsAt,
       bookings: sql<number>`count(${appointments.id})::int`,
       lastBookingAt: sql<Date | string | null>`max(${appointments.createdAt})`,
+      /**
+       * A correlated subquery, deliberately — **not** a second `leftJoin`.
+       *
+       * This select already joins `appointments` and groups by business. Joining
+       * `notifications` as well would multiply the two sets against each other
+       * and silently inflate `bookings` by the number of messages, which is the
+       * kind of wrong number nobody questions on a dashboard.
+       *
+       * `::int` for the same reason `bookings` has it: `count(*)` is `int8`, and
+       * postgres.js hands that back as a string.
+       */
+      whatsappThisMonth: sql<number>`(
+        select count(*)::int from notifications n
+        where n.business_id = ${businesses.id}
+          and n.channel = 'whatsapp'
+          and n.status = 'sent'
+          and n.sent_at >= date_trunc('month', now())
+      )`,
     })
     .from(businesses)
     .leftJoin(appointments, eq(appointments.businessId, businesses.id))
@@ -210,6 +230,24 @@ export async function listChurnRisk(
       trialEndsAt: businesses.trialEndsAt,
       bookings: sql<number>`count(${appointments.id}) FILTER (WHERE ${appointments.createdAt} >= ${at(since)})::int`,
       lastBookingAt: sql<Date | string | null>`max(${appointments.createdAt})`,
+      /**
+       * A correlated subquery, deliberately — **not** a second `leftJoin`.
+       *
+       * This select already joins `appointments` and groups by business. Joining
+       * `notifications` as well would multiply the two sets against each other
+       * and silently inflate `bookings` by the number of messages, which is the
+       * kind of wrong number nobody questions on a dashboard.
+       *
+       * `::int` for the same reason `bookings` has it: `count(*)` is `int8`, and
+       * postgres.js hands that back as a string.
+       */
+      whatsappThisMonth: sql<number>`(
+        select count(*)::int from notifications n
+        where n.business_id = ${businesses.id}
+          and n.channel = 'whatsapp'
+          and n.status = 'sent'
+          and n.sent_at >= date_trunc('month', now())
+      )`,
     })
     .from(businesses)
     .leftJoin(appointments, eq(appointments.businessId, businesses.id))
@@ -255,6 +293,11 @@ export async function listExpiringTrials(
       trialEndsAt: businesses.trialEndsAt,
       bookings: sql<number>`0::int`,
       lastBookingAt: sql<Date | string | null>`NULL::timestamptz`,
+      // This list answers "whose trial ends soon", not "who is using what", so
+      // the usage figure is not queried for it. Zero rather than a real count,
+      // for the same reason `bookings` is: the shape is shared, the question
+      // is not.
+      whatsappThisMonth: sql<number>`0::int`,
     })
     .from(businesses)
     .where(

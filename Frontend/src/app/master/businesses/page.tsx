@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { requireSuperAdmin } from "@/lib/master-session";
 import { getOwnerEmails, listTenants } from "@/db/queries";
 import { daysUntil } from "@/lib/platform-metrics";
+import { effectivePlan } from "@/lib/entitlements";
+import { whatsappCapFor } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +61,10 @@ export default async function MasterBusinessesPage() {
             trialLabel: trial.label,
             trialUrgent: trial.urgent,
             bookings: t.bookings,
+            whatsappThisMonth: t.whatsappThisMonth,
+            // The cap of the plan they are actually *served*, not the stored
+            // one — a trialing tenant is on Pro, and a frozen one sends nothing.
+            whatsappCap: whatsappCapFor(effectivePlan(t)),
           };
         })}
       />

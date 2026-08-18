@@ -12,6 +12,7 @@ import {
   toPlanType,
   toSubscriptionStatus,
   yearlySavingsPercent,
+  whatsappCapFor,
   type PricingTier,
 } from "@/lib/plans";
 
@@ -20,6 +21,7 @@ const tier = (overrides: Partial<PricingTier> = {}): PricingTier => ({
   name: "בסיסי",
   tagline: "",
   monthlyCents: 10000,
+  whatsappMonthlyCap: 50,
   yearlyCents: 100000,
   features: [],
   ...overrides,
@@ -143,6 +145,32 @@ describe("shipped config", () => {
     for (const faq of FAQS) {
       expect(faq.question.trim()).not.toBe("");
       expect(faq.answer.trim()).not.toBe("");
+    }
+  });
+});
+
+/**
+ * The cap is data rather than a literal in the UI, so the marketing copy on the
+ * landing page and the usage counter in /master cannot drift apart.
+ */
+describe("whatsappCapFor", () => {
+  it("matches the ceilings the pricing page advertises", () => {
+    expect(whatsappCapFor("starter")).toBe(50);
+    expect(whatsappCapFor("pro")).toBe(150);
+  });
+
+  it("has no cap for a plan that sends no WhatsApp", () => {
+    // `free` is what a frozen or lapsed tenant resolves to, and it has no
+    // WhatsApp entitlement at all — so there is no ceiling to report.
+    expect(whatsappCapFor("free")).toBeNull();
+  });
+
+  it("states the same number the tier's own copy does", () => {
+    for (const tier of PRICING_TIERS) {
+      const advertised = tier.features.find((f) =>
+        f.includes("הודעות וואטסאפ"),
+      );
+      expect(advertised).toContain(String(tier.whatsappMonthlyCap));
     }
   });
 });

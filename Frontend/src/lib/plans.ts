@@ -91,9 +91,25 @@ export type PricingTier = {
   /** Agorot for a full year paid up front. */
   yearlyCents: number;
   features: string[];
+  /**
+   * WhatsApp messages a tenant may send per calendar month.
+   *
+   * **Advertised and monitored, not enforced.** Nothing stops a tenant at the
+   * cap — see the note below. It lives here so the marketing copy and the
+   * `/master` usage counter read the same number instead of two hardcoded
+   * literals drifting apart.
+   */
+  whatsappMonthlyCap: number;
   /** Exactly one tier should set this — it drives the "popular" treatment. */
   highlighted?: boolean;
 };
+
+/** The cap for a resolved plan, or null when the plan sends no WhatsApp. */
+export function whatsappCapFor(plan: PlanType): number | null {
+  return (
+    PRICING_TIERS.find((tier) => tier.id === plan)?.whatsappMonthlyCap ?? null
+  );
+}
 
 /**
  * Two tiers, separated by features only — never by volume. Both include
@@ -127,6 +143,7 @@ export const PRICING_TIERS: PricingTier[] = [
       "תזכורות במייל וביטול עצמאי ללקוח",
       "עד 50 הודעות וואטסאפ בחודש",
     ],
+    whatsappMonthlyCap: 50,
   },
   {
     id: "pro",
@@ -142,6 +159,7 @@ export const PRICING_TIERS: PricingTier[] = [
       "ליווי אישי בהקמה",
       "תמיכה בעדיפות",
     ],
+    whatsappMonthlyCap: 150,
     highlighted: true,
   },
 ];
