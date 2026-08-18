@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   CalendarPlus,
   ChevronLeft,
@@ -19,6 +20,7 @@ import {
   type StaffActionResult,
 } from "@/app/dashboard/staff/actions";
 import { useToast } from "@/components/ui/toast";
+import { AppointmentDialog } from "./appointment-dialog";
 import {
   assignLanes,
   gridBounds,
@@ -43,6 +45,14 @@ import {
 const WEEKDAY_SHORT = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 
 export type CalendarEntry = CalendarItem & {
+  /**
+   * The appointment row's id, or null for a block.
+   *
+   * Distinct from `id`, which is per *span* — a booking that crosses midnight
+   * draws one card a day and they must not share a React key. Every action
+   * needs the row, so it is carried separately rather than parsed back out.
+   */
+  appointmentId: string | null;
   kind: "appointment" | "block";
   /** Client name for an appointment; the reason for a block. */
   title: string;
@@ -61,10 +71,25 @@ export type CalendarEntry = CalendarItem & {
   clientProfileNotes: string | null;
   status: string | null;
   priceCents: number | null;
+  /** Who holds it, for seeding the dialog's provider picker. */
+  staffId: string | null;
   staffName: string | null;
   staffColor: string | null;
   /** Present for blocks, so they can be removed from here. */
   timeOffId: string | null;
+  /**
+   * The entry's **own** wall clock in the business timezone — the appointment's
+   * date and times, not the span's.
+   *
+   * A span is clipped at midnight, so its minutes describe a card rather than a
+   * booking; seeding a reschedule form from them would offer 00:00 as the start
+   * time of something that began the evening before. Resolved on the server,
+   * like every other date on this grid, because the browser's zone is not the
+   * shop's.
+   */
+  date: string;
+  startTime: string;
+  endTime: string;
 };
 
 /**
@@ -155,6 +180,9 @@ export function WeekCalendar({
   // One at a time, held at the root so the card can be positioned `fixed` and
   // escape the grid's scroll clipping. See `EntryPopover`.
   const [hovered, setHovered] = useState<HoveredEntry | null>(null);
+  /** The appointment whose dialog is open, if any. */
+  const [opened, setOpened] = useState<CalendarEntry | null>(null);
+  const router = useRouter();
 
   /**
    * View and focused day are **client state seeded from the server**, not props
@@ -456,6 +484,13 @@ export function WeekCalendar({
                       entry={entry}
                       dayView={dayView}
                       onHoverChange={setHovered}
+                      onOpen={(target) => {
+                        // The hover card is supplementary detail about what is
+                        // under the cursor. Once the dialog is up it is stale
+                        // and floating over a modal, so it goes.
+                        setHovered(null);
+                        setOpened(target);
+                      }}
                       style={{
                         top: `${box.top}%`,
                         height: `${box.height}%`,
@@ -471,7 +506,19 @@ export function WeekCalendar({
         </div>
       </div>
 
-      {hovered ? <EntryPopover hovered={hovered} /> : null}
+      {/* Suppressed while the dialog is open: the two describe the same
+          appointment, and the tooltip would sit on top of the modal. */}
+      {hovered && !opened ? <EntryPopover hovered={hovered} /> : null}
+
+      {opened ? (
+        <AppointmentDialog
+          entry={opened}
+          staff={staff}
+          timezone={timezone}
+          onClose={() => setOpened(null)}
+          onChanged={() => router.refresh()}
+        />
+      ) : null}
 
       {adding ? (
         <BlockDialog
@@ -560,15 +607,18 @@ function EntryCard({
   style,
   dayView,
   onHoverChange,
+  onOpen,
 }: {
   entry: CalendarEntry;
   style: React.CSSProperties;
   /** One column instead of seven — the card can afford to be read, not scanned. */
   dayView: boolean;
   onHoverChange: (hover: HoveredEntry | null) => void;
+  onOpen: (entry: CalendarEntry) => void;
 }) {
   const cancelled = entry.status === "cancelled" || entry.status === "no_show";
   const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
+  const hasNote = Boolean(entry.notes?.trim());
 
   /**
    * One row or two, decided by how much room the booking actually has.
@@ -583,6 +633,18 @@ function EntryCard({
     entry.endMinutes - entry.startMinutes <
     (dayView ? COMPACT_BELOW_MIN_DAY : COMPACT_BELOW_MIN);
 
+  /**
+   * The note's text on the card, rather than only a mark saying there is one.
+   *
+   * Day view only, and only on a booking with the height to spare: 45 minutes at
+   * `h-28` an hour is 84 pixels, which holds a third line of 11px type without
+   * squeezing the two above it. In the week view the same line would be a
+   * two-word fragment ending in an ellipsis, which is not the note — it is the
+   * *illusion* of having read it.
+   */
+  const showNoteText =
+    dayView && hasNote && entry.endMinutes - entry.startMinutes >= 45;
+
   const show = (event: React.MouseEvent | React.FocusEvent) => {
     onHoverChange({
       entry,
@@ -590,47 +652,43 @@ function EntryCard({
     });
   };
 
-  return (
-    <div
-      style={style}
-      tabIndex={0}
-      // The native tooltip stays as the no-JavaScript, no-pointer fallback —
-      // the rich card below is an enhancement, not the only way to read this.
-      title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
-      onMouseEnter={show}
-      onFocus={show}
-      onMouseLeave={() => onHoverChange(null)}
-      onBlur={() => onHoverChange(null)}
-      className={cn(
-        "group absolute flex overflow-hidden rounded-lg text-[10px] leading-tight",
-        "ring-1 backdrop-blur-sm transition-shadow",
-        "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
-        "hover:z-10 hover:shadow-lg",
-        // Type scales with the room available. Seven columns cannot afford
-        // more than 10px; one column can, and shrinking it there would be
-        // making the view smaller than the one it replaced.
-        dayView ? "text-xs sm:text-sm" : "text-[10px]",
-        entry.kind === "block"
-          ? dayView
-            ? "bg-zinc-200 text-zinc-700 ring-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700"
-            : "bg-zinc-100/70 text-zinc-600 ring-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700"
-          : cn(
-              // **Solid in the day view, translucent in the week.** Across
-              // seven narrow columns a solid fill is a wall of colour, so the
-              // card lets the open-hours band read through it. One wide column
-              // is the opposite problem: there is nothing to compete with, and
-              // a washed card on a pale band is harder to read than a plain
-              // white one.
-              dayView
-                ? "bg-white text-zinc-900 shadow-sm ring-zinc-300 dark:bg-zinc-900 dark:text-zinc-50 dark:ring-zinc-700"
-                : cn(
-                    "bg-white/75 text-zinc-900 ring-zinc-200/80",
-                    "dark:bg-zinc-900/70 dark:text-zinc-50 dark:ring-zinc-700/80",
-                  ),
-              cancelled && "opacity-55",
-            ),
-      )}
-    >
+  const className = cn(
+    "group absolute flex overflow-hidden rounded-lg text-start leading-tight",
+    "border backdrop-blur-sm transition-shadow",
+    "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
+    "hover:z-10 hover:shadow-lg",
+    // Type scales with the room available. Seven columns cannot afford
+    // more than 10px; one column can, and shrinking it there would be
+    // making the view smaller than the one it replaced.
+    dayView ? "text-xs sm:text-sm" : "text-[10px]",
+    entry.kind === "block"
+      ? dayView
+        ? "bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700"
+        : "bg-zinc-100/70 text-zinc-600 border-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-300 dark:border-zinc-700"
+      : cn(
+          /**
+           * **Glass in the tenant's own hue, and more of it in the day view.**
+           *
+           * `.cal-glass` mixes `var(--accent)` into a translucent fill in CSS
+           * rather than here, because Tailwind cannot build a class from a
+           * runtime colour and a `--cal-glass-bg` token on `:root` would bake in
+           * the fallback — see the block in `globals.css`. The percentages and
+           * their dark variants live there too.
+           *
+           * The week view stays properly translucent so seven narrow columns do
+           * not become a wall of colour and the open-hours band reads through.
+           * The day view has one wide column with nothing to compete with, so it
+           * spends the room on legibility instead: same hue, nearly opaque.
+           */
+          dayView
+            ? "cal-glass-solid text-zinc-900 shadow-sm dark:text-zinc-50"
+            : "cal-glass text-zinc-900 dark:text-zinc-50",
+          cancelled && "opacity-55",
+        ),
+  );
+
+  const body = (
+    <>
       {/* The bar is the only saturated thing on the card, which is what lets it
           carry meaning at a glance across seven columns. */}
       <span
@@ -654,22 +712,96 @@ function EntryCard({
               {entry.title}
               {entry.subtitle ? ` · ${entry.subtitle}` : ""}
             </span>
+            {hasNote ? <NoteMark /> : null}
           </div>
         ) : (
           <>
-            <p
-              className={cn("truncate font-bold", cancelled && "line-through")}
-            >
-              {entry.title}
+            <p className="flex items-center gap-1">
+              <span
+                className={cn(
+                  "truncate font-bold",
+                  cancelled && "line-through",
+                )}
+              >
+                {entry.title}
+              </span>
+              {hasNote ? <NoteMark /> : null}
             </p>
             <p className="truncate opacity-75">
               <span className="tabular-nums">{span}</span>
               {entry.subtitle ? ` · ${entry.subtitle}` : ""}
             </p>
+
+            {/* The note itself, where there is genuinely room for it: one wide
+                column and a booking long enough that a third line does not
+                crowd out the two above. Everywhere else the mark says *look*
+                and the dialog is where it is read. */}
+            {showNoteText ? (
+              <p className="mt-0.5 truncate text-[11px] opacity-70">
+                {entry.notes}
+              </p>
+            ) : null}
           </>
         )}
       </div>
-    </div>
+    </>
+  );
+
+  // A block is not an appointment and has nothing to open — it is removed from
+  // the list below the grid. Rendering it as a button would announce an action
+  // that does not exist.
+  if (entry.kind === "block") {
+    return (
+      <div
+        style={style}
+        tabIndex={0}
+        title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
+        onMouseEnter={show}
+        onFocus={show}
+        onMouseLeave={() => onHoverChange(null)}
+        onBlur={() => onHoverChange(null)}
+        className={className}
+      >
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      style={style}
+      aria-haspopup="dialog"
+      // The native tooltip stays as the no-JavaScript, no-pointer fallback —
+      // the rich card below is an enhancement, not the only way to read this.
+      title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
+      onClick={() => onOpen(entry)}
+      onMouseEnter={show}
+      onFocus={show}
+      onMouseLeave={() => onHoverChange(null)}
+      onBlur={() => onHoverChange(null)}
+      className={cn(className, "cursor-pointer")}
+    >
+      {body}
+    </button>
+  );
+}
+
+/**
+ * "There is something written here." The dialog is where it is read.
+ *
+ * `role="img"` with a label rather than `aria-hidden`: on a card this small the
+ * mark is the *only* sign a booking carries a note, so hiding it from a screen
+ * reader would hide the note itself. `NotesBadge` says the same thing in words
+ * where there is room for words.
+ */
+function NoteMark() {
+  return (
+    <StickyNote
+      role="img"
+      aria-label="ישנן הערות"
+      className="size-3 shrink-0 opacity-70"
+    />
   );
 }
 

@@ -615,6 +615,18 @@ export type GetAvailableSlotsArgs = {
   date: string;
   /** Injectable for tests; defaults to the real clock. */
   now?: Date;
+  /**
+   * One appointment to leave out of the busy set. For a **reschedule**, and
+   * only ever for that.
+   *
+   * The appointment being moved occupies the time it is being moved *from*, so
+   * counting it as busy makes it block itself: an owner nudging a 10:00
+   * booking to 10:15 is told the slot is taken, by the very booking they are
+   * dragging. Every other appointment still blocks, and the database's
+   * exclusion constraint is untouched — so this narrows what one caller sees
+   * as busy without widening what anyone may actually book.
+   */
+  excludeAppointmentId?: string;
 };
 
 /**
@@ -630,7 +642,13 @@ export type GetAvailableSlotsArgs = {
  */
 export async function getAvailableSlotsWithStaff(
   db: Database,
-  { businessId, serviceId, date, now = new Date() }: GetAvailableSlotsArgs,
+  {
+    businessId,
+    serviceId,
+    date,
+    now = new Date(),
+    excludeAppointmentId,
+  }: GetAvailableSlotsArgs,
 ): Promise<SlotWithStaff[]> {
   const [business, service] = await Promise.all([
     getBusinessById(db, businessId),
@@ -709,6 +727,11 @@ export async function getAvailableSlotsWithStaff(
 
   const busyByStaff = new Map<string, BusyInterval[]>();
   for (const appointment of appointments) {
+    // See `excludeAppointmentId`: a reschedule must not be blocked by the row
+    // it is moving.
+    if (excludeAppointmentId && appointment.id === excludeAppointmentId) {
+      continue;
+    }
     const list = busyByStaff.get(appointment.staffId) ?? [];
     list.push(appointment);
     busyByStaff.set(appointment.staffId, list);

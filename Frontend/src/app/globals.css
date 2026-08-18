@@ -470,6 +470,84 @@ body {
     );
 }
 
+/* ---------------------------------------------------------------------------
+   CALENDAR GLASS — a booking on the full calendar, in the tenant's own hue.
+
+   **A plain class, for the same reason `.accent-mesh` is one.** These read
+   `var(--accent)` inside a real declaration, so it resolves *at the element* and
+   picks up whatever `data-accent` an ancestor carries. A `--cal-glass-bg` token
+   on `:root` could not do this: custom properties compute where they are
+   declared, so the root fallback would be baked in and every shop's calendar
+   would come out indigo — the trap `--shadow-accent` documents above.
+
+   `color-mix(in oklch, …)` rather than an opacity utility, because the accent
+   arrives *as* a colour and there is no class name to interpolate. oklch keeps
+   the mix perceptually even across six swatches of wildly different chroma:
+   the same percentage of amber and of cyan land at the same apparent strength,
+   which a mix in sRGB does not.
+
+   Contrast is measured on the **composited** surface, not on the token — a
+   translucent fill over a page background is not the colour written here, and
+   `getComputedStyle().backgroundColor` returns the unblended value, which reads
+   as a catastrophic 1.8:1 for a surface that actually measures 13:1.
+   `calendar-glass-contrast.test.ts` composites the real stack and fails the build
+   if any swatch drops under AA, so the percentages below cannot be nudged
+   upwards without the suite noticing.
+--------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   **A base and a tint, in two layers, rather than one mixed colour.**
+
+   `background-image` paints over `background-color`, so each card is exactly:
+   ground → base → tint. Both layers are then a plain alpha composite of colours
+   that can be worked out on paper, which is what lets
+   `calendar-glass-contrast.test.ts` compute every composited surface and hold it
+   to 4.5:1 in CI. Folding the base into the tint with a single four-way
+   `color-mix` would render identically and be untestable without a browser —
+   CSS premultiplies alpha through polar interpolation, and re-deriving that by
+   hand is how you get a confident wrong number.
+
+   `--cal-tint` is declared *on this rule*, so `var(--accent)` resolves at the
+   element and the tenant's hue arrives. Declared on `:root` it would not.
+--------------------------------------------------------------------------- */
+.cal-glass {
+  /* No base at all in the week view: the open-hours band and today's tint have
+     to read through, or "glass" is just paint. 16% is low enough that zinc-900
+     body text keeps a wide margin over AA on all six swatches. */
+  --cal-tint: color-mix(in oklch, var(--accent) 16%, transparent);
+  background-color: transparent;
+  background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
+  border-color: color-mix(in oklch, var(--accent) 34%, transparent);
+}
+
+/* The day view has one wide column and nothing to compete with, so it spends
+   the room on legibility: same hue, over a nearly opaque paper base. The week
+   view's translucency exists to stop seven narrow columns becoming a wall of
+   colour — a problem the day view does not have. */
+.cal-glass-solid {
+  --cal-tint: color-mix(in oklch, var(--accent) 18%, transparent);
+  background-color: rgb(255 255 255 / 0.9);
+  background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
+  border-color: color-mix(in oklch, var(--accent) 34%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* An ink base under the tint, rather than a stronger tint on nothing. 26% of a
+     mid-chroma accent floating on a near-black page reads as a glowing sliver
+     instead of a surface — the same reason `--accent-soft` inverts to a deep
+     tone rather than merely dimming. */
+  .cal-glass {
+    --cal-tint: color-mix(in oklch, var(--accent) 26%, transparent);
+    background-color: rgb(9 9 11 / 0.55);
+    border-color: color-mix(in oklch, var(--accent) 46%, transparent);
+  }
+
+  .cal-glass-solid {
+    --cal-tint: color-mix(in oklch, var(--accent) 26%, transparent);
+    background-color: rgb(9 9 11 / 0.88);
+    border-color: color-mix(in oklch, var(--accent) 46%, transparent);
+  }
+}
+
 /* Warm flare at the bottom centre, playing against the cool gradient base. */
 .cta-flare {
   background: radial-gradient(

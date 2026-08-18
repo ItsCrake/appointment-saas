@@ -16,6 +16,7 @@ import {
   mapClientNotes,
 } from "@/db/queries";
 import { listActiveStaff } from "@/db/queries/staff";
+import { toThemeColor } from "@/lib/branding";
 import { shiftDays, toDaySpans, weekOf } from "@/lib/calendar-week";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { todayInTimezone } from "@/lib/format";
@@ -93,6 +94,21 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
 
   for (const appointment of appointments) {
     const member = staffById.get(appointment.staffId);
+
+    /**
+     * The booking's own wall clock, resolved once here rather than per span.
+     *
+     * A span is a *drawing* — clipped at midnight, one per day a booking
+     * touches — so its minutes describe the card, not the appointment. The edit
+     * dialog has to seed its date and time fields from the appointment itself,
+     * and this page is where the timezone lives.
+     */
+    const localDate = formatInTimeZone(
+      appointment.startsAt,
+      business.timezone,
+      "yyyy-MM-dd",
+    );
+
     for (const span of toDaySpans(
       appointment.startsAt,
       appointment.endsAt,
@@ -103,6 +119,9 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         // Unique per span, so a booking that crosses midnight gets one card a
         // day rather than two React children with the same key.
         id: `${appointment.id}:${span.dayIndex}`,
+        // The row's real id, which is what an action has to be given. Every
+        // span of one booking carries the same one.
+        appointmentId: appointment.id,
         kind: "appointment",
         title: appointment.clientName,
         subtitle: appointment.serviceName,
@@ -111,9 +130,21 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         clientProfileNotes: clientNotes.get(appointment.clientPhone) ?? null,
         status: appointment.status,
         priceCents: appointment.priceCents,
+        staffId: appointment.staffId,
         staffName: team.length > 1 ? (member?.name ?? null) : null,
         staffColor: member?.color ?? null,
         timeOffId: null,
+        date: localDate,
+        startTime: formatInTimeZone(
+          appointment.startsAt,
+          business.timezone,
+          "HH:mm",
+        ),
+        endTime: formatInTimeZone(
+          appointment.endsAt,
+          business.timezone,
+          "HH:mm",
+        ),
         ...span,
       });
     }
@@ -131,6 +162,9 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
     for (const span of spans) {
       entries.push({
         id: `${block.id}:${span.dayIndex}`,
+        // A block is a `time_off` row, not an appointment — the dialog and every
+        // appointment action are unreachable for it by construction.
+        appointmentId: null,
         kind: "block",
         title: block.reason ?? "חסום",
         subtitle: [
@@ -142,9 +176,13 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         clientProfileNotes: null,
         status: null,
         priceCents: null,
+        staffId: block.staffId,
         staffName: member?.name ?? null,
         staffColor: null,
         timeOffId: block.id,
+        date: formatInTimeZone(block.startsAt, business.timezone, "yyyy-MM-dd"),
+        startTime: formatInTimeZone(block.startsAt, business.timezone, "HH:mm"),
+        endTime: formatInTimeZone(block.endsAt, business.timezone, "HH:mm"),
         ...span,
       });
     }
@@ -181,7 +219,19 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
   });
 
   return (
-    <div className="pb-4">
+    /**
+     * `data-accent` is what makes the glass on this calendar the tenant's own
+     * colour rather than the indigo root fallback.
+     *
+     * The dashboard chrome is deliberately monochrome — see `ui.tsx` — and this
+     * is the one screen inside it that carries the shop's hue, because the
+     * bookings on it are the same objects the client sees on the branded booking
+     * page. Nothing else here reads `(--accent)`, so nothing else changes; it is
+     * also what fixes today's column, which was resolving the fallback and
+     * keeping its *light* soft tint in dark mode, since the dark overrides are
+     * scoped to this attribute.
+     */
+    <div data-accent={toThemeColor(business.themeColor)} className="pb-4">
       <PageHeader
         title="יומן מלא"
         subtitle="כל התורים, החסימות והצוות במקום אחד"

@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **903 tests across 64 files**; Playwright at
+**Green:** `npm run verify` at **981 tests across 68 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1344,48 +1344,138 @@ redirect so the button does not flash back to "ready" for a frame.
 `call-action.test.ts` builds the case with the real `redirect()` rather than a
 hand-made error object, so it keeps testing what Next actually throws.
 
-### Next up: the glassmorphic calendar and its edit modal
+### The glassmorphic calendar and its edit modal ✅
 
-Not started. The analysis below is done so the next session can build rather
-than re-derive it.
+`/dashboard/agenda/full` now paints its appointments as translucent glass in the
+tenant's own accent, marks the ones carrying a note, and opens a dialog on click
+offering view / status / edit / reschedule / cancel. No migration — every column
+it needed already existed.
 
-**Scope.** `/dashboard/agenda/full` — translucent appointment blocks tinted with
-the tenant's accent, client notes visible on the block, and a modal on click
-offering view / status / edit / reschedule / cancel.
+**The dashboard was never themed, and that is why the tint needed wiring, not
+just styling.** `data-accent` lived only on the three client-facing routes, so
+the calendar's `bg-(--accent-soft)` on today's column had been resolving the
+`:root` indigo fallback for every shop regardless of their colour — and keeping
+its *light* value in dark mode, since the dark overrides are scoped to
+`[data-accent]`. The attribute now sits on the full calendar's own wrapper, which
+themes the glass and fixes today's column in the same line.
+`theme-coverage.test.ts` therefore has one dashboard route in its allowlist; that
+is deliberate, and the reason is written next to it. The rest of the dashboard
+chrome stays monochrome.
 
-**Five things that decide whether it works:**
+**The glass is a plain CSS class, and it has to be.** `.cal-glass` in
+`globals.css` mixes `var(--accent)` inside a real declaration, so it resolves *at
+the element* and picks up the nearest `data-accent`. A `--cal-glass-bg` token on
+`:root` cannot work: custom properties compute where they are declared, so the
+root fallback would be baked in and every shop's calendar would come out indigo —
+the same trap `--shadow-accent` documents. `.accent-mesh` already worked this way
+and is the precedent. Unlayered, so it beats Tailwind's `@layer utilities`
+without `!important`.
 
-1. **`--accent` is a CSS custom property, not a Tailwind class.** PRODUCT.md is
-   explicit: the colour is a swatch *name* because Tailwind cannot emit a class
-   from a runtime value, and it arrives via `data-accent` on a wrapper. So the
-   glass tint has to be `color-mix(in oklch, var(--accent) 18%, transparent)`
-   or similar — never an interpolated class name.
+The week view stays genuinely translucent — seven narrow columns of solid colour
+is a wall, and the open-hours band has to read through. The day view has one wide
+column and nothing to compete with, so `.cal-glass-solid` spends the room on
+legibility instead. Same reasoning as the solid/translucent split it replaces.
 
-2. **Measure contrast on the composited surface, not the token.** A translucent
-   fill over a page background is not the colour you wrote. Paint the ground and
-   the layer onto a 1×1 canvas, read the pixel, then compute the ratio. Reading
-   `getComputedStyle().backgroundColor` on a translucent element returns the
-   *unblended* value and produced a 1.8:1 reading for a surface that actually
-   measured 13:1 — a wrong number that looks like a finding is worse than none.
+**Contrast is measured on the composited surface, and the measurement is a test
+rather than a reading.** `calendar-glass-contrast.test.ts` rebuilds the real
+stack — card, open-hours band, today's tint, the glass base, the glass tint —
+composites it, and holds every surface to 4.5:1 against the body text *and*
+against the `opacity-75` secondary line, which is the weakest type on the card.
+Twelve surfaces: six swatches in light and dark. Today's column is included
+because it is the darkest ground a light card sits on and the lightest a dark one
+does.
 
-3. **Reschedule is a booking.** Moving an appointment must re-run availability
-   server-side and go through the same insert/update path as
-   `createAppointment`, so the guard that catches a clash is
-   `appointments_no_overlap_staff` — `business_id` + `staff_id`, `WHERE status
-   NOT IN ('cancelled','completed','no_show')`. Anything that writes
-   `starts_at`/`ends_at` without passing that constraint makes the calendar the
-   one route in the product that can double-book.
+In code rather than in devtools on purpose: a one-off reading proves the colour
+that shipped the day it was taken, while this fails the build the day somebody
+raises a tint percentage. It converts oklch to sRGB itself, so the converter is
+**pinned against Tailwind's published hexes** for all six swatches plus the
+achromatic ends — without that, the suite would happily measure a broken
+converter and report comfortable ratios for surfaces nobody can read, which is
+the "confident wrong number" the original analysis warned about.
 
-4. **Every mutating action calls `requireWritable()`**, never
-   `requireBusiness()`. `dashboard-session.coverage.test.ts` fails the build on
-   omission, so the test will catch it — but knowing costs one less cycle.
+That is also why `globals.css` keeps the glass base and its tint as two layers
+instead of one four-way `color-mix`: two alpha composites can be re-derived
+exactly, whereas CSS premultiplies alpha through polar interpolation and
+reproducing that by hand is how the wrong number gets made.
 
-5. **`appointments.notes` already exists.** The note icon and the modal body
-   need no migration.
+#### Reschedule is a booking, and the appointment blocks itself
 
-**Prior art to reuse rather than re-invent:** `agenda-list.tsx` already does
-optimistic status changes with rollback and a toast;
-`manual-booking-dialog.tsx` is the existing dialog shape and focus behaviour.
+`rescheduleAppointmentAction` re-reads the row through the session's business,
+refuses a terminal one, re-derives `endsAt` from the stored service duration,
+re-runs availability, and writes through `rescheduleAppointment` so
+`appointments_no_overlap_staff` is the backstop. The interesting parts are the
+three places the obvious implementation is wrong:
+
+**1. Availability counts the appointment being moved.** It occupies the time it
+is moving *from*, so an owner nudging a 10:00 booking to 10:15 is told the slot
+is taken — by the booking they are dragging. `getAvailableSlotsWithStaff` now
+takes `excludeAppointmentId`, used by this one caller, which drops exactly that
+row from the busy set and nothing else. The exclusion constraint is untouched, so
+this narrows what one caller *sees* as busy without widening what anyone may
+book.
+
+**2. The engine has no answer for some perfectly ordinary appointments**, and
+reading its silence as "not free" makes them permanently unmovable. It only
+models bookable providers and active services, and three states fall outside
+that: a service since deactivated (they are deactivated rather than deleted
+*because* they hold history), a provider since deactivated, and a shop that
+collapsed back to one chair, where only the primary is handed to the engine. All
+three leave real bookings on the calendar. Those fall back to a direct clash
+check plus the constraint — the same standard `createManualBookingAction` is held
+to. A provider the engine *does* model appears in some slot on any open day, with
+no schedule rows of their own they inherit the shop's hours, so every ordinary
+move is still governed by the strict check.
+
+**3. The reminder's dedupe key does not mention the time.** It is
+`reminder:<appointmentId>:<hoursBefore>`, and `enqueueNotification` is an
+`onConflictDoNothing` that conflicts on the key **whatever the row's status**. So
+the intuitive move — mark the stale reminder `skipped`, re-enqueue for the new
+time — queues *nothing*: an appointment pushed from Tuesday 10:00 to Tuesday
+14:00 plans onto the same 24-hour rule, hits the same key, and the client
+silently gets no reminder at all. Only for rescheduled appointments, which is
+exactly the kind of hole nobody finds by reading.
+
+So the pending rows are **deleted**, by
+`deletePendingNotificationsForAppointment`, and that is honest here: a `pending`
+row is a future intention, nothing was ever delivered, and the instant it
+describes no longer exists. `sent`, `failed` and `skipped` rows are never
+touched, and cancellation still *skips* rather than deletes, because there the
+appointment really is over and the audit trail is the point. `reschedule.test.ts`
+asserts the trap from both sides — that skipping queues nothing, and that
+deleting queues the new time — so nobody re-introduces it as a tidiness fix.
+
+Timing was the only thing wrong with a moved reminder: the dispatcher already
+derives `reminder_24h` vs `reminder_2h` from the appointment's live `startsAt`,
+so the wording was always going to be right.
+
+**Availability applies here where manual booking skips it, on purpose.** A manual
+booking is the owner adding something they already know about — a walk-in, a
+favour, a job that runs past closing. A reschedule moves a *client's*
+appointment, and a client must not be quietly moved to a time the shop is shut.
+The refusal says which of the two reasons stopped them — somebody else is booked,
+or that is outside your hours — so an owner who really wants the off-hours slot
+knows to take the manual route.
+
+#### What it deliberately does not do
+
+**The client is not told their appointment moved.** There is no notification kind
+for it, and adding one means a Meta template — see the blocked table below, where
+five drafted templates are already waiting on a builder that refuses to create
+them. Queueing a kind the official path would refuse is worse than saying
+nothing, so the move dialog says so in as many words and leaves telling the
+client to the owner, who has call and WhatsApp buttons two rows above.
+
+**A move into the past is refused**, because availability filters past instants.
+That blocks retroactively correcting the recorded time of a booking that already
+happened. It is not a regression — there was no reschedule at all before this —
+and the honest fix is a separate "correct the record" path rather than loosening
+the guard that keeps a client from being booked into a closed shop.
+
+**The service cannot be changed from the dialog.** It sets the price and the
+length of the very thing being placed, and `serviceName`/`priceCents` are
+snapshots so history survives edits to the catalogue. Editing covers the name,
+the phone and the note; the times are the reschedule; everything else is a
+cancel-and-rebook.
 
 ### The one thing that is broken in production right now
 

@@ -106,6 +106,47 @@ export async function markNotificationSkipped(
     .where(eq(notifications.id, id));
 }
 
+/**
+ * Drops queued messages for an appointment that is **still happening**, so they
+ * can be queued again for its new time. Used only by the reschedule path.
+ *
+ * ---------------------------------------------------------------------------
+ * **Deleted rather than skipped, and the dedupe key is the whole reason.**
+ *
+ * `dedupe_key` is UNIQUE and `enqueueNotification` is an
+ * `onConflictDoNothing` — it dedupes on the key regardless of the row's status.
+ * A reminder's key is `reminder:<appointmentId>:<hoursBefore>`, which does not
+ * mention the time being reminded about, so an appointment moved from Tuesday
+ * 10:00 to Tuesday 14:00 keeps the same key. Marking the old row `skipped` and
+ * re-enqueueing would therefore hit the conflict and queue **nothing**: the
+ * client would get no reminder at all for the moved appointment, silently, and
+ * only for appointments that had been rescheduled.
+ *
+ * Deleting frees the key. That is honest here in a way it would not be
+ * elsewhere: a `pending` row is a *future intention*, not a record of anything
+ * that happened — nothing was ever delivered — and the instant it describes no
+ * longer exists. `sent`, `failed` and `skipped` rows are never touched, and
+ * cancellation still uses `cancelPendingNotificationsForAppointment` below,
+ * where the appointment really is over and the audit trail is the point.
+ * ---------------------------------------------------------------------------
+ */
+export async function deletePendingNotificationsForAppointment(
+  db: Database,
+  appointmentId: string,
+) {
+  const rows = await db
+    .delete(notifications)
+    .where(
+      and(
+        eq(notifications.appointmentId, appointmentId),
+        eq(notifications.status, "pending"),
+      ),
+    )
+    .returning({ id: notifications.id });
+
+  return rows.length;
+}
+
 /** Cancels queued messages for an appointment, e.g. its pending reminder. */
 export async function cancelPendingNotificationsForAppointment(
   db: Database,

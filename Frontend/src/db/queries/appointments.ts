@@ -126,6 +126,78 @@ export async function createAppointment(
 }
 
 /**
+ * Moves an appointment in time, and optionally onto a different provider.
+ *
+ * **Wrapped in the same overlap translation as `createAppointment`, because it
+ * is the same guard.** `appointments_no_overlap_staff` excludes on
+ * `(business_id, staff_id)` over the non-terminal statuses, and an UPDATE that
+ * lands on an occupied range violates it exactly as an INSERT would — so the
+ * calendar cannot become the one route in the product that can double-book.
+ *
+ * A row is never compared against *itself* by an exclusion constraint, so
+ * nudging an appointment by five minutes — a move that overlaps its own former
+ * range — is correctly not a conflict.
+ */
+export async function rescheduleAppointment(
+  db: Database,
+  businessId: string,
+  appointmentId: string,
+  values: { startsAt: Date; endsAt: Date; staffId?: string },
+) {
+  try {
+    const [row] = await db
+      .update(appointments)
+      .set({
+        startsAt: values.startsAt,
+        endsAt: values.endsAt,
+        // Omitted rather than set to undefined: a single-staff tenant sends no
+        // provider, and writing one would be inventing an assignment.
+        ...(values.staffId ? { staffId: values.staffId } : {}),
+      })
+      .where(
+        and(
+          eq(appointments.businessId, businessId),
+          eq(appointments.id, appointmentId),
+        ),
+      )
+      .returning();
+
+    return row ?? null;
+  } catch (error) {
+    if (isOverlapViolation(error)) throw new SlotTakenError();
+    throw error;
+  }
+}
+
+/**
+ * The correctable parts of a booking: who it is for, how to reach them, and
+ * what was asked for.
+ *
+ * Deliberately not the service, the price or the times. The first two are
+ * snapshots that history depends on, and the times have their own path above
+ * because moving them has to clear the overlap guard.
+ */
+export async function updateAppointmentDetails(
+  db: Database,
+  businessId: string,
+  appointmentId: string,
+  values: { clientName: string; clientPhone: string; notes: string | null },
+) {
+  const [row] = await db
+    .update(appointments)
+    .set(values)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.id, appointmentId),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
+}
+
+/**
  * The soonest appointment still ahead. The agenda opens on today, so without
  * this an owner whose only bookings are days away sees an empty day and
  * reasonably concludes the booking was lost.

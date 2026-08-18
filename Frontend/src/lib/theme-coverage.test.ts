@@ -88,6 +88,17 @@ describe("per-tenant accent coverage", () => {
       "[slug]/my-appointments/page.tsx",
       "[slug]/page.tsx",
       "b/[token]/page.tsx",
+      /**
+       * The one dashboard route in the list, and deliberately so.
+       *
+       * The dashboard chrome is monochrome by design, but the full calendar
+       * tints its appointment blocks with the tenant's accent — the bookings on
+       * it are the same objects the client sees on the branded page. Without the
+       * attribute those blocks resolve the `:root` indigo fallback for every
+       * shop, and today's column keeps its light soft tint in dark mode, since
+       * the dark overrides are scoped to `[data-accent]`.
+       */
+      "dashboard/agenda/full/page.tsx",
     ]);
   });
 });
