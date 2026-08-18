@@ -509,14 +509,57 @@ body {
    `--cal-tint` is declared *on this rule*, so `var(--accent)` resolves at the
    element and the tenant's hue arrives. Declared on `:root` it would not.
 --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   WHOSE colour: `--cal-hue`, falling back to the tenant's accent.
+
+   A one-chair shop has nothing to tell apart, so its cards carry the accent and
+   the calendar reads as the shop's own. The moment there is a team, `.cal-staff-*`
+   sets `--cal-hue` per card and the grid answers "who is this with?" at a glance
+   — the same question the legend above it answers, in the same colours, which is
+   why the hues are the staff swatches rather than a second palette.
+
+   A fallback inside `var()` rather than two rules: the cascade would have to
+   guess which of `.cal-glass` and `.cal-staff-rose` wins, and both are single
+   classes.
+--------------------------------------------------------------------------- */
 .cal-glass {
   /* No base at all in the week view: the open-hours band and today's tint have
      to read through, or "glass" is just paint. 16% is low enough that zinc-900
-     body text keeps a wide margin over AA on all six swatches. */
-  --cal-tint: color-mix(in oklch, var(--accent) 16%, transparent);
+     body text keeps a wide margin over AA on every swatch and every staff hue. */
+  --cal-tint: color-mix(in oklch, var(--cal-hue, var(--accent)) 16%, transparent);
   background-color: transparent;
   background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
-  border-color: color-mix(in oklch, var(--accent) 34%, transparent);
+  border-color: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 34%,
+    transparent
+  );
+}
+
+/* The staff swatches, as colours rather than as Tailwind classes. Declared on
+   the card itself so `--cal-hue` resolves at the element, exactly as
+   `data-accent` does one level up. Kept at the 500 step, which is what the
+   legend's dots use — the grid and its key have to agree. */
+.cal-staff-slate {
+  --cal-hue: oklch(55.4% 0.046 257.417);
+}
+.cal-staff-rose {
+  --cal-hue: oklch(64.5% 0.246 16.439);
+}
+.cal-staff-amber {
+  --cal-hue: oklch(76.9% 0.188 70.08);
+}
+.cal-staff-emerald {
+  --cal-hue: oklch(69.6% 0.17 162.48);
+}
+.cal-staff-sky {
+  --cal-hue: oklch(68.5% 0.169 237.323);
+}
+.cal-staff-violet {
+  --cal-hue: oklch(60.6% 0.25 292.717);
+}
+.cal-staff-fuchsia {
+  --cal-hue: oklch(66.7% 0.295 322.15);
 }
 
 /* The day view has one wide column and nothing to compete with, so it spends
@@ -524,10 +567,14 @@ body {
    view's translucency exists to stop seven narrow columns becoming a wall of
    colour — a problem the day view does not have. */
 .cal-glass-solid {
-  --cal-tint: color-mix(in oklch, var(--accent) 18%, transparent);
+  --cal-tint: color-mix(in oklch, var(--cal-hue, var(--accent)) 18%, transparent);
   background-color: rgb(255 255 255 / 0.9);
   background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
-  border-color: color-mix(in oklch, var(--accent) 34%, transparent);
+  border-color: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 34%,
+    transparent
+  );
 }
 
 @media (prefers-color-scheme: dark) {
@@ -536,15 +583,31 @@ body {
      instead of a surface — the same reason `--accent-soft` inverts to a deep
      tone rather than merely dimming. */
   .cal-glass {
-    --cal-tint: color-mix(in oklch, var(--accent) 26%, transparent);
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 26%,
+      transparent
+    );
     background-color: rgb(9 9 11 / 0.55);
-    border-color: color-mix(in oklch, var(--accent) 46%, transparent);
+    border-color: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 46%,
+      transparent
+    );
   }
 
   .cal-glass-solid {
-    --cal-tint: color-mix(in oklch, var(--accent) 26%, transparent);
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 26%,
+      transparent
+    );
     background-color: rgb(9 9 11 / 0.88);
-    border-color: color-mix(in oklch, var(--accent) 46%, transparent);
+    border-color: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 46%,
+      transparent
+    );
   }
 }
 

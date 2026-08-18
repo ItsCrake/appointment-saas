@@ -5,11 +5,12 @@ import {
   AlertCircle,
   CalendarClock,
   Check,
+  FileText,
   Loader2,
   MessageCircle,
   Pencil,
   Phone,
-  StickyNote,
+  UserRound,
   UserX,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   setAppointmentStatusAction,
   updateAppointmentDetailsAction,
 } from "@/app/dashboard/actions";
+import { saveClientProfileAction } from "@/app/dashboard/clients/actions";
 import { useToast } from "@/components/ui/toast";
 import { dayOfMonth, formatPrice, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -33,28 +35,38 @@ import {
 } from "./ui";
 import type { CalendarEntry } from "./week-calendar";
 
+type Tab = "appointment" | "client";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "appointment", label: "פרטי התור" },
+  { id: "client", label: "כרטיס לקוח" },
+];
+
 /**
  * One appointment, opened from the calendar.
  *
  * ---------------------------------------------------------------------------
- * **Three faces, one dialog.** Viewing, correcting the details and moving the
- * booking are the same object seen three ways, and an owner who has just read
- * the note is one tap from acting on it. Separate dialogs would have meant
- * closing this one to find the next.
+ * **Two tabs, because there are two subjects here and they are not the same
+ * object.** The first is *this booking* — when it is, what it is for, what the
+ * client asked for, and every action that changes it. The second is *the
+ * person*, whose notes belong to them rather than to any one appointment and
+ * outlive it: "always late", "prefers the window chair". Keeping them on one
+ * scroll made the standing note look like part of today's booking, which is
+ * exactly the confusion that gets an owner acting on something nobody asked for
+ * this time.
+ *
+ * The client's notes are editable in place. An owner who has just read "bring
+ * the other stylist" should not have to leave the calendar, find the clients
+ * page and search a phone number to write it down — the note is saved through
+ * the same `saveClientProfileAction` that page uses, so there is one write path
+ * and one revalidation.
  *
  * **Every successful move or edit closes the dialog.** The entry it was opened
  * with is a snapshot of the last server render, so a dialog that stayed open
- * past a reschedule would be showing the time the appointment used to be at.
- * A *status* change is the exception and deliberately stays open: it is the one
- * mutation that alters nothing the rest of the dialog displays, it is held in
- * local state so the chip updates instantly, and it is the action most often
- * followed by another one.
- *
- * Shape and focus behaviour follow `manual-booking-dialog` and the block dialog
- * beside it — a sheet from the bottom on a phone, centred on a desktop — and the
- * optimistic status change with its rollback and toast is `agenda-list`'s,
- * because an owner should not learn two different vocabularies for the same act
- * on two screens.
+ * past a reschedule would be showing the time the appointment used to be at. A
+ * *status* change and a *client note* are the exceptions and deliberately stay
+ * open: both are held in local state, neither alters anything else on screen,
+ * and both are commonly followed by another action.
  * ---------------------------------------------------------------------------
  */
 export function AppointmentDialog({
@@ -78,9 +90,15 @@ export function AppointmentDialog({
 }) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
+  const [tab, setTab] = useState<Tab>("appointment");
   const [mode, setMode] = useState<"view" | "edit" | "move">("view");
   const [status, setStatus] = useState(entry.status ?? "confirmed");
   const [error, setError] = useState<string>();
+  /**
+   * Held here rather than in the panel so the tab's marker updates the moment
+   * a note is saved, and survives switching back and forth.
+   */
+  const [clientNotes, setClientNotes] = useState(entry.clientProfileNotes ?? "");
 
   const appointmentId = entry.appointmentId ?? "";
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -122,9 +140,17 @@ export function AppointmentDialog({
     });
   }
 
+  function show(next: Tab) {
+    // Leaving a half-finished edit behind on the other tab would be a trap: the
+    // owner comes back to a form they no longer expect to be open.
+    setMode("view");
+    setError(undefined);
+    setTab(next);
+  }
+
   return (
     <Sheet onClose={onClose}>
-      <div className="mb-4 flex items-start justify-between gap-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2
@@ -155,199 +181,375 @@ export function AppointmentDialog({
         </button>
       </div>
 
-      <dl className="space-y-1 text-xs">
-        {entry.subtitle ? <Row label="שירות">{entry.subtitle}</Row> : null}
-        {entry.priceCents !== null ? (
-          <Row label="מחיר">{formatPrice(entry.priceCents)}</Row>
-        ) : null}
-        {entry.staffName ? <Row label="נותן שירות">{entry.staffName}</Row> : null}
-        {entry.clientPhone ? (
-          <Row label="טלפון">
-            <span dir="ltr">{entry.clientPhone}</span>
-          </Row>
-        ) : null}
-      </dl>
-
-      {/* The booking's own note and what the shop knows about the person, kept
-          visually apart for the reason the calendar's hover card keeps them
-          apart: one is a request for today, the other is a standing preference,
-          and reading the second as the first is how an owner ends up acting on
-          something nobody asked for. */}
-      {entry.notes?.trim() ? (
-        <p className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 text-xs leading-relaxed text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {entry.notes}
-        </p>
-      ) : null}
-
-      {entry.clientProfileNotes?.trim() ? (
-        <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
-          <p className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-            <StickyNote className="size-3" aria-hidden />
-            העדפות הלקוח
-          </p>
-          <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-100">
-            {entry.clientProfileNotes}
-          </p>
-        </div>
-      ) : null}
-
-      {entry.clientPhone ? (
-        <div className="mt-3 flex gap-2">
-          <a
-            href={`tel:${entry.clientPhone}`}
-            className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
-          >
-            <Phone className="size-3.5" aria-hidden />
-            חיוג
-          </a>
-          <a
-            href={`https://wa.me/${wa}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
-          >
-            <MessageCircle className="size-3.5" aria-hidden />
-            וואטסאפ
-          </a>
-        </div>
-      ) : null}
-
-      {error ? (
-        <p
-          role="alert"
-          className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-950/40 dark:text-red-300"
-        >
-          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
-          {error}
-        </p>
-      ) : null}
-
-      {mode === "view" ? (
-        <>
-          {/* A request has exactly two useful answers, and they are not the same
-              two as a booking's — the same rule the agenda follows. */}
-          <div className="mt-4 flex flex-wrap gap-2">
-            {awaitingApproval ? (
-              <>
-                <Action
-                  tone="approve"
-                  icon={<Check className="size-3.5" aria-hidden />}
-                  label="אישור התור"
-                  busy={pending}
-                  disabled={pending}
-                  onClick={() => changeStatus("confirmed")}
-                />
-                <Action
-                  tone="red"
-                  icon={<X className="size-3.5" aria-hidden />}
-                  label="דחייה"
-                  disabled={pending}
-                  onClick={() => changeStatus("cancelled")}
-                />
-              </>
-            ) : open ? (
-              <>
-                <Action
-                  tone="brand"
-                  icon={<Check className="size-3.5" aria-hidden />}
-                  label="הושלם"
-                  busy={pending}
-                  disabled={pending}
-                  onClick={() => changeStatus("completed")}
-                />
-                <Action
-                  tone="neutral"
-                  icon={<UserX className="size-3.5" aria-hidden />}
-                  label="לא הגיע"
-                  disabled={pending}
-                  onClick={() => changeStatus("no_show")}
-                />
-                <Action
-                  tone="red"
-                  icon={<X className="size-3.5" aria-hidden />}
-                  label="ביטול התור"
-                  disabled={pending}
-                  onClick={() => changeStatus("cancelled")}
-                />
-              </>
-            ) : (
-              <Action
-                tone="neutral"
-                icon={<Check className="size-3.5" aria-hidden />}
-                label="החזרה לתור פעיל"
-                busy={pending}
-                disabled={pending}
-                onClick={() => changeStatus("confirmed")}
-              />
+      {/* The same segmented control the calendar's own view switch uses, so the
+          two toggles on this screen behave alike. */}
+      <div
+        role="tablist"
+        aria-label="פרטי התור והלקוח"
+        className="mb-4 flex items-center gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-800"
+      >
+        {TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`appointment-tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls={`appointment-panel-${id}`}
+            onClick={() => show(id)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-colors",
+              tab === id
+                ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
             )}
-          </div>
-
-          {/* Moving a cancelled or finished appointment is not a thing to offer:
-              the action refuses it server-side, and a button that always fails
-              is worse than no button. */}
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Action
-              tone="neutral"
-              icon={<Pencil className="size-3.5" aria-hidden />}
-              label="עריכת פרטים"
-              disabled={pending}
-              onClick={() => {
-                setError(undefined);
-                setMode("edit");
-              }}
-            />
-            {open ? (
-              <Action
-                tone="neutral"
-                icon={<CalendarClock className="size-3.5" aria-hidden />}
-                label="העברת התור"
-                disabled={pending}
-                onClick={() => {
-                  setError(undefined);
-                  setMode("move");
-                }}
+          >
+            {label}
+            {/* A dot on the tab that has something written on it, so an owner
+                knows there is a standing note without opening the tab to find
+                out. The same job the mark on the calendar card does. */}
+            {id === "client" && clientNotes.trim() ? (
+              <span
+                aria-label="ישנן הערות"
+                role="img"
+                className="size-1.5 rounded-full bg-amber-500"
               />
             ) : null}
-          </div>
-        </>
-      ) : null}
+          </button>
+        ))}
+      </div>
 
-      {mode === "edit" ? (
-        <EditPanel
-          entry={entry}
-          appointmentId={appointmentId}
-          onCancel={() => setMode("view")}
-          onSaved={() => {
-            toast("פרטי התור עודכנו");
-            onChanged();
-            onClose();
-          }}
-          onError={setError}
-        />
-      ) : null}
+      {tab === "appointment" ? (
+        <div
+          role="tabpanel"
+          id="appointment-panel-appointment"
+          aria-labelledby="appointment-tab-appointment"
+        >
+          <dl className="space-y-1 text-xs">
+            {entry.subtitle ? <Row label="שירות">{entry.subtitle}</Row> : null}
+            {entry.priceCents !== null ? (
+              <Row label="מחיר">{formatPrice(entry.priceCents)}</Row>
+            ) : null}
+            {entry.staffName ? (
+              <Row label="נותן שירות">{entry.staffName}</Row>
+            ) : null}
+            {entry.clientPhone ? (
+              <Row label="טלפון">
+                <span dir="ltr">{entry.clientPhone}</span>
+              </Row>
+            ) : null}
+          </dl>
 
-      {mode === "move" ? (
-        <MovePanel
-          entry={entry}
-          appointmentId={appointmentId}
-          staff={staff}
-          timezone={timezone}
-          onCancel={() => setMode("view")}
-          onSaved={() => {
-            toast("התור הועבר");
-            onChanged();
-            onClose();
-          }}
-          onError={setError}
-        />
-      ) : null}
+          {/* This booking's note only. What the shop knows about the person
+              lives on the other tab, because it is about the person. */}
+          {entry.notes?.trim() ? (
+            <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 dark:bg-zinc-800">
+              <p className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
+                <FileText className="size-3" aria-hidden />
+                הערת הלקוח לתור הזה
+              </p>
+              <p className="text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
+                {entry.notes}
+              </p>
+            </div>
+          ) : null}
+
+          {entry.clientPhone ? (
+            <div className="mt-3 flex gap-2">
+              <a
+                href={`tel:${entry.clientPhone}`}
+                className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
+              >
+                <Phone className="size-3.5" aria-hidden />
+                חיוג
+              </a>
+              <a
+                href={`https://wa.me/${wa}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
+              >
+                <MessageCircle className="size-3.5" aria-hidden />
+                וואטסאפ
+              </a>
+            </div>
+          ) : null}
+
+          {error ? (
+            <p
+              role="alert"
+              className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-950/40 dark:text-red-300"
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              {error}
+            </p>
+          ) : null}
+
+          {mode === "view" ? (
+            <>
+              {/* A request has exactly two useful answers, and they are not the
+                  same two as a booking's — the same rule the agenda follows. */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {awaitingApproval ? (
+                  <>
+                    <Action
+                      tone="approve"
+                      icon={<Check className="size-3.5" aria-hidden />}
+                      label="אישור התור"
+                      busy={pending}
+                      disabled={pending}
+                      onClick={() => changeStatus("confirmed")}
+                    />
+                    <Action
+                      tone="red"
+                      icon={<X className="size-3.5" aria-hidden />}
+                      label="דחייה"
+                      disabled={pending}
+                      onClick={() => changeStatus("cancelled")}
+                    />
+                  </>
+                ) : open ? (
+                  <>
+                    <Action
+                      tone="brand"
+                      icon={<Check className="size-3.5" aria-hidden />}
+                      label="הושלם"
+                      busy={pending}
+                      disabled={pending}
+                      onClick={() => changeStatus("completed")}
+                    />
+                    <Action
+                      tone="neutral"
+                      icon={<UserX className="size-3.5" aria-hidden />}
+                      label="לא הגיע"
+                      disabled={pending}
+                      onClick={() => changeStatus("no_show")}
+                    />
+                    <Action
+                      tone="red"
+                      icon={<X className="size-3.5" aria-hidden />}
+                      label="ביטול התור"
+                      disabled={pending}
+                      onClick={() => changeStatus("cancelled")}
+                    />
+                  </>
+                ) : (
+                  <Action
+                    tone="neutral"
+                    icon={<Check className="size-3.5" aria-hidden />}
+                    label="החזרה לתור פעיל"
+                    busy={pending}
+                    disabled={pending}
+                    onClick={() => changeStatus("confirmed")}
+                  />
+                )}
+              </div>
+
+              {/* Moving a cancelled or finished appointment is not a thing to
+                  offer: the action refuses it server-side, and a button that
+                  always fails is worse than no button. */}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Action
+                  tone="neutral"
+                  icon={<Pencil className="size-3.5" aria-hidden />}
+                  label="עריכת פרטים"
+                  disabled={pending}
+                  onClick={() => {
+                    setError(undefined);
+                    setMode("edit");
+                  }}
+                />
+                {open ? (
+                  <Action
+                    tone="neutral"
+                    icon={<CalendarClock className="size-3.5" aria-hidden />}
+                    label="העברת התור"
+                    disabled={pending}
+                    onClick={() => {
+                      setError(undefined);
+                      setMode("move");
+                    }}
+                  />
+                ) : null}
+              </div>
+            </>
+          ) : null}
+
+          {mode === "edit" ? (
+            <EditPanel
+              entry={entry}
+              appointmentId={appointmentId}
+              onCancel={() => setMode("view")}
+              onSaved={() => {
+                toast("פרטי התור עודכנו");
+                onChanged();
+                onClose();
+              }}
+              onError={setError}
+            />
+          ) : null}
+
+          {mode === "move" ? (
+            <MovePanel
+              entry={entry}
+              appointmentId={appointmentId}
+              staff={staff}
+              timezone={timezone}
+              onCancel={() => setMode("view")}
+              onSaved={() => {
+                toast("התור הועבר");
+                onChanged();
+                onClose();
+              }}
+              onError={setError}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <div
+          role="tabpanel"
+          id="appointment-panel-client"
+          aria-labelledby="appointment-tab-client"
+        >
+          <ClientCardPanel
+            entry={entry}
+            notes={clientNotes}
+            onNotesChange={setClientNotes}
+            onSaved={onChanged}
+          />
+        </div>
+      )}
     </Sheet>
   );
 }
 
 /* -------------------------------------------------------------------------- */
 
-/** Correcting what was typed: the name, the number, the note. */
+/**
+ * The person, not the booking.
+ *
+ * Keyed on the phone number, which is the identity the whole product already
+ * uses — see `client-profiles.ts`. Saved through the clients page's own action,
+ * so there is exactly one write path for a client note and one place that
+ * decides what revalidates.
+ *
+ * The dialog stays open on save. This is a note an owner writes *while* looking
+ * at the booking that prompted it, and closing the thing they were reading in
+ * order to confirm the write would be the wrong reward.
+ */
+function ClientCardPanel({
+  entry,
+  notes,
+  onNotesChange,
+  onSaved,
+}: {
+  entry: CalendarEntry;
+  notes: string;
+  onNotesChange: (value: string) => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [pending, startTransition] = useTransition();
+  const [saved, setSaved] = useState(entry.clientProfileNotes ?? "");
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    fieldRef.current?.focus();
+  }, []);
+
+  const phone = entry.clientPhone;
+  const dirty = notes !== saved;
+
+  function save() {
+    if (!phone) return;
+
+    startTransition(async () => {
+      const result = await saveClientProfileAction({
+        clientPhone: phone,
+        notes,
+      });
+
+      if (result.ok) {
+        setSaved(notes);
+        toast(result.message ?? "ההערות נשמרו", "success");
+        // The mark on every one of this client's cards depends on this, so the
+        // grid behind the dialog is refreshed even though the dialog stays up.
+        onSaved();
+      } else {
+        toast(result.error, "error");
+      }
+    });
+  }
+
+  if (!phone) {
+    return (
+      <p className="rounded-xl bg-zinc-50 px-3 py-3 text-xs leading-relaxed text-zinc-500 dark:bg-zinc-800">
+        לתור הזה אין מספר טלפון, והערות על לקוח נשמרות לפי מספר. אפשר להוסיף
+        מספר דרך «עריכת פרטים» בלשונית השנייה.
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <dl className="space-y-1 text-xs">
+        <Row label="לקוח">{entry.title}</Row>
+        <Row label="טלפון">
+          <span dir="ltr">{phone}</span>
+        </Row>
+      </dl>
+
+      <label className="mt-3 block" htmlFor="ap-client-notes">
+        <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          <UserRound className="size-3.5" aria-hidden />
+          הערות קבועות על הלקוח
+        </span>
+        <textarea
+          id="ap-client-notes"
+          ref={fieldRef}
+          rows={5}
+          value={notes}
+          onChange={(event) => onNotesChange(event.target.value)}
+          placeholder="מעדיף כיסא ליד החלון, רגיש לצבע, תמיד מאחר…"
+          className={cn(inputClass, "h-auto resize-y py-2 leading-relaxed")}
+        />
+      </label>
+
+      <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
+        ההערות נשמרות על הלקוח ולא על התור הזה — הן יופיעו בכל תור עתידי שלו
+        ובכרטיס הלקוח.
+      </p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending || !dirty}
+          className={cn(btnPrimary, "h-11 flex-1 text-sm")}
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : null}
+          שמירת ההערות
+        </button>
+        {dirty ? (
+          <button
+            type="button"
+            onClick={() => onNotesChange(saved)}
+            disabled={pending}
+            className={cn(btnSecondary, "h-11 px-4 text-sm")}
+          >
+            ביטול
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/** Correcting what was typed: the name, the number, the booking's own note. */
 function EditPanel({
   entry,
   appointmentId,
@@ -409,7 +611,7 @@ function EditPanel({
         />
       </Field>
 
-      <Field label="הערות" htmlFor="ap-notes">
+      <Field label="הערת הלקוח לתור הזה" htmlFor="ap-notes">
         <textarea
           id="ap-notes"
           rows={3}
@@ -550,7 +752,9 @@ function PanelActions({
         disabled={pending}
         className={cn(btnPrimary, "h-11 flex-1 text-sm")}
       >
-        {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+        {pending ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+        ) : null}
         {label}
       </button>
       <button

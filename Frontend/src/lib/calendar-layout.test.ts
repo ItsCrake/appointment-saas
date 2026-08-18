@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import {
   assignLanes,
   gridBounds,
   hourRows,
+  HOUR_ROW_PX,
+  lineBudget,
+  MAX_CARD_LINES,
   minutesToLabel,
   placeItem,
   type CalendarItem,
@@ -251,5 +257,65 @@ describe("minutesToLabel", () => {
   it("clamps rather than wrapping past midnight", () => {
     expect(minutesToLabel(-30)).toBe("00:00");
     expect(minutesToLabel(2000)).toBe("24:00");
+  });
+});
+
+describe("lineBudget", () => {
+  it("gives a half-hour booking all three lines in both views", () => {
+    // The case the stacked layout exists for: half an hour is the commonest
+    // appointment in the product and it should read as name, time and service
+    // rather than as one truncated row.
+    expect(lineBudget(30, "week")).toBe(MAX_CARD_LINES);
+    expect(lineBudget(30, "day")).toBe(MAX_CARD_LINES);
+  });
+
+  it("keeps the name on the shortest booking there is", () => {
+    // A quarter of an hour is 24px of week grid. One line, and it is the one
+    // somebody scanning a week is actually looking for.
+    expect(lineBudget(15, "week")).toBe(1);
+    expect(lineBudget(15, "day")).toBe(1);
+  });
+
+  it("grows with the booking rather than jumping", () => {
+    expect(lineBudget(20, "week")).toBe(2);
+    expect(lineBudget(45, "week")).toBe(MAX_CARD_LINES);
+    expect(lineBudget(60, "week")).toBe(MAX_CARD_LINES);
+  });
+
+  it("never returns nothing, however short or strange the booking", () => {
+    // A zero- or negative-length row should not exist, but the grid draws what
+    // the database holds and an empty card is worse than a clipped one.
+    for (const minutes of [0, -30, 1]) {
+      expect(lineBudget(minutes, "week")).toBe(1);
+      expect(lineBudget(minutes, "day")).toBe(1);
+    }
+  });
+
+  it("never promises more lines than the card renders", () => {
+    expect(lineBudget(600, "day")).toBe(MAX_CARD_LINES);
+  });
+
+  it("keeps the row heights in step with the Tailwind classes", () => {
+    /**
+     * `HOUR_ROW_PX` is a transcription of the `h-*` utilities the grid actually
+     * uses, and the whole line budget is arithmetic on it. If somebody retunes
+     * the row height in the component and not here, every card silently claims
+     * room it does not have — so the two are checked against each other rather
+     * than trusted to stay in sync.
+     */
+    const source = readFileSync(
+      path.resolve(process.cwd(), "src/components/dashboard/week-calendar.tsx"),
+      "utf8",
+    );
+
+    const scale = (name: string) => {
+      const match = source.match(new RegExp(`${name} = "h-(\\d+)"`));
+      if (!match) throw new Error(`${name} is no longer a plain h-* class`);
+      // Tailwind's spacing scale is 0.25rem a step, and 1rem is 16px.
+      return Number(match[1]) * 4;
+    };
+
+    expect(scale("HOUR_ROW_WEEK")).toBe(HOUR_ROW_PX.week);
+    expect(scale("HOUR_ROW_DAY")).toBe(HOUR_ROW_PX.day);
   });
 });

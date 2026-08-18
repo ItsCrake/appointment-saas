@@ -4,6 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { THEME_COLORS, type ThemeColor } from "@/lib/branding";
+import {
+  STAFF_COLORS,
+  staffSwatch,
+  type StaffColor,
+} from "@/lib/staff-colors";
 
 /**
  * Contrast on the calendar's glass, measured on the **composited** surface.
@@ -175,6 +180,27 @@ function accentOf(name: ThemeColor): Rgb {
   return oklch(swatchVar(name, "--accent"));
 }
 
+/**
+ * One staff member's hue, read out of its `.cal-staff-*` rule.
+ *
+ * A team shop tints each card by *who* rather than by the tenant accent, so
+ * these are the colours most of a busy calendar is actually painted in — and
+ * they are a second palette that has to clear AA on the same surfaces. Read from
+ * the stylesheet for the same reason as the accents: a hue retuned in CSS is
+ * re-measured here rather than silently escaping the check.
+ */
+function staffHue(name: StaffColor): Rgb {
+  const selector = `.cal-staff-${name} {`;
+  const start = CSS.indexOf(selector);
+  if (start === -1) throw new Error(`no .cal-staff-${name} rule`);
+
+  const block = CSS.slice(start, CSS.indexOf("}", start));
+  const match = block.match(/--cal-hue:\s*([^;]+);/);
+  if (!match) throw new Error(`.cal-staff-${name} declares no --cal-hue`);
+
+  return oklch(match[1].trim());
+}
+
 /* -------------------------------------------------------------------------- */
 
 /** WCAG AA for text that is not large. The card's type is 10–14px. */
@@ -227,19 +253,29 @@ function ground(name: ThemeColor, mode: "light" | "dark") {
   };
 }
 
-/** The finished surface a card's text actually sits on. */
+/**
+ * The finished surface a card's text actually sits on.
+ *
+ * `hue` is what gets mixed into the glass: the tenant's accent on a one-chair
+ * shop, or the staff member's own colour once there is a team. The ground under
+ * it is always the tenant's, because `--accent-soft` paints today's column
+ * whoever the booking belongs to.
+ */
 function surface(
   name: ThemeColor,
   mode: "light" | "dark",
   view: "week" | "day",
+  hue: Rgb = accentOf(name),
 ): Rgb {
   const { base, layers } = ground(name, mode);
   const glass = GLASS[mode][view];
 
   return composite(base, [
     ...layers,
-    ...(glass.base ? [{ color: glass.base.color, alpha: glass.base.alpha }] : []),
-    { color: accentOf(name), alpha: glass.tint },
+    ...(glass.base
+      ? [{ color: glass.base.color, alpha: glass.base.alpha }]
+      : []),
+    { color: hue, alpha: glass.tint },
   ]);
 }
 
@@ -302,14 +338,22 @@ describe("the stylesheet still says what this test assumes", () => {
   // The numbers above are a copy of the CSS. If the CSS moves and this does not,
   // the measurement silently describes a surface that no longer ships.
   it.each([
-    ["--accent) 16%", "light week tint"],
-    ["--accent) 18%", "light day tint"],
-    ["--accent) 26%", "dark tint"],
+    ["var(--cal-hue, var(--accent)) 16%", "light week tint"],
+    ["var(--cal-hue, var(--accent)) 18%", "light day tint"],
+    ["var(--cal-hue, var(--accent)) 26%", "dark tint"],
     ["rgb(255 255 255 / 0.9)", "light day base"],
     ["rgb(9 9 11 / 0.55)", "dark week base"],
     ["rgb(9 9 11 / 0.88)", "dark day base"],
   ])("declares %s", (fragment) => {
     expect(CSS).toContain(fragment);
+  });
+
+  it("falls back to the accent when no staff hue is set", () => {
+    // The fallback inside `var()` is what lets a one-chair shop keep its own
+    // colour. Without it every card on such a calendar would lose its tint
+    // entirely, since `--cal-hue` is only ever set by a `.cal-staff-*` class.
+    expect(CSS).not.toMatch(/--cal-tint:[^;]*var\(--accent\)(?!\))/);
+    expect(CSS).toContain("var(--cal-hue, var(--accent))");
   });
 
   it("keeps the tint on the rule itself, not on :root", () => {
@@ -325,23 +369,55 @@ describe("the stylesheet still says what this test assumes", () => {
   });
 });
 
+/** Both readings a card has to survive: its body text and its muted line. */
+function assertLegible(paint: Rgb, mode: "light" | "dark") {
+  const text = mode === "light" ? INK : PAPER;
+  expect(ratio(paint, text)).toBeGreaterThanOrEqual(FLOOR);
+
+  /**
+   * The secondary lines are `opacity-75` — the ink itself at 75% over the
+   * surface, which is the lowest-contrast text on the card and the one an owner
+   * reads the *time* and the service name from.
+   */
+  const muted = composite(paint, [{ color: text, alpha: 0.75 }]);
+  expect(ratio(paint, muted)).toBeGreaterThanOrEqual(FLOOR);
+}
+
 describe("every glass surface clears AA against the text on it", () => {
   for (const mode of ["light", "dark"] as const) {
     for (const view of ["week", "day"] as const) {
       it.each([...THEME_COLORS])(`${mode} ${view}: %s`, (name) => {
-        const paint = surface(name, mode, view);
-        const text = mode === "light" ? INK : PAPER;
-
-        expect(ratio(paint, text)).toBeGreaterThanOrEqual(FLOOR);
-
-        /**
-         * The secondary line is `opacity-75` — the ink itself at 75% over the
-         * surface, which is the lowest-contrast text on the card and the one an
-         * owner reads the *time* from.
-         */
-        const muted = composite(paint, [{ color: text, alpha: 0.75 }]);
-        expect(ratio(paint, muted)).toBeGreaterThanOrEqual(FLOOR);
+        assertLegible(surface(name, mode, view), mode);
       });
     }
   }
+});
+
+describe("a team's cards are legible in every staff colour too", () => {
+  /**
+   * Seven hues over six grounds, because the staff tint replaces the accent in
+   * the glass but not in today's column: a rose-tinted card can be sitting on an
+   * amber shop's Tuesday. Measuring the hue against its own accent's ground only
+   * would miss exactly that combination.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    for (const view of ["week", "day"] as const) {
+      it.each([...STAFF_COLORS])(`${mode} ${view}: %s`, (staff) => {
+        const hue = staffHue(staff);
+        for (const accent of THEME_COLORS) {
+          assertLegible(surface(accent, mode, view, hue), mode);
+        }
+      });
+    }
+  }
+
+  it("gives every staff swatch a hue to be tinted with", () => {
+    // `staffSwatch(...).tint` names a class per swatch; a swatch added to the
+    // list without a rule in the stylesheet would fall back to the accent and
+    // two people would share a colour on the grid.
+    for (const name of STAFF_COLORS) {
+      expect(staffSwatch(name).tint).toBe(`cal-staff-${name}`);
+      expect(() => staffHue(name)).not.toThrow();
+    }
+  });
 });

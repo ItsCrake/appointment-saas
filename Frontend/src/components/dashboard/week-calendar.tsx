@@ -7,10 +7,11 @@ import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  FileText,
   MessageCircle,
   Phone,
-  StickyNote,
   Trash2,
+  UserRound,
   X,
 } from "lucide-react";
 
@@ -25,6 +26,8 @@ import {
   assignLanes,
   gridBounds,
   hourRows,
+  lineBudget,
+  MAX_CARD_LINES,
   minutesToLabel,
   placeItem,
   type CalendarItem,
@@ -99,27 +102,27 @@ export type CalendarEntry = CalendarItem & {
  * exactly: a difference of a single step shears the whole week, and the times
  * on the left stop describing the cards on the right.
  *
- * `h-20` rather than the original `h-14`. At 56px an hour, a 15-minute booking
- * was 14 pixels tall — less than one line of the smallest type on the page, so
- * it could only ever render as a clipped fragment of a name. At 80px it is 20,
- * which fits the single-row layout below with its padding.
+ * `h-24`, up from `h-20` and originally `h-14`. At 56px an hour a 15-minute
+ * booking was 14 pixels — less than one line of the smallest type on the page.
+ * At 80px it was 20, which held one row. At 96px a **half-hour booking is 48
+ * pixels**, and that is the number that matters: it is the commonest length in
+ * the product and it is what makes the three-line card below fit without
+ * anything being clipped. See `lineBudget`.
+ *
+ * Transcribed into `HOUR_ROW_PX` in `calendar-layout`, which the line budget is
+ * arithmetic on, and `calendar-layout.test.ts` fails if the two drift apart.
  */
-const HOUR_ROW_WEEK = "h-20";
+const HOUR_ROW_WEEK = "h-24";
 
 /**
  * The day view spends its extra room vertically as well as horizontally.
  *
- * At 112px an hour a 15-minute booking is 28 pixels — enough for the two-line
- * layout, so the day view never has to fall back to the compact row and every
- * card on it reads at full size. That is the point of having the view at all.
+ * `h-32`, so a half-hour booking is 64 pixels and clears three lines of the
+ * larger type this view uses. The point of the day view is that every card on
+ * it reads at full size; leaving it at 112px meant a half hour showed its name
+ * and its time but not what the appointment was *for*.
  */
-const HOUR_ROW_DAY = "h-28";
-
-/** Below this, a card gets one row instead of two. */
-const COMPACT_BELOW_MIN = 30;
-
-/** Same threshold in pixels, since the day view's rows are taller. */
-const COMPACT_BELOW_MIN_DAY = 15;
+const HOUR_ROW_DAY = "h-32";
 
 export type CalendarDay = {
   /** "YYYY-MM-DD" in the business timezone. */
@@ -618,32 +621,29 @@ function EntryCard({
 }) {
   const cancelled = entry.status === "cancelled" || entry.status === "no_show";
   const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
+  const minutes = entry.endMinutes - entry.startMinutes;
+
+  /** What the client asked for on this booking. */
   const hasNote = Boolean(entry.notes?.trim());
+  /** What the shop knows about this person, across every booking. */
+  const hasClientNote = Boolean(entry.clientProfileNotes?.trim());
 
   /**
-   * One row or two, decided by how much room the booking actually has.
-   *
-   * A 15-minute slot is 20px tall. Stacking a name over a time in there
-   * produced two clipped half-lines and an ellipsis on both — technically more
-   * information, legibly less. One row that reads
-   * "09:00 · דני · תספורת" and truncates only at the end is the same data in
-   * the order somebody scanning a week actually wants it.
+   * How many of name / time / service this booking has room for — see
+   * `lineBudget`, which owns the arithmetic and is tested on its own.
    */
-  const compact =
-    entry.endMinutes - entry.startMinutes <
-    (dayView ? COMPACT_BELOW_MIN_DAY : COMPACT_BELOW_MIN);
+  const lines = lineBudget(minutes, dayView ? "day" : "week");
 
   /**
    * The note's text on the card, rather than only a mark saying there is one.
    *
-   * Day view only, and only on a booking with the height to spare: 45 minutes at
-   * `h-28` an hour is 84 pixels, which holds a third line of 11px type without
-   * squeezing the two above it. In the week view the same line would be a
+   * Day view only, and only once the three lines above it are already paid for
+   * and the booking still has room. In the week view the same line would be a
    * two-word fragment ending in an ellipsis, which is not the note — it is the
    * *illusion* of having read it.
    */
   const showNoteText =
-    dayView && hasNote && entry.endMinutes - entry.startMinutes >= 45;
+    dayView && hasNote && lines === MAX_CARD_LINES && minutes >= 45;
 
   const show = (event: React.MouseEvent | React.FocusEvent) => {
     onHoverChange({
@@ -683,6 +683,17 @@ function EntryCard({
           dayView
             ? "cal-glass-solid text-zinc-900 shadow-sm dark:text-zinc-50"
             : "cal-glass text-zinc-900 dark:text-zinc-50",
+          /**
+           * **Whose booking this is, in the colour the legend uses.**
+           *
+           * `staffColor` is only populated for a team — see the page — so a
+           * one-chair shop keeps the tenant's accent and the grid reads as the
+           * shop's own. With a team, each card takes that person's hue through
+           * `--cal-hue`, which is the same swatch as their dot in the key
+           * directly above the grid. The glass is untouched: only which colour
+           * is mixed into it changes.
+           */
+          entry.staffColor && staffSwatch(entry.staffColor).tint,
           cancelled && "opacity-55",
         ),
   );
@@ -700,49 +711,56 @@ function EntryCard({
         )}
       />
 
+      {/**
+       * **A column, one field per line.**
+       *
+       * Name, then time, then service — each on its own row, each either shown
+       * whole or not shown at all. They used to share a single row on anything
+       * short, which in a ninety-pixel column arrived as `09:00 · דני · תספ…`:
+       * one ellipsis eating three fields at once. `lineBudget` decides how many
+       * of the three the booking's height can carry, so what is dropped is the
+       * least important field rather than the end of every field.
+       *
+       * `justify-center` so a one-line card sits in the middle of its block
+       * instead of clinging to the top edge.
+       */}
       <div
-        className={cn("min-w-0 flex-1", dayView ? "px-3 py-2" : "px-1.5 py-1")}
-      >
-        {compact ? (
-          <div className="flex items-baseline gap-1 overflow-hidden whitespace-nowrap">
-            <span className="shrink-0 font-semibold tabular-nums">
-              {minutesToLabel(entry.startMinutes)}
-            </span>
-            <span className={cn("truncate", cancelled && "line-through")}>
-              {entry.title}
-              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
-            </span>
-            {hasNote ? <NoteMark /> : null}
-          </div>
-        ) : (
-          <>
-            <p className="flex items-center gap-1">
-              <span
-                className={cn(
-                  "truncate font-bold",
-                  cancelled && "line-through",
-                )}
-              >
-                {entry.title}
-              </span>
-              {hasNote ? <NoteMark /> : null}
-            </p>
-            <p className="truncate opacity-75">
-              <span className="tabular-nums">{span}</span>
-              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
-            </p>
-
-            {/* The note itself, where there is genuinely room for it: one wide
-                column and a booking long enough that a third line does not
-                crowd out the two above. Everywhere else the mark says *look*
-                and the dialog is where it is read. */}
-            {showNoteText ? (
-              <p className="mt-0.5 truncate text-[11px] opacity-70">
-                {entry.notes}
-              </p>
-            ) : null}
-          </>
+        className={cn(
+          "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
+          dayView ? "px-3 py-1.5" : "px-1.5 py-1",
         )}
+      >
+        <div className="flex items-center gap-1">
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate font-bold",
+              cancelled && "line-through",
+            )}
+          >
+            {entry.title}
+          </span>
+          {/* Two marks, two different things — see `NoteMark`. */}
+          {hasNote ? <NoteMark kind="appointment" /> : null}
+          {hasClientNote ? <NoteMark kind="client" /> : null}
+        </div>
+
+        {lines >= 2 ? (
+          <span className="truncate tabular-nums opacity-75">{span}</span>
+        ) : null}
+
+        {lines >= 3 && entry.subtitle ? (
+          <span className="truncate opacity-75">{entry.subtitle}</span>
+        ) : null}
+
+        {/* The note itself, where there is genuinely room for it: one wide
+            column and a booking long enough that a fourth line does not crowd
+            out the three above. Everywhere else the mark says *look* and the
+            dialog is where it is read. */}
+        {showNoteText ? (
+          <span className="mt-0.5 truncate text-[11px] opacity-70">
+            {entry.notes}
+          </span>
+        ) : null}
       </div>
     </>
   );
@@ -788,18 +806,29 @@ function EntryCard({
 }
 
 /**
- * "There is something written here." The dialog is where it is read.
+ * "There is something written here" — and *which* something.
+ *
+ * ---------------------------------------------------------------------------
+ * The two notes on an appointment answer different questions and must not look
+ * alike. A **document** is what this client typed when booking *this* time
+ * ("I'm bringing my son"); a **person** is what the shop has recorded about them
+ * across every visit ("always late, prefers the window chair"). One is a request
+ * to act on today, the other is standing context — and an owner who reads the
+ * second as the first ends up acting on something nobody asked for.
  *
  * `role="img"` with a label rather than `aria-hidden`: on a card this small the
  * mark is the *only* sign a booking carries a note, so hiding it from a screen
  * reader would hide the note itself. `NotesBadge` says the same thing in words
  * where there is room for words.
+ * ---------------------------------------------------------------------------
  */
-function NoteMark() {
+function NoteMark({ kind }: { kind: "appointment" | "client" }) {
+  const Icon = kind === "appointment" ? FileText : UserRound;
+
   return (
-    <StickyNote
+    <Icon
       role="img"
-      aria-label="ישנן הערות"
+      aria-label={kind === "appointment" ? "הערה לתור" : "הערות על הלקוח"}
       className="size-3 shrink-0 opacity-70"
     />
   );
@@ -882,12 +911,23 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
         </div>
       ) : null}
 
-      {/* The badge says *look*; this is the thing to look at. The hover card is
-          the one place on the calendar with room for a sentence. */}
+      {/* The mark says *look*; this is the thing to look at. The hover card is
+          the one place on the calendar with room for a sentence.
+
+          Both notes are labelled with the same icons the card's marks use — a
+          document for what was asked today, a person for what the shop knows
+          about them — so the mark and its explanation are visibly the same
+          thing. */}
       {entry.notes?.trim() ? (
-        <p className="mt-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 text-xs leading-relaxed text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {entry.notes}
-        </p>
+        <div className="mt-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 dark:bg-zinc-800">
+          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-zinc-500">
+            <FileText className="size-3" aria-hidden />
+            הערה לתור הזה
+          </p>
+          <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
+            {entry.notes}
+          </p>
+        </div>
       ) : null}
 
       {/* Labelled and tinted differently from the booking note above, because
@@ -897,8 +937,8 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
       {entry.clientProfileNotes?.trim() ? (
         <div className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 dark:bg-amber-950/40">
           <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
-            <StickyNote className="size-3" aria-hidden />
-            העדפות הלקוח
+            <UserRound className="size-3" aria-hidden />
+            הערות קבועות על הלקוח
           </p>
           <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-100">
             {entry.clientProfileNotes}

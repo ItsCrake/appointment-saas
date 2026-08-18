@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **981 tests across 68 files**; Playwright at
+**Green:** `npm run verify` at **1017 tests across 68 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1387,16 +1387,74 @@ does.
 
 In code rather than in devtools on purpose: a one-off reading proves the colour
 that shipped the day it was taken, while this fails the build the day somebody
-raises a tint percentage. It converts oklch to sRGB itself, so the converter is
-**pinned against Tailwind's published hexes** for all six swatches plus the
-achromatic ends — without that, the suite would happily measure a broken
-converter and report comfortable ratios for surfaces nobody can read, which is
-the "confident wrong number" the original analysis warned about.
+raises a tint percentage. Worst reading across every combination is **6.54:1**
+(light week, rose, the muted line) against a 4.5 floor — headroom, but not so
+much that the check is decorative.
+
+It converts oklch to sRGB itself, so the converter is **pinned to the sRGB
+primaries** plus the achromatic ends; without that the suite would happily
+measure a broken converter and report comfortable ratios for surfaces nobody can
+read, which is the "confident wrong number" the original analysis warned about.
+The obvious pin is the wrong one and failed first time out: **Tailwind v4
+re-derived its palette in oklch with chroma beyond sRGB**, so the values in
+`globals.css` do not round-trip to the v3 hexes — `oklch(51.1% 0.262 276.966)`
+really is `#4f39f6`, not `#4f46e5`. Pinning to those hexes tests which Tailwind
+release the palette was copied from, which is not a property worth defending.
 
 That is also why `globals.css` keeps the glass base and its tint as two layers
 instead of one four-way `color-mix`: two alpha composites can be re-derived
 exactly, whereas CSS premultiplies alpha through polar interpolation and
 reproducing that by hand is how the wrong number gets made.
+
+#### The card reads as a column, and its colour says who
+
+**A booking's fields are stacked, one per line, and how many appear is
+arithmetic.** They used to share a single row on anything under half an hour,
+which in a ninety-pixel column arrived as `09:00 · דני · תספ…` — one ellipsis
+eating the time, the name and the service at once. `lineBudget` in
+`calendar-layout.ts` turns the booking's height into a count of lines, so each
+field is either shown whole or not shown at all and what gets dropped is the
+least important field rather than the end of every field. It is pure arithmetic
+on integers, sits with the rest of the geometry, and is tested on its own.
+
+The rows grew to make that fit: the week to `h-24` and the day to `h-32`, chosen
+so that a **half-hour booking** — the commonest length in the product — clears
+three lines in both views. `HOUR_ROW_PX` transcribes those Tailwind classes for
+the budget to compute against, and `calendar-layout.test.ts` fails the build if
+the class and the number drift apart, because a card that thinks it has room it
+does not have clips silently.
+
+**A team's cards are tinted by whose booking it is.** `--cal-hue` overrides the
+accent inside the glass, set by a `.cal-staff-*` class per swatch — the same
+colours as the dots in the legend directly above the grid, because the grid and
+its key have to agree. A one-chair shop sets nothing and keeps the tenant accent
+through the `var(--cal-hue, var(--accent))` fallback, which is a fallback rather
+than a second rule so the cascade never has to choose between two single-class
+selectors. The contrast test now covers seven hues against six grounds in both
+modes and both views — a rose-tinted card can be sitting on an amber shop's
+Tuesday, and only the pairing is measurable, not either half alone.
+
+#### Two notes, two icons, two tabs
+
+The client's note on *this booking* and the shop's standing notes about *the
+person* are different objects with different lifetimes, and the calendar now says
+so everywhere: a **document** icon for the booking's note, a **person** icon for
+the client's, on the card, in the hover card, and as the labels in the dialog.
+
+The dialog is therefore two tabs. **פרטי התור** holds the booking — service,
+price, provider, phone, its own note, the status actions, reschedule and cancel.
+**כרטיס לקוח** holds the person, with their standing notes editable in place and
+saved through `saveClientProfileAction`, the same action the clients page uses,
+so there is one write path for a client note and one place deciding what
+revalidates. That tab carries a dot when there is something written on it, so an
+owner knows without opening it.
+
+Saving a client note deliberately **does not close the dialog** — it is a note
+written *while* looking at the booking that prompted it, and closing the thing
+being read is the wrong reward. The grid behind is refreshed anyway, because the
+mark on every one of that client's other cards depends on it. A reschedule or a
+detail edit still closes, since both invalidate the snapshot the dialog was
+opened with.
 
 #### Reschedule is a booking, and the appointment blocks itself
 

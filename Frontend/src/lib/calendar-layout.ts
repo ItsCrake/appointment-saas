@@ -195,6 +195,58 @@ export function hourRows(bounds: GridBounds): number[] {
   );
 }
 
+/**
+ * Pixel height of one hour of grid, per view.
+ *
+ * The rail and the day columns are Tailwind classes, so these two numbers are a
+ * transcription of them and `calendar-layout.test.ts` fails if the classes and
+ * these drift apart. They live here because the line budget below is arithmetic
+ * on them, and that arithmetic is the whole reason a booking either shows its
+ * service name or does not.
+ */
+export const HOUR_ROW_PX = { week: 96, day: 128 } as const;
+
+/** Vertical padding inside a card, and the height of one line of its type. */
+const CARD_METRICS = {
+  week: { padding: 8, lineHeight: 12 },
+  day: { padding: 12, lineHeight: 15 },
+} as const;
+
+/** The card's three stacked lines, in the order they are given up. */
+export const MAX_CARD_LINES = 3;
+
+/**
+ * How many of **client name / time / service** a booking has room to show.
+ *
+ * ---------------------------------------------------------------------------
+ * This replaces a boolean that chose between one crammed row and two stacked
+ * ones. The crammed row read `09:00 · דני · תספורת` and, in a column ninety
+ * pixels wide, arrived as `09:00 · דני · תספ…` — an ellipsis eating the service
+ * name, the client's name and the time all at once, because they were competing
+ * for a single line.
+ *
+ * Stacking them means each field either appears whole or does not appear, and
+ * *how many* appear is decided by the one thing that actually varies: how tall
+ * the booking is. A 15-minute slot gets the name, which is what somebody
+ * scanning a week is looking for; half an hour gets all three.
+ *
+ * Arithmetic on integers, in this module rather than in the component, for the
+ * same reason everything else here is: it can be tested without rendering
+ * anything or constructing a single Date.
+ * ---------------------------------------------------------------------------
+ */
+export function lineBudget(
+  durationMinutes: number,
+  view: "week" | "day" = "week",
+): number {
+  const { padding, lineHeight } = CARD_METRICS[view];
+  const usable = (durationMinutes * HOUR_ROW_PX[view]) / 60 - padding;
+
+  // At least one line always. A booking too short to hold its own name is still
+  // a booking, and an empty card is worse than a clipped one.
+  return Math.max(1, Math.min(MAX_CARD_LINES, Math.floor(usable / lineHeight)));
+}
+
 /** "09:00" from minutes past midnight. */
 export function minutesToLabel(minutes: number): string {
   const clamped = Math.max(0, Math.min(MINUTES_PER_DAY, Math.round(minutes)));
