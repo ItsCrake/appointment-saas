@@ -205,6 +205,31 @@ export function PageHeader({
 /* -------------------------------------------------------------------------- */
 
 /**
+ * A proportion, drawn.
+ *
+ * Lives here rather than beside the analytics panels because two of them use it
+ * and one is now a client component — a shared primitive in a module both sides
+ * already import, instead of dragging the whole panels file into the browser
+ * bundle to reach twelve lines of markup.
+ *
+ * The floor of 2% is so a service with a single booking still shows *something*:
+ * a bar rounded to zero reads as "no data" rather than as "not much".
+ */
+export function Bar({ value, max }: { value: number; max: number }) {
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+      <div
+        className="h-full rounded-full bg-[image:var(--brand-gradient)]"
+        style={{ width: `${Math.max(2, Math.round((value / max) * 100))}%` }}
+        aria-hidden
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
  * "There are notes" — shown **only** when a client actually left some.
  *
  * The absence is the design. A badge that renders "no notes" on every

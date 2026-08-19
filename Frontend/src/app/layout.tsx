@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Heebo } from "next/font/google";
 
-import { AccessibilityWidget } from "@/components/ui/accessibility-widget";
 import { CookieBanner } from "@/components/ui/cookie-banner";
 import { BRAND } from "@/lib/brand";
 
@@ -75,11 +74,17 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col font-sans">
         {children}
-        {/* Mounted at the root so they reach every surface, including the
+        {/* Mounted at the root so it reaches every surface, including the
             tenant booking pages, which are the ones a member of the public
-            actually lands on. Both are client leaves and render nothing until
-            after hydration, so neither affects the static prerender of `/`. */}
-        <AccessibilityWidget />
+            actually lands on. A client leaf that renders nothing until after
+            hydration, so it does not affect the static prerender of `/`.
+
+            **`<AccessibilityWidget />` is deliberately unmounted for now.** The
+            floating button sits over every page at every breakpoint, and while
+            the product is still being built it was competing with the thing
+            being looked at. The component and `/accessibility` — the statement
+            itself, which is a legal obligation and is linked from the footer —
+            are both untouched, so restoring it is this one line. */}
         <CookieBanner />
       </body>
     </html>

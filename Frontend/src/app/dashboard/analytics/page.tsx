@@ -4,13 +4,15 @@ import {
   HeadlineCards,
   Heatmap,
   Panel,
-  RangeTabs,
-  ServicesPanel,
   StaffPanel,
   StatusPanel,
   TrendPanel,
-  type SortKey,
 } from "@/components/dashboard/analytics-panels";
+import { RangeTabs } from "@/components/dashboard/range-tabs";
+import {
+  ServicesPanel,
+  type SortKey,
+} from "@/components/dashboard/services-panel";
 import { AnalyticsPaywall } from "@/components/dashboard/analytics-paywall";
 import { PageHeader } from "@/components/dashboard/ui";
 import { db } from "@/db";
@@ -94,7 +96,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
       <PageHeader
         title="אנליטיקס"
         subtitle="מתי עמוס, מה מבוקש, ומי עושה מה"
-        action={<RangeTabs current={range} sort={sort} />}
+        action={<RangeTabs current={range} />}
       />
 
       <div className="space-y-4">
@@ -130,7 +132,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="שירותים" hint="ההכנסה היא צפויה — לא נגבתה">
-            <ServicesPanel services={services} sort={sort} range={range} />
+            <ServicesPanel services={services} initialSort={sort} />
           </Panel>
 
           <Panel title="חלוקה בין נותני השירות" hint="לפי מספר התורים">

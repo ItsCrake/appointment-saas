@@ -8,11 +8,11 @@ import {
   HeadlineCards,
   Heatmap,
   Panel,
-  ServicesPanel,
   StaffPanel,
   StatusPanel,
   TrendPanel,
 } from "./analytics-panels";
+import { ServicesPanel } from "./services-panel";
 import { btnAccent } from "./ui";
 
 /**
@@ -141,11 +141,7 @@ export function AnalyticsPaywall() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="שירותים" hint="דוגמה">
-            <ServicesPanel
-              services={SAMPLE_SERVICES}
-              sort="bookings"
-              range={90}
-            />
+            <ServicesPanel services={SAMPLE_SERVICES} initialSort="bookings" />
           </Panel>
           <Panel title="חלוקה בין נותני השירות" hint="דוגמה">
             <StaffPanel staff={SAMPLE_STAFF} />

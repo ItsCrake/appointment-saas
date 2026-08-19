@@ -1,19 +1,13 @@
-import Link from "next/link";
-
 import type {
   Granularity,
-  ServiceBreakdown,
   StaffLoad,
   TrendPoint,
 } from "@/db/queries/analytics";
 import {
-  ANALYTICS_RANGES,
   periodLabel,
-  RANGE_LABELS,
   rate,
   WEEKDAY_FULL,
   WEEKDAY_LABELS,
-  type AnalyticsRange,
   type HeatGrid,
   type StatusSummary,
 } from "@/lib/analytics";
@@ -21,7 +15,7 @@ import { formatPrice } from "@/lib/format";
 import { staffSwatch } from "@/lib/staff-colors";
 import { cn } from "@/lib/utils";
 
-import { cardClass, EmptyState } from "./ui";
+import { Bar, cardClass, EmptyState } from "./ui";
 
 /**
  * Every panel on `/dashboard/analytics`, server-rendered.
@@ -32,9 +26,11 @@ import { cardClass, EmptyState } from "./ui";
  * Pulling 40KB of JavaScript into a dashboard that runs on a phone, to draw
  * rectangles, is a trade nobody here would make twice.
  *
- * Nothing on this page is a client component. The range and sort controls are
- * links that change `searchParams`, so the whole thing works as fast as the
- * server can answer and costs the browser nothing.
+ * Every panel in *this* file is server-rendered and ships no JavaScript. The two
+ * controls that are not — `range-tabs` and `services-panel` — are each a handful
+ * of lines, and they live in their own modules precisely so that importing them
+ * from the browser does not drag the heatmap, the trend and the status summary
+ * along with them.
  *
  * Colour is used **only where it is data**: heat intensity and a provider's own
  * calendar swatch. The chrome stays on the monochrome ramp, which is what makes
@@ -64,43 +60,6 @@ export function Panel({
     </section>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-
-/** Links, not buttons: the range is a URL, so it survives a refresh and a share. */
-export function RangeTabs({
-  current,
-  sort,
-}: {
-  current: AnalyticsRange;
-  sort: string;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label="טווח זמן"
-      className="inline-flex rounded-full border border-zinc-200 p-1 dark:border-zinc-800"
-    >
-      {ANALYTICS_RANGES.map((range) => (
-        <Link
-          key={range}
-          href={`/dashboard/analytics?range=${range}&by=${sort}`}
-          aria-current={range === current ? "page" : undefined}
-          className={cn(
-            "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-            range === current
-              ? "bg-[image:var(--brand-gradient)] text-white"
-              : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
-          )}
-        >
-          {RANGE_LABELS[range]}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 
 export function HeadlineCards({
   bookings,
@@ -297,105 +256,33 @@ export function StatusPanel({ summary }: { summary: StatusSummary }) {
         {rows.map((row) => (
           <div key={row.label} className="flex items-center gap-2 text-sm">
             <span className={cn("size-2.5 shrink-0 rounded-full", row.bar)} />
-            <dt className="flex-1 text-zinc-600 dark:text-zinc-400">
+            <dt className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-400">
               {row.label}
             </dt>
-            <dd className={cn("font-semibold tabular-nums", row.tone)}>
-              {row.value}
-              <span className="ms-1.5 text-xs font-normal text-zinc-400">
+
+            {/**
+             * The count and its share are **two columns, not one string.**
+             *
+             * They used to run together with a hairline of margin between them,
+             * so "12" and "40%" read as one number — and with each share sized
+             * to its own digits, the column of percentages came out ragged. A
+             * gap separates them and a fixed width lines the shares up under
+             * each other, so the eye can run down either figure on its own.
+             */}
+            <dd
+              className={cn(
+                "flex shrink-0 items-baseline gap-2.5 font-semibold tabular-nums",
+                row.tone,
+              )}
+            >
+              <span>{row.value}</span>
+              <span className="w-10 text-end text-xs font-normal text-zinc-400">
                 {rate(row.value, summary.total)}%
               </span>
             </dd>
           </div>
         ))}
       </dl>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-
-export type SortKey = "bookings" | "revenue";
-
-export function ServicesPanel({
-  services,
-  sort,
-  range,
-}: {
-  services: ServiceBreakdown[];
-  sort: SortKey;
-  range: AnalyticsRange;
-}) {
-  if (services.length === 0) {
-    return (
-      <EmptyState
-        icon={<span aria-hidden>☰</span>}
-        title="אין נתונים על שירותים"
-        body="ברגע שיתקבלו תורים נראה כאן מה הכי מבוקש ומה מכניס הכי הרבה."
-      />
-    );
-  }
-
-  // Sorted here rather than in SQL: the same rows answer both questions, and a
-  // second round trip to reorder eight items would be absurd.
-  const sorted = [...services].sort((a, b) =>
-    sort === "revenue"
-      ? b.revenueCents - a.revenueCents
-      : b.bookings - a.bookings,
-  );
-  const top = sorted.slice(0, 8);
-  const max = Math.max(
-    ...top.map((row) => (sort === "revenue" ? row.revenueCents : row.bookings)),
-    1,
-  );
-
-  return (
-    <div>
-      <div
-        role="group"
-        aria-label="מיון"
-        className="mb-4 inline-flex rounded-full border border-zinc-200 p-1 dark:border-zinc-800"
-      >
-        {(
-          [
-            ["bookings", "הכי מבוקשים"],
-            ["revenue", "הכי רווחיים"],
-          ] as const
-        ).map(([key, label]) => (
-          <Link
-            key={key}
-            href={`/dashboard/analytics?range=${range}&by=${key}`}
-            aria-current={key === sort ? "page" : undefined}
-            className={cn(
-              "rounded-full px-3 py-1 text-xs font-semibold transition-colors",
-              key === sort
-                ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
-                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
-            )}
-          >
-            {label}
-          </Link>
-        ))}
-      </div>
-
-      <ul className="space-y-3">
-        {top.map((row) => {
-          const value = sort === "revenue" ? row.revenueCents : row.bookings;
-          return (
-            <li key={row.serviceName}>
-              <div className="mb-1 flex items-baseline justify-between gap-3">
-                <span className="min-w-0 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                  {row.serviceName}
-                </span>
-                <span className="shrink-0 text-xs text-zinc-500 tabular-nums">
-                  {row.bookings} תורים · {formatPrice(row.revenueCents)}
-                </span>
-              </div>
-              <Bar value={value} max={max} />
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
@@ -501,20 +388,6 @@ export function TrendPanel({
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-
-function Bar({ value, max }: { value: number; max: number }) {
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-      <div
-        className="h-full rounded-full bg-[image:var(--brand-gradient)]"
-        style={{ width: `${Math.max(2, Math.round((value / max) * 100))}%` }}
-        aria-hidden
-      />
     </div>
   );
 }

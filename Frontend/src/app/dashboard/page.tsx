@@ -16,7 +16,7 @@ import {
 } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
-import { dateRange, todayInTimezone } from "@/lib/format";
+import { todayInTimezone } from "@/lib/format";
 import { getStatsWindows, toPercent } from "@/lib/stats";
 import { isLibiConfigured } from "@/lib/voice/libi";
 
@@ -26,32 +26,30 @@ export const metadata: Metadata = { title: "היומן" };
 const RATES_WINDOW_DAYS = 30;
 
 type PageProps = {
-  searchParams: Promise<{ date?: string; view?: string }>;
+  searchParams: Promise<{ date?: string }>;
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Sunday-start week containing `date`, matching the Israeli calendar. */
-function weekStart(date: string) {
-  const d = new Date(`${date}T00:00:00Z`);
-  return new Date(d.getTime() - d.getUTCDay() * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-}
-
+/**
+ * **One day, and only one.**
+ *
+ * The `view` parameter and the week it selected are gone. The week this page
+ * used to draw was a list of seven headings — no grid, no blocks, no staff — and
+ * `/dashboard/agenda/full` answers the same question properly, one tap away
+ * through the header. An old `?view=week` link now simply lands on that day,
+ * which is the right thing for a bookmark to do.
+ */
 export default async function AgendaPage({ searchParams }: PageProps) {
   const { business } = await requireBusiness();
-  const { date, view: rawView } = await searchParams;
+  const { date } = await searchParams;
 
   const today = todayInTimezone(business.timezone);
   const day = date && DATE_PATTERN.test(date) ? date : today;
-  const view = rawView === "week" ? "week" : "day";
 
-  const days = view === "week" ? dateRange(weekStart(day), 7) : [day];
-
-  // One query for the whole visible range, converted from local days to UTC.
-  const rangeStart = fromZonedTime(`${days[0]}T00:00:00`, business.timezone);
-  const rangeEnd = new Date(rangeStart.getTime() + days.length * 86_400_000);
+  // One query for the day on screen, converted from a local day to UTC.
+  const rangeStart = fromZonedTime(`${day}T00:00:00`, business.timezone);
+  const rangeEnd = new Date(rangeStart.getTime() + 86_400_000);
 
   const windows = getStatsWindows(business.timezone);
 
@@ -85,9 +83,16 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         <div className="flex shrink-0 items-center gap-2">
           {/* Rare enough to be quiet: an owner opens their own public page to
               check or share it, not to work. Icon-only below `sm`, where the
-              label was what forced the header onto a second line. */}
+              label was what forced the header onto a second line.
+
+              `?preview=1` asks for the owner bar, exactly as the share link in
+              settings does. Without it an owner arriving from here lands on
+              their own booking page with no way back — the bar is the *only*
+              route to the dashboard from a public page, which has no dashboard
+              chrome of its own. The flag grants nothing: `/[slug]` resolves the
+              session and checks ownership before rendering the bar. */}
           <Link
-            href={`/${business.slug}`}
+            href={`/${business.slug}?preview=1`}
             target="_blank"
             aria-label="עמוד ההזמנות"
             className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white p-2.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 sm:px-3 sm:py-2 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -173,8 +178,6 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         }
         today={today}
         selectedDate={day}
-        view={view}
-        days={days}
         timezone={business.timezone}
         services={services.map((s) => ({
           id: s.id,

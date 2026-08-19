@@ -28,11 +28,24 @@ export type NextUpcoming = {
   clientName: string;
 };
 
+/**
+ * The dashboard agenda: **one day, always.**
+ *
+ * ---------------------------------------------------------------------------
+ * This used to carry a day/week toggle, and the week it offered was a worse
+ * version of the one `/dashboard/agenda/full` already renders — a flat list of
+ * seven headings rather than a grid, with no blocks, no staff and no sense of
+ * shape. Two answers to the same question, one of them plainly weaker, and the
+ * toggle sat where an owner's thumb lands first.
+ *
+ * So this route is now what its title says: today, and the arrows either side of
+ * it. The week is one tap away through the header's own link to the full
+ * calendar, which is the view built to answer it.
+ * ---------------------------------------------------------------------------
+ */
 export function AgendaView({
   today,
   selectedDate,
-  view,
-  days,
   timezone,
   services,
   appointments,
@@ -42,8 +55,6 @@ export function AgendaView({
 }: {
   today: string;
   selectedDate: string;
-  view: "day" | "week";
-  days: string[];
   timezone: string;
   services: ServiceOption[];
   appointments: AgendaAppointment[];
@@ -60,43 +71,28 @@ export function AgendaView({
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const router = useRouter();
 
-  const step = view === "week" ? 7 : 1;
-  const prev = shift(selectedDate, -step);
-  const next = shift(selectedDate, step);
+  const prev = shift(selectedDate, -1);
+  const next = shift(selectedDate, 1);
 
-  // Group by the *business-local* day, not the UTC day.
-  const byDay = new Map<string, AgendaAppointment[]>();
-  for (const day of days) byDay.set(day, []);
-  for (const appointment of appointments) {
-    const key = formatInTimeZone(
-      new Date(appointment.startsAt),
-      timezone,
-      "yyyy-MM-dd",
-    );
-    byDay.get(key)?.push(appointment);
-  }
+  /**
+   * The day's appointments, matched on the *business-local* date.
+   *
+   * Still filtered here rather than trusted from the query: the server fetches
+   * a UTC range, and an appointment at 23:30 in a +03 shop belongs to a
+   * different calendar day than the one its instant falls on in UTC.
+   */
+  const dayAppointments = appointments.filter(
+    (appointment) =>
+      formatInTimeZone(
+        new Date(appointment.startsAt),
+        timezone,
+        "yyyy-MM-dd",
+      ) === selectedDate,
+  );
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl bg-zinc-200/70 p-0.5 dark:bg-zinc-800">
-          {(["day", "week"] as const).map((value) => (
-            <Link
-              key={value}
-              href={`/dashboard?view=${value}&date=${selectedDate}`}
-              aria-current={view === value ? "page" : undefined}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                view === value
-                  ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
-              )}
-            >
-              {value === "day" ? "יום" : "שבוע"}
-            </Link>
-          ))}
-        </div>
-
         {/* One bordered group rather than three loose buttons, and "היום" is
             always rendered.
 
@@ -111,12 +107,12 @@ export function AgendaView({
         >
           {/* RTL: "previous" sits on the right, so the chevron points that way. */}
           <ArrowLink
-            href={`/dashboard?view=${view}&date=${prev}`}
+            href={`/dashboard?date=${prev}`}
             label="הקודם"
             icon={<ChevronRight className="size-4" aria-hidden />}
           />
           <Link
-            href={`/dashboard?view=${view}`}
+            href="/dashboard"
             aria-current={selectedDate === today ? "date" : undefined}
             className={cn(
               "border-x border-zinc-200 px-3 py-2 text-xs font-semibold transition-colors dark:border-zinc-800",
@@ -140,7 +136,7 @@ export function AgendaView({
             היום
           </Link>
           <ArrowLink
-            href={`/dashboard?view=${view}&date=${next}`}
+            href={`/dashboard?date=${next}`}
             label="הבא"
             icon={<ChevronLeft className="size-4" aria-hidden />}
           />
@@ -149,9 +145,7 @@ export function AgendaView({
         <div className="ms-auto flex items-center gap-2">
           <button
             type="button"
-            onClick={() =>
-              setDialogDate(view === "week" ? days[0] : selectedDate)
-            }
+            onClick={() => setDialogDate(selectedDate)}
             className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-800"
           >
             <Plus className="size-4" aria-hidden />
@@ -168,70 +162,61 @@ export function AgendaView({
         </div>
       </div>
 
-      <div className="space-y-6">
-        {days.map((day) => {
-          const dayAppointments = byDay.get(day) ?? [];
+      <section>
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            {selectedDate === today
+              ? "היום"
+              : `יום ${weekdayLabel(selectedDate)}`}
+            <span className="ms-2 text-xs font-normal text-zinc-400">
+              {dayOfMonth(selectedDate)}/{month(selectedDate)}
+            </span>
+          </h2>
+          {dayAppointments.length > 0 ? (
+            <span className="text-xs text-zinc-400">
+              {dayAppointments.length} תורים
+            </span>
+          ) : null}
+        </div>
 
-          return (
-            <section key={day}>
-              <div className="mb-2 flex items-baseline justify-between gap-2">
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  {day === today ? "היום" : `יום ${weekdayLabel(day)}`}
-                  <span className="ms-2 text-xs font-normal text-zinc-400">
-                    {dayOfMonth(day)}/{month(day)}
-                  </span>
-                </h2>
-                {dayAppointments.length > 0 ? (
-                  <span className="text-xs text-zinc-400">
-                    {dayAppointments.length} תורים
-                  </span>
-                ) : null}
-              </div>
+        {dayAppointments.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-200 bg-white/50 px-4 py-8 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
+            <CalendarOff className="size-5 text-zinc-300" aria-hidden />
+            <p className="text-xs text-zinc-500">אין תורים ביום זה</p>
 
-              {dayAppointments.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-200 bg-white/50 px-4 py-8 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <CalendarOff className="size-5 text-zinc-300" aria-hidden />
-                  <p className="text-xs text-zinc-500">אין תורים ביום זה</p>
+            {/*
+              Without this an owner whose bookings are all days away sees
+              an empty today and assumes the booking was lost.
+            */}
+            {nextUpcoming && nextUpcoming.date !== selectedDate ? (
+              <Link
+                href={`/dashboard?date=${nextUpcoming.date}`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200"
+              >
+                <CalendarClock className="size-3.5" aria-hidden />
+                {upcomingCount === 1
+                  ? "יש תור אחד קרוב"
+                  : `יש ${upcomingCount} תורים קרובים`}
+                <span className="opacity-70">
+                  · הבא {formatDayLabel(nextUpcoming.date)} בשעה{" "}
+                  {nextUpcoming.time}
+                </span>
+                <ArrowLeft className="size-3.5" aria-hidden />
+              </Link>
+            ) : null}
 
-                  {/*
-                    Without this an owner whose bookings are all days away sees
-                    an empty today and assumes the booking was lost.
-                  */}
-                  {nextUpcoming && nextUpcoming.date !== day ? (
-                    <Link
-                      href={`/dashboard?view=day&date=${nextUpcoming.date}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200"
-                    >
-                      <CalendarClock className="size-3.5" aria-hidden />
-                      {upcomingCount === 1
-                        ? "יש תור אחד קרוב"
-                        : `יש ${upcomingCount} תורים קרובים`}
-                      <span className="opacity-70">
-                        · הבא {formatDayLabel(nextUpcoming.date)} בשעה{" "}
-                        {nextUpcoming.time}
-                      </span>
-                      <ArrowLeft className="size-3.5" aria-hidden />
-                    </Link>
-                  ) : null}
-
-                  <button
-                    type="button"
-                    onClick={() => setDialogDate(day)}
-                    className="text-xs font-semibold text-zinc-900 underline underline-offset-4 dark:text-zinc-100"
-                  >
-                    הוספת תור ידני
-                  </button>
-                </div>
-              ) : (
-                <AgendaList
-                  appointments={dayAppointments}
-                  timezone={timezone}
-                />
-              )}
-            </section>
-          );
-        })}
-      </div>
+            <button
+              type="button"
+              onClick={() => setDialogDate(selectedDate)}
+              className="text-xs font-semibold text-zinc-900 underline underline-offset-4 dark:text-zinc-100"
+            >
+              הוספת תור ידני
+            </button>
+          </div>
+        ) : (
+          <AgendaList appointments={dayAppointments} timezone={timezone} />
+        )}
+      </section>
 
       {dialogDate ? (
         <ManualBookingDialog

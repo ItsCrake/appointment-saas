@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1017 tests across 68 files**; Playwright at
+**Green:** `npm run verify` at **1019 tests across 69 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1513,6 +1513,53 @@ appointment, and a client must not be quietly moved to a time the shop is shut.
 The refusal says which of the two reasons stopped them — somebody else is booked,
 or that is outside your hours — so an owner who really wants the off-hours slot
 knows to take the manual route.
+
+#### The dashboard shows one day, and the week has one home
+
+`/dashboard` no longer carries a day/week toggle. The week it offered was a list
+of seven headings — no grid, no blocks, no staff — while `/dashboard/agenda/full`
+answers the same question properly and sits one tap away in the header. Two
+answers, one of them plainly weaker, and the toggle sat where a thumb lands
+first. The `view` parameter is gone with it; an old `?view=week` bookmark now
+lands on that day, which is what a bookmark should do.
+
+**The dashboard's link to the shop's own page was missing `?preview=1`.** The
+settings share link had it and the dashboard header did not, so whether an owner
+could get back depended on which of two identical-looking links they used — and
+`/[slug]` has no dashboard chrome, so the preview bar is the *only* route home.
+`preview-link.coverage.test.ts` now fails the build on a tenant link that omits
+the flag, because the two links live in different files and neither looked wrong
+on its own. The flag still grants nothing: ownership is resolved server-side
+before the bar renders.
+
+**The floating accessibility widget is unmounted**, deliberately and
+temporarily — it sat over every page at every breakpoint while the product is
+still being built. The component and `/accessibility` (the statement itself,
+which is a legal obligation and stays linked from the footer) are untouched, so
+restoring it is one line in the root layout.
+
+#### Analytics: sorting without leaving the page
+
+The services sort was a `<Link>`, so switching between "הכי מבוקשים" and "הכי
+רווחיים" re-ran the trend, heatmap, status and staff queries to return rows the
+browser already held — and handed back a page scrolled to its own top. On a
+phone, where that panel sits well below the fold, asking which service is most
+profitable threw the reader back to the headline cards. It is client state now,
+with `history.replaceState` keeping the URL shareable, exactly as the calendar's
+view switch does it.
+
+That made a second thing wrong that had been fine: `RangeTabs` built its hrefs
+from a server-rendered `sort`, which goes stale the moment the sort is changed in
+the browser, so changing the range would have discarded the chosen order. It
+reads `by` from the live URL now. Both controls are small client leaves in their
+own modules — `range-tabs.tsx` and `services-panel.tsx` — specifically so that
+importing them does not drag the heatmap and the trend into the browser bundle
+with them; every other panel stays server-rendered and ships no JavaScript.
+
+The status panel's counts and percentages were a single string with a hairline
+between them, so "12" and "40%" read as one number and the column of shares came
+out ragged. They are two columns now, with a gap and a fixed width, so the eye
+can run down either figure alone.
 
 #### What it deliberately does not do
 
