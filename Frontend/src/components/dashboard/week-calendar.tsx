@@ -24,6 +24,8 @@ import { useToast } from "@/components/ui/toast";
 import { AppointmentDialog } from "./appointment-dialog";
 import {
   assignLanes,
+  cardHeightPx,
+  gapsToNext,
   gridBounds,
   hourRows,
   lineBudget,
@@ -257,6 +259,16 @@ export function WeekCalendar({
   );
 
   /**
+   * How much room each card may grow into before it would reach the next
+   * booking in its lane — what caps the minimum height on a short appointment.
+   * Per day, for the same reason lanes are: Tuesday must not constrain Monday.
+   */
+  const gapsByDay = useMemo(
+    () => placedByDay.map((placed) => gapsToNext(placed)),
+    [placedByDay],
+  );
+
+  /**
    * Keeps the address bar in step without navigating.
    *
    * `replaceState` rather than `router.replace`: the latter re-runs the server
@@ -486,6 +498,11 @@ export function WeekCalendar({
                       key={entry.id}
                       entry={entry}
                       dayView={dayView}
+                      minHeightPx={cardHeightPx(
+                        entry.endMinutes - entry.startMinutes,
+                        dayView ? "day" : "week",
+                        gapsByDay[dayIndex].get(entry.id) ?? null,
+                      )}
                       onHoverChange={setHovered}
                       onOpen={(target) => {
                         // The hover card is supplementary detail about what is
@@ -609,6 +626,7 @@ function EntryCard({
   entry,
   style,
   dayView,
+  minHeightPx,
   onHoverChange,
   onOpen,
 }: {
@@ -616,12 +634,20 @@ function EntryCard({
   style: React.CSSProperties;
   /** One column instead of seven — the card can afford to be read, not scanned. */
   dayView: boolean;
+  /**
+   * The floor from `cardHeightPx`, already capped at the room before the next
+   * booking in this lane. Applied as `min-height` so it only ever lifts a card
+   * that would otherwise be too short to read.
+   */
+  minHeightPx: number;
   onHoverChange: (hover: HoveredEntry | null) => void;
   onOpen: (entry: CalendarEntry) => void;
 }) {
   const cancelled = entry.status === "cancelled" || entry.status === "no_show";
   const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
   const minutes = entry.endMinutes - entry.startMinutes;
+  /** Percentages position the card; the floor is real pixels on top of them. */
+  const boxStyle: React.CSSProperties = { ...style, minHeight: minHeightPx };
 
   /** What the client asked for on this booking. */
   const hasNote = Boolean(entry.notes?.trim());
@@ -632,7 +658,7 @@ function EntryCard({
    * How many of name / time / service this booking has room for — see
    * `lineBudget`, which owns the arithmetic and is tested on its own.
    */
-  const lines = lineBudget(minutes, dayView ? "day" : "week");
+  const lines = lineBudget(minHeightPx, dayView ? "day" : "week");
 
   /**
    * The note's text on the card, rather than only a mark saying there is one.
@@ -771,7 +797,7 @@ function EntryCard({
   if (entry.kind === "block") {
     return (
       <div
-        style={style}
+        style={boxStyle}
         tabIndex={0}
         title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
         onMouseEnter={show}
@@ -788,7 +814,7 @@ function EntryCard({
   return (
     <button
       type="button"
-      style={style}
+      style={boxStyle}
       aria-haspopup="dialog"
       // The native tooltip stays as the no-JavaScript, no-pointer fallback —
       // the rich card below is an enhancement, not the only way to read this.

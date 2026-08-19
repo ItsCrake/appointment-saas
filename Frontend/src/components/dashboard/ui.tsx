@@ -25,6 +25,13 @@ import { cn } from "@/lib/utils";
  * item, the selected plan, the upgrade path. A gradient used for decoration is
  * what turns an accent into a theme.
  *
+ * **Two derived treatments extend that rule rather than break it**, and both
+ * live in `globals.css`: `brand-tint` is the ramp at about a sixth strength and
+ * `brand-rule` is a hairline that fades out. They mark *page identity* on the
+ * management screens — see `PageHeader` — and they are deliberately weak enough
+ * that neither can be confused with the solid gradient's "press this" meaning.
+ * The full-strength ramp is still reserved for active and recommended.
+ *
  * SHAPE, following the same scale as `/`: pill for anything interactive,
  * `rounded-2xl` for a card sitting inside a page. Text inputs are the one
  * documented departure — they stay `rounded-xl`, because a pill field wastes
@@ -178,26 +185,62 @@ export function SkeletonRows({
   );
 }
 
+/**
+ * The heading every management screen shares.
+ *
+ * ---------------------------------------------------------------------------
+ * `icon` is what tells the three flattest screens in the product apart. Services,
+ * hours and clients are otherwise a heading over a list, and an owner two taps
+ * deep could not tell at a glance which one they had landed on — they each
+ * hand-rolled their own `<h1>` at a different type scale, which made it worse.
+ *
+ * The container is `brand-tint`: the brand ramp at about a sixth of its
+ * strength. Deliberately not the solid gradient, which means "active or
+ * recommended" and is already spent on the current nav item a few inches away —
+ * see the note at the top of this file. A tint reads as the page's own colour
+ * instead of as something to press.
+ *
+ * The rule beneath it fades out across the page rather than running edge to
+ * edge, because a full-width line at full strength is a divider and this is a
+ * signature.
+ * ---------------------------------------------------------------------------
+ */
 export function PageHeader({
   title,
   subtitle,
+  icon,
   action,
 }: {
   title: string;
   subtitle?: string;
+  icon?: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-5 flex items-start justify-between gap-4">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {title}
-        </h1>
-        {subtitle ? (
-          <p className="mt-0.5 text-sm text-zinc-500">{subtitle}</p>
-        ) : null}
+    <header className="mb-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          {icon ? (
+            <span
+              aria-hidden
+              className="brand-tint flex size-10 shrink-0 items-center justify-center rounded-2xl text-indigo-700 ring-1 ring-indigo-500/15 dark:text-indigo-200 dark:ring-indigo-400/20"
+            >
+              {icon}
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              {title}
+            </h1>
+            {subtitle ? (
+              <p className="mt-0.5 text-sm text-zinc-500">{subtitle}</p>
+            ) : null}
+          </div>
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+
+      {icon ? <div aria-hidden className="brand-rule mt-4 h-0.5" /> : null}
     </header>
   );
 }

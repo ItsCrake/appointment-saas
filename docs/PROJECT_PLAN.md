@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1019 tests across 69 files**; Playwright at
+**Green:** `npm run verify` at **1022 tests across 69 files**; Playwright at
 **11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
 the live database — fourteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1560,6 +1560,74 @@ The status panel's counts and percentages were a single string with a hairline
 between them, so "12" and "40%" read as one number and the column of shares came
 out ragged. They are two columns now, with a gap and a fixed width, so the eye
 can run down either figure alone.
+
+#### Cancelling has a way back, and reviving one works again
+
+Cancelling from the agenda or the calendar now offers **"בטל פעולה"** for six
+seconds. Only cancelling — it is the one status change that messages the client
+on the same click, and the one an owner can make by hitting the wrong row on a
+phone without noticing for a week. The toast learned an optional action and its
+own duration to carry it; four seconds is enough to notice something happened
+and not enough to read it, find the button and hit it.
+
+Undo restores the **previous** status rather than assuming `confirmed`, which is
+why `statusSchema` now accepts `pending`: a rejected request came from there, and
+promoting it to confirmed would agree to something on the owner's behalf.
+
+That exposed an older bug. Cancelling marks the queued reminder `skipped` and
+nothing ever put it back, so an appointment cancelled and then restored — by the
+new undo, or by the "החזרה לתור פעיל" button that has always existed — kept its
+slot and silently stopped reminding the client. Reviving now re-plans the
+reminder through the same delete-then-enqueue the reschedule path uses, and for
+the same dedupe-key reason.
+
+#### Reading before writing, and a floor under short bookings
+
+The client tab used to focus its textarea on mount, so opening it threw up the
+mobile keyboard and shoved the viewport before the owner had read a word of the
+note they came to read. Most visits there are to *look*. It opens as text now,
+with the block itself and a labelled button both offering the edit; focus follows
+the decision to edit, never the arrival on the tab.
+
+A quarter-hour card is 24 pixels and held a name alone, so *when is it* could
+only be answered by opening it. `MIN_CARD_PX` lifts it to 34 — name and time —
+but as a **minimum capped by the room actually available**: `cardHeightPx` never
+grows a card past where the next booking in its lane begins. Two back-to-back
+fifteen-minute appointments therefore keep their true heights and stay honest
+about when they happen, which matters more than a card you have to open. The line
+budget is now measured in rendered pixels rather than minutes, so a lifted card
+uses the room it gained.
+
+#### Sign-out was global, and that is what ended the other device
+
+`supabase.auth.signOut()` defaults to `scope: "global"`, revoking **every**
+refresh token the user holds — so leaving on one device ended the session
+everywhere, and the other device simply presented a login screen next time it was
+touched. It is `local` now. The deliberate global sign-out stays in
+`updatePasswordAction`, where every other session *should* die.
+
+If concurrent sessions still fail, the remaining lever is not in this repository:
+Supabase's own Auth settings can cap sessions per user, and that is project
+configuration.
+
+#### The gradient reaches the management screens
+
+Services, hours and clients were the flattest screens in the product — a heading
+over a list, no way to tell at a glance which one you had landed on, and two of
+them hand-rolled their own `<h1>` at the wrong type scale. They share
+`PageHeader` now, with an icon in a `brand-tint` container and a `brand-rule`
+hairline that fades out across the page.
+
+**Tinted rather than saturated, and that is the whole design decision.** The
+solid ramp means "active or recommended" and is already spent on the current nav
+item inches away; a full-strength gradient chip in a page header would be a
+second, louder instance of a signal that is supposed to be rare. At about a sixth
+strength it reads as the page's own colour instead of as something to press, so
+the rule in `ui.tsx` is extended rather than broken — and that comment now says
+so, because a documented law that contradicts the code is worse than no law.
+
+No per-card glow. On a list of twenty services a halo per row is noise, and these
+are screens where scanning is the job.
 
 #### What it deliberately does not do
 

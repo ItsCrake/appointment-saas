@@ -216,6 +216,87 @@ const CARD_METRICS = {
 export const MAX_CARD_LINES = 3;
 
 /**
+ * A card is never drawn shorter than this, however short the booking.
+ *
+ * ---------------------------------------------------------------------------
+ * A quarter of an hour is 24 pixels of week grid, which holds a name and
+ * nothing else — so the commonest question about a short booking, *when is it*,
+ * could only be answered by opening it. 34 pixels holds two lines with the
+ * padding, which is the name and the time.
+ *
+ * The floor is a **minimum, not a height**: it only ever grows a card that is
+ * smaller, and `cardHeightPx` caps it at the room actually available before the
+ * next booking in the same lane. Two back-to-back fifteen-minute appointments
+ * therefore keep their true 24 pixels each and stay side by side in time rather
+ * than one drawing over the other — a floor that ignored its neighbours would
+ * make the grid lie about when things happen, which is worse than a card you
+ * have to open.
+ * ---------------------------------------------------------------------------
+ */
+export const MIN_CARD_PX = 34;
+
+export type CalendarView = "week" | "day";
+
+/** What a booking of this length occupies on the grid, before any floor. */
+export function slotHeightPx(
+  durationMinutes: number,
+  view: CalendarView = "week",
+): number {
+  return (Math.max(0, durationMinutes) * HOUR_ROW_PX[view]) / 60;
+}
+
+/**
+ * The height a card should actually take: its own, or the floor, whichever is
+ * larger — but never past where the next booking in its lane begins.
+ *
+ * `minutesToNext` is measured from *this* booking's start, which is what the
+ * cap needs: items in one lane never overlap, so that distance is exactly the
+ * room this card may grow into.
+ */
+export function cardHeightPx(
+  durationMinutes: number,
+  view: CalendarView = "week",
+  minutesToNext: number | null = null,
+): number {
+  const own = slotHeightPx(durationMinutes, view);
+  const ceiling =
+    minutesToNext === null ? Infinity : slotHeightPx(minutesToNext, view);
+
+  return Math.max(own, Math.min(MIN_CARD_PX, ceiling));
+}
+
+/**
+ * How far it is from each item's start to the next item sharing its lane.
+ *
+ * Null where nothing follows. Keyed by id, which is per *span* on this grid, so
+ * a booking crossing midnight is two entries and each gets its own answer.
+ */
+export function gapsToNext<T extends CalendarItem>(
+  placed: readonly PlacedItem<T>[],
+): Map<string, number | null> {
+  const byLane = new Map<number, PlacedItem<T>[]>();
+  for (const item of placed) {
+    const lane = byLane.get(item.lane) ?? [];
+    lane.push(item);
+    byLane.set(item.lane, lane);
+  }
+
+  const gaps = new Map<string, number | null>();
+  for (const lane of byLane.values()) {
+    const ordered = [...lane].sort((a, b) => a.startMinutes - b.startMinutes);
+    ordered.forEach((item, index) => {
+      const next = ordered[index + 1];
+      gaps.set(
+        item.id,
+        next ? next.startMinutes - item.startMinutes : null,
+      );
+    });
+  }
+
+  return gaps;
+}
+
+/**
  * How many of **client name / time / service** a booking has room to show.
  *
  * ---------------------------------------------------------------------------
@@ -236,11 +317,17 @@ export const MAX_CARD_LINES = 3;
  * ---------------------------------------------------------------------------
  */
 export function lineBudget(
-  durationMinutes: number,
-  view: "week" | "day" = "week",
+  /**
+   * The card's **rendered** height, which is `cardHeightPx` and not the
+   * booking's own — a fifteen-minute appointment lifted to the floor above has
+   * genuinely got room for its time, and budgeting from its duration would
+   * leave that room empty.
+   */
+  heightPx: number,
+  view: CalendarView = "week",
 ): number {
   const { padding, lineHeight } = CARD_METRICS[view];
-  const usable = (durationMinutes * HOUR_ROW_PX[view]) / 60 - padding;
+  const usable = heightPx - padding;
 
   // At least one line always. A booking too short to hold its own name is still
   // a booking, and an empty card is worse than a clipped one.

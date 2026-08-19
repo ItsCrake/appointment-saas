@@ -123,14 +123,21 @@ export function AppointmentDialog({
   const wa = phone?.startsWith("0") ? `972${phone.slice(1)}` : phone;
 
   function changeStatus(next: AppointmentStatusName) {
-    const previous = status;
+    const previous = status as AppointmentStatusName;
     setStatus(next); // optimistic
     setError(undefined);
 
     startTransition(async () => {
       const result = await setAppointmentStatusAction(appointmentId, next);
       if (result.ok) {
-        toast(`${entry.title}: ${STATUS_LABEL[next]}`);
+        // Only cancelling gets a way back — see `agenda-list`, which offers the
+        // same undo on the same action for the same reason.
+        toast(
+          `${entry.title}: ${STATUS_LABEL[next]}`,
+          next === "cancelled"
+            ? { action: { label: "בטל פעולה", onAct: () => changeStatus(previous) } }
+            : undefined,
+        );
         onChanged();
       } else {
         setStatus(previous); // roll back
@@ -451,11 +458,32 @@ function ClientCardPanel({
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(entry.clientProfileNotes ?? "");
+  /**
+   * **Reading is the default; writing is asked for.**
+   *
+   * This panel used to focus its textarea on mount, which on a phone means the
+   * keyboard springs up and shoves the viewport the instant the tab is touched —
+   * before the owner has read a word of the note they came to read. Most visits
+   * here are to *look*: "what do we know about this person" is a question you
+   * ask while the client is in front of you.
+   *
+   * So the note opens as text. The whole block is a button, and there is a
+   * labelled one beside the heading, because "tap the text to edit" is a
+   * convention worth offering but not worth relying on.
+   */
+  const [editing, setEditing] = useState(false);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
 
+  // Focus follows the *decision* to edit, never the arrival on the tab. The
+  // caret goes to the end so an owner adding to an existing note is not typing
+  // in front of it.
   useEffect(() => {
-    fieldRef.current?.focus();
-  }, []);
+    if (!editing) return;
+    const field = fieldRef.current;
+    if (!field) return;
+    field.focus();
+    field.setSelectionRange(field.value.length, field.value.length);
+  }, [editing]);
 
   const phone = entry.clientPhone;
   const dirty = notes !== saved;
@@ -471,6 +499,7 @@ function ClientCardPanel({
 
       if (result.ok) {
         setSaved(notes);
+        setEditing(false);
         toast(result.message ?? "ההערות נשמרו", "success");
         // The mark on every one of this client's cards depends on this, so the
         // grid behind the dialog is refreshed even though the dialog stays up.
@@ -499,50 +528,87 @@ function ClientCardPanel({
         </Row>
       </dl>
 
-      <label className="mt-3 block" htmlFor="ap-client-notes">
-        <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span
+          id="ap-client-notes-label"
+          className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400"
+        >
           <UserRound className="size-3.5" aria-hidden />
           הערות קבועות על הלקוח
         </span>
+
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-zinc-900 underline underline-offset-4 dark:text-zinc-100"
+          >
+            <Pencil className="size-3" aria-hidden />
+            {saved.trim() ? "עריכה" : "הוספת הערה"}
+          </button>
+        ) : null}
+      </div>
+
+      {editing ? (
         <textarea
           id="ap-client-notes"
+          aria-labelledby="ap-client-notes-label"
           ref={fieldRef}
           rows={5}
           value={notes}
           onChange={(event) => onNotesChange(event.target.value)}
           placeholder="מעדיף כיסא ליד החלון, רגיש לצבע, תמיד מאחר…"
-          className={cn(inputClass, "h-auto resize-y py-2 leading-relaxed")}
+          className={cn(inputClass, "mt-1.5 h-auto resize-y py-2 leading-relaxed")}
         />
-      </label>
+      ) : (
+        /* The read view is itself the way in, which is the convention on a
+           phone — but it is a real button, so it is reachable by keyboard and
+           announced as something you can do rather than as decoration. */
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-labelledby="ap-client-notes-label"
+          className="mt-1.5 w-full rounded-xl border border-dashed border-zinc-300 px-3 py-2.5 text-start text-sm leading-relaxed whitespace-pre-wrap text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800/60"
+        >
+          {saved.trim() || (
+            <span className="text-zinc-400">
+              אין עדיין הערות על הלקוח. אפשר להוסיף כאן מה שכדאי לזכור.
+            </span>
+          )}
+        </button>
+      )}
 
       <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
         ההערות נשמרות על הלקוח ולא על התור הזה — הן יופיעו בכל תור עתידי שלו
         ובכרטיס הלקוח.
       </p>
 
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending || !dirty}
-          className={cn(btnPrimary, "h-11 flex-1 text-sm")}
-        >
-          {pending ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-          ) : null}
-          שמירת ההערות
-        </button>
-        {dirty ? (
+      {editing ? (
+        <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onNotesChange(saved)}
+            onClick={save}
+            disabled={pending || !dirty}
+            className={cn(btnPrimary, "h-11 flex-1 text-sm")}
+          >
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : null}
+            שמירת ההערות
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onNotesChange(saved); // discard the edit, keep what was stored
+              setEditing(false);
+            }}
             disabled={pending}
             className={cn(btnSecondary, "h-11 px-4 text-sm")}
           >
             ביטול
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

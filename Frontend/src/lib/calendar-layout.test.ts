@@ -5,13 +5,17 @@ import path from "node:path";
 
 import {
   assignLanes,
+  cardHeightPx,
+  gapsToNext,
   gridBounds,
   hourRows,
   HOUR_ROW_PX,
   lineBudget,
   MAX_CARD_LINES,
+  MIN_CARD_PX,
   minutesToLabel,
   placeItem,
+  slotHeightPx,
   type CalendarItem,
 } from "@/lib/calendar-layout";
 
@@ -261,38 +265,81 @@ describe("minutesToLabel", () => {
 });
 
 describe("lineBudget", () => {
+  /** What the grid will actually draw for a booking of this length. */
+  const budgetFor = (minutes: number, view: "week" | "day" = "week") =>
+    lineBudget(cardHeightPx(minutes, view), view);
+
   it("gives a half-hour booking all three lines in both views", () => {
     // The case the stacked layout exists for: half an hour is the commonest
     // appointment in the product and it should read as name, time and service
     // rather than as one truncated row.
-    expect(lineBudget(30, "week")).toBe(MAX_CARD_LINES);
-    expect(lineBudget(30, "day")).toBe(MAX_CARD_LINES);
+    expect(budgetFor(30, "week")).toBe(MAX_CARD_LINES);
+    expect(budgetFor(30, "day")).toBe(MAX_CARD_LINES);
   });
 
-  it("keeps the name on the shortest booking there is", () => {
-    // A quarter of an hour is 24px of week grid. One line, and it is the one
-    // somebody scanning a week is actually looking for.
-    expect(lineBudget(15, "week")).toBe(1);
-    expect(lineBudget(15, "day")).toBe(1);
+  it("gets the time onto a quarter-hour booking, via the floor", () => {
+    // 15 minutes is 24px of week grid, which holds a name alone. Lifted to the
+    // 34px floor it holds the name *and* the time — which is the whole point of
+    // the floor, and why the budget is measured in rendered pixels rather than
+    // in minutes.
+    expect(lineBudget(slotHeightPx(15, "week"), "week")).toBe(1);
+    expect(budgetFor(15, "week")).toBe(2);
   });
 
   it("grows with the booking rather than jumping", () => {
-    expect(lineBudget(20, "week")).toBe(2);
-    expect(lineBudget(45, "week")).toBe(MAX_CARD_LINES);
-    expect(lineBudget(60, "week")).toBe(MAX_CARD_LINES);
+    expect(budgetFor(20, "week")).toBe(2);
+    expect(budgetFor(45, "week")).toBe(MAX_CARD_LINES);
+    expect(budgetFor(60, "week")).toBe(MAX_CARD_LINES);
   });
 
   it("never returns nothing, however short or strange the booking", () => {
     // A zero- or negative-length row should not exist, but the grid draws what
     // the database holds and an empty card is worse than a clipped one.
-    for (const minutes of [0, -30, 1]) {
-      expect(lineBudget(minutes, "week")).toBe(1);
-      expect(lineBudget(minutes, "day")).toBe(1);
+    for (const px of [0, -30, 1]) {
+      expect(lineBudget(px, "week")).toBe(1);
+      expect(lineBudget(px, "day")).toBe(1);
     }
   });
 
   it("never promises more lines than the card renders", () => {
-    expect(lineBudget(600, "day")).toBe(MAX_CARD_LINES);
+    expect(lineBudget(10_000, "day")).toBe(MAX_CARD_LINES);
+  });
+
+  it("lifts a short booking to the floor, but never over its neighbour", () => {
+    // Alone, or with an hour of clear air after it, a quarter-hour card takes
+    // the full floor.
+    expect(cardHeightPx(15, "week", null)).toBe(MIN_CARD_PX);
+    expect(cardHeightPx(15, "week", 60)).toBe(MIN_CARD_PX);
+
+    // Back to back with another, it keeps its true height instead — a floor
+    // that drew over the next booking would make the grid lie about when
+    // things happen, which is worse than a card you have to open.
+    expect(cardHeightPx(15, "week", 15)).toBe(slotHeightPx(15, "week"));
+
+    // And in between, it takes exactly the room there is.
+    expect(cardHeightPx(15, "week", 20)).toBe(slotHeightPx(20, "week"));
+  });
+
+  it("leaves a booking taller than the floor alone", () => {
+    expect(cardHeightPx(60, "week", null)).toBe(slotHeightPx(60, "week"));
+    // Even squeezed: an hour-long booking is never shrunk to fit a gap, because
+    // the floor is a minimum and not a height.
+    expect(cardHeightPx(60, "week", 15)).toBe(slotHeightPx(60, "week"));
+  });
+
+  it("measures the gap to the next booking in the same lane", () => {
+    const placed = assignLanes([
+      item("a", at(9), at(9, 15)),
+      item("b", at(9, 30), at(10)),
+      // Overlaps `b`, so it lands in a second lane and is nobody's neighbour.
+      item("c", at(9, 45), at(10, 30)),
+    ]);
+
+    const gaps = gapsToNext(placed);
+
+    expect(gaps.get("a")).toBe(30); // 09:00 → 09:30
+    expect(gaps.get("b")).toBeNull(); // nothing after it in lane 0
+    expect(gaps.get("c")).toBeNull(); // alone in lane 1
   });
 
   it("keeps the row heights in step with the Tailwind classes", () => {

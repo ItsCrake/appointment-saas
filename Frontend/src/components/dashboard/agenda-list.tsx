@@ -71,16 +71,53 @@ function AgendaRow({
   const awaitingApproval = status === "pending";
 
   function update(next: AppointmentStatusName) {
-    const previous = status;
+    const previous = status as AppointmentStatusName;
     setStatus(next); // optimistic
     setError(undefined);
 
     startTransition(async () => {
       const result = await setAppointmentStatusAction(appointment.id, next);
       if (result.ok) {
-        toast(`${appointment.clientName}: ${STATUS_LABEL[next]}`);
+        /**
+         * **Cancelling is the one status change that gets a way back.**
+         *
+         * It is the only one that tells the client something — the cancellation
+         * message goes out on the same click — and the only one an owner can
+         * make by hitting the wrong row on a phone and not notice for a week.
+         * "Completed" on the wrong appointment is a tidy-up; "cancelled" on the
+         * wrong appointment is somebody turning up to a closed shop.
+         */
+        toast(
+          `${appointment.clientName}: ${STATUS_LABEL[next]}`,
+          next === "cancelled"
+            ? { action: { label: "בטל פעולה", onAct: () => restore(previous) } }
+            : undefined,
+        );
       } else {
         setStatus(previous); // roll back
+        setError(result.error);
+        toast(result.error, "error");
+      }
+    });
+  }
+
+  /**
+   * Puts the appointment back where it was.
+   *
+   * Deliberately restores the *previous* status rather than assuming
+   * `confirmed`: a rejected request came from `pending`, and promoting it to
+   * confirmed would agree to something on the owner's behalf.
+   */
+  function restore(previous: AppointmentStatusName) {
+    setStatus(previous); // optimistic, same as the change it is undoing
+    setError(undefined);
+
+    startTransition(async () => {
+      const result = await setAppointmentStatusAction(appointment.id, previous);
+      if (result.ok) {
+        toast(`${appointment.clientName}: ${STATUS_LABEL[previous]}`);
+      } else {
+        setStatus("cancelled");
         setError(result.error);
         toast(result.error, "error");
       }

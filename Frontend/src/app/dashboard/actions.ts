@@ -443,7 +443,22 @@ export async function updateAppointmentDetailsAction(
   return { ok: true };
 }
 
-const statusSchema = z.enum(["confirmed", "cancelled", "completed", "no_show"]);
+/**
+ * `pending` is here for **undo**, and only for undo.
+ *
+ * No button sets it directly — a request arrives pending and the owner answers
+ * yes or no. But rejecting one lands on `cancelled`, and taking that back has to
+ * restore the state it actually came from, which is `pending`. Without it the
+ * undo on a rejected request would either fail validation or quietly promote the
+ * request to a confirmed booking nobody agreed to.
+ */
+const statusSchema = z.enum([
+  "pending",
+  "confirmed",
+  "cancelled",
+  "completed",
+  "no_show",
+]);
 
 /**
  * The business id comes from the session, never from the caller — an owner can
@@ -477,6 +492,15 @@ export async function setAppointmentStatusAction(
 
   const wasRequest = before.status === "pending";
 
+  /**
+   * Coming back from a terminal status to one that holds the slot again. The
+   * appointment is live once more, and everything cancelling tore down has to be
+   * rebuilt — see the reminder branch below.
+   */
+  const revived =
+    !BLOCKING_STATUSES.includes(before.status) &&
+    BLOCKING_STATUSES.includes(parsedStatus.data);
+
   const updated = await updateAppointmentStatus(
     db,
     business.id,
@@ -508,6 +532,22 @@ export async function setAppointmentStatusAction(
         business,
         appointment: updated,
       });
+    } else if (revived) {
+      /**
+       * **Brought back from the dead, so its reminder has to come back too.**
+       *
+       * Cancelling calls `cancelPendingNotificationsForAppointment`, which marks
+       * the queued reminder `skipped`. Nothing put it back, so an appointment
+       * that was cancelled and then restored — by the undo on the toast, or by
+       * the "החזרה לתור פעיל" button that has always existed — kept its slot and
+       * silently stopped reminding the client.
+       *
+       * Deleted rather than re-activated, for the reason spelled out on
+       * `deletePendingNotificationsForAppointment`: the dedupe key does not
+       * mention the time, so the skipped row would swallow the new one.
+       */
+      await deletePendingNotificationsForAppointment(db, updated.id);
+      await enqueueReminder({ db, business, appointment: updated });
     }
   } catch (error) {
     // Never turn a successful status change into an error: the appointment has

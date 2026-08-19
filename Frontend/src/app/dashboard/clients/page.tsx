@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Users } from "lucide-react";
 
 import { ClientsDirectory } from "@/components/dashboard/clients-directory";
 import { PageHeader } from "@/components/dashboard/ui";
@@ -20,7 +21,11 @@ export default async function ClientsPage() {
 
   return (
     <div>
-      <PageHeader title="לקוחות" subtitle="מתוך היסטוריית התורים" />
+      <PageHeader
+        icon={<Users className="size-5" />}
+        title="לקוחות"
+        subtitle="מתוך היסטוריית התורים"
+      />
 
       <ClientsDirectory
         clients={clients.map((client) => ({

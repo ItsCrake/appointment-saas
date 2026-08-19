@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 
+import { Clock } from "lucide-react";
+
+import { PageHeader } from "@/components/dashboard/ui";
 import { HoursManager } from "@/components/dashboard/hours-manager";
 import { db } from "@/db";
 import { listUpcomingTimeOff, listWorkingHours } from "@/db/queries";
@@ -17,14 +20,11 @@ export default async function HoursPage() {
 
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
-          שעות פעילות
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500">
-          שעות קבועות וחסימות חד-פעמיות ({business.timezone})
-        </p>
-      </header>
+      <PageHeader
+        icon={<Clock className="size-5" />}
+        title="שעות פעילות"
+        subtitle={`שעות קבועות וחסימות חד-פעמיות (${business.timezone})`}
+      />
 
       <HoursManager
         timezone={business.timezone}

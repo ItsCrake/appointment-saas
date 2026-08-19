@@ -32,5 +32,17 @@ export const BRAND = {
  */
 export const BRAND_MARK = {
   stem: "Bazman",
+  /**
+   * The Hebrew stem, for surfaces whose reader is an Israeli business owner
+   * rather than a passer-by.
+   *
+   * The credential screens use this and the marketing page does not, on purpose:
+   * `/` is also read by people deciding whether this is a real product, and the
+   * Latin mark is what carries in an app store, a search result and a URL. By
+   * the time somebody is typing a password they know the name — showing it to
+   * them in the language the entire rest of the interface is written in is one
+   * less seam.
+   */
+  stemHe: "בזמן",
   dot: ".",
 } as const;

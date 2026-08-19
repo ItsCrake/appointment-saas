@@ -611,6 +611,59 @@ body {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   BRAND ACCENTS FOR THE MANAGEMENT SCREENS
+
+   Services, hours and clients are the flattest screens in the product — a
+   heading, a list, and nothing to say which of them you are on. These two give
+   them a brand mark without spending the gradient on decoration.
+
+   **Tinted, not saturated, and that distinction is load-bearing.** The solid
+   `--brand-gradient` already means "active or recommended" — the current nav
+   item, the selected plan, the upgrade path — and a full-strength gradient chip
+   in a page header would be a second, louder instance of a signal that is
+   supposed to be rare. At ~16% it reads as the page's own colour rather than as
+   something asking to be pressed, and it cannot be mistaken for the nav item
+   sitting inches away.
+
+   `color-mix` against the brand stops rather than a hand-picked pale purple, so
+   retuning the ramp in one place retunes these too.
+--------------------------------------------------------------------------- */
+.brand-tint {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--brand-from) 16%, transparent) 0%,
+    color-mix(in oklab, var(--brand-to) 16%, transparent) 100%
+  );
+}
+
+/* A hairline under a page heading, solid at the inline start and fading out.
+   `to left` is the physical direction, and the document is `dir="rtl"`, so it
+   begins at the start of the heading and dissolves across the page — a rule
+   that ran edge to edge at full strength would be a divider, which is a
+   different and much louder thing. */
+.brand-rule {
+  background-image: linear-gradient(
+    to left,
+    var(--brand-from) 0%,
+    var(--brand-mid) 30%,
+    color-mix(in oklab, var(--brand-to) 40%, transparent) 60%,
+    transparent 100%
+  );
+}
+
+@media (prefers-color-scheme: dark) {
+  /* A 16% wash disappears on a near-black page. The same reasoning as
+     `--accent-soft`, which inverts to a deep tone rather than dimming. */
+  .brand-tint {
+    background-image: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--brand-from) 36%, transparent) 0%,
+      color-mix(in oklab, var(--brand-to) 36%, transparent) 100%
+    );
+  }
+}
+
 /* Warm flare at the bottom centre, playing against the cool gradient base. */
 .cta-flare {
   background: radial-gradient(

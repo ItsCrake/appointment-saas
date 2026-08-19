@@ -308,10 +308,34 @@ export async function updatePasswordAction(
   );
 }
 
+/**
+ * Signs the reader out **of this device only**.
+ *
+ * ---------------------------------------------------------------------------
+ * `signOut()` defaults to `scope: "global"`, which revokes *every* refresh
+ * token the user holds. That is the setting that made an owner's phone and their
+ * desk machine mutually exclusive: leaving on one ended the session on the
+ * other, and since a session dies silently, the second device simply presented a
+ * login screen the next time it was touched — which reads as "signing in on my
+ * phone logged me out at the counter".
+ *
+ * `local` revokes the token this browser is holding and leaves the rest alone,
+ * which is what "sign out" means on every other product an owner uses.
+ *
+ * The **deliberate** global sign-out stays where it belongs, in
+ * `updatePasswordAction`: changing a password is exactly when every other
+ * session should die, because the reason for changing it may be that somebody
+ * else has one.
+ *
+ * If concurrent sessions still fail after this, the remaining lever is not in
+ * this repository — Supabase's own Auth settings can cap sessions per user, and
+ * that is project configuration rather than code.
+ * ---------------------------------------------------------------------------
+ */
 export async function signOutAction() {
   try {
     const supabase = await createSupabaseServerClient();
-    await supabase?.auth.signOut();
+    await supabase?.auth.signOut({ scope: "local" });
   } catch (thrown) {
     unstable_rethrow(thrown);
     // Sign-out is best effort: a failure to reach Supabase must not strand the

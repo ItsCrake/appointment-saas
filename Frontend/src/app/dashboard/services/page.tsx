@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 
+import { Scissors } from "lucide-react";
+
 import { ServicesManager } from "@/components/dashboard/services-manager";
+import { PageHeader } from "@/components/dashboard/ui";
 import { db } from "@/db";
 import { listServices } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
@@ -13,14 +16,11 @@ export default async function ServicesPage() {
 
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
-          שירותים
-        </h1>
-        <p className="mt-0.5 text-sm text-zinc-500">
-          השירותים המוצגים בעמוד ההזמנות שלכם
-        </p>
-      </header>
+      <PageHeader
+        icon={<Scissors className="size-5" />}
+        title="שירותים"
+        subtitle="השירותים המוצגים בעמוד ההזמנות שלכם"
+      />
 
       <ServicesManager
         services={services.map((s) => ({

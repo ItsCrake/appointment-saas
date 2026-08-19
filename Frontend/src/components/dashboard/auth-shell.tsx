@@ -42,8 +42,8 @@ export function AuthShell({
             {/* The stop is the one coloured mark on a credential screen, and it
                 is the gradient rather than a flat hue — the same treatment the
                 wordmark gets on `/`, so the two read as one product. */}
-            <span className="font-bold text-zinc-950 dark:text-zinc-50">
-              {BRAND_MARK.stem}
+            <span className="text-lg font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
+              {BRAND_MARK.stemHe}
               <span className="bg-[image:var(--brand-gradient)] bg-clip-text text-transparent">
                 {BRAND_MARK.dot}
               </span>
