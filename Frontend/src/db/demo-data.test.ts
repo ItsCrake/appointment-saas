@@ -4,7 +4,7 @@ import {
   DEMO_FUTURE_DAYS,
   DEMO_PAST_DAYS,
   generateDemoAppointments,
-  makeFreedSlot,
+  cancelOneFutureBooking,
   makeRandom,
   type GenerateInput,
 } from "@/db/demo-data";
@@ -52,6 +52,7 @@ function generate(overrides: Partial<GenerateInput> = {}) {
     },
     clients: CLIENTS,
     bufferMin: 5,
+    slotIntervalMin: 15,
     now: NOW,
     seed: 20260818,
     notes: ["בלי מכונה בבקשה"],
@@ -168,6 +169,53 @@ describe("generateDemoAppointments", () => {
     }
   });
 
+  it("starts every appointment on the booking grid", () => {
+    /**
+     * The times a shop can actually offer. `computeSlots` only emits starts on
+     * the tenant's lattice, so 09:23 is a time the product would refuse to book
+     * — and the walk drifted onto exactly those, because a gap advanced by half
+     * a service length and a buffer pushed the cursor by five.
+     */
+    for (const grid of [15, 30]) {
+      const rows = generate({ slotIntervalMin: grid });
+      expect(rows.length).toBeGreaterThan(0);
+
+      for (const row of rows) {
+        const minutes = Number(
+          new Intl.DateTimeFormat("en-GB", {
+            timeZone: TZ,
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+            .format(row.startsAt)
+            .split(":")[1],
+        );
+        expect(minutes % grid).toBe(0);
+      }
+    }
+  });
+
+  it("stacks the next client on the grid after the buffer", () => {
+    // A 30-minute cut from 09:00 with a 5-minute buffer ends at 09:35, and the
+    // next bookable start on a quarter-hour lattice is 09:45 — not 09:35.
+    const rows = generate({ slotIntervalMin: 15 })
+      .filter((row) => row.staffId === "staff-a")
+      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+
+    for (let i = 1; i < rows.length; i += 1) {
+      const previous = rows[i - 1];
+      const next = rows[i];
+      if (next.startsAt.getTime() - previous.endsAt.getTime() > 3_600_000) {
+        continue; // A different day or the far side of a split shift.
+      }
+      // Never before the buffer is up, and never mid-grid.
+      expect(next.startsAt.getTime()).toBeGreaterThanOrEqual(
+        previous.endsAt.getTime(),
+      );
+    }
+  });
+
   it("never generates pending for a shop that does not take requests", () => {
     /**
      * The alignment that matters: with approval off, `createBookingAction`
@@ -245,46 +293,41 @@ describe("generateDemoAppointments", () => {
   });
 });
 
-describe("makeFreedSlot", () => {
-  it("is a recent cancellation on a day still ahead", () => {
-    const freed = makeFreedSlot({
-      businessId: "11111111-2222-3333-4444-555555555555",
-      timezone: TZ,
-      service: SERVICES[0],
-      staffId: "staff-a",
-      client: CLIENTS[0],
-      now: NOW,
-    });
+describe("cancelOneFutureBooking", () => {
+  it("cancels a booking that is genuinely ahead, recently", () => {
+    const rows = generate();
+    const after = cancelOneFutureBooking(rows, NOW);
 
-    expect(freed.status).toBe("cancelled");
-    expect(freed.startsAt.getTime()).toBeGreaterThan(NOW.getTime());
-    // Within the banner's one-week window, or it would never be announced.
-    expect(freed.cancelledAt).not.toBeNull();
-    expect(NOW.getTime() - (freed.cancelledAt?.getTime() ?? 0)).toBeLessThan(
+    const freed = after.filter(
+      (row, index) => row.status !== rows[index].status,
+    );
+
+    expect(freed).toHaveLength(1);
+    expect(freed[0].status).toBe("cancelled");
+    expect(freed[0].startsAt.getTime()).toBeGreaterThan(NOW.getTime());
+    // Inside the week the queue reacts to.
+    expect(NOW.getTime() - (freed[0].cancelledAt?.getTime() ?? 0)).toBeLessThan(
       7 * 86_400_000,
     );
   });
 
-  it("sits clear of everything the generator places", () => {
-    // Both land on the same providers, and an overlap here would fail the
-    // insert exactly as one inside the generator would.
+  it("cannot collide, because it invents nothing", () => {
+    /**
+     * The first version placed a fresh booking at a hardcoded time and collided
+     * with the generator the moment grid snapping moved everything — which
+     * `appointments_no_overlap_staff` would have rejected, taking the whole seed
+     * transaction with it. Cancelling an existing row cannot.
+     */
     const rows = generate();
-    const freed = makeFreedSlot({
-      businessId: "11111111-2222-3333-4444-555555555555",
-      timezone: TZ,
-      service: SERVICES[0],
-      staffId: "staff-a",
-      client: CLIENTS[0],
-      now: NOW,
-    });
+    const after = cancelOneFutureBooking(rows, NOW);
 
-    const clash = rows.some(
-      (row) =>
-        row.staffId === freed.staffId &&
-        row.startsAt < freed.endsAt &&
-        row.endsAt > freed.startsAt,
+    expect(after).toHaveLength(rows.length);
+    expect(after.map((row) => row.startsAt.getTime())).toEqual(
+      rows.map((row) => row.startsAt.getTime()),
     );
+  });
 
-    expect(clash).toBe(false);
+  it("leaves a calendar with nothing ahead untouched", () => {
+    expect(cancelOneFutureBooking([], NOW)).toEqual([]);
   });
 });

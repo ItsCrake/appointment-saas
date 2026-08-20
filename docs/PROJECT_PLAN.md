@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1074 tests across 72 files**; Playwright at
+**Green:** `npm run verify` at **1077 tests across 72 files**; Playwright at
 **11/11** across 3 spec files. All **25 migrations (0000–0024)** are applied to
 the live database — fifteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1785,6 +1785,52 @@ axis. `gridMinWidthPx` sizes the grid from the **widest lane count on screen**,
 because all columns share a width: one busy Tuesday sets the floor for the week,
 and sizing to the average leaves exactly that day unreadable. A week that fits
 stays fluid; only one that would not grows past the viewport and scrolls.
+
+### A re-seed refreshes the diary, not the shop ✅
+
+`db:seed` used to delete the business row and let the cascade take everything
+with it. That destroyed work nobody could get back — `demo-barber` was carrying a
+logo, a hero image, four gallery images and a staff photo, none of which the seed
+can recreate — so the destructive half is now scoped to **operational rows only**:
+appointments, waitlist entries, client notes and the outbox.
+
+Kept: the logo, hero media, gallery, reviews, theme, name, description and
+contact details, and the services and staff rows with their own `image_url`s.
+Uploads and copy are things somebody made deliberately; appointments are
+generated fiction, and only fiction is regenerated.
+
+An existing tenant keeps its catalogue and team rather than having them rebuilt,
+so an owner who renamed a service or added somebody keeps that — and the diary is
+generated against the hours the shop **actually** keeps, read back from
+`working_hours` rather than assumed from the seed definition, so changed opening
+times do not produce a month of bookings outside them.
+
+The handful of flags the seed still writes are the ones the demo's behaviour
+depends on and that nobody uploads: plan, approval mode, booking grid, buffer,
+active.
+
+### Demo start times land where the product can book them ✅
+
+The generated calendar contained times like 09:23 and 09:58 — times
+`computeSlots` will never offer, because it only emits starts on the tenant's
+lattice. A demo showing them is a screenshot of something the software would
+refuse to book.
+
+The walk drifted off the grid in two places: a gap advanced by *half a service
+length*, and the buffer pushed the cursor by five minutes. Both are snapped now —
+the next start is `ceil(end + buffer)` to `slot_interval_min`, and a gap is
+exactly one slot — so a 30-minute cut from 09:00 with a five-minute buffer puts
+the next client at 09:45, which is what the booking page would have offered.
+Variety comes from how many slots are skipped, not from skipping a fraction of
+one. Verified in production: **0 of 293** barber starts and **0 of 124** nail
+starts are off-grid.
+
+**The seeded "freed slot" is now a real cancellation.** It used to be a fresh
+booking placed at a hardcoded 17:30, which collided with the generator the moment
+grid snapping moved everything — and a collision there is not cosmetic:
+`appointments_no_overlap_staff` would reject the insert and take the whole seed
+transaction down. `cancelOneFutureBooking` flips an existing row instead, which
+cannot collide by construction and is also what a cancellation actually is.
 
 ### What it deliberately does not do
 

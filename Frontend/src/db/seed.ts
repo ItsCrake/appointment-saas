@@ -5,8 +5,8 @@ import postgres from "postgres";
 
 import { DEMO_NAILS_SLUG, DEMO_SLUG } from "../lib/demo";
 import {
+  cancelOneFutureBooking,
   generateDemoAppointments,
-  makeFreedSlot,
   type DemoClient,
 } from "./demo-data";
 import * as schema from "./schema";
@@ -14,6 +14,7 @@ import {
   appointments,
   businesses,
   clientProfiles,
+  notifications,
   services,
   staff,
   waitlistEntries,
@@ -448,6 +449,7 @@ async function ownerFor(slug: string, fallback: string): Promise<string> {
 
 async function seedTenant(tenant: TenantSeed, fallbackOwnerId: string) {
   const ownerUserId = await ownerFor(tenant.slug, fallbackOwnerId);
+
   /**
    * Delete and insert **in one transaction**, so a failure cannot leave the
    * demo missing. The previous version deleted first and inserted second with
@@ -455,93 +457,196 @@ async function seedTenant(tenant: TenantSeed, fallbackOwnerId: string) {
    * the shop three landing-page CTAs link to — and left no trace of why.
    */
   await db.transaction(async (tx) => {
-    // Idempotent: wipe this demo business first. Cascades to its child rows.
-    await tx.delete(businesses).where(eq(businesses.slug, tenant.slug));
+    const [existing] = await tx
+      .select()
+      .from(businesses)
+      .where(eq(businesses.slug, tenant.slug))
+      .limit(1);
 
-    const [business] = await tx
-      .insert(businesses)
-      .values({
-        ownerUserId,
-        slug: tenant.slug,
-        name: tenant.name,
-        description: tenant.description,
-        phone: tenant.phone,
-        address: tenant.address,
-        timezone: "Asia/Jerusalem",
-        locale: "he",
-        slotIntervalMin: tenant.slotIntervalMin,
-        bufferMin: tenant.bufferMin,
-        minNoticeMin: 60,
-        maxAdvanceDays: 45,
-        cancelWindowHours: 12,
-        // Pro so the demo shows the whole product. Branding is a Pro
-        // entitlement, and a demo shop that cannot demo it is not much of one.
-        planType: "pro",
-        requiresApproval: tenant.requiresApproval,
-        /**
-         * Without this the dashboard bounces the owner straight into
-         * `/dashboard/setup`: `requireBusiness()` treats a null here as "closed
-         * the tab mid-flow" and puts them back. So a claimed demo looked like it
-         * had no business at all — the owner was offered the create-a-business
-         * wizard while already owning a fully configured shop.
-         *
-         * The seed builds services and hours itself, so onboarding genuinely is
-         * complete; saying so is the accurate value, not a shortcut.
-         */
-        onboardingCompletedAt: new Date(),
-      })
-      .returning();
+    /**
+     * ---------------------------------------------------------------------
+     * **A re-seed refreshes the diary, not the shop.**
+     *
+     * This used to delete the business row and let the cascade take everything
+     * with it, which destroyed work nobody could get back: the logo, the hero
+     * image, the gallery, the reviews, per-service and per-staff photos, and
+     * whatever the description had been rewritten to. Those are uploads and
+     * copy somebody made deliberately; appointments are generated fiction.
+     *
+     * So an existing tenant keeps its row and its children, and only the
+     * **operational** data is cleared and rebuilt. What still gets written is
+     * the handful of flags the demo's behaviour depends on — the plan, the
+     * approval mode, the booking grid — because those are what the seed exists
+     * to set and none of them is anybody's uploaded work.
+     * ---------------------------------------------------------------------
+     */
+    const business = existing
+      ? (
+          await tx
+            .update(businesses)
+            .set({
+              planType: "pro",
+              requiresApproval: tenant.requiresApproval,
+              slotIntervalMin: tenant.slotIntervalMin,
+              bufferMin: tenant.bufferMin,
+              isActive: true,
+              onboardingCompletedAt:
+                existing.onboardingCompletedAt ?? new Date(),
+            })
+            .where(eq(businesses.id, existing.id))
+            .returning()
+        )[0]
+      : (
+          await tx
+            .insert(businesses)
+            .values({
+              ownerUserId,
+              slug: tenant.slug,
+              name: tenant.name,
+              description: tenant.description,
+              phone: tenant.phone,
+              address: tenant.address,
+              timezone: "Asia/Jerusalem",
+              locale: "he",
+              slotIntervalMin: tenant.slotIntervalMin,
+              bufferMin: tenant.bufferMin,
+              minNoticeMin: 60,
+              maxAdvanceDays: 45,
+              cancelWindowHours: 12,
+              requiresApproval: tenant.requiresApproval,
+              // Pro so the demo shows the whole product. Branding is a Pro
+              // entitlement, and a demo shop that cannot demo it is not much
+              // of one.
+              planType: "pro",
+              /**
+               * Without this the dashboard bounces the owner straight into
+               * `/dashboard/setup`: `requireBusiness()` treats a null here as
+               * "closed the tab mid-flow" and puts them back.
+               */
+              onboardingCompletedAt: new Date(),
+            })
+            .returning()
+        )[0];
 
-    const serviceRows = await tx
-      .insert(services)
-      .values(
-        tenant.services.map((service, index) => ({
+    /**
+     * The operational data, and only that: the diary, the queue, the client
+     * notes and the outbox. Ordered so nothing is deleted while something else
+     * still points at it — notifications reference both appointments and
+     * waitlist entries.
+     */
+    await tx
+      .delete(notifications)
+      .where(eq(notifications.businessId, business.id));
+    await tx
+      .delete(waitlistEntries)
+      .where(eq(waitlistEntries.businessId, business.id));
+    await tx
+      .delete(clientProfiles)
+      .where(eq(clientProfiles.businessId, business.id));
+    await tx
+      .delete(appointments)
+      .where(eq(appointments.businessId, business.id));
+
+    /**
+     * The catalogue, the team and the hours are **kept if they are already
+     * there**, and created only for a tenant that has none.
+     *
+     * `services.image_url` and `staff.image_url` are uploads too, so recreating
+     * these rows would throw away pictures for the same reason deleting the
+     * business row threw away the logo. It also means an owner who renamed a
+     * service or added somebody keeps that, and the generated diary simply
+     * books whatever the shop actually offers.
+     */
+    let serviceRows = await tx
+      .select()
+      .from(services)
+      .where(eq(services.businessId, business.id));
+
+    if (serviceRows.length === 0) {
+      serviceRows = await tx
+        .insert(services)
+        .values(
+          tenant.services.map((service, index) => ({
+            businessId: business.id,
+            ...service,
+            sortOrder: index + 1,
+          })),
+        )
+        .returning();
+    }
+
+    let staffRows = await tx
+      .select()
+      .from(staff)
+      .where(eq(staff.businessId, business.id));
+
+    if (staffRows.length === 0) {
+      staffRows = await tx
+        .insert(staff)
+        .values(
+          tenant.staff.map((member, index) => ({
+            businessId: business.id,
+            ...member,
+            sortOrder: index + 1,
+          })),
+        )
+        .returning();
+    }
+
+    const existingHours = await tx
+      .select()
+      .from(workingHours)
+      .where(eq(workingHours.businessId, business.id));
+
+    if (existingHours.length === 0) {
+      // Israeli work week: Sun–Thu, Fri short, Sat closed.
+      await tx.insert(workingHours).values([
+        ...[0, 1, 2, 3, 4].flatMap((weekday) =>
+          tenant.weekdayShifts.map((shift) => ({
+            businessId: business.id,
+            weekday,
+            startTime: shift.start,
+            endTime: shift.end,
+          })),
+        ),
+        ...(tenant.friday
+          ? [
+              {
+                businessId: business.id,
+                weekday: 5,
+                startTime: tenant.friday.start,
+                endTime: tenant.friday.end,
+              },
+            ]
+          : []),
+        {
           businessId: business.id,
-          ...service,
-          sortOrder: index + 1,
-        })),
-      )
-      .returning();
+          weekday: 6,
+          startTime: "00:00:00",
+          endTime: "00:00:00",
+          isClosed: true,
+        },
+      ]);
+    }
 
-    const staffRows = await tx
-      .insert(staff)
-      .values(
-        tenant.staff.map((member, index) => ({
-          businessId: business.id,
-          ...member,
-          sortOrder: index + 1,
-        })),
-      )
-      .returning();
-
-    // Israeli work week: Sun–Thu, Fri short, Sat closed.
-    await tx.insert(workingHours).values([
-      ...[0, 1, 2, 3, 4].flatMap((weekday) =>
-        tenant.weekdayShifts.map((shift) => ({
-          businessId: business.id,
-          weekday,
-          startTime: shift.start,
-          endTime: shift.end,
-        })),
-      ),
-      ...(tenant.friday
-        ? [
-            {
-              businessId: business.id,
-              weekday: 5,
-              startTime: tenant.friday.start,
-              endTime: tenant.friday.end,
-            },
-          ]
-        : []),
-      {
-        businessId: business.id,
-        weekday: 6,
-        startTime: "00:00:00",
-        endTime: "00:00:00",
-        isClosed: true,
-      },
-    ]);
+    /**
+     * The diary is generated against the hours the shop **actually** keeps,
+     * read back rather than assumed from the seed definition — otherwise a
+     * tenant whose owner changed their opening times would get a month of
+     * bookings outside them.
+     */
+    const shiftsByWeekday = new Map<number, Shift[]>();
+    for (const row of existingHours.length > 0
+      ? existingHours
+      : await tx
+          .select()
+          .from(workingHours)
+          .where(eq(workingHours.businessId, business.id))) {
+      if (row.isClosed) continue;
+      const list = shiftsByWeekday.get(row.weekday) ?? [];
+      list.push({ start: row.startTime, end: row.endTime });
+      shiftsByWeekday.set(row.weekday, list);
+    }
 
     /* ---- The part that makes it look like a shop somebody runs --------- */
 
@@ -562,36 +667,19 @@ async function seedTenant(tenant: TenantSeed, fallbackOwnerId: string) {
         priceCents: service.priceCents,
       })),
       staffIds: staffRows.map((member) => member.id),
-      shiftsForWeekday: (weekday) => {
-        if (weekday === 6) return [];
-        if (weekday === 5) return tenant.friday ? [tenant.friday] : [];
-        return tenant.weekdayShifts;
-      },
+      shiftsForWeekday: (weekday) => shiftsByWeekday.get(weekday) ?? [],
       clients: tenant.clients,
       bufferMin: tenant.bufferMin,
       now,
+      slotIntervalMin: tenant.slotIntervalMin,
       seed: tenant.randomSeed,
       notes: tenant.bookingNotes,
       requiresApproval: tenant.requiresApproval,
     });
 
-    // One recent cancellation on a future day, so the freed-slot banner and the
-    // waitlist match are *visible* in a screenshot rather than described in one.
-    const freed = makeFreedSlot({
-      businessId: business.id,
-      timezone: "Asia/Jerusalem",
-      service: {
-        id: serviceRows[0].id,
-        name: serviceRows[0].name,
-        durationMin: serviceRows[0].durationMin,
-        priceCents: serviceRows[0].priceCents,
-      },
-      staffId: staffRows[0].id,
-      client: tenant.clients[0],
-      now,
-    });
-
-    await tx.insert(appointments).values([...generated, freed]);
+    // One of them cancelled an hour ago, so a fresh opening — and the queue
+    // reacting to it — is visible in a screenshot rather than described in one.
+    await tx.insert(appointments).values(cancelOneFutureBooking(generated, now));
 
     await tx.insert(waitlistEntries).values(
       tenant.waitlist.map((person) => ({
@@ -618,20 +706,17 @@ async function seedTenant(tenant: TenantSeed, fallbackOwnerId: string) {
       })),
     );
 
-    const hourRows =
-      5 * tenant.weekdayShifts.length + (tenant.friday ? 1 : 0) + 1;
-
     const upcoming = generated.filter(
       (row) => row.startsAt > now && row.status !== "cancelled",
     ).length;
 
     console.log(`✅ Seeded "${business.name}" at /${business.slug}`);
     console.log(
-      `   ${tenant.services.length} services, ${hourRows} working-hour rows, ` +
-        `${tenant.staff.length} staff.`,
+      `   ${serviceRows.length} services, ${staffRows.length} staff` +
+        `${existing ? " (kept, with their images)" : ""}.`,
     );
     console.log(
-      `   ${generated.length + 1} appointments (${upcoming} still ahead), ` +
+      `   ${generated.length} appointments (${upcoming} still ahead), ` +
         `${tenant.waitlist.length} waiting, ${tenant.clientNotes.length} client notes.`,
     );
   });
@@ -682,21 +767,25 @@ async function preview(): Promise<void> {
       sql`select email from auth.users where id = ${existing.ownerUserId}`,
     );
 
-    console.log(`/${tenant.slug} — "${existing.name}" WILL BE DELETED:`);
+    console.log(`/${tenant.slug} — "${existing.name}":`);
     console.log(
       `   owner stays ${owner?.email ?? existing.ownerUserId} (re-seed does not transfer)`,
     );
     console.log(
+      `   KEPT: logo, hero media, gallery (${(existing.galleryUrls ?? []).length} images), ` +
+        `reviews, theme, name, description, contact, services and staff with their images`,
+    );
+    console.log("   REPLACED:");
+    console.log(
       `   ${counts.appointments} appointments, ${counts.waitlist} waitlist entries,`,
     );
     console.log(
-      `   ${counts.profiles} client notes, ${counts.notifications} notification rows,`,
+      `   ${counts.profiles} client notes, ${counts.notifications} notification rows`,
     );
-    console.log(`   plus its services, staff and working hours (cascade).`);
   }
 
   console.log(
-    "\nEverything above is replaced with freshly generated demo data.",
+    "\nOnly the operational rows above are replaced. Uploads and settings stay.",
   );
   console.log("Run without --dry-run to proceed.");
 }

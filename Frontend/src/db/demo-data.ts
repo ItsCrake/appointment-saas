@@ -61,6 +61,18 @@ export type GenerateInput = {
   bufferMin: number;
   /** "Today" — injected so a generated week can be asserted against. */
   now: Date;
+  /**
+   * The booking grid, in minutes — the tenant's `slot_interval_min`.
+   *
+   * **Every generated start is snapped to it.** Without that the walk produced
+   * times like 09:23 and 09:58: a gap advanced by half a service length and a
+   * buffer pushed the cursor by five, so the cursor drifted off any grid within
+   * a couple of appointments. Those are times the product itself can never
+   * offer — `computeSlots` only ever emits starts on this lattice — so a demo
+   * showing them is a screenshot of something the software would refuse to
+   * book.
+   */
+  slotIntervalMin: number;
   /** Any integer. The same one always produces the same calendar. */
   seed: number;
   /** Notes a few clients left, cycled through so some bookings carry one. */
@@ -127,6 +139,12 @@ function hhmm(minutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** Up to the next point on the grid. Already-aligned values are left alone. */
+function snapUp(minutes: number, grid: number): number {
+  if (grid <= 0) return minutes;
+  return Math.ceil(minutes / grid) * grid;
+}
+
 /** Picks one, weighted. Weights need not sum to anything in particular. */
 function weighted<T>(random: () => number, table: [T, number][]): T {
   const total = table.reduce((sum, [, weight]) => sum + weight, 0);
@@ -157,6 +175,7 @@ export function generateDemoAppointments(
     shiftsForWeekday,
     clients,
     bufferMin,
+    slotIntervalMin,
     now,
     notes,
   } = input;
@@ -187,7 +206,9 @@ export function generateDemoAppointments(
 
     for (const staffId of staffIds) {
       for (const shift of shifts) {
-        let cursor = toMinutes(shift.start);
+        // The shift's own start is where the grid begins, snapped in case a
+        // tenant opens at something the lattice does not land on.
+        let cursor = snapUp(toMinutes(shift.start), slotIntervalMin);
         const shiftEnd = toMinutes(shift.end);
 
         while (cursor < shiftEnd) {
@@ -196,9 +217,17 @@ export function generateDemoAppointments(
           if (end > shiftEnd) break;
 
           if (random() > occupancy) {
-            // A gap. Advanced by a slot rather than a whole service so the
-            // holes land at plausible times rather than in fixed blocks.
-            cursor += Math.max(15, Math.round(service.durationMin / 2));
+            /**
+             * A gap, exactly one slot wide.
+             *
+             * It used to advance by half a service length, which is what put
+             * the cursor between grid points and produced 09:23. One slot keeps
+             * every subsequent start on the lattice while still leaving the
+             * holes at varied, plausible times — the variety comes from *how
+             * many* slots are skipped in a row, not from skipping a fraction of
+             * one.
+             */
+            cursor += slotIntervalMin;
             continue;
           }
 
@@ -266,7 +295,14 @@ export function generateDemoAppointments(
             createdAt,
           });
 
-          cursor = end + bufferMin;
+          /**
+           * The next client starts on the grid, not at the exact minute this
+           * one finishes plus a buffer. A 30-minute cut from 09:00 with a
+           * five-minute buffer ends at 09:35, and the next bookable start on a
+           * quarter-hour lattice is 09:45 — which is what the booking page
+           * would offer, so it is what the demo shows.
+           */
+          cursor = snapUp(end + bufferMin, slotIntervalMin);
         }
       }
     }
@@ -276,43 +312,43 @@ export function generateDemoAppointments(
 }
 
 /**
- * One future booking, cancelled an hour ago, that the waitlist can be offered.
+ * Cancels one of the generated future bookings, an hour ago.
  *
- * Seeded on purpose so the freed-slot banner is *on screen* in a screenshot
- * rather than being a feature somebody has to be told about. It is placed on
- * the first provider two days out, at a time the generator leaves alone, so it
- * cannot collide with anything above.
+ * ---------------------------------------------------------------------------
+ * **It takes a real appointment rather than inventing one**, and that is the
+ * whole point. The first version placed a fresh booking at a hardcoded 17:30,
+ * which collided with the generator the moment grid snapping moved everything —
+ * and a collision here is not cosmetic: `appointments_no_overlap_staff` would
+ * reject the insert and take the seed transaction down. Cancelling a row that
+ * already exists cannot collide with anything, by construction.
+ *
+ * It is also what a cancellation *is*. The freed slot the waitlist reacts to
+ * has a client who booked it and then dropped it, which is exactly the row this
+ * returns.
+ * ---------------------------------------------------------------------------
  */
-export function makeFreedSlot(input: {
-  businessId: string;
-  timezone: string;
-  service: DemoService;
-  staffId: string;
-  client: DemoClient;
-  now: Date;
-}): DemoAppointmentRow {
-  const { businessId, timezone, service, staffId, client, now } = input;
+export function cancelOneFutureBooking(
+  rows: DemoAppointmentRow[],
+  now: Date,
+): DemoAppointmentRow[] {
+  // At least a day out, so the offer has somewhere to go and the banner window
+  // has not already closed on it.
+  const target = rows.find(
+    (row) =>
+      row.status === "confirmed" &&
+      row.startsAt.getTime() > now.getTime() + DAY_MS,
+  );
 
-  const date = localDate(new Date(now.getTime() + 2 * DAY_MS), timezone);
-  const startsAt = fromZonedTime(`${date}T17:30:00`, timezone);
-  const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
+  if (!target) return rows;
 
-  return {
-    businessId,
-    serviceId: service.id,
-    staffId,
-    startsAt,
-    endsAt,
-    status: "cancelled",
-    clientName: client.name,
-    clientPhone: client.phone,
-    clientEmail: null,
-    notes: null,
-    serviceName: service.name,
-    priceCents: service.priceCents,
-    cancelToken: `demo-${businessId.slice(0, 8)}-freed`,
-    // Recent, because the banner only announces the last week of cancellations.
-    cancelledAt: new Date(now.getTime() - 3_600_000),
-    createdAt: new Date(now.getTime() - 6 * DAY_MS),
-  };
+  return rows.map((row) =>
+    row === target
+      ? {
+          ...row,
+          status: "cancelled" as const,
+          // Recent, because the queue only reacts to fresh openings.
+          cancelledAt: new Date(now.getTime() - 3_600_000),
+        }
+      : row,
+  );
 }
