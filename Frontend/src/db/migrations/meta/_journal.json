@@ -169,6 +169,13 @@
       "when": 1787100000000,
       "tag": "0023_platform_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787200000000,
+      "tag": "0024_waitlist",
+      "breakpoints": true
     }
   ]
 }

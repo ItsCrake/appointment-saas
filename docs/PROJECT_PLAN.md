@@ -1193,9 +1193,9 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1051 tests across 71 files**; Playwright at
-**11/11** across 3 spec files. **24 migrations (0000–0023)** are applied to
-the live database and **0024 is pending** — fifteen tables once it lands, RLS on every one, twelve owner policies,
+**Green:** `npm run verify` at **1067 tests across 72 files**; Playwright at
+**11/11** across 3 spec files. All **25 migrations (0000–0024)** are applied to
+the live database — fifteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
 application code.
 
@@ -1629,7 +1629,7 @@ so, because a documented law that contradicts the code is worse than no law.
 No per-card glow. On a list of twenty services a halo per row is noise, and these
 are screens where scanning is the job.
 
-#### Waitlist ("רשימת המתנה") ✅ — migration 0024 pending
+#### Waitlist ("רשימת המתנה") ✅
 
 A shop fills up and the client goes elsewhere. `waitlist_entries` is the row that
 says "I want in, roughly then", so a cancellation has a queue instead of a hole.
@@ -1697,6 +1697,42 @@ a booking to describe, and an invite's whole subject is a slot that has none.
 one live entry per phone per shop, and `upsertWaitlistEntry` updates the row
 somebody already holds while keeping their original `created_at` — changing your
 mind about Tuesdays should not send you to the back of a fortnight-long queue.
+
+### The demo tenants are seeded for screenshots ✅
+
+`db:seed` now writes a calendar somebody runs: a month of history and the week
+ahead, mixed statuses, client notes, waitlist queues, and one recent
+cancellation on a future day so the freed-slot banner is *on screen* rather than
+described. Male Hebrew names throughout `demo-barber`, female throughout
+`demo-nails`, and the generator invents nobody — it draws only from the list it
+is handed, which is what keeps a barbershop's client list from reading half
+female.
+
+**Deterministic, because a screenshot has to be reproducible.** A re-run to fix
+a typo must not reshuffle every appointment behind a shot already taken, so the
+generator is a seeded PRNG per tenant rather than `Math.random`.
+
+**Dense behind, half empty ahead.** History fills the revenue chart and the
+heatmap; the days in front stay bookable, because the E2E suite books a real
+appointment against `demo-barber` and a prospect opening the demo link has to
+find a slot. Bookings are laid per provider with a walking cursor so nothing can
+overlap — an overlap would not merely look wrong, it would fail
+`appointments_no_overlap_staff` and take the whole seed transaction down.
+
+**Two things the seed itself needed.** It previews before it destroys —
+`db:seed -- --dry-run` reports what would be deleted, and the write path prints
+the same counts first. And a re-seed no longer **transfers ownership**: a demo
+that already exists keeps the account it belongs to. `resolveOwnerId` answers a
+different question — who should own a demo that does not exist yet — and on a
+database where every account already owns something it falls through to "reuse
+the oldest", which would have handed both demos to one account and left the
+other owner facing the setup wizard, since `getBusinessByOwner` returns one row.
+That was the live database's exact state.
+
+`0024_waitlist.sql` was written by hand and **not registered in Drizzle's
+`meta/_journal.json`**, so `db:migrate` reported success while doing nothing and
+the table never appeared. The journal is the migrator's index; a hand-written
+migration has to be added to it.
 
 ### What it deliberately does not do
 
