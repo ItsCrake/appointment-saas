@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BellRing,
   CalendarDays,
   ChartColumn,
   Clock,
@@ -30,6 +31,7 @@ const LINKS = [
   // Everything below is overflow on a phone. The bottom bar takes the first
   // four, and an owner reaches for their client list far more often than for
   // the roster or a chart.
+  { href: "/dashboard/waitlist", label: "רשימת המתנה", icon: BellRing },
   { href: "/dashboard/analytics", label: "אנליטיקס", icon: ChartColumn },
   { href: "/dashboard/staff", label: "צוות", icon: UserRound },
   { href: "/dashboard/billing", label: "חיוב", icon: CreditCard },

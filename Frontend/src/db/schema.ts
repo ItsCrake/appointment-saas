@@ -78,6 +78,29 @@ export const notificationKind = pgEnum("notification_kind", [
    * which the other kinds need — see `lib/retention.ts`.
    */
   "client_winback",
+  /**
+   * "A slot just opened — it is yours if you want it" (0024). Carries the
+   * appointment-shaped detail of a slot that no longer has an appointment, plus
+   * a per-recipient link, so it is its own kind rather than a reworded
+   * confirmation.
+   */
+  "waitlist_invite",
+]);
+
+export const waitlistStatus = pgEnum("waitlist_status", [
+  "active",
+  "notified",
+  "booked",
+  "expired",
+  "cancelled",
+]);
+
+/** Coarse on purpose — see the migration. Boundaries live in `lib/waitlist.ts`. */
+export const waitlistTimeWindow = pgEnum("waitlist_time_window", [
+  "morning",
+  "afternoon",
+  "evening",
+  "any",
 ]);
 
 export const notificationStatus = pgEnum("notification_status", [
@@ -590,6 +613,13 @@ export const appointments = pgTable(
       .notNull()
       .default(false),
     reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+    /**
+     * When the slot was given up (0024). Null for a booking that is still live,
+     * and for cancellations that predate the column — never backfilled, because
+     * inventing a time would announce every historical cancellation to the
+     * waitlist at once.
+     */
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -734,6 +764,82 @@ export const clientProfiles = pgTable(
 
 export type ClientProfile = typeof clientProfiles.$inferSelect;
 
+/**
+ * Somebody who wants an appointment the calendar cannot currently offer (0024).
+ *
+ * **Reserves nothing.** A waitlist entry never appears in availability, never
+ * blocks a slot and is invisible to the exclusion constraint — which is exactly
+ * why it is not an `appointments` row with another status. Every query in the
+ * product treats an appointment as a commitment; this is a wish.
+ */
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    clientName: text("client_name").notNull(),
+    clientPhone: varchar("client_phone", { length: 30 }).notNull(),
+    /** Null means any service. */
+    serviceId: uuid("service_id").references(() => services.id, {
+      onDelete: "restrict",
+    }),
+    /** Null means anyone. */
+    preferredStaffId: uuid("preferred_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Weekdays as integers, 0 = Sunday. Empty means any day — the same 0–6
+     * basis as `working_hours.weekday`, so nothing has to translate.
+     */
+    preferredDays: jsonb("preferred_days")
+      .$type<number[]>()
+      .notNull()
+      .default([]),
+    preferredTimeWindow: waitlistTimeWindow("preferred_time_window")
+      .notNull()
+      .default("any"),
+    status: waitlistStatus("status").notNull().default("active"),
+    notes: text("notes"),
+
+    /* ---- The offer, and the race it has to survive -------------------- */
+
+    /** Per-entry, because one freed slot is offered to several people at once. */
+    inviteToken: text("invite_token").unique(),
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    /** The freed slot, copied: the appointment that held it is cancelled. */
+    invitedStartsAt: timestamp("invited_starts_at", { withTimezone: true }),
+    invitedEndsAt: timestamp("invited_ends_at", { withTimezone: true }),
+    invitedStaffId: uuid("invited_staff_id").references(() => staff.id, {
+      onDelete: "set null",
+    }),
+    invitedServiceId: uuid("invited_service_id").references(() => services.id, {
+      onDelete: "set null",
+    }),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("waitlist_entries_business_status_idx").on(t.businessId, t.status),
+    index("waitlist_entries_business_created_idx").on(
+      t.businessId,
+      t.createdAt,
+    ),
+  ],
+);
+
+export type WaitlistEntry = typeof waitlistEntries.$inferSelect;
+export type NewWaitlistEntry = typeof waitlistEntries.$inferInsert;
+export type WaitlistStatus = (typeof waitlistStatus.enumValues)[number];
+export type WaitlistTimeWindow =
+  (typeof waitlistTimeWindow.enumValues)[number];
+
 export const notifications = pgTable(
   "notifications",
   {
@@ -744,6 +850,15 @@ export const notifications = pgTable(
     appointmentId: uuid("appointment_id").references(() => appointments.id, {
       onDelete: "cascade",
     }),
+    /**
+     * Which waiting client this is for (0024). A waitlist invite has no
+     * appointment — the slot it offers is empty by definition — so it hangs off
+     * the entry instead, and the dispatcher joins whichever of the two is set.
+     */
+    waitlistEntryId: uuid("waitlist_entry_id").references(
+      () => waitlistEntries.id,
+      { onDelete: "cascade" },
+    ),
     channel: notificationChannel("channel").notNull(),
     kind: notificationKind("kind").notNull(),
     /** Email address or phone number, resolved when the row is enqueued. */

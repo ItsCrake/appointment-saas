@@ -266,8 +266,11 @@ describe("minutesToLabel", () => {
 
 describe("lineBudget", () => {
   /** What the grid will actually draw for a booking of this length. */
-  const budgetFor = (minutes: number, view: "week" | "day" = "week") =>
-    lineBudget(cardHeightPx(minutes, view), view);
+  const budgetFor = (
+    minutes: number,
+    view: "week" | "day" = "week",
+    minutesToNext: number | null = null,
+  ) => lineBudget(cardHeightPx(minutes, view, minutesToNext), view);
 
   it("gives a half-hour booking all three lines in both views", () => {
     // The case the stacked layout exists for: half an hour is the commonest
@@ -277,19 +280,30 @@ describe("lineBudget", () => {
     expect(budgetFor(30, "day")).toBe(MAX_CARD_LINES);
   });
 
-  it("gets the time onto a quarter-hour booking, via the floor", () => {
-    // 15 minutes is 24px of week grid, which holds a name alone. Lifted to the
-    // 34px floor it holds the name *and* the time — which is the whole point of
-    // the floor, and why the budget is measured in rendered pixels rather than
-    // in minutes.
-    expect(lineBudget(slotHeightPx(15, "week"), "week")).toBe(1);
-    expect(budgetFor(15, "week")).toBe(2);
+  it("gets all three lines onto a quarter-hour booking, via the floor", () => {
+    // The shortest booking the product sells is the one that decides the floor:
+    // on its own height it manages two lines, and lifted to the floor it clears
+    // all three. That is why the budget is measured in rendered pixels rather
+    // than in minutes.
+    expect(lineBudget(slotHeightPx(15, "week"), "week")).toBe(2);
+    expect(budgetFor(15, "week")).toBe(MAX_CARD_LINES);
   });
 
-  it("grows with the booking rather than jumping", () => {
-    expect(budgetFor(20, "week")).toBe(2);
-    expect(budgetFor(45, "week")).toBe(MAX_CARD_LINES);
-    expect(budgetFor(60, "week")).toBe(MAX_CARD_LINES);
+  it("clears three lines at every length the product sells", () => {
+    // The floor makes this true from the shortest booking upwards, which is the
+    // whole point of raising it: no card has to be opened to be read.
+    for (const minutes of [15, 20, 30, 45, 60, 90]) {
+      expect(budgetFor(minutes, "week")).toBe(MAX_CARD_LINES);
+      expect(budgetFor(minutes, "day")).toBe(MAX_CARD_LINES);
+    }
+  });
+
+  it("drops to two only where a neighbour caps the floor", () => {
+    // Back to back with another quarter-hour booking, the floor is capped so the
+    // card cannot draw over its neighbour. Two lines is what fits — and the card
+    // sets the time and the service on one row there rather than dropping one.
+    expect(budgetFor(15, "week", 15)).toBe(2);
+    expect(budgetFor(30, "week", 30)).toBe(MAX_CARD_LINES);
   });
 
   it("never returns nothing, however short or strange the booking", () => {
@@ -308,8 +322,8 @@ describe("lineBudget", () => {
   it("lifts a short booking to the floor, but never over its neighbour", () => {
     // Alone, or with an hour of clear air after it, a quarter-hour card takes
     // the full floor.
-    expect(cardHeightPx(15, "week", null)).toBe(MIN_CARD_PX);
-    expect(cardHeightPx(15, "week", 60)).toBe(MIN_CARD_PX);
+    expect(cardHeightPx(15, "week", null)).toBe(MIN_CARD_PX.week);
+    expect(cardHeightPx(15, "week", 60)).toBe(MIN_CARD_PX.week);
 
     // Back to back with another, it keeps its true height instead — a floor
     // that drew over the next booking would make the grid lie about when

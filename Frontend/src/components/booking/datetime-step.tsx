@@ -36,7 +36,8 @@ export function DateTimeStep({
   selectedSlot,
   onSelectDate,
   onSelectSlot,
-}: Props) {
+  onJoinWaitlist,
+}: Props & { onJoinWaitlist?: () => void }) {
   const selectedRef = useRef<HTMLButtonElement>(null);
 
   // Keep the active day visible when the strip re-renders on a date change.
@@ -135,6 +136,7 @@ export function DateTimeStep({
         error={error}
         selectedSlot={selectedSlot}
         onSelectSlot={onSelectSlot}
+        onJoinWaitlist={onJoinWaitlist}
       />
     </section>
   );

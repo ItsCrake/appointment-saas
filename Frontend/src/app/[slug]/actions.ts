@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 
 import { formatInTimeZone } from "date-fns-tz";
+import { z } from "zod";
 
 import { db } from "@/db";
 import {
@@ -10,6 +11,7 @@ import {
   getActiveBusinessBySlug,
   getService,
   SlotTakenError,
+  upsertWaitlistEntry,
 } from "@/db/queries";
 import {
   getAvailableSlotsWithStaff,
@@ -20,7 +22,12 @@ import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError, reportWarning } from "@/lib/observability";
 import { sendPushToBusiness } from "@/lib/push";
-import { BOOKING_RULES, rateLimitMessage, SLOTS_RULE } from "@/lib/rate-limit";
+import {
+  BOOKING_RULES,
+  rateLimitMessage,
+  SLOTS_RULE,
+  WAITLIST_RULES,
+} from "@/lib/rate-limit";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
 import { getClientIp } from "@/lib/request-context";
 import {
@@ -381,5 +388,109 @@ export async function createBookingAction(
     }
     reportError("booking.create", error, { businessId, serviceId });
     return { ok: false, error: "אירעה שגיאה בקביעת התור. נסו שוב." };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Waitlist                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const waitlistSchema = z.object({
+  slug: z.string().trim().min(1),
+  clientName: z.string().trim().min(2, "יש להזין שם").max(80),
+  clientPhone: z.string().trim().min(1, "יש להזין טלפון"),
+  /** "" is the "any service" answer the form offers by default. */
+  serviceId: z.union([z.uuid(), z.literal("")]).optional(),
+  /** 0 = Sunday, matching the rest of the schema. Empty means any day. */
+  preferredDays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+  preferredTimeWindow: z
+    .enum(["morning", "afternoon", "evening", "any"])
+    .default("any"),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+});
+
+export type WaitlistResult =
+  | { ok: true; rejoined: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Joins the queue for a shop whose calendar has nothing to offer.
+ *
+ * ---------------------------------------------------------------------------
+ * Unauthenticated by necessity — the whole point is that this person has no
+ * booking and no account — so it is held to the same rules as the booking flow
+ * beside it: the tenant is resolved from the **slug**, never from the payload,
+ * the phone is normalised the way every other client record stores it, and the
+ * write is rate limited per IP and per number.
+ *
+ * `is_active` is what a frozen tenant is filtered on, exactly as in
+ * `createBookingAction`: a shop that is not taking bookings is not taking
+ * waitlist entries either, and offering the form would be collecting details
+ * nobody will act on.
+ *
+ * A service id is checked against *this* business rather than trusted, so a uuid
+ * lifted from another shop's page cannot attach a preference to a service this
+ * one does not sell.
+ * ---------------------------------------------------------------------------
+ */
+export async function joinWaitlistAction(
+  input: unknown,
+): Promise<WaitlistResult> {
+  const parsed = waitlistSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "פרטים לא תקינים" };
+  }
+
+  const { slug, clientName, clientPhone, preferredDays, preferredTimeWindow } =
+    parsed.data;
+
+  const business = await getActiveBusinessBySlug(db, slug);
+  if (!business) {
+    return { ok: false, error: "העסק אינו זמין כרגע" };
+  }
+
+  const normalisedPhone = normalizePhone(clientPhone);
+
+  const limited = await enforceRateLimits(db, [
+    { rule: WAITLIST_RULES.ip, identifier: await getClientIp() },
+    {
+      rule: WAITLIST_RULES.phone,
+      identifier: `${business.id}:${normalisedPhone}`,
+    },
+  ]);
+
+  if (!limited.allowed) {
+    return { ok: false, error: rateLimitMessage(limited.decision) };
+  }
+
+  // Scoped by the resolved business, so another tenant's service id does not
+  // resolve and simply becomes "any service".
+  const requestedServiceId = parsed.data.serviceId || null;
+  if (requestedServiceId) {
+    const service = await getService(db, business.id, requestedServiceId);
+    if (!service || !service.isActive) {
+      return { ok: false, error: "השירות שנבחר אינו זמין" };
+    }
+  }
+
+  try {
+    const { rejoined } = await upsertWaitlistEntry(db, {
+      businessId: business.id,
+      clientName,
+      clientPhone: normalisedPhone,
+      serviceId: requestedServiceId,
+      // Not offered on the public form: a client choosing a provider is a
+      // booking-flow decision, and the queue is about getting *in*. The column
+      // exists for the owner adding somebody by hand.
+      preferredStaffId: null,
+      preferredDays,
+      preferredTimeWindow,
+      notes: parsed.data.notes || null,
+    });
+
+    return { ok: true, rejoined };
+  } catch (error) {
+    reportError("waitlist.join", error, { businessId: business.id });
+    return { ok: false, error: "אירעה שגיאה בהצטרפות לרשימה. נסו שוב." };
   }
 }

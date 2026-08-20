@@ -12,4 +12,5 @@ export * from "./rate-limits";
 export * from "./retention";
 export * from "./services";
 export * from "./time-off";
+export * from "./waitlist";
 export * from "./working-hours";

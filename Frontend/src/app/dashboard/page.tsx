@@ -4,6 +4,10 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { CalendarRange, ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
+import {
+  FreedSlotBanner,
+  type FreedSlot,
+} from "@/components/dashboard/freed-slot-banner";
 import { PendingRequests } from "@/components/dashboard/pending-requests";
 import { TodaySummary } from "@/components/dashboard/today-summary";
 import { db } from "@/db";
@@ -11,13 +15,17 @@ import {
   getDashboardStats,
   getNextUpcomingAppointment,
   listAppointmentsInRange,
+  listFreedSlots,
+  listInvitedSlotStarts,
   listPendingRequests,
   listServices,
+  listWaitlistEntries,
 } from "@/db/queries";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
 import { todayInTimezone } from "@/lib/format";
 import { getStatsWindows, toPercent } from "@/lib/stats";
+import { matchesForSlot } from "@/lib/waitlist";
 import { isLibiConfigured } from "@/lib/voice/libi";
 
 export const metadata: Metadata = { title: "היומן" };
@@ -53,8 +61,25 @@ export default async function AgendaPage({ searchParams }: PageProps) {
 
   const windows = getStatsWindows(business.timezone);
 
-  const [appointments, services, stats, nextUpcoming, requests] =
-    await Promise.all([
+  /**
+   * How far back a cancellation still counts as news.
+   *
+   * A week: long enough that an owner who was away over the weekend still sees
+   * what opened up, short enough that a slot nobody has filled in seven days is
+   * no longer the thing to shout about on their calendar.
+   */
+  const freedSince = new Date(windows.now.getTime() - 7 * 86_400_000);
+
+  const [
+    appointments,
+    services,
+    stats,
+    nextUpcoming,
+    requests,
+    freed,
+    waiting,
+    invitedStarts,
+  ] = await Promise.all([
       listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
         "pending",
         "confirmed",
@@ -66,7 +91,50 @@ export default async function AgendaPage({ searchParams }: PageProps) {
       getNextUpcomingAppointment(db, business.id, windows.now),
       // Every open request, not only today's — see `PendingRequests`.
       listPendingRequests(db, business.id, windows.now),
+      listFreedSlots(db, business.id, { since: freedSince, now: windows.now }),
+      listWaitlistEntries(db, business.id),
+      listInvitedSlotStarts(db, business.id),
     ]);
+
+  /**
+   * Openings worth telling the owner about: recently cancelled, still ahead,
+   * matched by somebody waiting, and not already offered to anybody.
+   *
+   * The matching runs here rather than in SQL because it is the same pure
+   * function the invite action uses — one rule, tested on its own, and no
+   * chance of the banner counting people the action would not actually invite.
+   */
+  const liveEntries = waiting.map((row) => row.entry);
+
+  const freedSlots: FreedSlot[] = freed
+    .filter(
+      (row) => !invitedStarts.has(row.appointment.startsAt.getTime()),
+    )
+    .map((row) => {
+      const matches = matchesForSlot(
+        liveEntries,
+        {
+          startsAt: row.appointment.startsAt,
+          endsAt: row.appointment.endsAt,
+          staffId: row.appointment.staffId,
+          serviceId: row.appointment.serviceId,
+        },
+        business.timezone,
+      );
+
+      return {
+        appointmentId: row.appointment.id,
+        label: formatInTimeZone(
+          row.appointment.startsAt,
+          business.timezone,
+          "d/M · HH:mm",
+        ),
+        serviceName: row.serviceName,
+        staffName: row.staffName,
+        matches: matches.length,
+      };
+    })
+    .filter((slot) => slot.matches > 0);
 
   return (
     <div>
@@ -132,6 +200,10 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         newClientsThisWeek={stats.newClientsThisWeek}
         ratesWindowDays={RATES_WINDOW_DAYS}
       />
+
+      {/* Above the requests, because it is the most perishable thing on the
+          page: a freed slot loses value by the hour, while a request waits. */}
+      <FreedSlotBanner slots={freedSlots} />
 
       {/* Above the agenda, because it is the only thing on this page that is
           waiting on the owner rather than merely informing them. */}

@@ -45,6 +45,14 @@ const TABLES = [
   // has no reason to read the webhook stream at all.
   "subscription_events",
   "time_off",
+  /*
+   * The queue (0024). One owner policy and no anon policy, like every other
+   * tenant table — and it matters here in a particular way: the rows pair a
+   * name with a phone number and a statement about when somebody is free, and
+   * the public form that writes them goes through the server's service role, so
+   * a client can join a queue without being able to read who else is in it.
+   */
+  "waitlist_entries",
   "working_hours",
 ];
 

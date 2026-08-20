@@ -1193,9 +1193,9 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1022 tests across 69 files**; Playwright at
-**11/11** across 3 spec files. All **23 migrations (0000–0022)** are applied to
-the live database — fourteen tables, RLS on every one, twelve owner policies,
+**Green:** `npm run verify` at **1051 tests across 71 files**; Playwright at
+**11/11** across 3 spec files. **24 migrations (0000–0023)** are applied to
+the live database and **0024 is pending** — fifteen tables once it lands, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
 application code.
 
@@ -1629,7 +1629,76 @@ so, because a documented law that contradicts the code is worse than no law.
 No per-card glow. On a list of twenty services a halo per row is noise, and these
 are screens where scanning is the job.
 
-#### What it deliberately does not do
+#### Waitlist ("רשימת המתנה") ✅ — migration 0024 pending
+
+A shop fills up and the client goes elsewhere. `waitlist_entries` is the row that
+says "I want in, roughly then", so a cancellation has a queue instead of a hole.
+
+**A waitlist entry is not an appointment**, which is why it is its own table
+rather than another status. It reserves nothing, blocks nothing, and never
+appears in availability — every query in the product treats an appointment row
+as a commitment, and a wish is not one.
+
+**The matching rule is pure and tested on its own** (`lib/waitlist.ts`). Every
+preference is a filter and an **absent** preference filters nothing: somebody
+who left the service blank wants any appointment and hears about all of them,
+while somebody who named Tuesday never hears about a Thursday. Reading a blank
+as "no match" would silently exclude the least fussy clients, who are exactly
+the easiest to place. Days and hours are resolved in the **shop's** clock —
+22:00 UTC Tuesday is Wednesday morning in Jerusalem, and a matcher working in
+UTC gets both of those wrong invisibly to anyone testing from Israel.
+
+**Freed slots are derived, not stored.** A cancelled appointment already carries
+when, how long, whose and for what, so a second "a slot opened" table would be a
+copy that can disagree with it. What was missing was *when* it was given up, so
+0024 adds `appointments.cancelled_at`, stamped inside `updateAppointmentStatus`
+and `cancelAppointmentByToken` so every route to a cancellation records it and
+cleared on the way back out. The banner shows openings that are still ahead, were
+cancelled within a week, match somebody, and have not already been offered — all
+four derived, so it clears itself without a dismiss flag.
+
+**The race is settled by the exclusion constraint, and nothing else.** The invite
+link is per *entry*, not per slot, so it identifies the person as well as the
+opening. Everybody who holds one passes every check; exactly one insert survives
+`appointments_no_overlap_staff`; everyone else gets `SlotTakenError` and a screen
+that says a slot was offered to several people, somebody was quicker, and they
+are still in the queue. Their entry stays **active** — they did not get this
+slot, so they have not left the queue — and the dead token is cleared. The copy
+says "first come, first served" *before* they tap, because somebody who knows the
+rule reads the losing screen as the rule working rather than as the shop going
+back on its word.
+
+`/w/[token]` deliberately **does not re-run availability**: the slot was a real
+appointment minutes ago and may sit outside posted hours or inside a break, and
+the shop has explicitly offered it. The overlap guard is what still holds.
+
+#### What actually reaches the client today
+
+**Nothing automatic, and the UI says so.** `waitlist_invite` is a new
+notification kind with no approved Meta template, so the official WhatsApp path
+refuses it exactly as it refuses the five drafted kinds — see the blocked table
+below. Rather than report success into a void, the invite action hands back **one
+link per invited client** and the banner shows them: a WhatsApp button with the
+message pre-written, and a copy button. The outbox row is still written, so the
+cost counter and `/master` see it, the sweep retries it, and the moment a
+template is approved the same button starts delivering by itself.
+
+Invites are capped at **ten per slot**, and that cap is about money rather than
+fairness: each is a message the platform pays for, and a popular shop can have
+dozens of matches for one Tuesday morning. `matchesForSlot` sorts by longest
+wait, so the cap takes the people who have waited longest.
+
+`notifications.waitlist_entry_id` is how an invite hangs off a person instead of
+an appointment — it has none by definition — and `WaitlistContext` is a third
+template family beside billing for the same reason: the appointment shape needs
+a booking to describe, and an invite's whole subject is a slot that has none.
+
+**Joining twice is a correction, not an error.** A partial unique index allows
+one live entry per phone per shop, and `upsertWaitlistEntry` updates the row
+somebody already holds while keeping their original `created_at` — changing your
+mind about Tuesdays should not send you to the back of a fortnight-long queue.
+
+### What it deliberately does not do
 
 **The client is not told their appointment moved.** There is no notification kind
 for it, and adding one means a Meta template — see the blocked table below, where
@@ -1637,6 +1706,11 @@ five drafted templates are already waiting on a builder that refuses to create
 them. Queueing a kind the official path would refuse is worse than saying
 nothing, so the move dialog says so in as many words and leaves telling the
 client to the owner, who has call and WhatsApp buttons two rows above.
+
+**A waitlist entry never expires by itself.** There is no sweep marking old
+entries `expired`; the status exists and the owner can set it, but nothing runs
+on a timer. A queue that quietly forgets people is worse than one that grows, and
+the honest fix is a shop-configurable window rather than a number picked here.
 
 **A move into the past is refused**, because availability filters past instants.
 That blocks retroactively correcting the recorded time of a booking that already

@@ -18,6 +18,7 @@ import { dateRange, todayInTimezone } from "@/lib/format";
 import type { ClientDetails } from "@/lib/validation";
 
 import { Confirmation } from "./confirmation";
+import { WaitlistDialog } from "./waitlist-dialog";
 import { DateTimeStep } from "./datetime-step";
 import { DetailsStep } from "./details-step";
 import { OnlyStaffStep } from "./only-staff-step";
@@ -55,6 +56,13 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
   const [slots, setSlots] = useState<SlotWithStaff[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string>();
+
+  /**
+   * The queue is offered from two places: the empty-day state, which is where
+   * the disappointment actually happens, and a standing link under the flow for
+   * somebody whose chosen day *does* have slots but none that suit them.
+   */
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string>();
@@ -314,6 +322,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
             selectedSlot={slot}
             onSelectDate={selectDate}
             onSelectSlot={selectSlot}
+            onJoinWaitlist={() => setWaitlistOpen(true)}
           />
         ) : null}
 
@@ -348,6 +357,26 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
           />
         ) : null}
       </div>
+
+      {/* The standing offer, for somebody whose day has slots but none that
+          suit them — the empty-day button covers the other case. Quiet: it is
+          the consolation prize, and it must not compete with booking. */}
+      <button
+        type="button"
+        onClick={() => setWaitlistOpen(true)}
+        className="mx-auto mt-6 block text-sm font-semibold text-zinc-500 underline underline-offset-4 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+      >
+        אין תור פנוי? הצטרפו לרשימת ההמתנה
+      </button>
+
+      {waitlistOpen ? (
+        <WaitlistDialog
+          slug={slug}
+          businessName={business.name}
+          services={services.map((item) => ({ id: item.id, name: item.name }))}
+          onClose={() => setWaitlistOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

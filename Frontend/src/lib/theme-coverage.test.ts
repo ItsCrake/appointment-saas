@@ -99,6 +99,14 @@ describe("per-tenant accent coverage", () => {
        * the dark overrides are scoped to `[data-accent]`.
        */
       "dashboard/agenda/full/page.tsx",
+      /**
+       * The waitlist invite (0024). Client-facing and reached from a WhatsApp
+       * message, so it carries the shop's colour for the same reason
+       * `/b/[token]` does: somebody arriving from a message is still looking at
+       * that business, and a page in a different colour reads as a different
+       * company asking for their details.
+       */
+      "w/[token]/page.tsx",
     ]);
   });
 });

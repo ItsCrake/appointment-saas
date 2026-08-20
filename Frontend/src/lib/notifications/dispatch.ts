@@ -77,7 +77,8 @@ export async function dispatchDueNotifications(
     : false;
 
   for (const row of due) {
-    const { notification, business, appointment } = row;
+    const { notification, business, appointment, waitlist, waitlistService } =
+      row;
 
     let context: NotificationContext;
 
@@ -106,6 +107,45 @@ export async function dispatchDueNotifications(
           business.trialEndsAt && notification.kind === "trial_ending"
             ? Math.max(daysUntil(business.trialEndsAt, now), 0)
             : undefined,
+      };
+    } else if (notification.kind === "waitlist_invite") {
+      /**
+       * The third family, and the only one addressed to somebody with **no
+       * appointment yet** — see `WaitlistContext`.
+       *
+       * Every field is checked rather than assumed: an entry can lose its token
+       * or its slot between the row being queued and the sweep reaching it, if
+       * the owner withdrew the offer or the entry was booked in the meantime.
+       * A message saying "a slot opened" with no slot in it is worse than none,
+       * so it is skipped with the reason rather than sent half-formed.
+       */
+      if (!waitlist?.inviteToken || !waitlist.invitedStartsAt) {
+        await markNotificationSkipped(db, notification.id, "invite withdrawn");
+        summary.skipped++;
+        continue;
+      }
+
+      if (waitlist.status === "booked" || waitlist.status === "cancelled") {
+        await markNotificationSkipped(
+          db,
+          notification.id,
+          `waitlist entry is ${waitlist.status}`,
+        );
+        summary.skipped++;
+        continue;
+      }
+
+      context = {
+        kind: "waitlist_invite",
+        businessName: business.name,
+        businessPhone: business.phone,
+        businessAddress: business.address,
+        businessTimezone: business.timezone,
+        inviteUrl: `${appBaseUrl()}/w/${waitlist.inviteToken}`,
+        inviteToken: waitlist.inviteToken,
+        clientName: waitlist.clientName,
+        serviceName: waitlistService?.name ?? null,
+        startsAt: waitlist.invitedStartsAt.toISOString(),
       };
     } else {
       if (!appointment) {

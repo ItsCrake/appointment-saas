@@ -43,6 +43,11 @@ const EXEMPT: Record<string, string> = {
   // takes no new bookings either.
   "[slug]/actions.ts:fetchSlotsAction": "public booking flow",
   "[slug]/actions.ts:createBookingAction": "public booking flow",
+  // Same surface and the same reasoning: the person joining a queue has no
+  // account by definition. Resolves the tenant through `getActiveBusinessBySlug`
+  // — which filters on is_active, so a frozen shop collects no entries either —
+  // and is capped by WAITLIST_RULES per IP and per phone.
+  "[slug]/actions.ts:joinWaitlistAction": "public waitlist join",
   // Reads one client's own appointments at one shop. There is no session to
   // gate on — the phone number is the whole claim, which is why LOOKUP_RULES
   // is the tightest non-auth limit in the app. Writes nothing.
@@ -50,6 +55,10 @@ const EXEMPT: Record<string, string> = {
     "public client lookup",
   // Token-guarded: the cancel link is the credential.
   "b/[token]/actions.ts:cancelBookingAction": "signed cancel token",
+  // Same shape (0024): the invite link identifies both the offer and the person
+  // it went to, and the client following it has no account. Everything it writes
+  // is re-derived from the entry and the catalogue, never from the request.
+  "w/[token]/actions.ts:claimWaitlistSlotAction": "signed invite token",
 
   // A **read**, and the drawer that calls it is the clients page's own detail
   // view. Guarded by `requireBusiness()`, which resolves the tenant from the

@@ -118,6 +118,21 @@ export const LOOKUP_RULES = {
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
+ * Joining a waitlist (0024).
+ *
+ * Looser than booking per IP, because joining reserves nothing and costs the
+ * shop nothing — but capped per *phone* more tightly than booking is, since the
+ * one abuse that matters here is filling a shop's queue with plausible-looking
+ * strangers. The partial unique index already collapses repeat joins from one
+ * number into a single row, so this is guarding the write rate rather than the
+ * row count.
+ */
+export const WAITLIST_RULES = {
+  ip: { scope: "waitlist:ip:h", limit: 15, windowMs: HOUR_MS },
+  phone: { scope: "waitlist:phone:d", limit: 5, windowMs: DAY_MS },
+} as const satisfies Record<string, RateLimitRule>;
+
+/**
  * Deterministic per (rule, identifier, window). Pure, so the window maths is
  * testable without a database.
  */

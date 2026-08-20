@@ -204,7 +204,7 @@ export function hourRows(bounds: GridBounds): number[] {
  * on them, and that arithmetic is the whole reason a booking either shows its
  * service name or does not.
  */
-export const HOUR_ROW_PX = { week: 96, day: 128 } as const;
+export const HOUR_ROW_PX = { week: 128, day: 160 } as const;
 
 /** Vertical padding inside a card, and the height of one line of its type. */
 const CARD_METRICS = {
@@ -216,24 +216,25 @@ const CARD_METRICS = {
 export const MAX_CARD_LINES = 3;
 
 /**
- * A card is never drawn shorter than this, however short the booking.
+ * A card is never drawn shorter than this, per view.
  *
  * ---------------------------------------------------------------------------
- * A quarter of an hour is 24 pixels of week grid, which holds a name and
- * nothing else — so the commonest question about a short booking, *when is it*,
- * could only be answered by opening it. 34 pixels holds two lines with the
- * padding, which is the name and the time.
+ * **Sized to hold all three lines** — client name, time span, service — which is
+ * `padding + 3 x lineHeight` for each view, rounded up. That is the target: the
+ * three things an owner needs from a card without opening it.
  *
  * The floor is a **minimum, not a height**: it only ever grows a card that is
  * smaller, and `cardHeightPx` caps it at the room actually available before the
  * next booking in the same lane. Two back-to-back fifteen-minute appointments
- * therefore keep their true 24 pixels each and stay side by side in time rather
- * than one drawing over the other — a floor that ignored its neighbours would
- * make the grid lie about when things happen, which is worse than a card you
- * have to open.
+ * therefore keep their true heights and stay honest about when they happen
+ * rather than one drawing over the other — a floor that ignored its neighbours
+ * would make the grid lie about *when*, which is a worse failure than a
+ * compressed card. That case is handled by the layout instead: at two lines the
+ * card sets the time and the service on one row, so nothing is hidden, only
+ * tightened. See `lineBudget`.
  * ---------------------------------------------------------------------------
  */
-export const MIN_CARD_PX = 34;
+export const MIN_CARD_PX = { week: 46, day: 58 } as const;
 
 export type CalendarView = "week" | "day";
 
@@ -262,7 +263,7 @@ export function cardHeightPx(
   const ceiling =
     minutesToNext === null ? Infinity : slotHeightPx(minutesToNext, view);
 
-  return Math.max(own, Math.min(MIN_CARD_PX, ceiling));
+  return Math.max(own, Math.min(MIN_CARD_PX[view], ceiling));
 }
 
 /**

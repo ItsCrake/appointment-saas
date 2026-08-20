@@ -83,10 +83,28 @@ export const BILLING_KINDS = [
 ] as const;
 
 export type BillingKind = (typeof BILLING_KINDS)[number];
-export type AppointmentKind = Exclude<NotificationKind, BillingKind>;
+
+/**
+ * Kinds that address somebody who has **no appointment** — they are waiting for
+ * one (0024). A third family for the same reason billing is a second: the
+ * appointment template shape requires a booking to describe, and an invite's
+ * whole subject is a slot that no longer has one.
+ */
+export const WAITLIST_KINDS = ["waitlist_invite"] as const;
+
+export type WaitlistKind = (typeof WAITLIST_KINDS)[number];
+
+export type AppointmentKind = Exclude<
+  NotificationKind,
+  BillingKind | WaitlistKind
+>;
 
 export function isBillingKind(kind: NotificationKind): kind is BillingKind {
   return (BILLING_KINDS as readonly string[]).includes(kind);
+}
+
+export function isWaitlistKind(kind: NotificationKind): kind is WaitlistKind {
+  return (WAITLIST_KINDS as readonly string[]).includes(kind);
 }
 
 /** Everything an appointment template needs, resolved once at dispatch time. */
@@ -143,4 +161,34 @@ export type BillingContext = {
   amountCents?: number;
 };
 
-export type NotificationContext = AppointmentContext | BillingContext;
+/**
+ * What an invite template needs. Deliberately not an `AppointmentContext` with
+ * optional fields: there is no `manageUrl` because there is nothing to manage
+ * yet, no price because nothing has been agreed, and no status because the
+ * thing being described is an absence.
+ */
+export type WaitlistContext = {
+  kind: WaitlistKind;
+  businessName: string;
+  businessPhone: string | null;
+  businessAddress: string | null;
+  businessTimezone: string;
+  /** Where the offer is accepted. First to arrive takes the slot. */
+  inviteUrl: string;
+  /**
+   * The bare token behind `inviteUrl`, carried for the same reason
+   * `manageToken` is: Meta's URL button takes only the tail after an approved
+   * static base, so this layer needs the value in its own right.
+   */
+  inviteToken: string;
+  clientName: string;
+  /** Null when the entry asked for any service. */
+  serviceName: string | null;
+  /** The freed slot. ISO. */
+  startsAt: string;
+};
+
+export type NotificationContext =
+  | AppointmentContext
+  | BillingContext
+  | WaitlistContext;

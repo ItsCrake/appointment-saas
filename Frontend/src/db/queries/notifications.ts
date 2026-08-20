@@ -1,6 +1,12 @@
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 
-import { appointments, businesses, notifications } from "../schema";
+import {
+  appointments,
+  businesses,
+  notifications,
+  services,
+  waitlistEntries,
+} from "../schema";
 import type { Database } from "../types";
 
 /**
@@ -38,10 +44,23 @@ export async function listDueNotifications(
       notification: notifications,
       business: businesses,
       appointment: appointments,
+      /**
+       * A waitlist invite hangs off an entry rather than an appointment, and
+       * the slot it offers carries its own service — the one that was freed,
+       * which is not necessarily the one the client asked for. Both are left
+       * joins because most rows have neither.
+       */
+      waitlist: waitlistEntries,
+      waitlistService: services,
     })
     .from(notifications)
     .innerJoin(businesses, eq(notifications.businessId, businesses.id))
     .leftJoin(appointments, eq(notifications.appointmentId, appointments.id))
+    .leftJoin(
+      waitlistEntries,
+      eq(notifications.waitlistEntryId, waitlistEntries.id),
+    )
+    .leftJoin(services, eq(waitlistEntries.invitedServiceId, services.id))
     .where(
       and(
         eq(notifications.status, "pending"),

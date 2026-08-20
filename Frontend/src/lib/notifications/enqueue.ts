@@ -1,4 +1,4 @@
-import type { Appointment, Business } from "@/db/schema";
+import type { Appointment, Business, WaitlistEntry } from "@/db/schema";
 import { enqueueNotification } from "@/db/queries/notifications";
 import type { Database } from "@/db/types";
 import { entitlementsFor } from "@/lib/entitlements";
@@ -36,9 +36,23 @@ const CLIENT_CHANNEL_PREFERENCE: readonly NotificationChannel[] = [
 
 type Delivery = { channel: NotificationChannel; recipient: string };
 
+/**
+ * Narrowed to what this actually reads, rather than taking a whole appointment.
+ *
+ * A waitlist invite has no booking to describe — it is an offer of a slot that
+ * has none — but it does have a person to reach, and the channel preference,
+ * the entitlement gates and the live-channel checks below are identical. Widening
+ * the parameter is honest; casting an entry into an `Appointment` to get past
+ * the signature would not be.
+ */
+type Recipient = {
+  clientPhone: string | null;
+  clientEmail: string | null;
+};
+
 function clientDelivery(
   business: Business,
-  appointment: Appointment,
+  appointment: Recipient,
 ): Delivery | null {
   const entitlements = entitlementsFor(business);
 
@@ -269,6 +283,66 @@ export async function enqueueReminder({
   });
 
   return row ? ["reminder"] : [];
+}
+
+/**
+ * Offers one freed slot to one waiting client (0024).
+ *
+ * ---------------------------------------------------------------------------
+ * **Goes through the outbox like every other message**, which is the point: the
+ * row is what `/master` counts, what the sweep retries, and what makes a
+ * waitlist invite's cost visible next to every other WhatsApp the platform
+ * sends. A direct send would have been fewer moving parts and invisible to all
+ * three.
+ *
+ * `clientDelivery` is reused unchanged, so an invite follows the same channel
+ * preference and the same entitlement gates as a confirmation — a shop without
+ * WhatsApp falls back exactly as it does everywhere else.
+ *
+ * The dedupe key includes the **slot**, not just the entry: one person may be
+ * offered several different openings over a week, and a key naming only the
+ * entry would silently swallow every offer after the first.
+ * ---------------------------------------------------------------------------
+ */
+export async function enqueueWaitlistInvite({
+  db,
+  business,
+  entry,
+  now = new Date(),
+}: {
+  db: Database;
+  business: Business;
+  /** Must already carry its invite token and slot — see `markWaitlistInvited`. */
+  entry: WaitlistEntry;
+  now?: Date;
+}) {
+  if (!entry.invitedStartsAt) return [];
+
+  const delivery = clientDelivery(business, {
+    clientPhone: entry.clientPhone,
+    // A waitlist entry has no email: the public form asks for a phone, because
+    // the whole value of an invite is that it arrives while the slot is still
+    // free. Null so the email branch is skipped rather than guessed at.
+    clientEmail: null,
+  });
+
+  if (!delivery) return [];
+
+  const row = await enqueueNotification(db, {
+    businessId: business.id,
+    waitlistEntryId: entry.id,
+    channel: delivery.channel,
+    kind: "waitlist_invite",
+    recipient: delivery.recipient,
+    scheduledFor: now,
+    dedupeKey: dedupeKey(
+      "waitlist_invite",
+      entry.id,
+      `:${entry.invitedStartsAt.toISOString()}`,
+    ),
+  });
+
+  return row ? ["waitlist_invite"] : [];
 }
 
 /** Fired from both the client cancel link and the owner's dashboard action. */

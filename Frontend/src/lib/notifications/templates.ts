@@ -3,8 +3,10 @@ import { formatFullDateTime, formatPrice } from "@/lib/format";
 
 import {
   isBillingKind,
+  isWaitlistKind,
   type BillingContext,
   type NotificationContext,
+  type WaitlistContext,
 } from "./types";
 
 /**
@@ -18,6 +20,12 @@ function isBillingContext(
   return isBillingKind(context.kind);
 }
 
+function isWaitlistContext(
+  context: NotificationContext,
+): context is WaitlistContext {
+  return isWaitlistKind(context.kind);
+}
+
 /**
  * Hebrew copy for every notification kind. Kept as plain strings so the same
  * template serves email, SMS and WhatsApp: SMS simply drops the subject, and
@@ -29,6 +37,7 @@ export function renderNotification(context: NotificationContext): {
   body: string;
 } {
   if (isBillingContext(context)) return renderBilling(context);
+  if (isWaitlistContext(context)) return renderWaitlistInvite(context);
 
   const when = formatFullDateTime(context.startsAt, context.businessTimezone);
   const slot = `יום ${when.weekday}, ${when.date} בשעה ${when.time}`;
@@ -186,6 +195,53 @@ export function renderNotification(context: NotificationContext): {
  * what stops working, and when, produces a support ticket instead of a
  * payment.
  */
+/**
+ * "A slot opened, and it is first come first served."
+ *
+ * **The copy has to say that last part out loud.** The same link goes to
+ * everybody who matches, so a message that reads like a reservation would be
+ * promising something to several people at once — and the person who arrives
+ * second would experience the shop breaking its word rather than a queue
+ * working as designed. Saying it up front makes the "already taken" screen a
+ * confirmation of the rules instead of a disappointment.
+ */
+function renderWaitlistInvite(context: WaitlistContext): {
+  subject: string;
+  body: string;
+} {
+  const when = formatFullDateTime(context.startsAt, context.businessTimezone);
+  const slot = `יום ${when.weekday}, ${when.date} בשעה ${when.time}`;
+  const service = context.serviceName ? `
+${context.serviceName}` : "";
+  const where = context.businessAddress
+    ? `
+כתובת: ${context.businessAddress}`
+    : "";
+  const contact = context.businessPhone
+    ? `
+לשאלות: ${context.businessPhone}`
+    : "";
+
+  return {
+    subject: `התפנה תור ב${context.businessName}`,
+    body:
+      `היי ${context.clientName},
+
+` +
+      `התפנה תור ב${context.businessName}, ואתם ברשימת ההמתנה.
+
+` +
+      `${slot}${service}${where}
+
+` +
+      `לתפיסת התור: ${context.inviteUrl}
+
+` +
+      `שימו לב: ההודעה נשלחה לכל הממתינים המתאימים, והתור נתפס אצל מי ` +
+      `שמזמין ראשון.${contact}`,
+  };
+}
+
 function renderBilling(context: BillingContext): {
   subject: string;
   body: string;

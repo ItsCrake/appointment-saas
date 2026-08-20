@@ -104,27 +104,26 @@ export type CalendarEntry = CalendarItem & {
  * exactly: a difference of a single step shears the whole week, and the times
  * on the left stop describing the cards on the right.
  *
- * `h-24`, up from `h-20` and originally `h-14`. At 56px an hour a 15-minute
- * booking was 14 pixels — less than one line of the smallest type on the page.
- * At 80px it was 20, which held one row. At 96px a **half-hour booking is 48
- * pixels**, and that is the number that matters: it is the commonest length in
- * the product and it is what makes the three-line card below fit without
- * anything being clipped. See `lineBudget`.
+ * `h-32`, raised through `h-14`, `h-20` and `h-24`. The number that decides it
+ * is **the shortest booking the product sells**: at 128px an hour a quarter-hour
+ * slot is 32 pixels, and lifted to the 46px floor it clears all three lines —
+ * name, time, service — so no card has to be opened to be read. A half hour is
+ * 64 pixels and clears them outright.
  *
  * Transcribed into `HOUR_ROW_PX` in `calendar-layout`, which the line budget is
  * arithmetic on, and `calendar-layout.test.ts` fails if the two drift apart.
  */
-const HOUR_ROW_WEEK = "h-24";
+const HOUR_ROW_WEEK = "h-32";
 
 /**
  * The day view spends its extra room vertically as well as horizontally.
  *
- * `h-32`, so a half-hour booking is 64 pixels and clears three lines of the
- * larger type this view uses. The point of the day view is that every card on
- * it reads at full size; leaving it at 112px meant a half hour showed its name
- * and its time but not what the appointment was *for*.
+ * `h-40`, so a quarter-hour booking lifted to this view's taller 58px floor
+ * clears three lines of the larger type it uses, and a half hour clears them
+ * outright at 80 pixels. The point of the day view is that every card on it
+ * reads at full size.
  */
-const HOUR_ROW_DAY = "h-32";
+const HOUR_ROW_DAY = "h-40";
 
 export type CalendarDay = {
   /** "YYYY-MM-DD" in the business timezone. */
@@ -770,12 +769,29 @@ function EntryCard({
           {hasClientNote ? <NoteMark kind="client" /> : null}
         </div>
 
-        {lines >= 2 ? (
-          <span className="truncate tabular-nums opacity-75">{span}</span>
-        ) : null}
-
-        {lines >= 3 && entry.subtitle ? (
-          <span className="truncate opacity-75">{entry.subtitle}</span>
+        {/**
+         * Three lines is the target and the floor is sized for it. Two happens
+         * only where a booking is followed immediately by another and the floor
+         * is capped to avoid drawing over it — so the service joins the time on
+         * one row rather than being dropped. Compressed, not hidden: an owner
+         * scanning a week still learns what the appointment is *for*, which is
+         * the field that would otherwise be lost exactly when the day is busy
+         * enough for it to matter.
+         */}
+        {lines >= 3 ? (
+          <>
+            <span className="truncate tabular-nums opacity-75">{span}</span>
+            {entry.subtitle ? (
+              <span className="truncate opacity-75">{entry.subtitle}</span>
+            ) : null}
+          </>
+        ) : lines === 2 ? (
+          <span className="truncate opacity-75">
+            <span className="tabular-nums">
+              {minutesToLabel(entry.startMinutes)}
+            </span>
+            {entry.subtitle ? ` · ${entry.subtitle}` : ""}
+          </span>
         ) : null}
 
         {/* The note itself, where there is genuinely room for it: one wide

@@ -71,7 +71,18 @@ export async function getAppointment(
   return row ?? null;
 }
 
-/** Dashboard action: mark completed / no-show / cancelled, tenant-scoped. */
+/**
+ * Dashboard action: mark completed / no-show / cancelled, tenant-scoped.
+ *
+ * `cancelled_at` is stamped here rather than by the caller so that **every**
+ * route to a cancellation records when the slot was given up — the owner's
+ * button, the client's link, and anything added later. The waitlist's freed-slot
+ * banner reads it to tell a fresh opening from a booking dropped months ago, and
+ * a path that forgot to set it would simply never offer its slot to anybody.
+ *
+ * Cleared on the way back out, so an appointment that is cancelled, restored and
+ * cancelled again is announced by its latest cancellation rather than its first.
+ */
 export async function updateAppointmentStatus(
   db: Database,
   businessId: string,
@@ -80,7 +91,7 @@ export async function updateAppointmentStatus(
 ) {
   const [row] = await db
     .update(appointments)
-    .set({ status })
+    .set({ status, cancelledAt: status === "cancelled" ? new Date() : null })
     .where(
       and(
         eq(appointments.businessId, businessId),
@@ -513,7 +524,7 @@ export async function cancelAppointmentByToken(
 ) {
   const [row] = await db
     .update(appointments)
-    .set({ status: "cancelled" })
+    .set({ status: "cancelled", cancelledAt: new Date() })
     .where(
       and(
         eq(appointments.cancelToken, cancelToken),

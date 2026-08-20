@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { CalendarOff, Moon, Sun, Sunrise } from "lucide-react";
+import { BellRing, CalendarOff, Moon, Sun, Sunrise } from "lucide-react";
 
 import type { SlotWithStaff } from "@/lib/availability";
 import { groupSlotsByPeriod, type SlotPeriod } from "@/lib/slot-periods";
@@ -30,7 +30,8 @@ export function SlotPicker({
   error,
   selectedSlot,
   onSelectSlot,
-}: Props) {
+  onJoinWaitlist,
+}: Props & { onJoinWaitlist?: () => void }) {
   // aria-busy rather than swapping the live region's identity, so a screen
   // reader announces the result instead of a container appearing.
   return (
@@ -40,7 +41,7 @@ export function SlotPicker({
       ) : error ? (
         <ErrorState message={error} />
       ) : slots.length === 0 ? (
-        <EmptyState />
+        <EmptyState onJoinWaitlist={onJoinWaitlist} />
       ) : (
         // Named, and rendered *only* when there are slots. The day strip above
         // has had an accessible name since it was written; the time area had
@@ -143,7 +144,7 @@ function SlotSkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onJoinWaitlist }: { onJoinWaitlist?: () => void }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-3xl border border-dashed border-zinc-300 bg-zinc-50/50 px-4 py-12 text-center dark:border-zinc-700 dark:bg-zinc-900/40">
       <div
@@ -159,6 +160,21 @@ function EmptyState() {
         נסו לבחור יום אחר בסרגל התאריכים למעלה — בדרך כלל יש מקום תוך
         יום-יומיים.
       </p>
+
+      {/* Offered exactly where the disappointment is, rather than parked in a
+          header somebody scrolled past ten seconds ago. This is the moment the
+          answer "there is nothing" is on screen, and it is the only moment a
+          waitlist is obviously worth joining. */}
+      {onJoinWaitlist ? (
+        <button
+          type="button"
+          onClick={onJoinWaitlist}
+          className="mt-2 inline-flex h-10 items-center gap-2 rounded-full bg-(--accent) px-4 text-xs font-bold text-(--accent-contrast) transition-opacity hover:opacity-90"
+        >
+          <BellRing className="size-4" aria-hidden />
+          אין תור פנוי? הצטרפו לרשימת ההמתנה
+        </button>
+      ) : null}
     </div>
   );
 }
