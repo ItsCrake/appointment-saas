@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Hourglass,
   MessageCircle,
   Phone,
   Trash2,
@@ -652,6 +653,15 @@ function EntryCard({
   const hasNote = Boolean(entry.notes?.trim());
   /** What the shop knows about this person, across every booking. */
   const hasClientNote = Boolean(entry.clientProfileNotes?.trim());
+  /**
+   * A booking the owner has not answered yet ("תורים באישור").
+   *
+   * Marked whatever the shop's approval setting currently says: a tenant can
+   * switch it off with requests still outstanding, and those still need
+   * answering. The status is the fact; the setting only decides whether new
+   * ones can appear.
+   */
+  const awaitingApproval = entry.status === "pending";
 
   /**
    * How many of name / time / service this booking has room for — see
@@ -719,6 +729,12 @@ function EntryCard({
            * is mixed into it changes.
            */
           entry.staffColor && staffSwatch(entry.staffColor).tint,
+          /**
+           * Last, so it wins the hue from the staff tint above — see
+           * `.cal-pending`. A request is not booked, and until it is answered
+           * "what has to happen" outranks "whose it is".
+           */
+          awaitingApproval && "cal-pending",
           cancelled && "opacity-55",
         ),
   );
@@ -764,6 +780,17 @@ function EntryCard({
           >
             {entry.title}
           </span>
+          {/* Ahead of the note marks: one says there is something to read, the
+              other says something is waiting on you. */}
+          {awaitingApproval ? (
+            <span
+              role="img"
+              aria-label="ממתין לאישור"
+              className="animate-pending flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"
+            >
+              <Hourglass className="size-2.5" aria-hidden />
+            </span>
+          ) : null}
           {/* Two marks, two different things — see `NoteMark`. */}
           {hasNote ? <NoteMark kind="appointment" /> : null}
           {hasClientNote ? <NoteMark kind="client" /> : null}
@@ -951,6 +978,15 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
           {entry.status ? <StatusChip status={entry.status} /> : null}
           <NotesBadge notes={entry.notes} />
         </div>
+      ) : null}
+
+      {/* The card can only carry a mark. This is the one place with room to say
+          what the mark means and what to do about it — and the dialog behind a
+          click opens with exactly those two buttons. */}
+      {entry.status === "pending" ? (
+        <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          ממתין לאישורכם — לחיצה על התור פותחת אישור או דחייה.
+        </p>
       ) : null}
 
       {/* The mark says *look*; this is the thing to look at. The hover card is

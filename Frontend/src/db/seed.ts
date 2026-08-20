@@ -4,8 +4,21 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import { DEMO_NAILS_SLUG, DEMO_SLUG } from "../lib/demo";
+import {
+  generateDemoAppointments,
+  makeFreedSlot,
+  type DemoClient,
+} from "./demo-data";
 import * as schema from "./schema";
-import { businesses, services, staff, workingHours } from "./schema";
+import {
+  appointments,
+  businesses,
+  clientProfiles,
+  services,
+  staff,
+  waitlistEntries,
+  workingHours,
+} from "./schema";
 
 dotenv.config({ path: ".env.local", quiet: true });
 
@@ -15,7 +28,8 @@ if (!url) {
   throw new Error("DIRECT_URL (or DATABASE_URL) is not set in .env.local.");
 }
 
-const client = postgres(url, { max: 1 });
+const databaseUrl: string = url;
+const client = postgres(databaseUrl, { max: 1 });
 const db = drizzle(client, { schema });
 
 type ServiceSeed = {
@@ -28,6 +42,17 @@ type ServiceSeed = {
 type Shift = { start: string; end: string };
 
 type StaffSeed = { name: string; title: string; color: string };
+
+type WaitlistSeed = {
+  name: string;
+  phone: string;
+  /** Index into `services`, or null for "any service". */
+  service: number | null;
+  /** 0 = Sunday. Empty means any day. */
+  days: number[];
+  window: "morning" | "afternoon" | "evening" | "any";
+  note: string | null;
+};
 
 type TenantSeed = {
   slug: string;
@@ -53,6 +78,33 @@ type TenantSeed = {
   /** Sun–Thu shifts. Friday and Saturday follow the Israeli week below. */
   weekdayShifts: Shift[];
   friday: Shift | null;
+  /**
+   * Whether new public bookings arrive as requests.
+   *
+   * On for the nail studio and off for the barber, which is not a coin toss:
+   * the E2E suite books against `demo-barber` and asserts a confirmed booking,
+   * so turning it on there would break the suite. Off does not stop the seed
+   * writing `pending` rows — the flag governs what *new* bookings become, and
+   * the calendar's amber badge keys off the status — so both demos show the
+   * pending treatment and only one demos the setting.
+   */
+  requiresApproval: boolean;
+  /**
+   * Everybody who books here.
+   *
+   * **One gender per tenant, deliberately.** A barbershop whose client list
+   * reads half female is the detail that makes a screenshot look generated, and
+   * a prospect looking at their own trade notices it before they notice
+   * anything else. `demo-data.test.ts` holds both lists to it.
+   */
+  clients: DemoClient[];
+  waitlist: WaitlistSeed[];
+  /** Notes a client left on a booking — a few carry one. */
+  bookingNotes: string[];
+  /** What the shop knows about a couple of regulars, keyed by phone. */
+  clientNotes: { phone: string; notes: string }[];
+  /** Fixed per tenant, so a re-seed reproduces the same calendar. */
+  randomSeed: number;
 };
 
 /**
@@ -93,11 +145,96 @@ const TENANTS: TenantSeed[] = [
         durationMin: 15,
         priceCents: 3000,
       },
+      {
+        name: "תספורת + זקן",
+        description: "תספורת מלאה ועיצוב זקן באותו תור.",
+        durationMin: 45,
+        priceCents: 9000,
+      },
+      {
+        name: "צבע",
+        description: "צביעת שיער או זקן, כולל שטיפה.",
+        durationMin: 60,
+        priceCents: 14000,
+      },
     ],
     staff: [
       { name: "ניר בלאק", title: "ספר בכיר", color: "indigo" },
       { name: "אבי כהן", title: "ספר", color: "emerald" },
     ],
+    requiresApproval: false,
+    clients: [
+      { name: "עומר לוי", phone: "0521100201" },
+      { name: "דניאל כהן", phone: "0521100202" },
+      { name: "איתי מזרחי", phone: "0521100203" },
+      { name: "רועי שחר", phone: "0521100204" },
+      { name: "אלון אברהם", phone: "0521100205" },
+      { name: "גיא גולן", phone: "0521100206" },
+      { name: "יונתן פרץ", phone: "0521100207" },
+      { name: "נדב ביטון", phone: "0521100208" },
+      { name: "אורי דהן", phone: "0521100209" },
+      { name: "מתן שרון", phone: "0521100210" },
+      { name: "עידו רוזן", phone: "0521100211" },
+      { name: "ליאור אשכנזי", phone: "0521100212" },
+      { name: "טל אזולאי", phone: "0521100213" },
+      { name: "שקד חדד", phone: "0521100214" },
+      { name: "בן צרפתי", phone: "0521100215" },
+      { name: "עידן מלכה", phone: "0521100216" },
+    ],
+    waitlist: [
+      {
+        name: "אסף ברקוביץ",
+        phone: "0521100301",
+        service: 0,
+        days: [0, 2],
+        window: "evening",
+        note: "אפשר גם ברגע האחרון",
+      },
+      {
+        name: "יובל נחום",
+        phone: "0521100302",
+        service: null,
+        days: [],
+        window: "any",
+        note: null,
+      },
+      {
+        name: "רון סלע",
+        phone: "0521100303",
+        service: 3,
+        days: [1, 3],
+        window: "morning",
+        note: null,
+      },
+      {
+        name: "עמית פישר",
+        phone: "0521100304",
+        service: 2,
+        days: [4],
+        window: "afternoon",
+        note: "עובד באזור, יכול לקפוץ",
+      },
+      {
+        name: "ניב הראל",
+        phone: "0521100305",
+        service: null,
+        days: [0, 1, 2, 3, 4],
+        window: "evening",
+        note: null,
+      },
+    ],
+    bookingNotes: [
+      "אפשר לקצר קצת בצדדים",
+      "מגיע עם הבן, תספורת גם לו",
+      "בלי מכונה בבקשה",
+      "ממהר, אם אפשר להקדים",
+    ],
+    clientNotes: [
+      { phone: "0521100201", notes: "מעדיף מספריים בלבד, בלי מכונה." },
+      { phone: "0521100204", notes: "תמיד מאחר בעשר דקות. שווה להתקשר לפני." },
+      { phone: "0521100206", notes: "רגיש לצבע — לבדוק לפני כל צביעה." },
+    ],
+    randomSeed: 20260818,
     // A split shift with a 13:00–14:00 break.
     weekdayShifts: [
       { start: "09:00:00", end: "13:00:00" },
@@ -138,10 +275,16 @@ const TENANTS: TenantSeed[] = [
         priceCents: 12000,
       },
       {
-        name: "פדיקור",
+        name: "פדיקור רפואי",
         description: "פדיקור רפואי כולל טיפול בעקבים.",
         durationMin: 45,
         priceCents: 15000,
+      },
+      {
+        name: "מילוי באקריליק",
+        description: "מילוי לבנייה באקריל, כולל עיצוב מחדש.",
+        durationMin: 90,
+        priceCents: 19000,
       },
     ],
     // A single chair on purpose, so the two demos show both shapes of the
@@ -151,6 +294,73 @@ const TENANTS: TenantSeed[] = [
     // One continuous shift, starting later — a studio, not a walk-in shop.
     weekdayShifts: [{ start: "10:00:00", end: "19:00:00" }],
     friday: { start: "09:00:00", end: "13:00:00" },
+    /**
+     * On here, and off at the barber. One chair means every booking is the
+     * technician's whole afternoon, which is exactly the shop that vets
+     * requests — and it is the tenant with no E2E dependency, so it is the one
+     * that can demonstrate the setting.
+     */
+    requiresApproval: true,
+    clients: [
+      { name: "נועה לוי", phone: "0531100201" },
+      { name: "שירן כהן", phone: "0531100202" },
+      { name: "מאי גולן", phone: "0531100203" },
+      { name: "יובל אברהם", phone: "0531100204" },
+      { name: "עדי מזרחי", phone: "0531100205" },
+      { name: "רוני שחר", phone: "0531100206" },
+      { name: "טליה בן דוד", phone: "0531100207" },
+      { name: "ליאור פרץ", phone: "0531100208" },
+      { name: "הילה אזולאי", phone: "0531100209" },
+      { name: "מיכל דהן", phone: "0531100210" },
+      { name: "שני רוזן", phone: "0531100211" },
+      { name: "אורטל ביטון", phone: "0531100212" },
+      { name: "דנה מלכה", phone: "0531100213" },
+      { name: "ספיר חדד", phone: "0531100214" },
+    ],
+    waitlist: [
+      {
+        name: "אלינור שגב",
+        phone: "0531100301",
+        service: 2,
+        days: [0, 1],
+        window: "morning",
+        note: "גמישה בשעות",
+      },
+      {
+        name: "קרן אלמוג",
+        phone: "0531100302",
+        service: null,
+        days: [],
+        window: "any",
+        note: null,
+      },
+      {
+        name: "תמר וקנין",
+        phone: "0531100303",
+        service: 0,
+        days: [3, 4],
+        window: "afternoon",
+        note: null,
+      },
+      {
+        name: "יעל שטרן",
+        phone: "0531100304",
+        service: 4,
+        days: [2],
+        window: "evening",
+        note: "מחכה לתור אחרי העבודה",
+      },
+    ],
+    bookingNotes: [
+      "אפשר בבקשה צבע עדין",
+      "יש לי אלרגיה לאצטון",
+      "מגיעה אחרי העבודה, אולי באיחור קל",
+    ],
+    clientNotes: [
+      { phone: "0531100201", notes: "אוהבת גוונים בהירים. רגישה בעור סביב הציפורן." },
+      { phone: "0531100205", notes: "מעדיפה את הכיסא ליד החלון." },
+    ],
+    randomSeed: 20260819,
   },
 ];
 
@@ -199,7 +409,34 @@ async function resolveOwnerId(): Promise<string> {
   );
 }
 
-async function seedTenant(tenant: TenantSeed, ownerUserId: string) {
+/**
+ * Who this demo should belong to after the re-seed.
+ *
+ * ---------------------------------------------------------------------------
+ * **The current owner keeps it.** Re-seeding is a content refresh, not a
+ * transfer, and `resolveOwnerId` answers a different question — who should own a
+ * demo that does not exist yet. On a database where every account already owns
+ * something it falls through to "reuse the oldest", which would hand *both*
+ * demos to one account and leave whoever owned the other one staring at the
+ * setup wizard, because `getBusinessByOwner` returns a single row.
+ *
+ * That is not hypothetical: it is exactly the state this project's database was
+ * in when the demo data was first generated — three accounts, three businesses,
+ * none free.
+ * ---------------------------------------------------------------------------
+ */
+async function ownerFor(slug: string, fallback: string): Promise<string> {
+  const [existing] = await db
+    .select({ ownerUserId: businesses.ownerUserId })
+    .from(businesses)
+    .where(eq(businesses.slug, slug))
+    .limit(1);
+
+  return existing?.ownerUserId ?? fallback;
+}
+
+async function seedTenant(tenant: TenantSeed, fallbackOwnerId: string) {
+  const ownerUserId = await ownerFor(tenant.slug, fallbackOwnerId);
   /**
    * Delete and insert **in one transaction**, so a failure cannot leave the
    * demo missing. The previous version deleted first and inserted second with
@@ -229,6 +466,7 @@ async function seedTenant(tenant: TenantSeed, ownerUserId: string) {
         // Pro so the demo shows the whole product. Branding is a Pro
         // entitlement, and a demo shop that cannot demo it is not much of one.
         planType: "pro",
+        requiresApproval: tenant.requiresApproval,
         /**
          * Without this the dashboard bounces the owner straight into
          * `/dashboard/setup`: `requireBusiness()` treats a null here as "closed
@@ -243,21 +481,27 @@ async function seedTenant(tenant: TenantSeed, ownerUserId: string) {
       })
       .returning();
 
-    await tx.insert(services).values(
-      tenant.services.map((service, index) => ({
-        businessId: business.id,
-        ...service,
-        sortOrder: index + 1,
-      })),
-    );
+    const serviceRows = await tx
+      .insert(services)
+      .values(
+        tenant.services.map((service, index) => ({
+          businessId: business.id,
+          ...service,
+          sortOrder: index + 1,
+        })),
+      )
+      .returning();
 
-    await tx.insert(staff).values(
-      tenant.staff.map((member, index) => ({
-        businessId: business.id,
-        ...member,
-        sortOrder: index + 1,
-      })),
-    );
+    const staffRows = await tx
+      .insert(staff)
+      .values(
+        tenant.staff.map((member, index) => ({
+          businessId: business.id,
+          ...member,
+          sortOrder: index + 1,
+        })),
+      )
+      .returning();
 
     // Israeli work week: Sun–Thu, Fri short, Sat closed.
     await tx.insert(workingHours).values([
@@ -288,25 +532,177 @@ async function seedTenant(tenant: TenantSeed, ownerUserId: string) {
       },
     ]);
 
+    /* ---- The part that makes it look like a shop somebody runs --------- */
+
+    const now = new Date();
+
+    /**
+     * Generated *after* the rows above, because it needs their real ids — and
+     * inside the same transaction, so a demo can never end up with a calendar
+     * hanging off a business that failed to insert.
+     */
+    const generated = generateDemoAppointments({
+      businessId: business.id,
+      timezone: "Asia/Jerusalem",
+      services: serviceRows.map((service) => ({
+        id: service.id,
+        name: service.name,
+        durationMin: service.durationMin,
+        priceCents: service.priceCents,
+      })),
+      staffIds: staffRows.map((member) => member.id),
+      shiftsForWeekday: (weekday) => {
+        if (weekday === 6) return [];
+        if (weekday === 5) return tenant.friday ? [tenant.friday] : [];
+        return tenant.weekdayShifts;
+      },
+      clients: tenant.clients,
+      bufferMin: tenant.bufferMin,
+      now,
+      seed: tenant.randomSeed,
+      notes: tenant.bookingNotes,
+    });
+
+    // One recent cancellation on a future day, so the freed-slot banner and the
+    // waitlist match are *visible* in a screenshot rather than described in one.
+    const freed = makeFreedSlot({
+      businessId: business.id,
+      timezone: "Asia/Jerusalem",
+      service: {
+        id: serviceRows[0].id,
+        name: serviceRows[0].name,
+        durationMin: serviceRows[0].durationMin,
+        priceCents: serviceRows[0].priceCents,
+      },
+      staffId: staffRows[0].id,
+      client: tenant.clients[0],
+      now,
+    });
+
+    await tx.insert(appointments).values([...generated, freed]);
+
+    await tx.insert(waitlistEntries).values(
+      tenant.waitlist.map((person) => ({
+        businessId: business.id,
+        clientName: person.name,
+        clientPhone: person.phone,
+        serviceId:
+          person.service === null ? null : serviceRows[person.service].id,
+        preferredStaffId: null,
+        preferredDays: person.days,
+        preferredTimeWindow: person.window,
+        notes: person.note,
+        // Staggered, so the queue has an order somebody can reason about —
+        // `matchesForSlot` offers the longest wait first.
+        createdAt: new Date(now.getTime() - (person.days.length + 1) * 86_400_000),
+      })),
+    );
+
+    await tx.insert(clientProfiles).values(
+      tenant.clientNotes.map((profile) => ({
+        businessId: business.id,
+        clientPhone: profile.phone,
+        notes: profile.notes,
+      })),
+    );
+
     const hourRows =
       5 * tenant.weekdayShifts.length + (tenant.friday ? 1 : 0) + 1;
 
+    const upcoming = generated.filter(
+      (row) => row.startsAt > now && row.status !== "cancelled",
+    ).length;
+
     console.log(`✅ Seeded "${business.name}" at /${business.slug}`);
     console.log(
-      `   ${tenant.services.length} services, ${hourRows} working-hour rows.`,
+      `   ${tenant.services.length} services, ${hourRows} working-hour rows, ` +
+        `${tenant.staff.length} staff.`,
+    );
+    console.log(
+      `   ${generated.length + 1} appointments (${upcoming} still ahead), ` +
+        `${tenant.waitlist.length} waiting, ${tenant.clientNotes.length} client notes.`,
     );
   });
+}
+
+/**
+ * What is there now, and what would be destroyed.
+ *
+ * ---------------------------------------------------------------------------
+ * **`db:seed` deletes a whole tenant and everything hanging off it** — every
+ * appointment, every client note, the queue, the lot — and it resolves the
+ * owner from `auth.users`, so pointing it at the wrong `.env.local` is a
+ * plausible mistake with an implausible cost.
+ *
+ * So the counts come first and the write is a separate, deliberate command.
+ * Run with `--dry-run` this reports and exits having touched nothing.
+ * ---------------------------------------------------------------------------
+ */
+async function preview(): Promise<void> {
+  console.log(`Database: ${databaseUrl.replace(/:[^:@]*@/, ":****@")}\n`);
+
+  for (const tenant of TENANTS) {
+    const [existing] = await db
+      .select()
+      .from(businesses)
+      .where(eq(businesses.slug, tenant.slug))
+      .limit(1);
+
+    if (!existing) {
+      console.log(`/${tenant.slug} — not present. Nothing to delete.`);
+      continue;
+    }
+
+    const [counts] = await db.execute<{
+      appointments: number;
+      waitlist: number;
+      profiles: number;
+      notifications: number;
+    }>(sql`
+      select
+        (select count(*) from appointments where business_id = ${existing.id})::int as appointments,
+        (select count(*) from waitlist_entries where business_id = ${existing.id})::int as waitlist,
+        (select count(*) from client_profiles where business_id = ${existing.id})::int as profiles,
+        (select count(*) from notifications where business_id = ${existing.id})::int as notifications
+    `);
+
+    const [owner] = await db.execute<{ email: string | null }>(
+      sql`select email from auth.users where id = ${existing.ownerUserId}`,
+    );
+
+    console.log(`/${tenant.slug} — "${existing.name}" WILL BE DELETED:`);
+    console.log(
+      `   owner stays ${owner?.email ?? existing.ownerUserId} (re-seed does not transfer)`,
+    );
+    console.log(
+      `   ${counts.appointments} appointments, ${counts.waitlist} waitlist entries,`,
+    );
+    console.log(
+      `   ${counts.profiles} client notes, ${counts.notifications} notification rows,`,
+    );
+    console.log(`   plus its services, staff and working hours (cascade).`);
+  }
+
+  console.log(
+    "\nEverything above is replaced with freshly generated demo data.",
+  );
+  console.log("Run without --dry-run to proceed.");
 }
 
 async function seed() {
   console.log("Seeding database...");
   try {
-    // Resolved once, and *before* anything is deleted: a missing owner used to
-    // surface as a failed insert after the delete had already landed.
-    const ownerUserId = await resolveOwnerId();
+    /**
+     * Resolved once, and *before* anything is deleted: a missing owner used to
+     * surface as a failed insert after the delete had already landed.
+     *
+     * Only a *fallback* now — a demo that already exists keeps the account it
+     * belongs to. See `ownerFor`.
+     */
+    const fallbackOwnerId = await resolveOwnerId();
 
     for (const tenant of TENANTS) {
-      await seedTenant(tenant, ownerUserId);
+      await seedTenant(tenant, fallbackOwnerId);
     }
 
     console.log("\nRun `npm run db:claim -- <your-auth-user-uuid>` to take");
@@ -314,11 +710,33 @@ async function seed() {
   } catch (error) {
     console.error("Seed failed:", error);
     // Set the code rather than calling process.exit(1) here — exit() is
-    // immediate and would kill the process before `finally` closes the pool.
+    // immediate and would kill the process before `main` closes the pool.
     process.exitCode = 1;
+  }
+}
+
+/**
+ * Nothing is written unless the run says so.
+ *
+ * A dry run is the default *shape* of the conversation rather than the default
+ * behaviour — `db:seed` has always written — but the preview is one flag away
+ * and the destructive path prints the same counts before it starts.
+ */
+async function main() {
+  const dryRun = process.argv.includes("--dry-run");
+
+  try {
+    if (dryRun) {
+      await preview();
+      return;
+    }
+
+    await preview();
+    console.log("");
+    await seed();
   } finally {
     await client.end();
   }
 }
 
-seed();
+main();

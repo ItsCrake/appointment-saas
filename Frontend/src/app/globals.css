@@ -664,6 +664,49 @@ body {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   AWAITING APPROVAL — a booking the owner has not answered yet.
+
+   **Amber overrides the staff hue on purpose.** Every other card on the grid is
+   tinted by whose booking it is, which is the right question when the answer is
+   "it is booked". A pending request is not booked: somebody is waiting on a
+   reply, and until it comes the useful question is not *whose* but *what has to
+   happen*. So this is the one state allowed to take the card's colour away from
+   the person holding it.
+
+   Amber rather than the tenant accent because it has to mean the same thing in
+   every shop — an amber-accented salon would render "needs you" in its own
+   brand colour and lose the distinction entirely. It matches `StatusChip`'s
+   pending amber, so the card and the chip inside the dialog agree.
+--------------------------------------------------------------------------- */
+.cal-pending {
+  --cal-hue: oklch(76.9% 0.188 70.08); /* amber-500 */
+  border-color: oklch(66.6% 0.179 58.318); /* amber-600 */
+  border-width: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cal-pending {
+    border-color: oklch(76.9% 0.188 70.08);
+  }
+}
+
+/* A slow breath rather than a blink: the card has to be findable in a glance
+   across a full week without becoming the thing you cannot look away from. */
+@keyframes pending-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-pending {
+  animation: pending-breathe 2.4s ease-in-out infinite;
+}
+
 /* Warm flare at the bottom centre, playing against the cool gradient base. */
 .cta-flare {
   background: radial-gradient(
@@ -791,6 +834,9 @@ body {
   .animate-caret,
   .animate-scroll-hint,
   .animate-tile,
+  /* The badge stays, fully opaque: the amber mark is the signal and the breath
+     was only ever how it caught the eye. */
+  .animate-pending,
   /* Parked at the leading edge rather than hidden: a still bar is a quieter
      signal than a moving one, but it is still the signal. */
   .route-progress {
