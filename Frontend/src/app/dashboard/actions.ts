@@ -36,6 +36,7 @@ import {
   enqueueReminder,
 } from "@/lib/notifications/enqueue";
 import { normalizePhone } from "@/lib/validation";
+import { offerFreedSlotToWaitlist } from "@/lib/waitlist-offer";
 
 export type ActionResult =
   { ok: true; warning?: string } | { ok: false; error: string };
@@ -524,6 +525,14 @@ export async function setAppointmentStatusAction(
             business,
             appointment: updated,
           }));
+
+      /**
+       * And the slot goes to whoever has waited longest, with nothing asked of
+       * the owner — see `offerFreedSlotToWaitlist`. Swallows its own failures,
+       * so a queue that cannot be reached never turns a completed cancellation
+       * into an error.
+       */
+      await offerFreedSlotToWaitlist({ db, business, appointment: updated });
     } else if (parsedStatus.data === "confirmed" && wasRequest) {
       // Approval is also when the reminder finally gets scheduled — it was
       // deliberately withheld while the answer was still unknown.

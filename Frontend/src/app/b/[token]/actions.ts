@@ -9,6 +9,7 @@ import {
   getAppointmentContextByToken,
 } from "@/db/queries";
 import { enqueueCancellationNotifications } from "@/lib/notifications/enqueue";
+import { offerFreedSlotToWaitlist } from "@/lib/waitlist-offer";
 import { getCancellationState } from "@/lib/cancellation";
 import { reportError } from "@/lib/observability";
 
@@ -49,6 +50,10 @@ export async function cancelBookingAction(
     // Drop the queued reminder first — nobody wants a reminder for a slot
     // they just cancelled.
     await cancelPendingNotificationsForAppointment(db, cancelled.id);
+    // The client gave the slot up; whoever has waited longest is told about it
+    // without anyone at the shop having to notice. Best effort by construction.
+    await offerFreedSlotToWaitlist({ db, business, appointment: cancelled });
+
     await enqueueCancellationNotifications({
       db,
       business,

@@ -158,10 +158,21 @@ const TENANTS: TenantSeed[] = [
         priceCents: 14000,
       },
     ],
-    staff: [
-      { name: "ניר בלאק", title: "ספר בכיר", color: "indigo" },
-      { name: "אבי כהן", title: "ספר", color: "emerald" },
-    ],
+    /**
+     * One chair.
+     *
+     * It ran with two for a while, which made the public flow four steps and
+     * split every busy hour on the calendar into two lanes. Both demos are
+     * single-provider now, and the shape the team version showed — the "who
+     * with?" step, the staff legend, per-person tinting — is reachable by
+     * adding somebody on `/dashboard/staff`, which is how a real shop grows
+     * into it anyway.
+     *
+     * The E2E helper handles either shape: `chooseProviderIfAsked` races the
+     * picker, the sole-provider card and the details heading, so a single-staff
+     * tenant simply falls through.
+     */
+    staff: [{ name: "ניר בלאק", title: "ספר בכיר", color: "indigo" }],
     requiresApproval: false,
     clients: [
       { name: "עומר לוי", phone: "0521100201" },
@@ -561,6 +572,7 @@ async function seedTenant(tenant: TenantSeed, fallbackOwnerId: string) {
       now,
       seed: tenant.randomSeed,
       notes: tenant.bookingNotes,
+      requiresApproval: tenant.requiresApproval,
     });
 
     // One recent cancellation on a future day, so the freed-slot banner and the

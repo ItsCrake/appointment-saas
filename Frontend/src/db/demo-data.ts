@@ -65,6 +65,15 @@ export type GenerateInput = {
   seed: number;
   /** Notes a few clients left, cycled through so some bookings carry one. */
   notes: string[];
+  /**
+   * Whether this shop takes bookings as requests.
+   *
+   * **Off means no `pending` row is ever generated**, because off means the
+   * product cannot produce one: `createBookingAction` writes `confirmed`
+   * directly. A demo carrying pending bookings for a shop that does not use
+   * approval is a screenshot of a state the software will not reach.
+   */
+  requiresApproval: boolean;
 };
 
 const DAY_MS = 86_400_000;
@@ -204,11 +213,20 @@ export function generateDemoAppointments(
                 // these, and a demo without them looks administered by a robot.
                 ["confirmed", 3],
               ])
-            : weighted<DemoAppointmentRow["status"]>(random, [
-                ["confirmed", 74],
-                ["pending", 14],
-                ["cancelled", 12],
-              ]);
+            : weighted<DemoAppointmentRow["status"]>(
+                random,
+                input.requiresApproval
+                  ? [
+                      ["confirmed", 74],
+                      ["pending", 14],
+                      ["cancelled", 12],
+                    ]
+                  : // No approval step, so nothing can be waiting for one.
+                    [
+                      ["confirmed", 86],
+                      ["cancelled", 14],
+                    ],
+              );
 
           const startsAt = fromZonedTime(
             `${date}T${hhmm(cursor)}:00`,

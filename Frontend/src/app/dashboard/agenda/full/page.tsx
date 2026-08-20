@@ -252,6 +252,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
           color: member.color,
         }))}
         timezone={business.timezone}
+        requiresApproval={business.requiresApproval}
       />
 
       <BlockList blocks={entries.filter((entry) => entry.kind === "block")} />

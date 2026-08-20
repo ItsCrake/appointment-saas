@@ -28,6 +28,7 @@ import {
   cardHeightPx,
   gapsToNext,
   gridBounds,
+  gridMinWidthPx,
   hourRows,
   lineBudget,
   MAX_CARD_LINES,
@@ -167,6 +168,7 @@ export function WeekCalendar({
   thisWeek,
   staff,
   timezone,
+  requiresApproval,
 }: {
   initialView: CalendarView;
   /** The focused day, "YYYY-MM-DD". Only meaningful in the day view. */
@@ -180,6 +182,16 @@ export function WeekCalendar({
   thisWeek: string;
   staff: { id: string; name: string; color: string }[];
   timezone: string;
+  /**
+   * Whether this shop takes bookings as requests.
+   *
+   * Gates the amber pending treatment. Keyed on the setting rather than on the
+   * status alone: with approval off the product never writes `pending`, so a
+   * card in that state is stale data rather than something waiting on the
+   * owner — and lighting the calendar amber for a shop with nothing to approve
+   * teaches them to ignore the colour.
+   */
+  requiresApproval: boolean;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
   // One at a time, held at the root so the card can be positioned `fixed` and
@@ -265,6 +277,24 @@ export function WeekCalendar({
    */
   const gapsByDay = useMemo(
     () => placedByDay.map((placed) => gapsToNext(placed)),
+    [placedByDay],
+  );
+
+  /**
+   * How wide the grid needs to be for nothing on it to be squashed.
+   *
+   * Derived from the **lanes actually on screen** rather than a fixed number,
+   * because the thing that narrows a column is overlap: a one-chair shop has one
+   * lane a day and fits comfortably, while three providers busy at the same hour
+   * turn one column into three slivers. See `gridMinWidthPx`.
+   */
+  const minWidthPx = useMemo(
+    () =>
+      gridMinWidthPx(
+        placedByDay.map((placed) =>
+          placed.reduce((widest, item) => Math.max(widest, item.lanes), 1),
+        ),
+      ),
     [placedByDay],
   );
 
@@ -404,10 +434,17 @@ export function WeekCalendar({
       {/* One scroll container: the seven columns keep a usable width on a phone
           by scrolling sideways rather than compressing to nothing. */}
       <div className={cn(cardClass, "overflow-x-auto")}>
-        {/* Seven columns need a floor or they compress to nothing on a phone.
-            One column does not — a day view that scrolled sideways would be
-            hiding the very space it exists to give the cards. */}
-        <div className={dayView ? "" : "min-w-[46rem]"}>
+        {/**
+         * The floor that keeps cards readable, in pixels rather than a fixed
+         * `min-w-*`: it has to answer to how many lanes are on screen, and a
+         * class cannot be built from a runtime number.
+         *
+         * The day view gets it too, which it did not before. One column is not
+         * automatically roomy — a morning with three providers overlapping
+         * splits it three ways just as the week view does — so the same rule
+         * applies and only the column count differs.
+         */}
+        <div style={{ minWidth: `${minWidthPx}px` }}>
           <div
             className="grid border-b border-zinc-200 dark:border-zinc-800"
             style={{ gridTemplateColumns: gridTemplate }}
@@ -498,6 +535,7 @@ export function WeekCalendar({
                       key={entry.id}
                       entry={entry}
                       dayView={dayView}
+                      requiresApproval={requiresApproval}
                       minHeightPx={cardHeightPx(
                         entry.endMinutes - entry.startMinutes,
                         dayView ? "day" : "week",
@@ -626,6 +664,7 @@ function EntryCard({
   entry,
   style,
   dayView,
+  requiresApproval,
   minHeightPx,
   onHoverChange,
   onOpen,
@@ -634,6 +673,8 @@ function EntryCard({
   style: React.CSSProperties;
   /** One column instead of seven — the card can afford to be read, not scanned. */
   dayView: boolean;
+  /** See the prop of the same name on `WeekCalendar`. */
+  requiresApproval: boolean;
   /**
    * The floor from `cardHeightPx`, already capped at the room before the next
    * booking in this lane. Applied as `min-height` so it only ever lifts a card
@@ -656,12 +697,12 @@ function EntryCard({
   /**
    * A booking the owner has not answered yet ("תורים באישור").
    *
-   * Marked whatever the shop's approval setting currently says: a tenant can
-   * switch it off with requests still outstanding, and those still need
-   * answering. The status is the fact; the setting only decides whether new
-   * ones can appear.
+   * Only where the shop actually takes requests. With approval off nothing can
+   * become `pending` — `createBookingAction` writes `confirmed` directly — so a
+   * card in that state is a leftover, and painting the calendar amber for a
+   * shop with nothing to approve is how an owner learns to ignore the colour.
    */
-  const awaitingApproval = entry.status === "pending";
+  const awaitingApproval = requiresApproval && entry.status === "pending";
 
   /**
    * How many of name / time / service this booking has room for — see

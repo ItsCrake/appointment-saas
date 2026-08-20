@@ -139,11 +139,11 @@ export function parseConfirmationWhen(text: string) {
 /**
  * Picks a provider when the shop has a team, and does nothing when it does not.
  *
- * `demo-barber` has two active providers, so the public flow is genuinely four
- * steps for it and this helper was walking three. Which of the two screens
- * appears depends on how many people are free at the chosen time, and that
- * varies with whatever is really on the calendar that day — so the helper has
- * to handle both rather than assume:
+ * `demo-barber` ran with two active providers for a while, which made the public
+ * flow genuinely four steps while this helper walked three. It is back to one,
+ * but the helper still handles every shape rather than assuming the current
+ * seed — which of these appears depends on how many people are free at the
+ * chosen time, and that varies with whatever is really on the calendar:
  *
  * - **the picker**, when more than one provider is free;
  * - **the sole-provider card**, when exactly one is. A team shop never skips

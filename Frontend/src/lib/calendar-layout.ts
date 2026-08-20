@@ -236,6 +236,47 @@ export const MAX_CARD_LINES = 3;
  */
 export const MIN_CARD_PX = { week: 46, day: 58 } as const;
 
+/**
+ * The narrowest a single lane may be drawn.
+ *
+ * ---------------------------------------------------------------------------
+ * A day column is split into lanes when bookings overlap, so a shop with three
+ * providers busy at ten o'clock gets three lanes inside one column — and across
+ * seven columns that is twenty-one slivers sharing the width of a phone. At that
+ * size every card is an ellipsis, which is the exact failure the stacked layout
+ * and the height floor were built to remove: the fix has to hold on *both* axes
+ * or it does not hold.
+ *
+ * 9rem is what a Hebrew first name, a `09:00–09:45` span and a service name each
+ * need at the card's type size without truncating.
+ *
+ * It is a **minimum on the grid**, not a fixed width. A week that fits stays
+ * fluid and fills the screen; only a week that would not fit grows past it, and
+ * the container scrolls. Scrolling a busy week is a smaller cost than making
+ * every card on it unreadable.
+ * ---------------------------------------------------------------------------
+ */
+export const MIN_LANE_PX = 144;
+
+/** The hour rail down the side, which the grid template reserves. */
+export const RAIL_PX = 48;
+
+/**
+ * How wide the grid has to be before nothing is squashed.
+ *
+ * Driven by the **worst** day on screen, because all columns share a width: one
+ * Tuesday with three overlapping bookings sets the floor for the whole week, and
+ * sizing to the average would leave Tuesday unreadable.
+ */
+export function gridMinWidthPx(
+  /** Lane counts per visible day — `assignLanes` output, or 1 for an empty day. */
+  lanesPerDay: readonly number[],
+): number {
+  if (lanesPerDay.length === 0) return 0;
+  const widest = Math.max(1, ...lanesPerDay);
+  return RAIL_PX + lanesPerDay.length * widest * MIN_LANE_PX;
+}
+
 export type CalendarView = "week" | "day";
 
 /** What a booking of this length occupies on the grid, before any floor. */

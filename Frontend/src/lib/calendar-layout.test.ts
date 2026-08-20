@@ -12,8 +12,11 @@ import {
   HOUR_ROW_PX,
   lineBudget,
   MAX_CARD_LINES,
+  gridMinWidthPx,
   MIN_CARD_PX,
+  MIN_LANE_PX,
   minutesToLabel,
+  RAIL_PX,
   placeItem,
   slotHeightPx,
   type CalendarItem,
@@ -378,5 +381,40 @@ describe("lineBudget", () => {
 
     expect(scale("HOUR_ROW_WEEK")).toBe(HOUR_ROW_PX.week);
     expect(scale("HOUR_ROW_DAY")).toBe(HOUR_ROW_PX.day);
+  });
+});
+
+describe("gridMinWidthPx", () => {
+  it("gives every lane room on a quiet week", () => {
+    // Seven days, nothing overlapping: one lane each.
+    expect(gridMinWidthPx([1, 1, 1, 1, 1, 1, 1])).toBe(RAIL_PX + 7 * MIN_LANE_PX);
+  });
+
+  it("is driven by the worst day, because columns share a width", () => {
+    /**
+     * One Tuesday with three providers busy at ten sets the floor for the whole
+     * week. Sizing to the average would leave exactly that day unreadable —
+     * which is the day the owner opened the calendar to look at.
+     */
+    expect(gridMinWidthPx([1, 1, 3, 1, 1])).toBe(RAIL_PX + 5 * 3 * MIN_LANE_PX);
+  });
+
+  it("grows with the number of columns", () => {
+    expect(gridMinWidthPx([2])).toBeLessThan(gridMinWidthPx([2, 2]));
+  });
+
+  it("never asks for less than one lane a column", () => {
+    // An empty day reports no lanes; it still needs a column somebody can read.
+    expect(gridMinWidthPx([0, 0])).toBe(RAIL_PX + 2 * MIN_LANE_PX);
+  });
+
+  it("asks for nothing when there is nothing on screen", () => {
+    expect(gridMinWidthPx([])).toBe(0);
+  });
+
+  it("leaves a lane wide enough for the three lines the card renders", () => {
+    // The height floor and this are the same fix on two axes: a card given room
+    // to stack three lines and then squashed to 40px wide is still an ellipsis.
+    expect(MIN_LANE_PX).toBeGreaterThanOrEqual(120);
   });
 });

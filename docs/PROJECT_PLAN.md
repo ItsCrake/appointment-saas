@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1067 tests across 72 files**; Playwright at
+**Green:** `npm run verify` at **1074 tests across 72 files**; Playwright at
 **11/11** across 3 spec files. All **25 migrations (0000–0024)** are applied to
 the live database — fifteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1734,6 +1734,58 @@ That was the live database's exact state.
 the table never appeared. The journal is the migrator's index; a hand-written
 migration has to be added to it.
 
+### The waitlist offers its own slots ✅
+
+**The freed-slot banner is gone, and so is the manual invite action.** It put a
+decision in front of the owner for every single cancellation, and the decision
+was always yes. A queue whose whole purpose is filling gaps does not need
+permission to fill one — the owner's job is deciding *who is in the queue*, which
+is what `/dashboard/waitlist` is for and now the only place the waitlist is
+managed.
+
+`offerFreedSlotToWaitlist` runs from both cancellation paths — the owner's button
+and the client's link — and offers the slot to **one** person: the front of the
+queue, since `matchesForSlot` sorts by longest wait. That is a deliberate change
+from the ten-at-a-time the banner sent. An automatic message to ten people every
+time anybody cancels is a shop paying for its own no-shows, and nine of those
+messages exist only to be lost. The `/w/[token]` "already taken" screen still
+earns its place: two cancellations can offer overlapping slots, and an owner can
+fill one by hand while an invite is out.
+
+Best effort by construction. Every caller is a cancellation that already
+happened, so an unreachable queue must never turn it into an error somebody sees.
+
+### Pending means the shop asked for it ✅
+
+With `requiresApproval` off, `createBookingAction` writes `confirmed` directly —
+so a `pending` row is a state the product cannot reach. Two places now agree with
+that: the seed generates no pending for such a tenant, and the calendar's amber
+treatment is gated on the **setting** rather than on the status alone. Painting
+the calendar amber for a shop with nothing to approve is how an owner learns to
+ignore the colour.
+
+The trade-off is deliberate: a tenant who switches approval off with requests
+outstanding sees those cards un-marked. They are still `pending` in the database
+and still answerable from the dialog — but the calendar stops shouting about a
+queue the shop has closed.
+
+### Both demos are single-chair, and columns stay readable ✅
+
+`demo-barber` is back to one provider. The team shape — the "who with?" step, the
+staff legend, per-person tinting — is reachable by adding somebody on
+`/dashboard/staff`, which is how a real shop grows into it. `chooseProviderIfAsked`
+in the E2E helper races all three screens, so the suite is indifferent to which
+shape the demo currently has.
+
+**Lanes were the density problem, not columns.** Overlapping bookings split a day
+column into lanes, so three providers busy at ten turn one column into three
+slivers — twenty-one across a week on a phone, every one an ellipsis. That is the
+same failure the stacked card and the height floor exist to remove, on the other
+axis. `gridMinWidthPx` sizes the grid from the **widest lane count on screen**,
+because all columns share a width: one busy Tuesday sets the floor for the week,
+and sizing to the average leaves exactly that day unreadable. A week that fits
+stays fluid; only one that would not grows past the viewport and scrolls.
+
 ### What it deliberately does not do
 
 **The client is not told their appointment moved.** There is no notification kind
@@ -1742,6 +1794,12 @@ five drafted templates are already waiting on a builder that refuses to create
 them. Queueing a kind the official path would refuse is worse than saying
 nothing, so the move dialog says so in as many words and leaves telling the
 client to the owner, who has call and WhatsApp buttons two rows above.
+
+**An unanswered invite is not re-offered.** The slot goes to the front of the
+queue and stays there: if that person never replies, nothing walks down to the
+next one. A timer would need a rule for how long is long enough, and that is a
+shop-by-shop answer rather than a number to pick here — the owner sees the
+`נשלחה הצעה` badge on `/dashboard/waitlist` and can act.
 
 **A waitlist entry never expires by itself.** There is no sweep marking old
 entries `expired`; the status exists and the owner can set it, but nothing runs

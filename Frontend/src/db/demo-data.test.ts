@@ -55,6 +55,7 @@ function generate(overrides: Partial<GenerateInput> = {}) {
     now: NOW,
     seed: 20260818,
     notes: ["בלי מכונה בבקשה"],
+    requiresApproval: true,
     ...overrides,
   });
 }
@@ -164,6 +165,24 @@ describe("generateDemoAppointments", () => {
       );
       expect(hour).toBeGreaterThanOrEqual(9);
       expect(hour).toBeLessThan(19);
+    }
+  });
+
+  it("never generates pending for a shop that does not take requests", () => {
+    /**
+     * The alignment that matters: with approval off, `createBookingAction`
+     * writes `confirmed` directly, so a pending row is a state the product
+     * cannot produce. A demo carrying one is a screenshot of something that
+     * does not happen — and it lights the calendar's amber badge for a shop
+     * with nothing to approve.
+     */
+    const rows = generate({ requiresApproval: false });
+    expect(rows.filter((row) => row.status === "pending")).toEqual([]);
+
+    // The rest of the mix survives — this removes a status, not the variety.
+    const statuses = new Set(rows.map((row) => row.status));
+    for (const status of ["confirmed", "completed", "cancelled"]) {
+      expect(statuses).toContain(status);
     }
   });
 
