@@ -10,6 +10,7 @@ import {
   MessageCircle,
   Pencil,
   Phone,
+  TriangleAlert,
   UserRound,
   UserX,
   X,
@@ -722,6 +723,8 @@ function MovePanel({
 }) {
   const [pending, startTransition] = useTransition();
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  /** The warning to show, or null. Set only by a refusal the owner can waive. */
+  const [confirm, setConfirm] = useState<string | null>(null);
   const [form, setForm] = useState({
     date: entry.date,
     time: entry.startTime,
@@ -735,6 +738,16 @@ function MovePanel({
   function submit(event: React.FormEvent) {
     event.preventDefault();
 
+    move(false);
+  }
+
+  /**
+   * `force` waives the shop's *own* rules — posted hours, breaks, notice — and
+   * nothing else. A same-provider clash comes back as a plain error, because
+   * the database refuses it whatever this flag says, and asking "are you sure?"
+   * before saying no anyway is worse than saying no.
+   */
+  function move(force: boolean) {
     startTransition(async () => {
       const result = await rescheduleAppointmentAction({
         appointmentId,
@@ -742,9 +755,21 @@ function MovePanel({
         time: form.time,
         // A one-chair shop sends nothing and keeps whoever holds it.
         staffId: staff.length > 1 ? form.staffId : "",
+        force,
       });
-      if (result.ok) onSaved();
-      else onError(result.error);
+
+      if (result.ok) {
+        onSaved();
+        return;
+      }
+
+      if ("confirm" in result) {
+        setConfirm(result.message);
+        return;
+      }
+
+      setConfirm(null);
+      onError(result.error);
     });
   }
 
@@ -790,12 +815,53 @@ function MovePanel({
         </Field>
       ) : null}
 
+      {confirm ? (
+        /**
+         * Amber, not red: nothing has gone wrong. The move is possible and the
+         * owner is being told which of their own rules it steps outside, with
+         * the confirming button carrying the consequence in its label rather
+         * than saying "OK".
+         */
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40"
+        >
+          <p className="flex items-start gap-2 text-xs leading-relaxed font-medium text-amber-900 dark:text-amber-100">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {confirm}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => move(true)}
+              disabled={pending}
+              className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 text-xs font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-60"
+            >
+              {pending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : null}
+              לשבץ בכל זאת
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirm(null)}
+              disabled={pending}
+              className="h-9 rounded-lg border border-amber-300 px-3 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+            >
+              בחירת מועד אחר
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <p className="text-[11px] leading-relaxed text-zinc-500">
         המועד נבדק מול הזמינות ושעות הפעילות ({timezone}). הלקוח לא מקבל הודעה על
         השינוי — כדאי לעדכן אותו.
       </p>
 
-      <PanelActions pending={pending} label="העברת התור" onCancel={onCancel} />
+      {confirm ? null : (
+        <PanelActions pending={pending} label="העברת התור" onCancel={onCancel} />
+      )}
     </form>
   );
 }

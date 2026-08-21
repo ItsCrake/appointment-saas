@@ -344,8 +344,36 @@ export function computeSlots(input: ComputeSlotsInput): Slot[] {
       packing.originMs +
       Math.ceil((window.start - packing.originMs) / gridMs) * gridMs;
 
+    let anchored = false;
     for (let t = firstAnchor; t + durationMs <= window.end; t += gridMs) {
       starts.add(t);
+      anchored = true;
+    }
+
+    /**
+     * **The rescue anchor: a gap the lattice cannot sell at all.**
+     *
+     * ---------------------------------------------------------------------
+     * Ceiling to the grid costs time on purpose — a provider free from 09:05 is
+     * offered 09:15 so their column lines up with a colleague free from 09:00,
+     * which is the interleaving a shop reported and this mode exists to fix.
+     * That cost is worth paying while the lattice still has *something* to
+     * offer in the window.
+     *
+     * It stops being worth paying when the ceiling swallows the window whole. A
+     * 40-minute hole between two bookings, on a 15-minute lattice, with a
+     * 30-minute service: the first anchor lands past the end and the gap goes
+     * unsold — not offered later, offered *never*. That is the dead time worth
+     * reclaiming, and reclaiming it cannot interleave anything, because by
+     * definition there is no lattice time in this window to interleave with.
+     *
+     * So the tight start is offered only when the lattice produced nothing.
+     * Single-chair shops never reach this branch at all: they pack densely and
+     * have always been offered the earliest genuinely free instant.
+     * ---------------------------------------------------------------------
+     */
+    if (!anchored && window.start + durationMs <= window.end) {
+      starts.add(window.start);
     }
   }
 

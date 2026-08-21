@@ -1193,7 +1193,7 @@ the trial extension moved a clock nothing else read.
 _This section is the handover between working sessions — if it disagrees with
 the code, the code is right and this is stale. Read it first._
 
-**Green:** `npm run verify` at **1077 tests across 72 files**; Playwright at
+**Green:** `npm run verify` at **1115 tests across 74 files**; Playwright at
 **11/11** across 3 spec files. All **25 migrations (0000–0024)** are applied to
 the live database — fifteen tables, RLS on every one, twelve owner policies,
 zero reachable by `anon`. **No migration is pending**; everything below is
@@ -1831,6 +1831,77 @@ grid snapping moved everything — and a collision there is not cosmetic:
 `appointments_no_overlap_staff` would reject the insert and take the whole seed
 transaction down. `cancelOneFutureBooking` flips an existing row instead, which
 cannot collide by construction and is also what a cancellation actually is.
+
+### Dead time, and the one place the lattice created it ✅
+
+**Dense packing already did what was asked.** A single-chair shop offers the
+earliest genuinely free instant: `freeWindows` subtracts each booking padded by
+the buffer, and dense mode starts at the window's own edge — a booking ending at
+10:15 with a five-minute buffer is already offered as 10:20. Both demo tenants
+are single-chair, so the reported symptom cannot come from there.
+
+**Grid mode is where it came from**, and only there. A team shop's slots snap to
+a lattice anchored on local midnight, and the first anchor *ceils* the window
+start — deliberately, because two providers re-anchoring on their own bookings is
+the interleaved `09:00 / 09:05 / 10:00 / 10:05` column a shop reported and this
+mode exists to fix.
+
+So the fix is scoped rather than global: the tight start is offered **only when
+the lattice produced no anchor at all in that window**. A forty-minute hole on a
+quarter-hour lattice with a thirty-minute service is sold to nobody otherwise —
+not offered later, offered never — and reclaiming it cannot interleave anything,
+because by definition there is no lattice time in that window to interleave with.
+Three existing tests assert the ceiling behaviour and all three still pass
+unchanged, which is the point.
+
+Offering the tightest start *always* in grid mode would undo the interleaving
+fix. That is a real trade rather than an oversight, and it is available in one
+line if a team shop ever asks for density over alignment.
+
+### The owner is not a client, and reschedule now says so ✅
+
+`"התור שביקשת לא פנוי"` came from holding the owner to the **booking page's**
+rules. The slot was free — no appointment held it — it simply was not one the
+public flow would offer: outside posted hours, inside a break, off the lattice.
+Those are policies for clients.
+
+A refusal of that kind is now a `confirm` result rather than an error, and the
+move panel shows an amber warning with `לשבץ בכל זאת`, which re-sends with
+`force: true` and skips the availability engine.
+
+**`force` cannot waive a same-provider overlap, and no flag ever will.**
+`appointments_no_overlap_staff` physically refuses two live appointments on one
+person at one time, and it is the single guarantee stopping this product from
+double-booking. So a clash is returned as a plain error naming the conflicting
+client and time — being asked "are you sure?" and then told no anyway is worse
+than being told no. Moving to a different provider or time is the way through.
+
+### Audit: what the messaging layer actually does ✅
+
+`notifications/audit.test.ts` renders **every kind in the enum** and fails on an
+empty body or a leaked `undefined` — the failure that throws nothing, builds
+fine, and is visible only to the person who received it. It also pins the phone
+path: `normalizePhone` writes the stored Israeli form and `toE164` produces what
+Meta and Twilio want, and six input spellings are asserted to arrive at one
+`+972…` without the double-prefix bug.
+
+It records, mechanically, that the official WhatsApp path can deliver exactly
+**two kinds** — `booking_confirmation` and `reminder`. Every other kind, waitlist
+invites and cancellations included, resolves to no template and is refused rather
+than posted as text Meta drops silently. That is the template backlog, not a
+regression, and the suite now states it instead of leaving it to be rediscovered.
+
+One hazard was closed on the way: `whatsappTemplateFor` cast its context to an
+appointment after excluding billing only. A `WaitlistContext` has no
+`manageToken` and no price, so a future branch reaching one would have posted
+`undefined` into an approved template's parameters — which Meta accepts and
+renders to the client. Waitlist kinds are now excluded by name, before the cast.
+
+`cross-feature.test.ts` covers the seam the individual suites leave: a cancelled
+slot re-entering availability, two bookings racing for one slot, a second
+provider legitimately holding the same hour, and a `pending` request blocking its
+time exactly as a confirmed one does — so the waitlist can never be offered a
+slot somebody is still awaiting an answer on.
 
 ### What it deliberately does not do
 

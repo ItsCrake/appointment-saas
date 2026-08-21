@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
-import { fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -169,7 +169,45 @@ const rescheduleSchema = z.object({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "שעה לא תקינה"),
   /** Absent, or "", means "keep whoever has it". */
   staffId: z.union([z.uuid("נותן שירות לא תקין"), z.literal("")]).optional(),
+  /**
+   * The owner has seen the warning and wants the move anyway.
+   *
+   * Bypasses the availability engine — posted hours, breaks, notice periods —
+   * and nothing else. See `RescheduleResult`.
+   */
+  force: z.boolean().optional(),
 });
+
+/**
+ * What a reschedule can come back as.
+ *
+ * ---------------------------------------------------------------------------
+ * **`confirm` is the interesting one, and what it does *not* cover matters as
+ * much as what it does.**
+ *
+ * `force` waives the availability engine: the shop's posted hours, its breaks,
+ * its notice period. Those are the shop's own policy, and an owner moving a
+ * client into their lunch hour is making a decision the software has no
+ * business refusing.
+ *
+ * It cannot waive a **same-provider overlap**, and no flag ever will:
+ * `appointments_no_overlap_staff` is a database constraint that physically
+ * refuses two live appointments on one person at one time, and it is the single
+ * guarantee stopping this product from double-booking. So a clash is returned
+ * as a plain error with the conflict named, not as something to confirm — being
+ * asked "are you sure?" and then told no anyway is worse than being told no.
+ * ---------------------------------------------------------------------------
+ */
+export type RescheduleResult =
+  | { ok: true }
+  | { ok: false; error: string }
+  | {
+      ok: false;
+      /** Re-send with `force: true` to proceed. */
+      confirm: true;
+      /** Amber-modal copy, already specific about which rule is being waived. */
+      message: string;
+    };
 
 /**
  * Moves an existing appointment.
@@ -202,7 +240,7 @@ const rescheduleSchema = z.object({
  */
 export async function rescheduleAppointmentAction(
   input: unknown,
-): Promise<ActionResult> {
+): Promise<RescheduleResult> {
   const parsed = rescheduleSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0].message };
@@ -249,6 +287,11 @@ export async function rescheduleAppointmentAction(
   const startsAt = fromZonedTime(`${date}T${time}:00`, business.timezone);
   const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
 
+  /**
+   * A clash is checked **whatever `force` says**, because the database is going
+   * to refuse it regardless — this is the difference between a clear message
+   * and a constraint violation surfacing as "אירעה שגיאה".
+   */
   const clash = await overlappingAppointment(
     business.id,
     assigned.id,
@@ -257,7 +300,11 @@ export async function rescheduleAppointmentAction(
     endsAt,
   );
   if (clash) {
-    return { ok: false, error: "יש כבר תור אחר במועד הזה" };
+    const when = formatInTimeZone(clash.startsAt, business.timezone, "HH:mm");
+    return {
+      ok: false,
+      error: `${clash.clientName} כבר משובץ ל-${when} אצל אותו נותן שירות. בחרו שעה אחרת או נותן שירות אחר.`,
+    };
   }
 
   /**
@@ -269,7 +316,7 @@ export async function rescheduleAppointmentAction(
    * history. The clash check above plus the exclusion constraint below are what
    * guard those, which is the same standard a manual booking is held to.
    */
-  if (service.isActive) {
+  if (service.isActive && !parsed.data.force) {
     const slots = await getAvailableSlotsWithStaff(db, {
       businessId: business.id,
       serviceId: appointment.serviceId,
@@ -285,7 +332,9 @@ export async function rescheduleAppointmentAction(
     if (slots.length === 0) {
       return {
         ok: false,
-        error: "אין מועדים פנויים בתאריך הזה — בדקו את שעות הפעילות",
+        confirm: true,
+        message:
+          "אין מועדים פנויים בתאריך הזה — נראה שהוא מחוץ לשעות הפעילות. לשבץ בכל זאת?",
       };
     }
 
@@ -310,11 +359,24 @@ export async function rescheduleAppointmentAction(
      */
     const modelled = slots.some((slot) => slot.staffIds.includes(assigned.id));
 
-    if (modelled && !staffAvailableAt(slots, startsAt.toISOString()).includes(assigned.id)) {
+    if (
+      modelled &&
+      !staffAvailableAt(slots, startsAt.toISOString()).includes(assigned.id)
+    ) {
+      /**
+       * Not an error any more, and that is the fix.
+       *
+       * The slot is free — no appointment holds it, or the clash check above
+       * would have said so — it simply is not one the *booking page* would
+       * offer: outside posted hours, inside a break, or off the lattice. Those
+       * are rules for clients, and refusing the owner because of them was the
+       * "התור שביקשת לא פנוי" dead end. They are asked instead.
+       */
       return {
         ok: false,
-        error:
-          "המועד הזה אינו פנוי בלוח הזמנים. אפשר לקבוע תור ידני מחוץ לשעות הפעילות.",
+        confirm: true,
+        message:
+          "המועד הזה מחוץ לשעות הפעילות או לא מופיע בלוח הזמנים לקהל. לשבץ בכל זאת?",
       };
     }
   }

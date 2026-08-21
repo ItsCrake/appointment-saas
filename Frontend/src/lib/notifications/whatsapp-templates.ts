@@ -5,7 +5,7 @@ import type {
   NotificationContext,
   WhatsAppTemplateRef,
 } from "./types";
-import { isBillingKind } from "./types";
+import { isBillingKind, isWaitlistKind } from "./types";
 
 /**
  * The three Meta-approved WhatsApp templates, and the rule that picks one.
@@ -151,7 +151,17 @@ export function whatsappTemplateFor(
   context: NotificationContext,
   options: { leadHours?: number } = {},
 ): WhatsAppTemplate | null {
-  if (isBillingKind(context.kind)) return null;
+  /**
+   * Two families have no approved template and must never reach the cast below.
+   *
+   * Billing addresses the owner and was never a WhatsApp kind. **Waitlist
+   * invites are the live gap**: they are a real client message with no Meta
+   * template yet, and a `WaitlistContext` has no `manageToken` and no price — so
+   * a branch that treated one as an appointment would post `undefined` into an
+   * approved template's parameters rather than fail. Excluded by name, before
+   * the cast, so adding a branch cannot reach them by accident.
+   */
+  if (isBillingKind(context.kind) || isWaitlistKind(context.kind)) return null;
 
   const appointment = context as AppointmentContext;
 

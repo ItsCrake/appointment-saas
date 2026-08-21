@@ -458,3 +458,96 @@ describe("the date helper the whole engine keys on", () => {
     expect(weekdayOf(DATE)).toBe(1);
   });
 });
+
+describe("reclaiming a gap the lattice cannot sell", () => {
+  /**
+   * The dead time worth arguing about.
+   *
+   * Ceiling to the grid costs a few minutes on purpose — that is what keeps two
+   * providers' columns aligned, and it is the fix a shop asked for. It stops
+   * being worth it when the ceiling swallows a window *whole*: the gap is then
+   * not offered later, it is offered never.
+   */
+  const business = {
+    timezone: TZ,
+    slotIntervalMin: 15,
+    bufferMin: 5,
+    minNoticeMin: 0,
+    maxAdvanceDays: 365,
+  };
+
+  const gridPacking: SlotPacking = {
+    mode: "grid",
+    baseGridMin: 15,
+    originMs: new Date(`${DATE}T00:00:00+03:00`).getTime(),
+  };
+
+  const at = (time: string) => new Date(`${DATE}T${time}:00+03:00`);
+
+  /** Two bookings leaving one 40-minute hole from 10:20 to 11:00. */
+  const boxedIn: BusyInterval[] = [
+    { startsAt: at("09:00"), endsAt: at("10:15") },
+    { startsAt: at("11:05"), endsAt: at("17:00") },
+  ];
+
+  const run = (packing: SlotPacking, appointments: BusyInterval[]) =>
+    computeSlots({
+      business,
+      durationMin: 30,
+      serviceBufferMin: null,
+      shifts: [{ startTime: "09:00", endTime: "17:00", isClosed: false }],
+      appointments,
+      timeOff: [],
+      date: DATE,
+      now: NOW,
+      packing,
+    }).map((slot) => slot.label);
+
+  it("offers the tight start when the lattice offers nothing at all", () => {
+    // Free from 10:20 to 11:00. The first quarter-hour anchor is 10:30, and a
+    // 30-minute service from there runs to 11:00 — which fits exactly, so the
+    // lattice *does* sell this one.
+    expect(run(gridPacking, boxedIn)).toContain("10:30");
+  });
+
+  it("reclaims a window the lattice ceils straight past the end", () => {
+    // Shift the far booking five minutes earlier and 10:30 no longer fits, so
+    // the lattice has nothing to say about a gap that can still hold the
+    // service from 10:20. Without the rescue anchor this is sold to nobody.
+    const tighter: BusyInterval[] = [
+      { startsAt: at("09:00"), endsAt: at("10:15") },
+      { startsAt: at("10:55"), endsAt: at("17:00") },
+    ];
+
+    expect(run(gridPacking, tighter)).toEqual(["10:20"]);
+  });
+
+  it("keeps the columns aligned whenever the lattice can sell the window", () => {
+    /**
+     * The interleaving fix, unchanged. A provider free from 09:05 is still
+     * offered 09:15 — the rescue anchor only fires where there is no lattice
+     * time in the window to align with.
+     */
+    const late: BusyInterval[] = [{ startsAt: at("09:00"), endsAt: at("09:05") }];
+    const labels = run(gridPacking, late);
+
+    expect(labels[0]).toBe("09:15");
+    expect(labels).not.toContain("09:10");
+  });
+
+  it("never offers a start the service cannot finish inside", () => {
+    // Ten minutes of genuinely free time and a 30-minute service: nothing, and
+    // certainly not a rescue anchor that would overrun the next booking.
+    const tiny: BusyInterval[] = [
+      { startsAt: at("09:00"), endsAt: at("10:15") },
+      { startsAt: at("10:35"), endsAt: at("17:00") },
+    ];
+
+    expect(run(gridPacking, tiny)).toEqual([]);
+  });
+
+  it("gives a single-chair shop the earliest free instant, as it always did", () => {
+    // Dense packing never had the problem: it starts at the window's own edge.
+    expect(run({ mode: "dense" }, boxedIn)).toContain("10:20");
+  });
+});
