@@ -1201,9 +1201,15 @@ applied to production. Fifteen tables, RLS on every one, zero reachable by
 
 > ⚠️ **0025 is written and registered but NOT applied.** It adds
 > `businesses.waitlist_offer_ttl_min` (default 60) and a partial index on
-> `waitlist_entries`. Additive and safe — but until `npm run db:migrate` runs
-> against production, every read of that column fails there. The code is
-> merged, so **production is broken on the waitlist paths until it is applied.**
+> `waitlist_entries`. The migration itself is additive and safe. **The deploy
+> ordering is not.**
+>
+> Every `businesses` read is a bare `.select()`, which Drizzle compiles to an
+> explicit column list from the schema — so code that knows about the column
+> running against a database that does not have it fails on
+> `getActiveBusinessBySlug` and `getBusinessById`. That is the public booking
+> page and the whole dashboard, not just the waitlist. **Apply the migration
+> before the deploy that carries this code, never after.**
 
 **Live demo tenants:** `/demo-barber` (1 chair, approval off, ~293 appointments)
 and `/demo-nails` (1 chair, approval **on**, ~124). Both are seeded for
