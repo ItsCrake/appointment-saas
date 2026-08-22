@@ -1190,788 +1190,141 @@ the trial extension moved a clock nothing else read.
 
 ## 5. Where things stand
 
-_This section is the handover between working sessions — if it disagrees with
-the code, the code is right and this is stale. Read it first._
+_The handover between sessions. **If it disagrees with the code, the code is
+right.** Read this, then open the file it points at — the reasoning lives in
+comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1115 tests across 74 files**; Playwright at
-**11/11** across 3 spec files. All **25 migrations (0000–0024)** are applied to
-the live database — fifteen tables, RLS on every one, twelve owner policies,
-zero reachable by `anon`. **No migration is pending**; everything below is
-application code.
+**Green:** `npm run verify` at **1115 tests across 74 files**; Playwright
+**11/11** across 3 specs (not run every session). All **25 migrations
+(0000–0024)** are applied to production. Fifteen tables, RLS on every one, zero
+reachable by `anon`. **No migration pending.**
+
+**Live demo tenants:** `/demo-barber` (1 chair, approval off, ~293 appointments)
+and `/demo-nails` (1 chair, approval **on**, ~124). Both are seeded for
+screenshots and both are owned by real accounts — read the seed traps below
+before running it.
 
 ### The three rules a new session most needs
 
 **1. What a tier buys.** `lib/entitlements.ts` is the only place that decides,
-and it is pure. Starter owns the entire design surface — branding, landing
-content, calendar management are ungated. Pro adds the four things that cost
-*us* per tenant:
+and it is pure. Starter owns the whole design surface; Pro adds the things that
+cost *us* per tenant — `smsReminders`, `canSendWhatsapp`, `canAccessAnalytics`,
+`clientRetention`, `canAccessLibi`, `prioritySupport`. `effectivePlan` resolves
+in order: **frozen → `free`**, trialing → Pro, active → the stored tier, else
+`free`. Frozen outranks a live subscription *and* a running trial. Never read
+`plan_type` without the status and the freeze flag.
 
-| | starter (₪69) | pro (₪99) | trialing | frozen |
-| --- | --- | --- | --- | --- |
-| `customBranding` | ✓ | ✓ | ✓ | · |
-| `smsReminders` | · | ✓ | ✓ | · |
-| `canSendWhatsapp` | · | ✓ | ✓ | · |
-| `canAccessAnalytics` | · | ✓ | ✓ | · |
-| `clientRetention` | · | ✓ | ✓ | · |
-| `canAccessLibi` | · | ✓ | ✓ | · |
-| `prioritySupport` | · | ✓ | ✓ | · |
+**2. WhatsApp sends Meta templates on the official path only, and just two kinds
+can actually go.** `appointment_confirmation`, `reminder_24h` and `reminder_2h`
+are approved — that is the `booking_confirmation` and `reminder` kinds.
+Everything else resolves to no template and is **refused rather than sent as
+free text**; `notifications/audit.test.ts` pins that list. Each template
+component numbers its variables from 1 *independently*. The button base is
+registered as `https://www.bazman.app/` (no `b/`), so the parameter is a bare
+cancel token and `proxy.ts` redirects `/{token}` → `/b/{token}`.
 
-`effectivePlan` resolves in four steps, in order: **frozen → `free`**, trialing
-→ `TRIAL_PLAN` (Pro), active → the stored tier, anything else → `free`. Frozen
-outranks a live subscription *and* a running trial. Never read `plan_type`
-without the status and the freeze flag — `entitlementsFor` takes the row for
-exactly that reason.
-
-**2. WhatsApp sends Meta templates on the official paths only, and the shapes
-are transcribed from Meta, not designed here.** Three are approved on the
-platform's own Business account:
-
-| Template | Header | Body `{{1}}` `{{2}}` `{{3}}` | Button |
-| --- | --- | --- | --- |
-| `appointment_confirmation` | client name | business · 📅 date · ⏰ time | ✓ |
-| `reminder_24h` | — | business · ⏰ time · 📍 place | ✓ |
-| `reminder_2h` | — | business · ⏰ time · 📍 place | · |
-
-**Each component is numbered from 1 independently** — that is why the approved
-confirmation contains two `{{1}}`, one header and one body, filled from
-different values. They do **not** share a parameter list; an earlier version
-assumed they did and was wrong. The button's base URL was registered as
-`https://www.bazman.app/` (no `b/`), so the parameter is a **bare cancel
-token** and `proxy.ts` redirects `/{token}` → `/b/{token}`.
-
-There are **three backends** now, preferred in this order: **Meta Cloud API**
-(the account actually in use, templates by name) → Green API (free text, no
-approval, unofficial) → Twilio (templates by per-account Content SID, no
-account here). Both official paths **refuse** to send with no template rather
-than posting text Meta drops silently. Reminder scheduling: booked more than
-24h ahead → 24h before; 24h or less → 2h before; exactly 24h → nothing.
+Three backends, preferred in order: **Meta Cloud API** → **Green API** → Twilio.
+Green API sends **free text**, so kinds with no Meta template *do* deliver there
+— "it reaches nobody" is true of the Meta path only.
 
 **3. `/master` shows the tier a tenant is *served*, not the one stored.** They
-differ constantly — trialing, past_due and frozen all diverge — and the plan
-cell prints the served tier plus the reason. Extending a trial now also sets
-`subscription_status` back to `trialing`, clears the grace clock and lifts a
-*billing* freeze (never an admin one).
-
-### How a message actually gets out
-
-**Both booking paths dispatch their own messages, both awaited inline.** A
-failure never fails the booking either way. The public path briefly deferred its
-send into `after()` so the confirmation screen could not wait on a provider —
-better on paper, but it made delivery depend on the platform running deferred
-work after the response, and a message quietly falling back to the cron is the
-failure this change exists to remove. What makes awaiting safe is the 10-second
-`AbortSignal.timeout` inside the Meta provider's fetch: a hung connection would
-otherwise hold the booking response open until the platform killed it. A timeout
-is retryable, so the row stays pending and the sweep collects it.
-
-**The WhatsApp cost guard has two switches, combined by OR.** The `/master`
-overview carries a toggle backed by `platform_settings` (migration 0023, a
-single enforced row, RLS on with zero policies); `DISABLE_WHATSAPP_DISPATCH` is
-the deploy-time one. **Either suppresses; neither can force sending back on over
-the other** — a button in a web UI must not start spending money on a deploy
-whose environment said no, so the toggle renders disabled and says why when the
-variable is set. The console read fails safe: an unreadable settings row means
-*suppress*, inverting this codebase's usual fail-open bias because the cost of
-being wrong is money and messages to real clients. The outbox records which
-source stopped it, not just that something did.
-
-**`DISABLE_WHATSAPP_DISPATCH` is the cost guard.** Set it and no WhatsApp
-message reaches the network: `whatsappProvider()` swaps the configured backend
-for a stand-in that logs the full payload and refuses, and the dispatcher marks
-the row `skipped` — never `sent`, so nothing reads as delivered. Fail-safe
-parsing: **any** value other than `false/0/no/off` suppresses, because a typo
-compared against `"true"` would have read as enabled and started billing.
-`check:env --production` **fails** while it is set, since WhatsApp is the only
-live client channel and a deploy carrying it would tell nobody anything.
-
-**Emoji-adjacent template parameters are wrapped in U+200F.** `⏰ 16:00` has no
-strong directional character, so the Bidi algorithm defaults it to LTR and iOS
-rendered the clock on the wrong side. `anchorRtl()` in
-`whatsapp-templates.ts` fixes date, time and address; the business name is left
-alone because it sits mid-sentence after Hebrew.
-
-That leaves the sweep responsible for **reminders, retries, billing warnings and
-win-back** — and reminders are the ones that care, because `reminder_2h` targets
-a precise instant. `vercel.json` is pinned to daily only to satisfy Vercel Hobby;
-`.github/workflows/dispatch-notifications.yml` hits the same authenticated URL
-every 15 minutes and is what makes reminders land. It needs two repository
-secrets — `CRON_SECRET` (same value as Vercel's) and `APP_URL` (deployed origin,
-no trailing slash) — and fails the run loudly if either is missing.
-
-`check:env` now prints the resolved WhatsApp backend under **Delivery**
-alongside email, push and billing, so "which of the three is live" is visible
-without reading credentials.
-
-### Why the dashboard felt slow, and what is left
-
-Every agenda interaction — an arrow, a day/week switch, an appointment status
-button — re-renders the whole route. That render used to make **three Supabase
-auth round trips and two identical business lookups**: one auth call in the
-proxy, one in the layout's freeze check, one in the page's `requireBusiness()`,
-with a `getBusinessByOwner` beside each of the last two. `getUser()` is a real
-network call to the auth server, deliberately, because `getSession()` trusts a
-spoofable cookie.
-
-React `cache` on `getCurrentUser` and on `businessForOwner` collapses the
-layout's and the page's work into one of each, and
-`request-dedup.coverage.test.ts` fails the build if either is unwrapped. It is
-per-request only, so nothing is weakened — each new request still revalidates.
-
-**Prefetching is not the remaining lever, despite looking like it.**
-`/dashboard` has a `loading.tsx`, so Next prefetches only down to that boundary,
-and the client cache TTL for dynamic routes is **off by default** — a
-`prefetch={true}` payload would be fetched and then discarded. Making it stick
-means `staleTimes.dynamic` in `next.config.ts`, which trades a live calendar for
-speed: an owner stepping to tomorrow and back would see a cached "today" that
-can be missing a booking made seconds ago. **Deliberately not enabled** — that
-is a product call, not a performance one.
-
-### A successful login used to report a connection error
-
-`redirect()` signals success by **throwing**, and that control-flow error
-crosses the wire: the client-side action promise rejects while the router
-performs the navigation. `lib/call-action.ts` caught everything, so every
-successful sign-in came back as `{ ok: false }` and the reader was told the
-connection had dropped while being taken to their dashboard.
-
-`typedFailure` on the server already had the rule — `unstable_rethrow` first,
-always — and the client wrapper simply never got it. The three auth forms then
-swallow the rethrown control-flow error, because an async submit handler that
-rejects becomes an unhandled rejection and the dev overlay reports *that* as an
-error on a login that worked. `pending` is deliberately left true through the
-redirect so the button does not flash back to "ready" for a frame.
-
-`call-action.test.ts` builds the case with the real `redirect()` rather than a
-hand-made error object, so it keeps testing what Next actually throws.
-
-### The glassmorphic calendar and its edit modal ✅
-
-`/dashboard/agenda/full` now paints its appointments as translucent glass in the
-tenant's own accent, marks the ones carrying a note, and opens a dialog on click
-offering view / status / edit / reschedule / cancel. No migration — every column
-it needed already existed.
-
-**The dashboard was never themed, and that is why the tint needed wiring, not
-just styling.** `data-accent` lived only on the three client-facing routes, so
-the calendar's `bg-(--accent-soft)` on today's column had been resolving the
-`:root` indigo fallback for every shop regardless of their colour — and keeping
-its *light* value in dark mode, since the dark overrides are scoped to
-`[data-accent]`. The attribute now sits on the full calendar's own wrapper, which
-themes the glass and fixes today's column in the same line.
-`theme-coverage.test.ts` therefore has one dashboard route in its allowlist; that
-is deliberate, and the reason is written next to it. The rest of the dashboard
-chrome stays monochrome.
-
-**The glass is a plain CSS class, and it has to be.** `.cal-glass` in
-`globals.css` mixes `var(--accent)` inside a real declaration, so it resolves *at
-the element* and picks up the nearest `data-accent`. A `--cal-glass-bg` token on
-`:root` cannot work: custom properties compute where they are declared, so the
-root fallback would be baked in and every shop's calendar would come out indigo —
-the same trap `--shadow-accent` documents. `.accent-mesh` already worked this way
-and is the precedent. Unlayered, so it beats Tailwind's `@layer utilities`
-without `!important`.
-
-The week view stays genuinely translucent — seven narrow columns of solid colour
-is a wall, and the open-hours band has to read through. The day view has one wide
-column and nothing to compete with, so `.cal-glass-solid` spends the room on
-legibility instead. Same reasoning as the solid/translucent split it replaces.
-
-**Contrast is measured on the composited surface, and the measurement is a test
-rather than a reading.** `calendar-glass-contrast.test.ts` rebuilds the real
-stack — card, open-hours band, today's tint, the glass base, the glass tint —
-composites it, and holds every surface to 4.5:1 against the body text *and*
-against the `opacity-75` secondary line, which is the weakest type on the card.
-Twelve surfaces: six swatches in light and dark. Today's column is included
-because it is the darkest ground a light card sits on and the lightest a dark one
-does.
-
-In code rather than in devtools on purpose: a one-off reading proves the colour
-that shipped the day it was taken, while this fails the build the day somebody
-raises a tint percentage. Worst reading across every combination is **6.54:1**
-(light week, rose, the muted line) against a 4.5 floor — headroom, but not so
-much that the check is decorative.
-
-It converts oklch to sRGB itself, so the converter is **pinned to the sRGB
-primaries** plus the achromatic ends; without that the suite would happily
-measure a broken converter and report comfortable ratios for surfaces nobody can
-read, which is the "confident wrong number" the original analysis warned about.
-The obvious pin is the wrong one and failed first time out: **Tailwind v4
-re-derived its palette in oklch with chroma beyond sRGB**, so the values in
-`globals.css` do not round-trip to the v3 hexes — `oklch(51.1% 0.262 276.966)`
-really is `#4f39f6`, not `#4f46e5`. Pinning to those hexes tests which Tailwind
-release the palette was copied from, which is not a property worth defending.
-
-That is also why `globals.css` keeps the glass base and its tint as two layers
-instead of one four-way `color-mix`: two alpha composites can be re-derived
-exactly, whereas CSS premultiplies alpha through polar interpolation and
-reproducing that by hand is how the wrong number gets made.
-
-#### The card reads as a column, and its colour says who
-
-**A booking's fields are stacked, one per line, and how many appear is
-arithmetic.** They used to share a single row on anything under half an hour,
-which in a ninety-pixel column arrived as `09:00 · דני · תספ…` — one ellipsis
-eating the time, the name and the service at once. `lineBudget` in
-`calendar-layout.ts` turns the booking's height into a count of lines, so each
-field is either shown whole or not shown at all and what gets dropped is the
-least important field rather than the end of every field. It is pure arithmetic
-on integers, sits with the rest of the geometry, and is tested on its own.
-
-The rows grew to make that fit: the week to `h-24` and the day to `h-32`, chosen
-so that a **half-hour booking** — the commonest length in the product — clears
-three lines in both views. `HOUR_ROW_PX` transcribes those Tailwind classes for
-the budget to compute against, and `calendar-layout.test.ts` fails the build if
-the class and the number drift apart, because a card that thinks it has room it
-does not have clips silently.
-
-**A team's cards are tinted by whose booking it is.** `--cal-hue` overrides the
-accent inside the glass, set by a `.cal-staff-*` class per swatch — the same
-colours as the dots in the legend directly above the grid, because the grid and
-its key have to agree. A one-chair shop sets nothing and keeps the tenant accent
-through the `var(--cal-hue, var(--accent))` fallback, which is a fallback rather
-than a second rule so the cascade never has to choose between two single-class
-selectors. The contrast test now covers seven hues against six grounds in both
-modes and both views — a rose-tinted card can be sitting on an amber shop's
-Tuesday, and only the pairing is measurable, not either half alone.
-
-#### Two notes, two icons, two tabs
-
-The client's note on *this booking* and the shop's standing notes about *the
-person* are different objects with different lifetimes, and the calendar now says
-so everywhere: a **document** icon for the booking's note, a **person** icon for
-the client's, on the card, in the hover card, and as the labels in the dialog.
-
-The dialog is therefore two tabs. **פרטי התור** holds the booking — service,
-price, provider, phone, its own note, the status actions, reschedule and cancel.
-**כרטיס לקוח** holds the person, with their standing notes editable in place and
-saved through `saveClientProfileAction`, the same action the clients page uses,
-so there is one write path for a client note and one place deciding what
-revalidates. That tab carries a dot when there is something written on it, so an
-owner knows without opening it.
-
-Saving a client note deliberately **does not close the dialog** — it is a note
-written *while* looking at the booking that prompted it, and closing the thing
-being read is the wrong reward. The grid behind is refreshed anyway, because the
-mark on every one of that client's other cards depends on it. A reschedule or a
-detail edit still closes, since both invalidate the snapshot the dialog was
-opened with.
-
-#### Reschedule is a booking, and the appointment blocks itself
-
-`rescheduleAppointmentAction` re-reads the row through the session's business,
-refuses a terminal one, re-derives `endsAt` from the stored service duration,
-re-runs availability, and writes through `rescheduleAppointment` so
-`appointments_no_overlap_staff` is the backstop. The interesting parts are the
-three places the obvious implementation is wrong:
-
-**1. Availability counts the appointment being moved.** It occupies the time it
-is moving *from*, so an owner nudging a 10:00 booking to 10:15 is told the slot
-is taken — by the booking they are dragging. `getAvailableSlotsWithStaff` now
-takes `excludeAppointmentId`, used by this one caller, which drops exactly that
-row from the busy set and nothing else. The exclusion constraint is untouched, so
-this narrows what one caller *sees* as busy without widening what anyone may
-book.
-
-**2. The engine has no answer for some perfectly ordinary appointments**, and
-reading its silence as "not free" makes them permanently unmovable. It only
-models bookable providers and active services, and three states fall outside
-that: a service since deactivated (they are deactivated rather than deleted
-*because* they hold history), a provider since deactivated, and a shop that
-collapsed back to one chair, where only the primary is handed to the engine. All
-three leave real bookings on the calendar. Those fall back to a direct clash
-check plus the constraint — the same standard `createManualBookingAction` is held
-to. A provider the engine *does* model appears in some slot on any open day, with
-no schedule rows of their own they inherit the shop's hours, so every ordinary
-move is still governed by the strict check.
-
-**3. The reminder's dedupe key does not mention the time.** It is
-`reminder:<appointmentId>:<hoursBefore>`, and `enqueueNotification` is an
-`onConflictDoNothing` that conflicts on the key **whatever the row's status**. So
-the intuitive move — mark the stale reminder `skipped`, re-enqueue for the new
-time — queues *nothing*: an appointment pushed from Tuesday 10:00 to Tuesday
-14:00 plans onto the same 24-hour rule, hits the same key, and the client
-silently gets no reminder at all. Only for rescheduled appointments, which is
-exactly the kind of hole nobody finds by reading.
-
-So the pending rows are **deleted**, by
-`deletePendingNotificationsForAppointment`, and that is honest here: a `pending`
-row is a future intention, nothing was ever delivered, and the instant it
-describes no longer exists. `sent`, `failed` and `skipped` rows are never
-touched, and cancellation still *skips* rather than deletes, because there the
-appointment really is over and the audit trail is the point. `reschedule.test.ts`
-asserts the trap from both sides — that skipping queues nothing, and that
-deleting queues the new time — so nobody re-introduces it as a tidiness fix.
-
-Timing was the only thing wrong with a moved reminder: the dispatcher already
-derives `reminder_24h` vs `reminder_2h` from the appointment's live `startsAt`,
-so the wording was always going to be right.
-
-**Availability applies here where manual booking skips it, on purpose.** A manual
-booking is the owner adding something they already know about — a walk-in, a
-favour, a job that runs past closing. A reschedule moves a *client's*
-appointment, and a client must not be quietly moved to a time the shop is shut.
-The refusal says which of the two reasons stopped them — somebody else is booked,
-or that is outside your hours — so an owner who really wants the off-hours slot
-knows to take the manual route.
-
-#### The dashboard shows one day, and the week has one home
-
-`/dashboard` no longer carries a day/week toggle. The week it offered was a list
-of seven headings — no grid, no blocks, no staff — while `/dashboard/agenda/full`
-answers the same question properly and sits one tap away in the header. Two
-answers, one of them plainly weaker, and the toggle sat where a thumb lands
-first. The `view` parameter is gone with it; an old `?view=week` bookmark now
-lands on that day, which is what a bookmark should do.
-
-**The dashboard's link to the shop's own page was missing `?preview=1`.** The
-settings share link had it and the dashboard header did not, so whether an owner
-could get back depended on which of two identical-looking links they used — and
-`/[slug]` has no dashboard chrome, so the preview bar is the *only* route home.
-`preview-link.coverage.test.ts` now fails the build on a tenant link that omits
-the flag, because the two links live in different files and neither looked wrong
-on its own. The flag still grants nothing: ownership is resolved server-side
-before the bar renders.
-
-**The floating accessibility widget is unmounted**, deliberately and
-temporarily — it sat over every page at every breakpoint while the product is
-still being built. The component and `/accessibility` (the statement itself,
-which is a legal obligation and stays linked from the footer) are untouched, so
-restoring it is one line in the root layout.
-
-#### Analytics: sorting without leaving the page
-
-The services sort was a `<Link>`, so switching between "הכי מבוקשים" and "הכי
-רווחיים" re-ran the trend, heatmap, status and staff queries to return rows the
-browser already held — and handed back a page scrolled to its own top. On a
-phone, where that panel sits well below the fold, asking which service is most
-profitable threw the reader back to the headline cards. It is client state now,
-with `history.replaceState` keeping the URL shareable, exactly as the calendar's
-view switch does it.
-
-That made a second thing wrong that had been fine: `RangeTabs` built its hrefs
-from a server-rendered `sort`, which goes stale the moment the sort is changed in
-the browser, so changing the range would have discarded the chosen order. It
-reads `by` from the live URL now. Both controls are small client leaves in their
-own modules — `range-tabs.tsx` and `services-panel.tsx` — specifically so that
-importing them does not drag the heatmap and the trend into the browser bundle
-with them; every other panel stays server-rendered and ships no JavaScript.
-
-The status panel's counts and percentages were a single string with a hairline
-between them, so "12" and "40%" read as one number and the column of shares came
-out ragged. They are two columns now, with a gap and a fixed width, so the eye
-can run down either figure alone.
-
-#### Cancelling has a way back, and reviving one works again
-
-Cancelling from the agenda or the calendar now offers **"בטל פעולה"** for six
-seconds. Only cancelling — it is the one status change that messages the client
-on the same click, and the one an owner can make by hitting the wrong row on a
-phone without noticing for a week. The toast learned an optional action and its
-own duration to carry it; four seconds is enough to notice something happened
-and not enough to read it, find the button and hit it.
-
-Undo restores the **previous** status rather than assuming `confirmed`, which is
-why `statusSchema` now accepts `pending`: a rejected request came from there, and
-promoting it to confirmed would agree to something on the owner's behalf.
-
-That exposed an older bug. Cancelling marks the queued reminder `skipped` and
-nothing ever put it back, so an appointment cancelled and then restored — by the
-new undo, or by the "החזרה לתור פעיל" button that has always existed — kept its
-slot and silently stopped reminding the client. Reviving now re-plans the
-reminder through the same delete-then-enqueue the reschedule path uses, and for
-the same dedupe-key reason.
-
-#### Reading before writing, and a floor under short bookings
-
-The client tab used to focus its textarea on mount, so opening it threw up the
-mobile keyboard and shoved the viewport before the owner had read a word of the
-note they came to read. Most visits there are to *look*. It opens as text now,
-with the block itself and a labelled button both offering the edit; focus follows
-the decision to edit, never the arrival on the tab.
-
-A quarter-hour card is 24 pixels and held a name alone, so *when is it* could
-only be answered by opening it. `MIN_CARD_PX` lifts it to 34 — name and time —
-but as a **minimum capped by the room actually available**: `cardHeightPx` never
-grows a card past where the next booking in its lane begins. Two back-to-back
-fifteen-minute appointments therefore keep their true heights and stay honest
-about when they happen, which matters more than a card you have to open. The line
-budget is now measured in rendered pixels rather than minutes, so a lifted card
-uses the room it gained.
-
-#### Sign-out was global, and that is what ended the other device
-
-`supabase.auth.signOut()` defaults to `scope: "global"`, revoking **every**
-refresh token the user holds — so leaving on one device ended the session
-everywhere, and the other device simply presented a login screen next time it was
-touched. It is `local` now. The deliberate global sign-out stays in
-`updatePasswordAction`, where every other session *should* die.
-
-If concurrent sessions still fail, the remaining lever is not in this repository:
-Supabase's own Auth settings can cap sessions per user, and that is project
-configuration.
-
-#### The gradient reaches the management screens
-
-Services, hours and clients were the flattest screens in the product — a heading
-over a list, no way to tell at a glance which one you had landed on, and two of
-them hand-rolled their own `<h1>` at the wrong type scale. They share
-`PageHeader` now, with an icon in a `brand-tint` container and a `brand-rule`
-hairline that fades out across the page.
-
-**Tinted rather than saturated, and that is the whole design decision.** The
-solid ramp means "active or recommended" and is already spent on the current nav
-item inches away; a full-strength gradient chip in a page header would be a
-second, louder instance of a signal that is supposed to be rare. At about a sixth
-strength it reads as the page's own colour instead of as something to press, so
-the rule in `ui.tsx` is extended rather than broken — and that comment now says
-so, because a documented law that contradicts the code is worse than no law.
-
-No per-card glow. On a list of twenty services a halo per row is noise, and these
-are screens where scanning is the job.
-
-#### Waitlist ("רשימת המתנה") ✅
-
-A shop fills up and the client goes elsewhere. `waitlist_entries` is the row that
-says "I want in, roughly then", so a cancellation has a queue instead of a hole.
-
-**A waitlist entry is not an appointment**, which is why it is its own table
-rather than another status. It reserves nothing, blocks nothing, and never
-appears in availability — every query in the product treats an appointment row
-as a commitment, and a wish is not one.
-
-**The matching rule is pure and tested on its own** (`lib/waitlist.ts`). Every
-preference is a filter and an **absent** preference filters nothing: somebody
-who left the service blank wants any appointment and hears about all of them,
-while somebody who named Tuesday never hears about a Thursday. Reading a blank
-as "no match" would silently exclude the least fussy clients, who are exactly
-the easiest to place. Days and hours are resolved in the **shop's** clock —
-22:00 UTC Tuesday is Wednesday morning in Jerusalem, and a matcher working in
-UTC gets both of those wrong invisibly to anyone testing from Israel.
-
-**Freed slots are derived, not stored.** A cancelled appointment already carries
-when, how long, whose and for what, so a second "a slot opened" table would be a
-copy that can disagree with it. What was missing was *when* it was given up, so
-0024 adds `appointments.cancelled_at`, stamped inside `updateAppointmentStatus`
-and `cancelAppointmentByToken` so every route to a cancellation records it and
-cleared on the way back out. The banner shows openings that are still ahead, were
-cancelled within a week, match somebody, and have not already been offered — all
-four derived, so it clears itself without a dismiss flag.
-
-**The race is settled by the exclusion constraint, and nothing else.** The invite
-link is per *entry*, not per slot, so it identifies the person as well as the
-opening. Everybody who holds one passes every check; exactly one insert survives
-`appointments_no_overlap_staff`; everyone else gets `SlotTakenError` and a screen
-that says a slot was offered to several people, somebody was quicker, and they
-are still in the queue. Their entry stays **active** — they did not get this
-slot, so they have not left the queue — and the dead token is cleared. The copy
-says "first come, first served" *before* they tap, because somebody who knows the
-rule reads the losing screen as the rule working rather than as the shop going
-back on its word.
-
-`/w/[token]` deliberately **does not re-run availability**: the slot was a real
-appointment minutes ago and may sit outside posted hours or inside a break, and
-the shop has explicitly offered it. The overlap guard is what still holds.
-
-#### What actually reaches the client today
-
-**Nothing automatic, and the UI says so.** `waitlist_invite` is a new
-notification kind with no approved Meta template, so the official WhatsApp path
-refuses it exactly as it refuses the five drafted kinds — see the blocked table
-below. Rather than report success into a void, the invite action hands back **one
-link per invited client** and the banner shows them: a WhatsApp button with the
-message pre-written, and a copy button. The outbox row is still written, so the
-cost counter and `/master` see it, the sweep retries it, and the moment a
-template is approved the same button starts delivering by itself.
-
-Invites are capped at **ten per slot**, and that cap is about money rather than
-fairness: each is a message the platform pays for, and a popular shop can have
-dozens of matches for one Tuesday morning. `matchesForSlot` sorts by longest
-wait, so the cap takes the people who have waited longest.
-
-`notifications.waitlist_entry_id` is how an invite hangs off a person instead of
-an appointment — it has none by definition — and `WaitlistContext` is a third
-template family beside billing for the same reason: the appointment shape needs
-a booking to describe, and an invite's whole subject is a slot that has none.
-
-**Joining twice is a correction, not an error.** A partial unique index allows
-one live entry per phone per shop, and `upsertWaitlistEntry` updates the row
-somebody already holds while keeping their original `created_at` — changing your
-mind about Tuesdays should not send you to the back of a fortnight-long queue.
-
-### The demo tenants are seeded for screenshots ✅
-
-`db:seed` now writes a calendar somebody runs: a month of history and the week
-ahead, mixed statuses, client notes, waitlist queues, and one recent
-cancellation on a future day so the freed-slot banner is *on screen* rather than
-described. Male Hebrew names throughout `demo-barber`, female throughout
-`demo-nails`, and the generator invents nobody — it draws only from the list it
-is handed, which is what keeps a barbershop's client list from reading half
-female.
-
-**Deterministic, because a screenshot has to be reproducible.** A re-run to fix
-a typo must not reshuffle every appointment behind a shot already taken, so the
-generator is a seeded PRNG per tenant rather than `Math.random`.
-
-**Dense behind, half empty ahead.** History fills the revenue chart and the
-heatmap; the days in front stay bookable, because the E2E suite books a real
-appointment against `demo-barber` and a prospect opening the demo link has to
-find a slot. Bookings are laid per provider with a walking cursor so nothing can
-overlap — an overlap would not merely look wrong, it would fail
-`appointments_no_overlap_staff` and take the whole seed transaction down.
-
-**Two things the seed itself needed.** It previews before it destroys —
-`db:seed -- --dry-run` reports what would be deleted, and the write path prints
-the same counts first. And a re-seed no longer **transfers ownership**: a demo
-that already exists keeps the account it belongs to. `resolveOwnerId` answers a
-different question — who should own a demo that does not exist yet — and on a
-database where every account already owns something it falls through to "reuse
-the oldest", which would have handed both demos to one account and left the
-other owner facing the setup wizard, since `getBusinessByOwner` returns one row.
-That was the live database's exact state.
-
-`0024_waitlist.sql` was written by hand and **not registered in Drizzle's
-`meta/_journal.json`**, so `db:migrate` reported success while doing nothing and
-the table never appeared. The journal is the migrator's index; a hand-written
-migration has to be added to it.
-
-### The waitlist offers its own slots ✅
-
-**The freed-slot banner is gone, and so is the manual invite action.** It put a
-decision in front of the owner for every single cancellation, and the decision
-was always yes. A queue whose whole purpose is filling gaps does not need
-permission to fill one — the owner's job is deciding *who is in the queue*, which
-is what `/dashboard/waitlist` is for and now the only place the waitlist is
-managed.
-
-`offerFreedSlotToWaitlist` runs from both cancellation paths — the owner's button
-and the client's link — and offers the slot to **one** person: the front of the
-queue, since `matchesForSlot` sorts by longest wait. That is a deliberate change
-from the ten-at-a-time the banner sent. An automatic message to ten people every
-time anybody cancels is a shop paying for its own no-shows, and nine of those
-messages exist only to be lost. The `/w/[token]` "already taken" screen still
-earns its place: two cancellations can offer overlapping slots, and an owner can
-fill one by hand while an invite is out.
-
-Best effort by construction. Every caller is a cancellation that already
-happened, so an unreachable queue must never turn it into an error somebody sees.
-
-### Pending means the shop asked for it ✅
-
-With `requiresApproval` off, `createBookingAction` writes `confirmed` directly —
-so a `pending` row is a state the product cannot reach. Two places now agree with
-that: the seed generates no pending for such a tenant, and the calendar's amber
-treatment is gated on the **setting** rather than on the status alone. Painting
-the calendar amber for a shop with nothing to approve is how an owner learns to
-ignore the colour.
-
-The trade-off is deliberate: a tenant who switches approval off with requests
-outstanding sees those cards un-marked. They are still `pending` in the database
-and still answerable from the dialog — but the calendar stops shouting about a
-queue the shop has closed.
-
-### Both demos are single-chair, and columns stay readable ✅
-
-`demo-barber` is back to one provider. The team shape — the "who with?" step, the
-staff legend, per-person tinting — is reachable by adding somebody on
-`/dashboard/staff`, which is how a real shop grows into it. `chooseProviderIfAsked`
-in the E2E helper races all three screens, so the suite is indifferent to which
-shape the demo currently has.
-
-**Lanes were the density problem, not columns.** Overlapping bookings split a day
-column into lanes, so three providers busy at ten turn one column into three
-slivers — twenty-one across a week on a phone, every one an ellipsis. That is the
-same failure the stacked card and the height floor exist to remove, on the other
-axis. `gridMinWidthPx` sizes the grid from the **widest lane count on screen**,
-because all columns share a width: one busy Tuesday sets the floor for the week,
-and sizing to the average leaves exactly that day unreadable. A week that fits
-stays fluid; only one that would not grows past the viewport and scrolls.
-
-### A re-seed refreshes the diary, not the shop ✅
-
-`db:seed` used to delete the business row and let the cascade take everything
-with it. That destroyed work nobody could get back — `demo-barber` was carrying a
-logo, a hero image, four gallery images and a staff photo, none of which the seed
-can recreate — so the destructive half is now scoped to **operational rows only**:
-appointments, waitlist entries, client notes and the outbox.
-
-Kept: the logo, hero media, gallery, reviews, theme, name, description and
-contact details, and the services and staff rows with their own `image_url`s.
-Uploads and copy are things somebody made deliberately; appointments are
-generated fiction, and only fiction is regenerated.
-
-An existing tenant keeps its catalogue and team rather than having them rebuilt,
-so an owner who renamed a service or added somebody keeps that — and the diary is
-generated against the hours the shop **actually** keeps, read back from
-`working_hours` rather than assumed from the seed definition, so changed opening
-times do not produce a month of bookings outside them.
-
-The handful of flags the seed still writes are the ones the demo's behaviour
-depends on and that nobody uploads: plan, approval mode, booking grid, buffer,
-active.
-
-### Demo start times land where the product can book them ✅
-
-The generated calendar contained times like 09:23 and 09:58 — times
-`computeSlots` will never offer, because it only emits starts on the tenant's
-lattice. A demo showing them is a screenshot of something the software would
-refuse to book.
-
-The walk drifted off the grid in two places: a gap advanced by *half a service
-length*, and the buffer pushed the cursor by five minutes. Both are snapped now —
-the next start is `ceil(end + buffer)` to `slot_interval_min`, and a gap is
-exactly one slot — so a 30-minute cut from 09:00 with a five-minute buffer puts
-the next client at 09:45, which is what the booking page would have offered.
-Variety comes from how many slots are skipped, not from skipping a fraction of
-one. Verified in production: **0 of 293** barber starts and **0 of 124** nail
-starts are off-grid.
-
-**The seeded "freed slot" is now a real cancellation.** It used to be a fresh
-booking placed at a hardcoded 17:30, which collided with the generator the moment
-grid snapping moved everything — and a collision there is not cosmetic:
-`appointments_no_overlap_staff` would reject the insert and take the whole seed
-transaction down. `cancelOneFutureBooking` flips an existing row instead, which
-cannot collide by construction and is also what a cancellation actually is.
-
-### Dead time, and the one place the lattice created it ✅
-
-**Dense packing already did what was asked.** A single-chair shop offers the
-earliest genuinely free instant: `freeWindows` subtracts each booking padded by
-the buffer, and dense mode starts at the window's own edge — a booking ending at
-10:15 with a five-minute buffer is already offered as 10:20. Both demo tenants
-are single-chair, so the reported symptom cannot come from there.
-
-**Grid mode is where it came from**, and only there. A team shop's slots snap to
-a lattice anchored on local midnight, and the first anchor *ceils* the window
-start — deliberately, because two providers re-anchoring on their own bookings is
-the interleaved `09:00 / 09:05 / 10:00 / 10:05` column a shop reported and this
-mode exists to fix.
-
-So the fix is scoped rather than global: the tight start is offered **only when
-the lattice produced no anchor at all in that window**. A forty-minute hole on a
-quarter-hour lattice with a thirty-minute service is sold to nobody otherwise —
-not offered later, offered never — and reclaiming it cannot interleave anything,
-because by definition there is no lattice time in that window to interleave with.
-Three existing tests assert the ceiling behaviour and all three still pass
-unchanged, which is the point.
-
-Offering the tightest start *always* in grid mode would undo the interleaving
-fix. That is a real trade rather than an oversight, and it is available in one
-line if a team shop ever asks for density over alignment.
-
-### The owner is not a client, and reschedule now says so ✅
-
-`"התור שביקשת לא פנוי"` came from holding the owner to the **booking page's**
-rules. The slot was free — no appointment held it — it simply was not one the
-public flow would offer: outside posted hours, inside a break, off the lattice.
-Those are policies for clients.
-
-A refusal of that kind is now a `confirm` result rather than an error, and the
-move panel shows an amber warning with `לשבץ בכל זאת`, which re-sends with
-`force: true` and skips the availability engine.
-
-**`force` cannot waive a same-provider overlap, and no flag ever will.**
-`appointments_no_overlap_staff` physically refuses two live appointments on one
-person at one time, and it is the single guarantee stopping this product from
-double-booking. So a clash is returned as a plain error naming the conflicting
-client and time — being asked "are you sure?" and then told no anyway is worse
-than being told no. Moving to a different provider or time is the way through.
-
-### Audit: what the messaging layer actually does ✅
-
-`notifications/audit.test.ts` renders **every kind in the enum** and fails on an
-empty body or a leaked `undefined` — the failure that throws nothing, builds
-fine, and is visible only to the person who received it. It also pins the phone
-path: `normalizePhone` writes the stored Israeli form and `toE164` produces what
-Meta and Twilio want, and six input spellings are asserted to arrive at one
-`+972…` without the double-prefix bug.
-
-It records, mechanically, that the official WhatsApp path can deliver exactly
-**two kinds** — `booking_confirmation` and `reminder`. Every other kind, waitlist
-invites and cancellations included, resolves to no template and is refused rather
-than posted as text Meta drops silently. That is the template backlog, not a
-regression, and the suite now states it instead of leaving it to be rediscovered.
-
-One hazard was closed on the way: `whatsappTemplateFor` cast its context to an
-appointment after excluding billing only. A `WaitlistContext` has no
-`manageToken` and no price, so a future branch reaching one would have posted
-`undefined` into an approved template's parameters — which Meta accepts and
-renders to the client. Waitlist kinds are now excluded by name, before the cast.
-
-`cross-feature.test.ts` covers the seam the individual suites leave: a cancelled
-slot re-entering availability, two bookings racing for one slot, a second
-provider legitimately holding the same hour, and a `pending` request blocking its
-time exactly as a confirmed one does — so the waitlist can never be offered a
-slot somebody is still awaiting an answer on.
+diverge constantly — trialing, past_due and frozen all do — and the cell prints
+the served tier plus the reason.
+
+### Traps that cost a session each. Do not rediscover them.
+
+| Trap | What happens | Where |
+| --- | --- | --- |
+| **The dedupe key omits the time** | `reminder:<id>:<hours>` is UNIQUE and `enqueueNotification` is an `onConflictDoNothing` **whatever the row's status**. Marking a reminder `skipped` and re-enqueueing queues *nothing*, so a moved or revived appointment silently loses its reminder. Delete the pending rows instead. | `deletePendingNotificationsForAppointment` |
+| **A hand-written migration does nothing** | Drizzle runs `meta/_journal.json`, not the folder. `db:migrate` reports success while skipping an unregistered file — 0024 shipped that way and the table never appeared. | `db/migrations/meta/_journal.json` |
+| **`db:seed` used to destroy uploads** | It deleted the business row and cascaded away the logo, hero, gallery, reviews and every `services`/`staff` `image_url`. It now clears **only** appointments, waitlist, client notes and the outbox. | `db/seed.ts` |
+| **`db:seed` used to transfer ownership** | `resolveOwnerId` falls through to "reuse the oldest" when every account already owns something — which is this database. An existing demo now keeps its owner. Always run `db:seed -- --dry-run` first. | `ownerFor` |
+| **`sql` aggregates decode differently** | postgres.js returns a string where PGlite returns a `Date`, so the suite proves the opposite of production. Convert with `toDate`; `.mapWith()` does not work in that position. Enforced by `sql-types.coverage.test.ts`. | `db/queries/sql-types.ts` |
+| **`redirect()` signals success by throwing** | `unstable_rethrow` first, always, or a successful login reports a connection error. | `lib/call-action.ts` |
+| **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
+
+### The guarantee everything else leans on
+
+`appointments_no_overlap_staff` — `(business_id, staff_id)` over the non-terminal
+statuses — is the **only** thing preventing a double booking, and it is not
+optional. What follows from that:
+
+- Any write to `starts_at`/`ends_at` goes through `rescheduleAppointment`, never
+  a bare update, so a violation surfaces as `SlotTakenError`.
+- The waitlist race is settled by it rather than by locking: everyone holding an
+  invite link passes every check and exactly one insert survives.
+- **`force: true` on a reschedule cannot waive it.** Force waives the *shop's*
+  own rules — posted hours, breaks, notice. A same-provider clash returns a plain
+  error naming the conflict, because being asked "are you sure?" and then failing
+  anyway is worse than being refused.
+- `pending` is non-terminal, so a request holds its slot. Deliberate: a request
+  that reserved nothing is a request to be disappointed.
+
+### Shipped, with the decision worth remembering
+
+- **Full calendar** (`week-calendar.tsx`) — glass blocks in the tenant accent via
+  `data-accent`; a staff hue overrides it on a team; **amber overrides both** for
+  `pending`, and only when `requiresApproval` is on. Cards stack three lines
+  (name / time / service): `lineBudget` and `MIN_CARD_PX` decide how many fit,
+  capped so a floor never draws over the next booking. `gridMinWidthPx` sizes the
+  grid from the widest lane count, so overlaps scroll rather than collapse.
+- **Appointment dialog** — two tabs, booking and client card. Reschedule re-runs
+  availability with the appointment excluded from its own busy set, or it blocks
+  itself. Amber confirm sends `force: true` for off-hours.
+- **Waitlist** (0024) — public join from the booking page, `/w/[token]` invite
+  with a first-come screen, `/dashboard/waitlist` as the single management
+  surface. A cancellation offers the slot to the **front of the queue
+  automatically**, from both cancellation paths. No banner, nothing to approve.
+- **Availability** — dense packing (single chair) already offers the earliest
+  genuinely free instant. Grid mode (teams) ceils to the lattice **on purpose**,
+  to stop the interleaved `09:00 / 09:05` columns a shop reported; a rescue
+  anchor reclaims a window only when the lattice cannot sell it at all. Offering
+  the tight start *always* would reverse that fix — a real trade, one line away.
+- **Demo seed** — deterministic per tenant so screenshots reproduce; starts snap
+  to `slot_interval_min`; dense behind and half-empty ahead, so the E2E suite can
+  still book against `demo-barber`.
 
 ### What it deliberately does not do
 
-**The client is not told their appointment moved.** There is no notification kind
-for it, and adding one means a Meta template — see the blocked table below, where
-five drafted templates are already waiting on a builder that refuses to create
-them. Queueing a kind the official path would refuse is worse than saying
-nothing, so the move dialog says so in as many words and leaves telling the
-client to the owner, who has call and WhatsApp buttons two rows above.
-
-**An unanswered invite is not re-offered.** The slot goes to the front of the
-queue and stays there: if that person never replies, nothing walks down to the
-next one. A timer would need a rule for how long is long enough, and that is a
-shop-by-shop answer rather than a number to pick here — the owner sees the
-`נשלחה הצעה` badge on `/dashboard/waitlist` and can act.
-
-**A waitlist entry never expires by itself.** There is no sweep marking old
-entries `expired`; the status exists and the owner can set it, but nothing runs
-on a timer. A queue that quietly forgets people is worse than one that grows, and
-the honest fix is a shop-configurable window rather than a number picked here.
-
-**A move into the past is refused**, because availability filters past instants.
-That blocks retroactively correcting the recorded time of a booking that already
-happened. It is not a regression — there was no reschedule at all before this —
-and the honest fix is a separate "correct the record" path rather than loosening
-the guard that keeps a client from being booked into a closed shop.
-
-**The service cannot be changed from the dialog.** It sets the price and the
-length of the very thing being placed, and `serviceName`/`priceCents` are
-snapshots so history survives edits to the catalogue. Editing covers the name,
-the phone and the note; the times are the reschedule; everything else is a
-cancel-and-rebook.
+- **The client is never told an appointment moved.** No notification kind exists
+  and adding one needs a Meta template. The move dialog says so in as many words.
+- **An unanswered invite is not re-offered**, and **a waitlist entry never
+  expires by itself.** Both want a shop-configurable window rather than a number
+  picked here.
+- **A move into the past is refused** — availability filters past instants, so
+  correcting the recorded time of a finished booking needs its own path.
+- **The service cannot be changed from the dialog.** `serviceName` and
+  `priceCents` are snapshots so history survives edits to the catalogue.
 
 ### The one thing that is broken in production right now
 
 **Client email reaches nobody.** Resend rejects every recipient with a `403`
 because the account has no verified domain, so it may only mail its own owner.
-`/master/alerts` shows **7 failed sends**. Nothing in `check:env` catches this —
-the key is present and valid — and from the owner's side the booking simply
-worked. Verify a domain at resend.com → Domains and point
-`NOTIFICATIONS_FROM_EMAIL` at it. See
-[DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
+`/master/alerts` showed **7 failed sends**. `check:env` cannot catch it — the key
+is present and valid — and from the owner's side the booking simply worked.
+Verify a domain at resend.com → Domains and point `NOTIFICATIONS_FROM_EMAIL` at
+it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 
 ### Blocked on a decision or an account, not on code
 
-| What                | Needs                                                        |
-| ------------------- | ------------------------------------------------------------ |
-| Billing 8d–8e       | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
-| SMS                 | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
-| WhatsApp            | `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_ACCESS_TOKEN` from the platform's Meta app. The three templates **are approved**; the transport is code-complete and matched to their exact shapes, but no message has left on any backend. Green API or Twilio remain alternatives. |
-| WhatsApp, the other five | Meta's template builder, which is currently refusing to create new templates. `cancellation_confirmation`, `booking_pending`, `booking_approved`, `booking_rejected` (all UTILITY) and `client_winback` (MARKETING) are drafted and unsubmitted. Until they exist those kinds are refused on the official path, and with SMS and email dark they reach nobody — a cancelled appointment currently tells the client nothing. |
-| Voice ("ליבי")      | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated. No real utterance has been parsed. |
-| Web push            | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven end to end: no notification has reached a real device. |
-| Media uploads       | `npm run storage:setup` against the production project.       |
-| Legal text          | An Israeli lawyer. `LEGAL_ENTITY` still holds placeholder ח.פ. and address fields. |
+| What | Needs |
+| --- | --- |
+| Billing 8d–8e | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
+| SMS | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
+| WhatsApp | `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_ACCESS_TOKEN` from the platform's Meta app. The transport is code-complete and matched to the approved shapes; no message has left on any backend. |
+| WhatsApp, the other six | Meta's template builder, which is refusing to create new templates. `cancellation_confirmation`, `booking_pending`, `booking_approved`, `booking_rejected`, `client_winback` and now `waitlist_invite` are drafted and unsubmitted. On the official path those kinds reach nobody. |
+| Voice ("ליבי") | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated, and no real utterance has been parsed. |
+| Web push | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven: no notification has reached a real device. |
+| Media uploads | `npm run storage:setup` against the production project. |
+| Legal text | An Israeli lawyer. `LEGAL_ENTITY` still holds placeholder ח.פ. and address fields. |
 
-### Worth knowing before touching the data layer
+### Never verified in a browser
 
-A bare `sql` aggregate comes back from postgres.js as a **string** and from
-PGlite as a `Date`, so the test suite proves the opposite of production. Convert
-at the boundary with `toDate` from `db/queries/sql-types.ts`; `.mapWith()` does
-not work in that position. This took `/master/alerts` down once already —
-[ARCHITECTURE.md](ARCHITECTURE.md#testing).
-
-**This is now enforced rather than remembered.**
-`db/queries/sql-types.coverage.test.ts` fails the build when a `sql<…>`
-selection annotated `Date` skips `toDate`, or one annotated `number` is not cast
-to a type the driver decodes as a number — `count(*)` is `int8`, which
-postgres.js hands back as a string for the same reason. Both rules were verified
-by breaking a real call site and confirming the test named it.
+Every UI change since the calendar rebuild was proven by tests, typecheck and
+build — **not by looking at it**. The preview needs an authenticated dashboard
+session, which no session has had. Worth one pass on a real tenant: the calendar
+at phone width, the appointment dialog as a bottom sheet, and the gradient header
+on the management pages.
 
 ---
 
