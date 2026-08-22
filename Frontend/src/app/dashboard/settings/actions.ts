@@ -41,6 +41,24 @@ const settingsSchema = z.object({
     .int()
     .min(0, "לא יכול להיות שלילי")
     .max(168, "מוקדם מדי"),
+  /**
+   * Optional so an older client that predates the field still saves, exactly
+   * as `requiresApproval` is below.
+   *
+   * The floor of 15 is not cosmetic: expiry is cycled by the notifications
+   * cron, and a window shorter than the sweep interval would lapse offers the
+   * shop could not re-offer in time. 0 opts out entirely.
+   */
+  waitlistOfferTtlMin: z
+    .number()
+    .int()
+    .min(0, "לא יכול להיות שלילי")
+    .max(10080, "החלון ארוך מדי")
+    .refine(
+      (value) => value === 0 || value >= 15,
+      "חלון קצר מ-15 דקות אינו נתמך. 0 מבטל פקיעה.",
+    )
+    .optional(),
   notificationEmail: z
     .union([z.email("כתובת אימייל לא תקינה"), z.literal("")])
     .optional(),
@@ -80,6 +98,9 @@ export async function saveSettingsAction(
     cancelWindowHours: data.cancelWindowHours,
     reminderHoursBefore: data.reminderHoursBefore,
     notificationEmail: data.notificationEmail || null,
+    ...(data.waitlistOfferTtlMin === undefined
+      ? {}
+      : { waitlistOfferTtlMin: data.waitlistOfferTtlMin }),
     ...(data.requiresApproval === undefined
       ? {}
       : { requiresApproval: data.requiresApproval }),

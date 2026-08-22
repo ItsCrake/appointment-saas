@@ -5,6 +5,8 @@ import {
   entryMatchesSlot,
   inviteStateFor,
   matchesForSlot,
+  offerDeadline,
+  offerHasLapsed,
   windowForHour,
   type FreedSlot,
   type MatchableEntry,
@@ -60,12 +62,12 @@ describe("entryMatchesSlot", () => {
   });
 
   it("keeps a named service to that service", () => {
-    expect(
-      entryMatchesSlot(entry({ serviceId: "service-a" }), slot, TZ),
-    ).toBe(true);
-    expect(
-      entryMatchesSlot(entry({ serviceId: "service-b" }), slot, TZ),
-    ).toBe(false);
+    expect(entryMatchesSlot(entry({ serviceId: "service-a" }), slot, TZ)).toBe(
+      true,
+    );
+    expect(entryMatchesSlot(entry({ serviceId: "service-b" }), slot, TZ)).toBe(
+      false,
+    );
   });
 
   it("keeps a named provider to that provider", () => {
@@ -79,10 +81,12 @@ describe("entryMatchesSlot", () => {
 
   it("keeps named days to those days", () => {
     // 2 is Tuesday on the Sunday-first basis the whole schema uses.
-    expect(entryMatchesSlot(entry({ preferredDays: [2] }), slot, TZ)).toBe(true);
-    expect(
-      entryMatchesSlot(entry({ preferredDays: [0, 4] }), slot, TZ),
-    ).toBe(false);
+    expect(entryMatchesSlot(entry({ preferredDays: [2] }), slot, TZ)).toBe(
+      true,
+    );
+    expect(entryMatchesSlot(entry({ preferredDays: [0, 4] }), slot, TZ)).toBe(
+      false,
+    );
     // Several days, one of which fits.
     expect(
       entryMatchesSlot(entry({ preferredDays: [1, 2, 3] }), slot, TZ),
@@ -128,18 +132,16 @@ describe("entryMatchesSlot", () => {
       false,
     );
     expect(
-      entryMatchesSlot(
-        entry({ preferredTimeWindow: "morning" }),
-        lateSlot,
-        TZ,
-      ),
+      entryMatchesSlot(entry({ preferredTimeWindow: "morning" }), lateSlot, TZ),
     ).toBe(true);
   });
 
   it("still offers to somebody already notified", () => {
     // An unanswered offer is not a refusal, and the next cancellation is a
     // fresh chance.
-    expect(entryMatchesSlot(entry({ status: "notified" }), slot, TZ)).toBe(true);
+    expect(entryMatchesSlot(entry({ status: "notified" }), slot, TZ)).toBe(
+      true,
+    );
   });
 
   it("never offers to somebody who has left the queue", () => {
@@ -158,9 +160,7 @@ describe("entryMatchesSlot", () => {
     });
 
     expect(entryMatchesSlot(fussy, slot, TZ)).toBe(true);
-    expect(
-      entryMatchesSlot(fussy, slotAt(TUESDAY, "18:00"), TZ),
-    ).toBe(false);
+    expect(entryMatchesSlot(fussy, slotAt(TUESDAY, "18:00"), TZ)).toBe(false);
   });
 });
 
@@ -188,7 +188,11 @@ describe("matchesForSlot", () => {
         id: "evenings",
         createdAt: new Date("2026-07-01T00:00:00Z"),
       },
-      { ...entry(), id: "anything", createdAt: new Date("2026-07-02T00:00:00Z") },
+      {
+        ...entry(),
+        id: "anything",
+        createdAt: new Date("2026-07-02T00:00:00Z"),
+      },
     ];
 
     expect(matchesForSlot(rows, slot, TZ).map((r) => r.id)).toEqual([
@@ -217,10 +221,18 @@ describe("describePreferences", () => {
 describe("inviteStateFor", () => {
   const future = new Date("2026-08-04T10:00:00Z");
   const NOW = new Date("2026-08-01T00:00:00Z");
-  const live = { businessIsActive: true, slotTaken: false };
+  /**
+   * Expiry off for this block. Every case below is about one of the *other*
+   * ways an offer stops being open — withdrawn, closed shop, slot gone, their
+   * own booking — and pinning the window to 0 keeps a second clock out of
+   * assertions that are not about it. The window has its own block further
+   * down.
+   */
+  const live = { businessIsActive: true, slotTaken: false, offerTtlMin: 0 };
 
   const invite = (overrides: Record<string, unknown> = {}) => ({
     status: "notified",
+    invitedAt: NOW,
     invitedStartsAt: future,
     invitedEndsAt: future,
     ...overrides,
@@ -231,9 +243,9 @@ describe("inviteStateFor", () => {
   });
 
   it("says taken when somebody else got there first", () => {
-    expect(
-      inviteStateFor(invite(), { ...live, slotTaken: true }, NOW),
-    ).toBe("taken");
+    expect(inviteStateFor(invite(), { ...live, slotTaken: true }, NOW)).toBe(
+      "taken",
+    );
   });
 
   it("puts their own booking ahead of every other answer", () => {
@@ -267,8 +279,120 @@ describe("inviteStateFor", () => {
     expect(
       inviteStateFor(invite(), { ...live, businessIsActive: false }, NOW),
     ).toBe("expired");
+    expect(inviteStateFor(invite({ invitedStartsAt: null }), live, NOW)).toBe(
+      "expired",
+    );
+  });
+});
+
+describe("offerDeadline", () => {
+  const invitedAt = new Date("2026-08-01T09:00:00Z");
+  const distantSlot = new Date("2026-08-04T10:00:00Z");
+
+  it("is the shop's window when the slot is far enough away", () => {
     expect(
-      inviteStateFor(invite({ invitedStartsAt: null }), live, NOW),
+      offerDeadline({ invitedAt, invitedStartsAt: distantSlot }, 60),
+    ).toEqual(new Date("2026-08-01T10:00:00Z"));
+  });
+
+  it("is the slot's own start when that comes first", () => {
+    /**
+     * The case the whole `min` exists for. A sixty-minute window on a slot
+     * forty minutes out would otherwise keep an offer alive past the
+     * appointment it describes, and the twenty minutes that were left would go
+     * to nobody.
+     */
+    const soon = new Date("2026-08-01T09:40:00Z");
+
+    expect(offerDeadline({ invitedAt, invitedStartsAt: soon }, 60)).toEqual(
+      soon,
+    );
+  });
+
+  it("falls back to the slot start when the window is switched off", () => {
+    expect(
+      offerDeadline({ invitedAt, invitedStartsAt: distantSlot }, 0),
+    ).toEqual(distantSlot);
+  });
+
+  it("treats a missing invitedAt as no window rather than as lapsed", () => {
+    // "Unknown" must never resolve to "expired": a row that somehow lost its
+    // stamp would otherwise have its offer withdrawn by the next sweep.
+    expect(
+      offerDeadline({ invitedAt: null, invitedStartsAt: distantSlot }, 60),
+    ).toEqual(distantSlot);
+  });
+
+  it("has nothing to expire when no slot was ever offered", () => {
+    expect(offerDeadline({ invitedAt, invitedStartsAt: null }, 60)).toBeNull();
+  });
+});
+
+describe("offerHasLapsed", () => {
+  const invitedAt = new Date("2026-08-01T09:00:00Z");
+  const slot = new Date("2026-08-04T10:00:00Z");
+  const offer = { invitedAt, invitedStartsAt: slot };
+
+  it("holds the offer right up to the deadline", () => {
+    expect(offerHasLapsed(offer, 60, new Date("2026-08-01T09:59:59Z"))).toBe(
+      false,
+    );
+  });
+
+  it("lapses exactly on it", () => {
+    // Inclusive, so an offer is never live at the instant it was promised to
+    // end — the boundary belongs to the queue, not to the invited client.
+    expect(offerHasLapsed(offer, 60, new Date("2026-08-01T10:00:00Z"))).toBe(
+      true,
+    );
+  });
+
+  it("never lapses an entry that holds no offer", () => {
+    expect(offerHasLapsed({ invitedAt, invitedStartsAt: null }, 60, slot)).toBe(
+      false,
+    );
+  });
+});
+
+describe("inviteStateFor, with a window", () => {
+  const invitedAt = new Date("2026-08-01T09:00:00Z");
+  const slot = new Date("2026-08-04T10:00:00Z");
+  const open = { businessIsActive: true, slotTaken: false, offerTtlMin: 60 };
+  const offered = {
+    status: "notified",
+    invitedAt,
+    invitedStartsAt: slot,
+    invitedEndsAt: slot,
+  };
+
+  it("is open inside the window", () => {
+    expect(
+      inviteStateFor(offered, open, new Date("2026-08-01T09:30:00Z")),
+    ).toBe("open");
+  });
+
+  it("expires once the window has passed, before any sweep has run", () => {
+    /**
+     * The row still says `notified` here — this is the gap between the
+     * deadline and the cron noticing it, which is up to fifteen minutes. The
+     * page has to answer from the clock, or a link keeps working after the
+     * moment its own message promised it would stop.
+     */
+    expect(
+      inviteStateFor(offered, open, new Date("2026-08-01T10:00:01Z")),
     ).toBe("expired");
+  });
+
+  it("still shows a booking made inside the window after it closes", () => {
+    // `booked` outranks the deadline for the same reason it outranks the slot
+    // having passed: somebody returning to a link they already used is not
+    // late, and must see their appointment rather than a lapse notice.
+    expect(
+      inviteStateFor(
+        { ...offered, status: "booked" },
+        open,
+        new Date("2026-08-01T23:00:00Z"),
+      ),
+    ).toBe("booked");
   });
 });

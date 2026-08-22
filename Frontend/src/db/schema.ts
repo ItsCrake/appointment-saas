@@ -141,6 +141,17 @@ export const businesses = pgTable("businesses", {
   cancelWindowHours: integer("cancel_window_hours").notNull().default(24),
   /** Hours before the appointment to send the client reminder. 0 disables. */
   reminderHoursBefore: integer("reminder_hours_before").notNull().default(24),
+  /**
+   * How long one waitlist invite stays the invited client's to take (0025).
+   * 0 disables expiry, exactly as it does for the reminder above.
+   *
+   * Minutes because the quantity being described is the gap between a
+   * cancellation and the shop filling it. The effective deadline is the
+   * *earlier* of this and the slot's own start — see `offerDeadline`.
+   */
+  waitlistOfferTtlMin: integer("waitlist_offer_ttl_min")
+    .notNull()
+    .default(60),
   /** Where owner alerts go. NULL means the owner gets no notifications. */
   notificationEmail: text("notification_email"),
   /**

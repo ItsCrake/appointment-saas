@@ -186,9 +186,13 @@ export type WaitlistContext = {
   serviceName: string | null;
   /** The freed slot. ISO. */
   startsAt: string;
+  /**
+   * When the offer stops being theirs (0025). ISO, or null when the shop has
+   * switched expiry off — in which case the copy makes no promise about how
+   * long the slot will wait, because there is none to make.
+   */
+  offerExpiresAt: string | null;
 };
 
 export type NotificationContext =
-  | AppointmentContext
-  | BillingContext
-  | WaitlistContext;
+  AppointmentContext | BillingContext | WaitlistContext;

@@ -20,6 +20,7 @@ type Business = {
   bufferMin: number;
   cancelWindowHours: number;
   reminderHoursBefore: number;
+  waitlistOfferTtlMin: number;
   notificationEmail: string;
   timezone: string;
   requiresApproval: boolean;
@@ -28,12 +29,16 @@ type Business = {
 
 type Values = Omit<
   Business,
-  "bufferMin" | "cancelWindowHours" | "reminderHoursBefore"
+  | "bufferMin"
+  | "cancelWindowHours"
+  | "reminderHoursBefore"
+  | "waitlistOfferTtlMin"
 > & {
   /** Held as strings so a half-typed number does not become NaN mid-keystroke. */
   bufferMin: string;
   cancelWindowHours: string;
   reminderHoursBefore: string;
+  waitlistOfferTtlMin: string;
 };
 
 export function SettingsForm({
@@ -63,6 +68,7 @@ export function SettingsForm({
         bufferMin: Number(form.bufferMin),
         cancelWindowHours: Number(form.cancelWindowHours),
         reminderHoursBefore: Number(form.reminderHoursBefore),
+        waitlistOfferTtlMin: Number(form.waitlistOfferTtlMin),
         notificationEmail: form.notificationEmail,
         requiresApproval: form.requiresApproval,
         retentionEnabled: form.retentionEnabled,
@@ -90,6 +96,7 @@ export function SettingsForm({
       bufferMin: String(business.bufferMin),
       cancelWindowHours: String(business.cancelWindowHours),
       reminderHoursBefore: String(business.reminderHoursBefore),
+      waitlistOfferTtlMin: String(business.waitlistOfferTtlMin),
     },
     onSave,
   });
@@ -217,6 +224,26 @@ export function SettingsForm({
 
               onFocus={(e) => e.target.select()}
               onChange={(e) => set("cancelWindowHours", e.target.value)}
+              className={`${FIELD} tabular-nums`}
+            />
+          </Field>
+          {/* Beside the cancellation window on purpose: both are the same kind
+              of promise to a client about how long something stays theirs, and
+              an owner setting one is usually thinking about the other. */}
+          <Field
+            label="חלון תפיסת תור מהמתנה (דקות)"
+            htmlFor="waitlistOfferTtlMin"
+            hint="כמה זמן ההצעה שמורה למי שקיבל אותה. אחר כך היא עוברת לבא בתור. 0 מבטל פקיעה."
+          >
+            <input
+              id="waitlistOfferTtlMin"
+              type="number"
+              min={0}
+              max={10080}
+              step={15}
+              value={form.waitlistOfferTtlMin}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => set("waitlistOfferTtlMin", e.target.value)}
               className={`${FIELD} tabular-nums`}
             />
           </Field>

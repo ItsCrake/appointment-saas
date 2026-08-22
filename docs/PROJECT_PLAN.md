@@ -1194,10 +1194,16 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1115 tests across 74 files**; Playwright
-**11/11** across 3 specs (not run every session). All **25 migrations
-(0000–0024)** are applied to production. Fifteen tables, RLS on every one, zero
-reachable by `anon`. **No migration pending.**
+**Green:** `npm run verify` at **1134 tests across 75 files**; Playwright
+**11/11** across 3 specs (not run every session). Migrations **0000–0024** are
+applied to production. Fifteen tables, RLS on every one, zero reachable by
+`anon`.
+
+> ⚠️ **0025 is written and registered but NOT applied.** It adds
+> `businesses.waitlist_offer_ttl_min` (default 60) and a partial index on
+> `waitlist_entries`. Additive and safe — but until `npm run db:migrate` runs
+> against production, every read of that column fails there. The code is
+> merged, so **production is broken on the waitlist paths until it is applied.**
 
 **Live demo tenants:** `/demo-barber` (1 chair, approval off, ~293 appointments)
 and `/demo-nails` (1 chair, approval **on**, ~124). Both are seeded for
@@ -1241,6 +1247,7 @@ the served tier plus the reason.
 | **`db:seed` used to transfer ownership** | `resolveOwnerId` falls through to "reuse the oldest" when every account already owns something — which is this database. An existing demo now keeps its owner. Always run `db:seed -- --dry-run` first. | `ownerFor` |
 | **`sql` aggregates decode differently** | postgres.js returns a string where PGlite returns a `Date`, so the suite proves the opposite of production. Convert with `toDate`; `.mapWith()` does not work in that position. Enforced by `sql-types.coverage.test.ts`. | `db/queries/sql-types.ts` |
 | **`redirect()` signals success by throwing** | `unstable_rethrow` first, always, or a successful login reports a connection error. | `lib/call-action.ts` |
+| **Waitlist expiry cycles only as often as the cron** | `vercel.json` is `0 8 * * *` because Hobby rejects anything more frequent — the real cadence is the GitHub Actions workflow hitting the same URL every 15 min. Offers still *lapse* on time (the clock is read on the page and in the claim action), but nothing is **re-offered** until a sweep runs. If that workflow is disabled, every lapsed slot dies silently. Never set a TTL below the sweep interval. | `.github/workflows/dispatch-notifications.yml` |
 | **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
 
 ### The guarantee everything else leans on
@@ -1275,6 +1282,19 @@ optional. What follows from that:
   with a first-come screen, `/dashboard/waitlist` as the single management
   surface. A cancellation offers the slot to the **front of the queue
   automatically**, from both cancellation paths. No banner, nothing to approve.
+- **Offer expiry** (0025) — an invite is now the invited client's for
+  `waitlist_offer_ttl_min` (default 60, `0` disables, floor of 15). Past it the
+  entry goes **`expired` — terminal, out of the queue** — and the slot is
+  re-offered to the next match. That terminal status is not incidental:
+  `entryMatchesSlot` accepts only `active`/`notified`, so it is the **only**
+  thing stopping the sweep handing the slot straight back to whoever just let
+  it lapse. The cost is deliberate and worth restating — **missing one message
+  costs a client their place.** Two enforcement points, both needed:
+  `offerDeadline` answers from the clock (page + claim action, correct on
+  time), and `runWaitlistOfferExpirySweep` on the cron does the cycling
+  (progress, up to a sweep interval late). The lapsed **token is deliberately
+  kept** — clearing it makes `/w/[token]` a 404 instead of the "this expired"
+  screen — and it is inert because the claim action refuses `expired`.
 - **Availability** — dense packing (single chair) already offers the earliest
   genuinely free instant. Grid mode (teams) ceils to the lattice **on purpose**,
   to stop the interleaved `09:00 / 09:05` columns a shop reported; a rescue
@@ -1288,9 +1308,10 @@ optional. What follows from that:
 
 - **The client is never told an appointment moved.** No notification kind exists
   and adding one needs a Meta template. The move dialog says so in as many words.
-- **An unanswered invite is not re-offered**, and **a waitlist entry never
-  expires by itself.** Both want a shop-configurable window rather than a number
-  picked here.
+- **A waitlist entry never expires by itself.** Somebody who joined in March is
+  still matched in August. 0025 expires *offers*, not *entries* — a different
+  clock (`created_at`, not `invited_at`) and still an open decision, because
+  dropping somebody who is simply still waiting wants a warning first.
 - **A move into the past is refused** — availability filters past instants, so
   correcting the recorded time of a finished booking needs its own path.
 - **The service cannot be changed from the dialog.** `serviceName` and

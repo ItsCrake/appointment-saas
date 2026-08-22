@@ -79,6 +79,12 @@ export default async function WaitlistInvitePage({ params }: PageProps) {
   const state = inviteStateFor(entry, {
     businessIsActive: business.isActive,
     slotTaken,
+    /**
+     * The shop's own window (0025). Asked of the clock here rather than left to
+     * the sweep, so a link opened after its deadline shows the expired screen
+     * even in the minutes before the cron has marked the row.
+     */
+    offerTtlMin: business.waitlistOfferTtlMin,
   });
 
   return (

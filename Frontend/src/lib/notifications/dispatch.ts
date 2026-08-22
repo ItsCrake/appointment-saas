@@ -13,6 +13,7 @@ import type { Database } from "@/db/types";
 
 import { daysUntil, GRACE_DAYS } from "@/lib/billing/lifecycle";
 import { toPlanType } from "@/lib/plans";
+import { offerDeadline } from "@/lib/waitlist";
 
 import { buildUrls } from "./enqueue";
 import { getProvider } from "./providers";
@@ -146,6 +147,19 @@ export async function dispatchDueNotifications(
         clientName: waitlist.clientName,
         serviceName: waitlistService?.name ?? null,
         startsAt: waitlist.invitedStartsAt.toISOString(),
+        /**
+         * Computed from the same rule the page and the claim action use, so
+         * the deadline the message states is the deadline that is enforced. A
+         * message promising an hour while the server refuses after thirty
+         * minutes would be the worst version of this feature.
+         */
+        offerExpiresAt:
+          business.waitlistOfferTtlMin > 0
+            ? (offerDeadline(
+                waitlist,
+                business.waitlistOfferTtlMin,
+              )?.toISOString() ?? null)
+            : null,
       };
     } else {
       if (!appointment) {

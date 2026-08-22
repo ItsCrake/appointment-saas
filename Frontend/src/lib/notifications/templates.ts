@@ -196,14 +196,27 @@ export function renderNotification(context: NotificationContext): {
  * payment.
  */
 /**
- * "A slot opened, and it is first come first served."
+ * "A slot opened, and it is yours until — ".
  *
- * **The copy has to say that last part out loud.** The same link goes to
- * everybody who matches, so a message that reads like a reservation would be
- * promising something to several people at once — and the person who arrives
- * second would experience the shop breaking its word rather than a queue
- * working as designed. Saying it up front makes the "already taken" screen a
- * confirmation of the rules instead of a disappointment.
+ * ---------------------------------------------------------------------------
+ * **This copy used to say the opposite, and it was wrong.** It read "the
+ * message went to everybody waiting, and the slot goes to whoever books
+ * first" — true of the original ten-at-a-time banner, and false from the
+ * moment `offerSlotToWaitlist` started sending to `matched[0]` alone. One
+ * person receives this. Telling them they are racing a crowd that does not
+ * exist is both untrue and the wrong pressure: it invites them to give up.
+ *
+ * **What replaces it is a deadline, which is a promise the server keeps.**
+ * `offerExpiresAt` comes from `offerDeadline`, the same rule `/w/[token]` and
+ * `claimWaitlistSlotAction` enforce — so the time in this message is the time
+ * the link stops working, not an approximation of it.
+ *
+ * When the shop has switched expiry off there is no deadline to state, and the
+ * message says nothing about one rather than inventing a soft version. The
+ * "already taken" screen still earns its place either way: an owner can fill a
+ * slot by hand while an invite is out, and two cancellations can offer
+ * overlapping times.
+ * ---------------------------------------------------------------------------
  */
 function renderWaitlistInvite(context: WaitlistContext): {
   subject: string;
@@ -211,8 +224,10 @@ function renderWaitlistInvite(context: WaitlistContext): {
 } {
   const when = formatFullDateTime(context.startsAt, context.businessTimezone);
   const slot = `יום ${when.weekday}, ${when.date} בשעה ${when.time}`;
-  const service = context.serviceName ? `
-${context.serviceName}` : "";
+  const service = context.serviceName
+    ? `
+${context.serviceName}`
+    : "";
   const where = context.businessAddress
     ? `
 כתובת: ${context.businessAddress}`
@@ -221,6 +236,18 @@ ${context.serviceName}` : "";
     ? `
 לשאלות: ${context.businessPhone}`
     : "";
+
+  /**
+   * Stated as a clock time rather than "within an hour", because the message
+   * may sit in the outbox before it is sent and a relative phrase would start
+   * counting from the wrong moment. An absolute time cannot drift.
+   */
+  const deadline = context.offerExpiresAt
+    ? `שימו לב: התור שמור עבורכם עד ${
+        formatFullDateTime(context.offerExpiresAt, context.businessTimezone)
+          .time
+      }, ואחר כך יוצע לממתין הבא.`
+    : `שימו לב: התור ייתפס אצל מי שמזמין ראשון.`;
 
   return {
     subject: `התפנה תור ב${context.businessName}`,
@@ -237,8 +264,7 @@ ${context.serviceName}` : "";
       `לתפיסת התור: ${context.inviteUrl}
 
 ` +
-      `שימו לב: ההודעה נשלחה לכל הממתינים המתאימים, והתור נתפס אצל מי ` +
-      `שמזמין ראשון.${contact}`,
+      `${deadline}${contact}`,
   };
 }
 

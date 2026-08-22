@@ -6,6 +6,7 @@ import { sweepSubscriptions } from "@/lib/billing/sweep";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { reportError } from "@/lib/observability";
 import { runRetentionSweep } from "@/lib/retention";
+import { runWaitlistOfferExpirySweep } from "@/lib/waitlist-expiry";
 import { describeProviders } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,25 @@ async function handle(request: NextRequest) {
       reportError("cron.runRetentionSweep", error);
     }
 
+    /**
+     * Waitlist offers that ran out of time, and the slots they release (0025).
+     *
+     * Before dispatch for the same reason as the two above — an invite this
+     * sweep hands to the next person in the queue goes out on this run rather
+     * than waiting for the next one. That matters more here than anywhere
+     * else: the thing being passed along is a slot with a start time, and every
+     * run it waits is a run of its remaining life.
+     *
+     * Wrapped and never rethrown. A queue that cannot be swept must not stop
+     * the outbox — the client confirmations in it are the product.
+     */
+    let waitlist = null;
+    try {
+      waitlist = await runWaitlistOfferExpirySweep(db);
+    } catch (error) {
+      reportError("cron.runWaitlistOfferExpirySweep", error);
+    }
+
     const summary = await dispatchDueNotifications(db, { limit: 100 });
 
     // Housekeeping rides along rather than needing a second cron entry.
@@ -79,6 +99,7 @@ async function handle(request: NextRequest) {
       ...summary,
       billing,
       retention,
+      waitlist,
       prunedRateLimits,
       providers: describeProviders(),
       durationMs: Date.now() - started,

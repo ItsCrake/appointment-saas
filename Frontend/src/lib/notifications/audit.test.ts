@@ -73,6 +73,7 @@ function contextFor(kind: NotificationKind): NotificationContext {
       clientName: "עומר לוי",
       serviceName: "תספורת גבר",
       startsAt: "2026-08-04T07:00:00.000Z",
+      offerExpiresAt: "2026-08-03T09:00:00.000Z",
     };
   }
 

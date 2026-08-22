@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 
 import {
   appointments,
+  businesses,
   services,
   staff,
   waitlistEntries,
@@ -303,4 +304,41 @@ export async function listInvitedSlotStarts(
       .map((row) => row.invitedStartsAt?.getTime())
       .filter((time): time is number => typeof time === "number"),
   );
+}
+
+/**
+ * Every live offer, across every tenant, with the shop that set its window.
+ *
+ * ---------------------------------------------------------------------------
+ * The expiry sweep's one read (0025). Joined to `businesses` because the
+ * deadline is a property of the *shop* — `waitlist_offer_ttl_min` — while the
+ * clock it runs against is a property of the entry, and the sweep needs the
+ * business row anyway to enqueue the next invite.
+ *
+ * **Deliberately not filtered on the deadline in SQL.** Expressing
+ * `least(invited_at + ttl, invited_starts_at) <= now` as a `sql` fragment would
+ * put the rule in a second place — one that cannot be unit tested and that
+ * decodes its timestamps differently under PGlite than under postgres.js (see
+ * `sql-types.ts`). `notified` is a handful of rows per tenant by construction,
+ * so the cheap filter runs here and `offerDeadline` stays the only thing that
+ * knows what a deadline is.
+ *
+ * `invited_at IS NOT NULL` excludes nothing in practice — `markWaitlistInvited`
+ * always stamps it — but a row that somehow lacks it has no window to be past,
+ * and the sweep must not treat "unknown" as "lapsed".
+ * ---------------------------------------------------------------------------
+ */
+export async function listNotifiedWaitlistOffers(db: Database) {
+  return db
+    .select({ entry: waitlistEntries, business: businesses })
+    .from(waitlistEntries)
+    .innerJoin(businesses, eq(waitlistEntries.businessId, businesses.id))
+    .where(
+      and(
+        eq(waitlistEntries.status, "notified"),
+        sql`${waitlistEntries.invitedAt} IS NOT NULL`,
+        sql`${waitlistEntries.invitedStartsAt} IS NOT NULL`,
+      ),
+    )
+    .orderBy(asc(waitlistEntries.invitedAt));
 }

@@ -121,7 +121,10 @@ export function entryMatchesSlot(
 
   const { weekday, hour } = localSlotFacts(slot, timezone);
 
-  if (entry.preferredDays.length > 0 && !entry.preferredDays.includes(weekday)) {
+  if (
+    entry.preferredDays.length > 0 &&
+    !entry.preferredDays.includes(weekday)
+  ) {
     return false;
   }
 
@@ -174,6 +177,57 @@ export function describePreferences(entry: {
 /** What an invite link should show. */
 export type InviteState = "open" | "taken" | "booked" | "expired";
 
+/** Only the parts of an entry the deadline depends on. */
+export type ExpirableOffer = {
+  invitedAt: Date | null;
+  invitedStartsAt: Date | null;
+};
+
+/**
+ * The instant an offer stops being this client's to take (0025).
+ *
+ * ---------------------------------------------------------------------------
+ * **The earlier of two deadlines, and both are real.** The shop's window is
+ * `invited_at + waitlist_offer_ttl_min`; the slot's own start is the other,
+ * because an offer that outlives the appointment it describes is not an offer.
+ * A sixty-minute window on a slot that begins in forty minutes has to expire in
+ * forty, or the queue behind it never gets the twenty that were left.
+ *
+ * **0 disables the shop's window**, exactly as it does for
+ * `reminder_hours_before` — the slot start still applies, which is the
+ * behaviour every existing entry has today. So a tenant who never touches the
+ * setting is not silently opted into something new; they are opted into the
+ * default the migration gave them, which is a decision the column makes
+ * visibly rather than one this function makes behind it.
+ *
+ * Null means there is nothing to expire: an entry with no slot on it was never
+ * offered anything.
+ * ---------------------------------------------------------------------------
+ */
+export function offerDeadline(
+  offer: ExpirableOffer,
+  offerTtlMin: number,
+): Date | null {
+  if (!offer.invitedStartsAt) return null;
+  if (!offer.invitedAt || offerTtlMin <= 0) return offer.invitedStartsAt;
+
+  const windowEnds = new Date(offer.invitedAt.getTime() + offerTtlMin * 60_000);
+
+  return windowEnds.getTime() < offer.invitedStartsAt.getTime()
+    ? windowEnds
+    : offer.invitedStartsAt;
+}
+
+/** Whether an offer has run out, at a given instant. */
+export function offerHasLapsed(
+  offer: ExpirableOffer,
+  offerTtlMin: number,
+  now: Date,
+): boolean {
+  const deadline = offerDeadline(offer, offerTtlMin);
+  return deadline !== null && deadline.getTime() <= now.getTime();
+}
+
 /**
  * Which of the four screens `/w/[token]` renders.
  *
@@ -190,12 +244,23 @@ export type InviteState = "open" | "taken" | "booked" | "expired";
 export function inviteStateFor(
   invite: {
     status: string;
+    invitedAt: Date | null;
     invitedStartsAt: Date | null;
     invitedEndsAt: Date | null;
   },
-  { businessIsActive, slotTaken }: {
+  {
+    businessIsActive,
+    slotTaken,
+    offerTtlMin,
+  }: {
     businessIsActive: boolean;
     slotTaken: boolean;
+    /**
+     * The tenant's `waitlist_offer_ttl_min`. Required rather than defaulted,
+     * because a default here would be a window this file invented for a shop
+     * that configured a different one — and the failure would be silent.
+     */
+    offerTtlMin: number;
   },
   now: Date = new Date(),
 ): InviteState {
@@ -203,13 +268,24 @@ export function inviteStateFor(
   // the slot: somebody returning to a link they already used is not late.
   if (invite.status === "booked") return "booked";
 
+  /**
+   * The deadline is checked here rather than waited for (0025).
+   *
+   * The sweep in `waitlist-expiry.ts` is what *cycles* a lapsed offer to the
+   * next person, and it runs on the notifications cron — so between the
+   * deadline and the next run there is a window of up to fifteen minutes in
+   * which the row still says `notified`. Asking the clock directly means the
+   * link stops working at the moment it was promised to, rather than at the
+   * moment a scheduler happens to notice. The sweep is for progress; this is
+   * for correctness, and neither substitutes for the other.
+   */
   if (
     !invite.invitedStartsAt ||
     !invite.invitedEndsAt ||
     !businessIsActive ||
     invite.status === "cancelled" ||
     invite.status === "expired" ||
-    invite.invitedStartsAt.getTime() <= now.getTime()
+    offerHasLapsed(invite, offerTtlMin, now)
   ) {
     return "expired";
   }

@@ -14,6 +14,7 @@ import { db } from "@/db";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError } from "@/lib/observability";
+import { offerHasLapsed } from "@/lib/waitlist";
 
 export type ClaimResult =
   | { ok: true }
@@ -78,6 +79,20 @@ export async function claimWaitlistSlotAction(
   const business = await getBusinessById(db, entry.businessId);
   if (!business || !business.isActive) {
     return { ok: false, error: "העסק אינו זמין כרגע" };
+  }
+
+  /**
+   * The shop's offer window, enforced at the boundary (0025).
+   *
+   * The sweep marks a lapsed entry `expired` and the status check above would
+   * then catch it — but only once the cron has been round, which is up to
+   * fifteen minutes. This is the guard that makes the deadline mean the
+   * deadline: a form posted a second after it has passed is refused here, not
+   * whenever a scheduler notices. Same rule as the page renders, so the screen
+   * and the action cannot disagree about whether an offer is still live.
+   */
+  if (offerHasLapsed(entry, business.waitlistOfferTtlMin, new Date())) {
+    return { ok: false, error: "ההזמנה אינה זמינה יותר" };
   }
 
   if (!entry.invitedServiceId || !entry.invitedStaffId) {

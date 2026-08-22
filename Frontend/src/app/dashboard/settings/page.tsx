@@ -67,6 +67,7 @@ export default async function SettingsPage() {
             bufferMin: business.bufferMin,
             cancelWindowHours: business.cancelWindowHours,
             reminderHoursBefore: business.reminderHoursBefore,
+            waitlistOfferTtlMin: business.waitlistOfferTtlMin,
             notificationEmail: business.notificationEmail ?? "",
             timezone: business.timezone,
             requiresApproval: business.requiresApproval,
