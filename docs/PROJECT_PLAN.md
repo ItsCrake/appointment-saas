@@ -1194,22 +1194,23 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1134 tests across 75 files**; Playwright
-**11/11** across 3 specs (not run every session). Migrations **0000–0024** are
-applied to production. Fifteen tables, RLS on every one, zero reachable by
-`anon`.
+**Green:** `npm run verify` at **1154 tests across 77 files**; Playwright
+**11/11** across 3 specs (not run every session). All **26 migrations
+(0000–0025)** are applied to production. Fifteen tables, RLS on every one, zero
+reachable by `anon`. **No migration pending.**
 
-> ⚠️ **0025 is written and registered but NOT applied.** It adds
-> `businesses.waitlist_offer_ttl_min` (default 60) and a partial index on
-> `waitlist_entries`. The migration itself is additive and safe. **The deploy
-> ordering is not.**
->
+> ⚠️ **The ordering rule 0025 established, for every migration after it.**
 > Every `businesses` read is a bare `.select()`, which Drizzle compiles to an
-> explicit column list from the schema — so code that knows about the column
-> running against a database that does not have it fails on
-> `getActiveBusinessBySlug` and `getBusinessById`. That is the public booking
-> page and the whole dashboard, not just the waitlist. **Apply the migration
-> before the deploy that carries this code, never after.**
+> explicit column list from the schema — so code that knows about a column the
+> database lacks fails `getActiveBusinessBySlug` and `getBusinessById`. That is
+> the public booking page and the whole dashboard, not just the new feature.
+> A push to `main` deploys. **Apply the migration before the push, never
+> after.**
+
+**Pilot readiness:** [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) holds the
+copy for the six unsubmitted Meta templates and the message-volume formula;
+[EDGE_CASES.md](EDGE_CASES.md) maps what the suite proves, what it cannot, and
+the ranked residual risk.
 
 **Live demo tenants:** `/demo-barber` (1 chair, approval off, ~293 appointments)
 and `/demo-nails` (1 chair, approval **on**, ~124). Both are seeded for
