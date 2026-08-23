@@ -342,37 +342,35 @@ export default async function BusinessPage({
         </Link>
       </div>
 
-      {/* Last on the page, and now a designed panel rather than a text link.
+      {/* The platform's only mark on the tenant's page.
 
-          This is the platform advertising to the tenant's customers on the
-          tenant's own page — a real trade the shop makes in exchange for the
-          page being free to run. It used to be deliberately the quietest thing
-          here, on the grounds that it should be invisible to everyone but the
-          one visitor who is themselves a business owner. **That call has been
-          reversed**: `/[slug]` is now treated as genuinely dual-purpose, since
-          shop owners meet this product by receiving a competitor's booking
-          link, and a 12px underlined link is not something anyone arrives at.
+          It used to be a panel with a call to action — "רוצה עמוד כזה לעסק
+          שלך?" — on the reasoning that `/[slug]` is dual-purpose, since shop
+          owners meet this product by receiving a competitor's booking link, and
+          that the pitch deserved real estate rather than a footer afterthought.
+          **That has been reversed again, deliberately.** The page now ends on a
+          credit rather than an advertisement: one line, no container, no
+          button.
 
-          What has *not* changed is the ordering rule that keeps it honest. It
-          is still below the booking flow, still below the client's own
-          "my appointments" entrance, and still monochrome — the tenant's accent
-          never touches it, so it cannot compete with the shop's own call to
-          action for a client who came here to book. It is the last thing on the
-          page, given weight rather than volume. */}
+          Two rules survive the change and are the reason it stays honest. It is
+          still the last thing on the page, below the booking flow and below the
+          client's own entrance to their appointments. And it is still
+          monochrome — the tenant's accent never touches it, so the platform
+          cannot borrow the shop's colour to sell itself to the shop's clients.
+
+          The link is the wordmark alone. "מופעל על ידי" is a statement of fact
+          and not a target; only the name is clickable, which is what keeps this
+          a credit rather than a banner. */}
       <footer className="mt-auto px-5 pt-2 pb-8">
-        <div className="rounded-3xl bg-zinc-50 px-5 py-6 text-center ring-1 ring-zinc-900/8 ring-inset dark:bg-zinc-900/50 dark:ring-white/10">
-          {/* The clickable surface is exactly what it was — this one link, and
-              nothing around it. The card is a container, not a target. */}
+        <p className="text-center text-xs text-zinc-500">
+          מופעל על ידי{" "}
           <Link
             href="/"
-            className="shadow-lift hover:shadow-raise inline-flex h-12 items-center justify-center rounded-full bg-white px-6 text-sm font-semibold text-zinc-900 ring-1 ring-zinc-900/10 transition-[box-shadow,background-color] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ring-inset focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:bg-zinc-800 dark:text-zinc-100 dark:ring-white/10"
+            className="rounded-sm font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-4 transition-colors duration-200 hover:text-zinc-900 hover:decoration-zinc-500 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-300 dark:decoration-zinc-600 dark:hover:text-zinc-100 dark:hover:decoration-zinc-400"
           >
-            רוצה עמוד כזה לעסק שלך? לחץ כאן
+            {BRAND.nameHe}
           </Link>
-          <p className="mt-3 text-xs text-zinc-500">
-            מופעל על ידי {BRAND.name}
-          </p>
-        </div>
+        </p>
       </footer>
     </div>
   );

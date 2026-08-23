@@ -135,17 +135,29 @@ export function timePhrase(context: AppointmentContext): string {
  * Null is a real answer rather than an error, and it is what a caller on an
  * official API must refuse to send on:
  *
- * - **Kinds with no template.** Only three were approved. An approval request, a
- *   rejection, a cancellation and the win-back message have none, so on the
- *   official path they cannot be sent as WhatsApp at all — `clientDelivery`
- *   falls through to SMS or email, which is the correct outcome rather than a
- *   dropped message. Five more are drafted and awaiting submission; until they
- *   are approved this list is the truth.
+ * - **Kinds this file has no branch for.** Only three are mapped here. Every
+ *   other kind returns null, and on the official path that is a **failed send,
+ *   not a fallback.**
+ *
+ *   > This comment used to claim `clientDelivery` "falls through to SMS or
+ *   > email". It does not, and production disproved it: the channel is chosen
+ *   > **once, at enqueue time**, when WhatsApp is live and therefore wins. By
+ *   > the time this returns null the row is already committed to WhatsApp, and
+ *   > `metaCloudProvider` refuses it with `retryable: false`. The row goes
+ *   > straight to `failed`, the client gets nothing, and nobody is told. See
+ *   > the audit in `docs/WHATSAPP_TEMPLATES.md` §2.
+ *
+ *   As of 2026-08-23 Meta has **seven** active templates while this list has
+ *   three: `booking_approved` and `booking_rejected` are approved in Hebrew but
+ *   unwired here, and `booking_pending` and `cancellation_confirmation` are
+ *   approved in English and need resubmitting. Wiring any of them requires that
+ *   template's exact approved component layout — a guessed parameter count is a
+ *   rejected send, which is no better than the refusal it replaces.
  * - **A lead time neither reminder covers.** A tenant who sets
  *   `reminder_hours_before` to 48 gets a reminder scheduled 48 hours out, and
  *   `reminder_24h` says "tomorrow". Sending it would be a template whose text
- *   contradicts its own timing, so it returns null and the message finds
- *   another channel.
+ *   contradicts its own timing, so it returns null — and on WhatsApp that is a
+ *   refusal, for the reason above.
  */
 export function whatsappTemplateFor(
   context: NotificationContext,

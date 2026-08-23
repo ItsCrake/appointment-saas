@@ -43,34 +43,108 @@ side.
 > routed: it is two segments, so `classifyPublicPath` returns `platform` and
 > Next serves `/w/[token]` directly.
 
-## 2. The three that are approved
+## 2. Audit — Meta vs. the code
 
-Transcribed from what Meta actually approved. Do not edit — names, language,
-component layout and parameter order are all frozen.
+Checked against the Meta dashboard on **2026-08-23**. Seven templates are
+active; the code knows **three**.
 
-| Name                       | Kind                   | Header | Body vars | Button          |
-| -------------------------- | ---------------------- | ------ | --------- | --------------- |
-| `appointment_confirmation` | `booking_confirmation` | 1      | 3         | manage token    |
-| `reminder_24h`             | `reminder` @ 24h lead  | —      | 3         | manage token    |
-| `reminder_2h`              | `reminder` @ 2h lead   | —      | 3         | **none**        |
+| Meta template | Language | Code knows it | Kind it serves | Verdict |
+| --- | --- | --- | --- | --- |
+| `appointment_confirmation` | he | ✅ | `booking_confirmation` | **Working** — 2 sent in production |
+| `reminder_24h` | he | ✅ | `reminder` @ 24h lead | **Working** |
+| `reminder_2h` | he | ✅ | `reminder` @ 2h lead | **Working** |
+| `booking_approved` | he | ❌ | `booking_approved` | ⚠️ **Approved but unwired** |
+| `booking_rejected` | he | ❌ | `booking_rejected` | ⚠️ **Approved but unwired** |
+| `booking_pending` | **en** | ❌ | `booking_pending` | ⚠️ Unwired **and wrong language** |
+| `cancellation_confirmation` | **en** | ❌ | `cancellation_confirmation` | ⚠️ Unwired **and wrong language** |
+| `waitlist_invite` | — | ❌ | `waitlist_invite` | ❌ **Not submitted** — this is the live failure |
+| `booking_rescheduled` | — | ❌ | *(kind does not exist)* | ❌ Not submitted, and needs code |
 
-`reminder_2h` has no button, and sending a button parameter for a template that
-has none is rejected by the Cloud API. That is a property of the approved
-artifact, not a preference.
+> ### ⚠️ The finding that matters: an unwired kind **fails**, it does not fall back
+>
+> The comment in `whatsapp-templates.ts` claims a kind with no template
+> "falls through to SMS or email". **That is wrong, and production proves it.**
+>
+> The channel is chosen at *enqueue* time by `clientDelivery`, which picks
+> WhatsApp because WhatsApp is live. At *dispatch* time `whatsappTemplateFor`
+> returns `null`, and `metaCloudProvider` refuses with
+> `retryable: false` — so the row goes straight to `failed`. There is no
+> second channel and no retry. The client receives nothing and the owner is
+> never told.
+>
+> Four approved templates are currently sitting behind that refusal.
 
-## 3. The drafts to submit
+### What the outbox actually looks like
 
-All Hebrew (`he`). All **Utility** category except where noted — they describe a
-transaction the client themselves initiated, which is the distinction Meta
-draws. Parameters are listed per component, numbered from 1 within that
-component.
+| Kind | Channel | Status | Count |
+| --- | --- | --- | --- |
+| `booking_confirmation` | whatsapp | **sent** | 2 |
+| `booking_confirmation` | whatsapp | skipped | 4 |
+| `cancellation_confirmation` | whatsapp | skipped | 1 |
+| `reminder` | whatsapp | pending | 1 |
+| `reminder` | whatsapp | skipped | 7 |
+| `waitlist_invite` | whatsapp | **failed** | 1 |
 
-Placeholder values below are shown as they render, not as they are stored: the
-date and time parameters are wrapped in `anchorRtl` at send time so the emoji
-stays on the right. See the RLM note in `whatsapp-templates.ts` — it is the
-single longest comment in the file and it explains a real iOS bug report.
+Two things to read out of that.
 
----
+**Messages have genuinely left on Meta Cloud.** Two confirmations were sent to
+real numbers. PROJECT_PLAN §5 still says "no message has left on any backend" —
+that line is stale and the WhatsApp blocker row with it.
+
+**`cancellation_confirmation` has only ever been *skipped*, never attempted.**
+Skipped means the dispatcher dropped it before sending — the appointment had
+already moved on. So its missing template has not bitten yet. It will on the
+first cancellation that reaches dispatch with the row still live.
+
+### Are the triggers correct?
+
+Yes — every one, and the one that is easiest to get wrong is right.
+
+| Kind | Fires at | Verified in |
+| --- | --- | --- |
+| `booking_confirmation` | booking created, approval **off** | `enqueue.ts` — branches on `status === "pending"` |
+| `booking_pending` | booking created, approval **on** | same branch, other arm |
+| `booking_approved` | owner sets `confirmed` **and** it was a request | `dashboard/actions.ts` — guarded by `wasRequest` |
+| `booking_rejected` | owner sets `cancelled` **and** it was a request | same guard |
+| `cancellation_confirmation` | owner or client cancels a **confirmed** booking | the other arm of `wasRequest` |
+| `reminder` | booking or approval, **one per appointment** | `planReminder` returns a single plan |
+| `waitlist_invite` | slot freed, or an offer lapses and cycles | `waitlist-offer.ts` |
+
+`wasRequest` is the subtle one: rejecting a pending request and cancelling a
+confirmed booking both land on `cancelled`, and by dispatch time nothing can
+tell them apart from the row. The action reads the appointment *before*
+updating it, which is what keeps "בוטל" off a request that was never confirmed.
+
+**No trigger changes are needed.** The gap is entirely in the template mapping.
+
+### What wiring the four requires
+
+`whatsappTemplateFor` needs one branch per kind, and each branch has to
+reproduce the **exact component layout Meta approved** — how many body
+variables, whether there is a header, whether there is a button. Getting the
+parameter count wrong is a rejected send, which is no better than the refusal
+it replaces.
+
+That structure is not in this repository and cannot be guessed. **Paste the
+approved copy for `booking_approved` and `booking_rejected`** (the two already
+in Hebrew) and they can be wired immediately. `booking_pending` and
+`cancellation_confirmation` should be re-submitted in Hebrew first, from §3
+below, so they are wired once rather than twice.
+
+## 3. The copy to paste into Meta
+
+Four to submit or fix, in the order they are worth doing.
+
+| # | Template | Action | Why this order |
+| --- | --- | --- | --- |
+| 1 | `waitlist_invite` | **new** | The only one failing in production today |
+| 2 | `cancellation_confirmation` | **replace en with he** | Next to bite; every cancellation reaches it |
+| 3 | `booking_pending` | **replace en with he** | Only affects shops running approval |
+| 4 | `booking_rescheduled` | **new** | Needs code as well; ship last |
+
+All Hebrew (`he`), all **Utility**. Parameters are numbered per component,
+starting from 1 *within that component* — a header `{{1}}` and a body `{{1}}`
+are different variables.
 
 ### `waitlist_invite`
 
@@ -174,7 +248,12 @@ BUTTON   לצפייה או ביטול הבקשה  →  https://www.bazman.app/{{
 
 ---
 
-### `booking_approved`
+### `booking_approved` — already approved, kept for reference
+
+> **Do not resubmit.** This is live in Hebrew on the Meta dashboard. The copy
+> below is what this repository *would* have submitted; the approved artifact
+> is the source of truth, and wiring it needs that artifact's exact component
+> layout rather than this.
 
 **Category:** Utility. **Button base:** `https://www.bazman.app/`
 
@@ -198,7 +277,10 @@ BUTTON   ניהול התור  →  https://www.bazman.app/{{1}}
 
 ---
 
-### `booking_rejected`
+### `booking_rejected` — already approved, kept for reference
+
+> **Do not resubmit.** Live in Hebrew. Same note as above: wiring it needs the
+> approved component layout, not this draft.
 
 **Category:** Utility. **Button base:** `https://www.bazman.app/`
 
@@ -289,11 +371,11 @@ they never touch WhatsApp and never cost a Meta message.
 | Kind                        | Fires when                              | To     | Channel        | Template status |
 | --------------------------- | --------------------------------------- | ------ | -------------- | --------------- |
 | `booking_confirmation`      | booking created, approval **off**       | client | WA → SMS → email | ✅ approved     |
-| `booking_pending`           | booking created, approval **on**        | client | WA → SMS → email | ❌ draft        |
-| `booking_approved`          | owner approves a request                | client | WA → SMS → email | ❌ draft        |
-| `booking_rejected`          | owner rejects a request                 | client | WA → SMS → email | ❌ draft        |
+| `booking_pending`           | booking created, approval **on**        | client | WA → SMS → email | ⚠️ en, needs he |
+| `booking_approved`          | owner approves a request                | client | WA → SMS → email | ⚠️ approved, unwired |
+| `booking_rejected`          | owner rejects a request                 | client | WA → SMS → email | ⚠️ approved, unwired |
 | `reminder`                  | scheduled at booking; **one per appointment** | client | WA → SMS → email | ✅ approved (both leads) |
-| `cancellation_confirmation` | client link **or** owner cancels        | client | WA → SMS → email | ❌ draft        |
+| `cancellation_confirmation` | client link **or** owner cancels        | client | WA → SMS → email | ⚠️ en, needs he |
 | `waitlist_invite`           | slot freed, **or** an offer lapses and cycles | client | WA → SMS → email | ❌ draft        |
 | `client_winback`            | daily retention sweep                   | client | WhatsApp only  | ❌ draft (Marketing) |
 | `booking_alert`             | booking created                         | owner  | **email**      | n/a             |
@@ -312,7 +394,9 @@ Three things in that table are easy to get wrong:
 ### The channel walk
 
 `clientDelivery` tries WhatsApp → SMS → email and takes the first that is both
-entitled and live. WhatsApp needs `canSendWhatsapp` (Pro) *and* credentials;
+entitled and live — **once, at enqueue time.** There is no second attempt at
+dispatch: a kind whose template is missing fails on the channel already chosen
+rather than falling back to the next one. See the audit note in §2. WhatsApp needs `canSendWhatsapp` (Pro) *and* credentials;
 SMS needs `smsReminders` (Pro) *and* Twilio. A waitlist entry has **no email**,
 so for the queue the walk is effectively WhatsApp → SMS → nothing.
 

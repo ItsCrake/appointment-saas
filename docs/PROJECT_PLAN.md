@@ -1366,7 +1366,7 @@ optional. What follows from that:
 - **The service cannot be changed from the dialog.** `serviceName` and
   `priceCents` are snapshots so history survives edits to the catalogue.
 
-### The one thing that is broken in production right now
+### Broken in production right now
 
 **Client email reaches nobody.** Resend rejects every recipient with a `403`
 because the account has no verified domain, so it may only mail its own owner.
@@ -1381,8 +1381,8 @@ it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 | --- | --- |
 | Billing 8d–8e | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
 | SMS | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
-| WhatsApp | `WHATSAPP_PHONE_NUMBER_ID` + `WHATSAPP_ACCESS_TOKEN` from the platform's Meta app. The transport is code-complete and matched to the approved shapes; no message has left on any backend. |
-| WhatsApp, the other six | Meta's template builder, which is refusing to create new templates. `cancellation_confirmation`, `booking_pending`, `booking_approved`, `booking_rejected`, `client_winback` and now `waitlist_invite` are drafted and unsubmitted. On the official path those kinds reach nobody. |
+| ~~WhatsApp transport~~ | **Done.** Credentials are live and **real messages have been delivered** on Meta Cloud — 2 `booking_confirmation` sends in production as of 2026-08-23. This row was stale for weeks. |
+| WhatsApp, the remaining kinds | Meta now has **7 active templates while the code maps 3** — see [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §2. `booking_approved`/`booking_rejected` are approved in Hebrew but **unwired**; `booking_pending`/`cancellation_confirmation` are approved in **English** and need resubmitting; `waitlist_invite` and `client_winback` are unsubmitted. **An unwired kind does not fall back — it fails**, with `retryable: false`, and the client gets nothing. Wiring needs each template's exact approved component layout, which is not in this repo. |
 | Voice ("ליבי") | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated, and no real utterance has been parsed. |
 | Web push | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven: no notification has reached a real device. |
 | Media uploads | `npm run storage:setup` against the production project. |
