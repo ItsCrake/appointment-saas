@@ -6,6 +6,13 @@ import { z } from "zod";
 import { db } from "@/db";
 import { updateBusiness } from "@/db/queries";
 import {
+  CARD_STYLES,
+  CORNER_STYLES,
+  HERO_OVERLAY_MAX,
+  HERO_OVERLAY_MIN,
+  SERVICE_LAYOUTS,
+} from "@/lib/appearance";
+import {
   gallerySchema,
   mediaUrlSchema,
   reviewsSchema,
@@ -29,6 +36,20 @@ const appearanceSchema = z
     heroMediaType: z.union([z.enum(["image", "video"]), z.literal("")]),
     galleryUrls: gallerySchema,
     reviews: reviewsSchema,
+    /**
+     * The dressing (0027). Optional so a client that predates these controls
+     * still saves its hero and gallery — the same reasoning `requiresApproval`
+     * uses on the settings form.
+     */
+    cardStyle: z.enum(CARD_STYLES).optional(),
+    cornerStyle: z.enum(CORNER_STYLES).optional(),
+    serviceLayout: z.enum(SERVICE_LAYOUTS).optional(),
+    heroOverlay: z
+      .number()
+      .int()
+      .min(HERO_OVERLAY_MIN)
+      .max(HERO_OVERLAY_MAX)
+      .optional(),
   })
   .refine((v) => Boolean(v.heroMediaUrl) === Boolean(v.heroMediaType), {
     message: "יש לבחור סוג מדיה יחד עם כתובת הבאנר",
@@ -67,6 +88,16 @@ export async function saveAppearanceAction(
       heroMediaType: data.heroMediaType || null,
       galleryUrls: data.galleryUrls,
       reviews: data.reviews,
+      ...(data.cardStyle === undefined ? {} : { cardStyle: data.cardStyle }),
+      ...(data.cornerStyle === undefined
+        ? {}
+        : { cornerStyle: data.cornerStyle }),
+      ...(data.serviceLayout === undefined
+        ? {}
+        : { serviceLayout: data.serviceLayout }),
+      ...(data.heroOverlay === undefined
+        ? {}
+        : { heroOverlay: data.heroOverlay }),
     });
   } catch (error) {
     // The CHECK constraints can still reject a payload this action considered

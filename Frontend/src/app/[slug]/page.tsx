@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -22,6 +23,7 @@ import {
   toThemeColor,
   type HeroMediaType,
 } from "@/lib/branding";
+import { resolveServiceLayout, toAppearance } from "@/lib/appearance";
 import { BRAND } from "@/lib/brand";
 import { isDemoBusiness } from "@/lib/demo";
 import { getCurrentUser } from "@/lib/supabase/server";
@@ -195,13 +197,38 @@ export default async function BusinessPage({
       ? (business.heroMediaType as HeroMediaType)
       : null;
 
+  /**
+   * The owner's dressing (0027), coerced once here so nothing below has to
+   * defend against a column written past the app. `resolveServiceLayout`
+   * downgrades a `showcase` shop that has not uploaded any service pictures —
+   * a control whose result would be worse than its default must not silently
+   * produce that result.
+   */
+  const appearance = toAppearance(business);
+  const serviceLayout = resolveServiceLayout(
+    appearance.serviceLayout,
+    services,
+  );
+
   return (
     // data-accent resolves the --accent custom properties for everything below
     // it. Tailwind cannot build a class from a runtime value, so the owner's
     // colour arrives as an attribute and the components stay static.
     <div
       data-accent={toThemeColor(business.themeColor)}
-      className="mx-auto flex w-full max-w-lg flex-1 flex-col"
+      // The three dressing choices resolve their custom properties for
+      // everything below, exactly as `data-accent` does — and they have to sit
+      // on the same element, because the glass tokens are built from
+      // `--accent` and would otherwise read the root fallback.
+      data-card={appearance.cardStyle}
+      data-corner={appearance.cornerStyle}
+      style={
+        {
+          // 0–90 from the owner becomes the 0–1 alpha the scrim multiplies.
+          "--hero-overlay": appearance.heroOverlay / 100,
+        } as CSSProperties
+      }
+      className="booking-wash mx-auto flex w-full max-w-lg flex-1 flex-col"
     >
       {previewFor ? <PreviewBar businessName={previewFor} /> : null}
       {structuredData ? (
@@ -258,6 +285,7 @@ export default async function BusinessPage({
       ) : (
         <BookingFlow
           slug={slug}
+          serviceLayout={serviceLayout}
           business={{
             id: business.id,
             name: business.name,

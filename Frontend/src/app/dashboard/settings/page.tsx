@@ -19,6 +19,12 @@ import { SettingsForm } from "@/components/dashboard/settings-form";
 import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
 import { btnAccent } from "@/components/dashboard/ui";
 import {
+  toCardStyle,
+  toCornerStyle,
+  toHeroOverlay,
+  toServiceLayout,
+} from "@/lib/appearance";
+import {
   parseGallery,
   parseReviews,
   toThemeColor,
@@ -100,6 +106,7 @@ export default async function SettingsPage() {
 
           {canBrand ? (
             <AppearanceForm
+              businessName={business.name}
               initial={{
                 themeColor: toThemeColor(business.themeColor),
                 heroMediaUrl: business.heroMediaUrl ?? "",
@@ -110,6 +117,13 @@ export default async function SettingsPage() {
                     : "",
                 galleryUrls: parseGallery(business.galleryUrls),
                 reviews: parseReviews(business.reviews),
+                // Coerced rather than passed raw: a column written past the
+                // app must open the form on a legal value, not on whatever is
+                // in the row.
+                cardStyle: toCardStyle(business.cardStyle),
+                cornerStyle: toCornerStyle(business.cornerStyle),
+                serviceLayout: toServiceLayout(business.serviceLayout),
+                heroOverlay: toHeroOverlay(business.heroOverlay),
               }}
             />
           ) : (

@@ -22,6 +22,8 @@ import { WaitlistDialog } from "./waitlist-dialog";
 import { DateTimeStep } from "./datetime-step";
 import { DetailsStep } from "./details-step";
 import { OnlyStaffStep } from "./only-staff-step";
+import type { ServiceLayout } from "@/lib/appearance";
+
 import { ServiceStep } from "./service-step";
 import { StaffStep } from "./staff-step";
 import { Stepper } from "./stepper";
@@ -36,9 +38,21 @@ type Props = {
   services: BookingService[];
   /** Active providers, in display order. One entry for a single-staff shop. */
   staff: BookingStaff[];
+  /**
+   * Already resolved server-side (0027): `resolveServiceLayout` has downgraded
+   * a `showcase` shop with no service pictures, so this is always a layout
+   * worth rendering.
+   */
+  serviceLayout?: ServiceLayout;
 };
 
-export function BookingFlow({ slug, business, services, staff }: Props) {
+export function BookingFlow({
+  slug,
+  business,
+  services,
+  staff,
+  serviceLayout = "compact",
+}: Props) {
   const today = todayInTimezone(business.timezone);
   const dates = dateRange(
     today,
@@ -307,6 +321,7 @@ export function BookingFlow({ slug, business, services, staff }: Props) {
             services={services}
             selectedId={service?.id}
             onSelect={selectService}
+            layout={serviceLayout}
           />
         ) : null}
 

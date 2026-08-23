@@ -2,7 +2,6 @@ import { MapPin, Phone } from "lucide-react";
 
 import type { HeroMediaType } from "@/lib/branding";
 import type { SocialLink } from "@/lib/social-links";
-import { cn } from "@/lib/utils";
 
 import { HoursDrawer } from "./hours-drawer";
 import { SocialRow } from "./social-row";
@@ -62,7 +61,16 @@ export function BusinessHeader({
        * rather than as a picture that ran out; on a laptop the column is 512px
        * and a square bottom edge would read as an unfinished crop.
        */}
-      <div className="accent-mesh relative aspect-[4/3] max-h-[26rem] w-full overflow-hidden rounded-b-[2rem] sm:aspect-[16/9]">
+      <div
+        className="accent-mesh relative aspect-[4/3] max-h-[26rem] w-full overflow-hidden sm:aspect-[16/9]"
+        // The banner's curve follows the owner's corner setting with everything
+        // else, so a shop on the tightest geometry does not get a soft banner
+        // over sharp cards.
+        style={{
+          borderBottomLeftRadius: "var(--radius-hero)",
+          borderBottomRightRadius: "var(--radius-hero)",
+        }}
+      >
         {hasHero && heroMediaType === "video" ? (
           <video
             src={heroMediaUrl!}
@@ -92,17 +100,28 @@ export function BusinessHeader({
           />
         )}
 
-        {/* Fades to the page background so the banner ends without a seam, and
-            keeps the logo readable over an arbitrary photo. Lighter over the
-            mesh, which is already dark and does not need holding down. */}
+        {/**
+         * Two layers, because they answer two different questions (0027).
+         *
+         * The **scrim** is the owner's `hero_overlay`: how hard the photograph
+         * darkens under the logo and the name. It is adjustable because the
+         * right answer depends on the picture — a bright shopfront and a dark
+         * studio need different values, and no fixed number serves both. Only
+         * over real media; the mesh is already dark and holding it down twice
+         * just makes it muddy.
+         *
+         * The **seam fade** is structural and never adjustable. It carries the
+         * banner into the page background so the bottom edge does not cut, and
+         * an owner who set the scrim to 0 must still not get a hard line across
+         * their page.
+         */}
+        {hasHero ? (
+          <div aria-hidden className="hero-scrim absolute inset-0" />
+        ) : null}
+
         <div
           aria-hidden
-          className={cn(
-            "absolute inset-0",
-            hasHero
-              ? "bg-gradient-to-b from-black/10 via-black/25 to-white dark:to-zinc-950"
-              : "bg-gradient-to-b from-transparent via-transparent to-white dark:to-zinc-950",
-          )}
+          className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-white dark:to-zinc-950"
         />
       </div>
 

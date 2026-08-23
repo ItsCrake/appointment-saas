@@ -14,6 +14,7 @@ import {
 import { formatDuration, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { ImageUpload } from "./image-upload";
 import { btnPrimary } from "./ui";
 
 type Service = {
@@ -26,6 +27,7 @@ type Service = {
   isActive: boolean;
   currency: string;
   bufferMin: number | null;
+  imageUrl: string | null;
 };
 
 type Draft = {
@@ -36,6 +38,8 @@ type Draft = {
   bufferMin: string;
   sortOrder: string;
   isActive: boolean;
+  /** Null clears the picture; the column is nullable and that is the normal state. */
+  imageUrl: string | null;
 };
 
 const EMPTY: Draft = {
@@ -46,6 +50,7 @@ const EMPTY: Draft = {
   bufferMin: "",
   sortOrder: "0",
   isActive: true,
+  imageUrl: null,
 };
 
 function toDraft(service: Service): Draft {
@@ -59,6 +64,7 @@ function toDraft(service: Service): Draft {
     bufferMin: service.bufferMin === null ? "" : String(service.bufferMin),
     sortOrder: String(service.sortOrder),
     isActive: service.isActive,
+    imageUrl: service.imageUrl,
   };
 }
 
@@ -105,6 +111,9 @@ export function ServicesManager({ services }: { services: Service[] }) {
       bufferMin: draft.bufferMin.trim() === "" ? null : Number(draft.bufferMin),
       sortOrder: Number(draft.sortOrder) || 0,
       isActive: draft.isActive,
+      // "" is the action's clear signal; null is what the draft holds when
+      // there is no picture.
+      imageUrl: draft.imageUrl ?? "",
     };
 
     if (
@@ -206,6 +215,19 @@ export function ServicesManager({ services }: { services: Service[] }) {
           </div>
 
           <div className="space-y-3">
+            {/**
+             * The column and the booking page have both supported this since
+             * 0018 — there was simply no way for an owner to set it, so every
+             * service card rendered without a picture. The showcase layout in
+             * the appearance settings is what makes it worth having.
+             */}
+            <ImageUpload
+              kind="service"
+              value={draft.imageUrl}
+              onChange={(url) => setDraft({ ...draft, imageUrl: url })}
+              hint="מוצגת בכרטיס השירות בעמוד ההזמנות. תמונה מרובעת תיראה הכי טוב."
+              removeLabel="הסרת התמונה"
+            />
             <Input
               label="שם השירות"
               value={draft.name}

@@ -112,7 +112,16 @@ const EXTENSIONS: Record<AcceptedMediaType, string> = {
 };
 
 /** What the media is for. Decides the folder, and which rules apply. */
-export const MEDIA_KINDS = ["logo", "hero", "gallery", "staff"] as const;
+export const MEDIA_KINDS = [
+  "logo",
+  "hero",
+  "gallery",
+  "staff",
+  // A picture of what the shop sells (0027). Follows `staff` rather than
+  // `gallery`: it is content on the booking page, not branding decoration, so
+  // it is not behind the Pro gate below.
+  "service",
+] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
 /**

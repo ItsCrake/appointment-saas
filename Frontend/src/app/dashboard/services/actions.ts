@@ -10,6 +10,7 @@ import {
   deleteService,
   updateService,
 } from "@/db/queries";
+import { mediaUrlSchema } from "@/lib/branding";
 import { requireWritable } from "@/lib/dashboard-session";
 
 export type ServiceActionResult =
@@ -38,6 +39,12 @@ const serviceSchema = z.object({
     .default(null),
   sortOrder: z.number().int().min(0).max(999).default(0),
   isActive: z.boolean().default(true),
+  /**
+   * The picture on the booking card (0027). Validated as a URL rather than
+   * trusted: it is rendered straight into `src`, which is the one place a
+   * hostile value would reach a browser. Empty clears it.
+   */
+  imageUrl: z.union([mediaUrlSchema, z.literal("")]).optional(),
 });
 
 export async function saveServiceAction(
@@ -53,6 +60,7 @@ export async function saveServiceAction(
   const values = {
     ...parsed.data,
     description: parsed.data.description || null,
+    imageUrl: parsed.data.imageUrl ? parsed.data.imageUrl : null,
   };
 
   if (serviceId) {

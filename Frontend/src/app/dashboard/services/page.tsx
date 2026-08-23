@@ -33,6 +33,7 @@ export default async function ServicesPage() {
           isActive: s.isActive,
           bufferMin: s.bufferMin,
           currency: s.currency,
+          imageUrl: s.imageUrl,
         }))}
       />
     </div>

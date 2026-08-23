@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1169 tests across 78 files**; Playwright
+**Green:** `npm run verify` at **1182 tests across 79 files**; Playwright
 **11/11** across 3 specs (not run every session). All **27 migrations
 (0000–0026)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1285,6 +1285,22 @@ optional. What follows from that:
 - **Appointment dialog** — two tabs, booking and client card. Reschedule re-runs
   availability with the appointment excluded from its own busy set, or it blocks
   itself. Amber confirm sends `force: true` for off-hours.
+- **Booking-page dressing** (0027) — four owner controls: card surface
+  (`elevated` / `glass` / `flat`), corner softness, service layout
+  (`compact` / `showcase`), and a 0–90 hero overlay. Names not values, arriving
+  as `data-card` / `data-corner` on the page root, exactly as `data-accent`
+  does — `lib/appearance.ts` owns the names, `globals.css` owns the looks, and
+  `appearance.test.ts` reads the stylesheet to assert the two agree. Every
+  coercion is total, so a text column written past the app still renders.
+  **`showcase` degrades to `compact` when no service has a picture**, because a
+  column of empty frames is worse than the list it replaced; the setting is
+  kept, so the first upload turns it on by itself. Glass earns its blur in
+  exactly two places — the stepper had none over a light page, so it uses
+  accent tokens instead, and the showcase card's scrim, where text sits over a
+  photograph nobody here has seen. **Per-service images were already in the
+  schema and already rendered; no owner could set one** — `services-manager`
+  now has the field and `media-upload` a `service` kind (ungated, like `staff`:
+  a picture of what you sell is content, not branding).
 - **Onboarding presets** (0026) — the wizard opens by asking the trade
   (מספרת גברים / ציפורניים ויופי / blank), and the services step opens with that
   set instead of three hardcoded barber rows. `lib/onboarding-presets.ts` is

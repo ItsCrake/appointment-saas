@@ -219,6 +219,21 @@ export const businesses = pgTable("businesses", {
    * why this is jsonb rather than a child table with a sort column.
    */
   galleryUrls: jsonb("gallery_urls").$type<string[]>().notNull().default([]),
+  /* ---- How the booking page is dressed (0027) ------------------------ *
+   * Names rather than values, for the same reason `theme_color` is: a
+   * runtime string cannot become a Tailwind class, so each becomes a
+   * `data-*` attribute and the stylesheet resolves it. Text rather than
+   * enums so retiring an option is a code change, never a migration —
+   * every coercion in `lib/appearance.ts` falls back rather than throws.
+   * The defaults reproduce exactly what tenants saw before 0027.        */
+  /** `elevated` | `glass` | `flat`. */
+  cardStyle: text("card_style").notNull().default("elevated"),
+  /** `soft` | `rounded` | `round` — moves the whole radius scale together. */
+  cornerStyle: text("corner_style").notNull().default("rounded"),
+  /** `compact` | `showcase`. Degrades to compact with no service images. */
+  serviceLayout: text("service_layout").notNull().default("compact"),
+  /** 0–90. The only continuous control: it depends on the photograph. */
+  heroOverlay: integer("hero_overlay").notNull().default(45),
   /**
    * Owner-entered testimonials. Deliberately not a table: they are typed in by
    * hand, never queried across tenants, and have no lifecycle of their own.

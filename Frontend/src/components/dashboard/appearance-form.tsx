@@ -1,5 +1,7 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import { useCallback, useState } from "react";
 import {
   AlertCircle,
@@ -23,7 +25,33 @@ import {
   type Review,
   type ThemeColor,
 } from "@/lib/branding";
+import {
+  CARD_STYLES,
+  CARD_STYLE_HINTS,
+  CARD_STYLE_LABELS,
+  CORNER_STYLES,
+  CORNER_STYLE_LABELS,
+  HERO_OVERLAY_MAX,
+  HERO_OVERLAY_MIN,
+  SERVICE_LAYOUTS,
+  SERVICE_LAYOUT_HINTS,
+  SERVICE_LAYOUT_LABELS,
+  type CardStyle,
+  type CornerStyle,
+  type ServiceLayout,
+} from "@/lib/appearance";
 import { cn } from "@/lib/utils";
+
+/**
+ * Each corner option wears its own radius on its own button, so the control
+ * shows the answer instead of naming it. Mirrors the [data-corner] blocks in
+ * globals.css; a test asserts the two lists agree.
+ */
+const CORNER_PREVIEW_RADIUS: Record<CornerStyle, string> = {
+  soft: "0.5rem",
+  rounded: "0.875rem",
+  round: "1.5rem",
+};
 
 import { ImageUpload, UploadButton } from "./image-upload";
 import { useSectionForm, type SaveResult } from "./settings-dirty";
@@ -36,7 +64,13 @@ type Props = {
     heroMediaType: HeroMediaType | "";
     galleryUrls: string[];
     reviews: Review[];
+    cardStyle: CardStyle;
+    cornerStyle: CornerStyle;
+    serviceLayout: ServiceLayout;
+    heroOverlay: number;
   };
+  /** The shop's own name, so the banner preview is theirs rather than a stub. */
+  businessName: string;
 };
 
 const inputClass =
@@ -44,7 +78,7 @@ const inputClass =
 
 type Values = Props["initial"];
 
-export function AppearanceForm({ initial }: Props) {
+export function AppearanceForm({ initial, businessName }: Props) {
   const [galleryDraft, setGalleryDraft] = useState("");
   const [error, setError] = useState<string>();
 
@@ -74,7 +108,13 @@ export function AppearanceForm({ initial }: Props) {
     heroMediaType,
     galleryUrls: gallery,
     reviews,
+    cardStyle,
+    cornerStyle,
+    serviceLayout,
+    heroOverlay,
   } = values;
+
+  const previewName = businessName;
 
   /** Field setters, so the body below reads as it did before the refactor. */
   const setThemeColor = (next: ThemeColor) =>
@@ -88,6 +128,14 @@ export function AppearanceForm({ initial }: Props) {
       ...v,
       galleryUrls: typeof next === "function" ? next(v.galleryUrls) : next,
     }));
+  const setCardStyle = (next: CardStyle) =>
+    setValues((v) => ({ ...v, cardStyle: next }));
+  const setCornerStyle = (next: CornerStyle) =>
+    setValues((v) => ({ ...v, cornerStyle: next }));
+  const setServiceLayout = (next: ServiceLayout) =>
+    setValues((v) => ({ ...v, serviceLayout: next }));
+  const setHeroOverlay = (next: number) =>
+    setValues((v) => ({ ...v, heroOverlay: next }));
   const setReviews = (next: Review[] | ((current: Review[]) => Review[])) =>
     setValues((v) => ({
       ...v,
@@ -193,6 +241,210 @@ export function AppearanceForm({ initial }: Props) {
           </div>
         </div>
       </Section>
+
+      {/**
+       * The dressing (0027).
+       *
+       * Placed directly under the colour picker because these four decide the
+       * same thing it does — what the page *feels* like — and an owner who has
+       * just chosen a swatch is already in that frame of mind. The banner and
+       * gallery sections below are about supplying content, which is a
+       * different job.
+       *
+       * The whole block is wrapped in the live `data-card` / `data-corner`
+       * attributes, so the sample card underneath is rendered by the exact
+       * tokens the booking page will use. It is not an illustration of the
+       * setting; it is the setting.
+       */}
+      <Section
+        title="סגנון הכרטיסים"
+        description="איך נראים הכרטיסים והפינות בעמוד ההזמנות"
+      >
+        <div
+          data-card={cardStyle}
+          data-corner={cornerStyle}
+          className="booking-wash -m-1 rounded-2xl p-1"
+        >
+          <fieldset>
+            <legend className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              משטח
+            </legend>
+            <div className="grid grid-cols-3 gap-2">
+              {CARD_STYLES.map((style) => (
+                <button
+                  key={style}
+                  type="button"
+                  onClick={() => setCardStyle(style)}
+                  aria-pressed={cardStyle === style}
+                  className={cn(
+                    "rounded-xl border p-2.5 text-start transition-all active:scale-95",
+                    "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
+                    cardStyle === style
+                      ? "border-(--accent) ring-1 ring-(--accent)"
+                      : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800",
+                  )}
+                >
+                  <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                    {CARD_STYLE_LABELS[style]}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                    {CARD_STYLE_HINTS[style]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="mt-4">
+            <legend className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              עיגול פינות
+            </legend>
+            <div className="grid grid-cols-3 gap-2">
+              {CORNER_STYLES.map((corner) => (
+                <button
+                  key={corner}
+                  type="button"
+                  onClick={() => setCornerStyle(corner)}
+                  aria-pressed={cornerStyle === corner}
+                  className={cn(
+                    "flex items-center justify-center gap-2 border p-2.5 text-xs font-semibold transition-all active:scale-95",
+                    "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
+                    cornerStyle === corner
+                      ? "border-(--accent) text-(--accent-on-soft) ring-1 ring-(--accent)"
+                      : "border-zinc-200 text-zinc-600 hover:border-zinc-400 dark:border-zinc-800 dark:text-zinc-400",
+                  )}
+                  // Each option wears its own radius, so the control shows the
+                  // answer rather than naming it.
+                  style={{
+                    borderRadius: CORNER_PREVIEW_RADIUS[corner],
+                  }}
+                >
+                  {CORNER_STYLE_LABELS[corner]}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          {/* Rendered by the live tokens, so this is the real card. */}
+          <div className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+            <p className="mb-2 text-xs text-zinc-500">תצוגה מקדימה</p>
+            <div className="booking-card flex items-center gap-3 p-3">
+              <span
+                className="size-11 shrink-0 bg-(--accent-soft)"
+                style={{ borderRadius: "var(--radius-inner)" }}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
+                  תספורת גבר
+                </span>
+                <span className="mt-1.5 flex items-center gap-2">
+                  <span className="rounded-full bg-(--accent-soft) px-2 py-0.5 text-[10px] font-medium text-(--accent-on-soft)">
+                    30 דק׳
+                  </span>
+                  <span className="text-[13px] font-bold text-zinc-900 tabular-nums dark:text-zinc-100">
+                    ₪70
+                  </span>
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="תצוגת השירותים"
+        description="רשימה מהירה, או כרטיסי תמונה לעסק שמוכר מראה"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          {SERVICE_LAYOUTS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setServiceLayout(option)}
+              aria-pressed={serviceLayout === option}
+              className={cn(
+                "rounded-xl border p-3 text-start transition-all active:scale-95",
+                "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white",
+                serviceLayout === option
+                  ? "border-(--accent) ring-1 ring-(--accent)"
+                  : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800",
+              )}
+            >
+              <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                {SERVICE_LAYOUT_LABELS[option]}
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                {SERVICE_LAYOUT_HINTS[option]}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Said out loud rather than left to be discovered. The page degrades
+            to the list on its own when no service has a picture, and an owner
+            who picked "תמונות" and saw a list would otherwise reasonably
+            conclude the setting is broken. */}
+        {serviceLayout === "showcase" ? (
+          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+            כל עוד לא הוספתם תמונות לשירותים, העמוד יציג רשימה. ההגדרה נשמרת —
+            ברגע שתעלו תמונה, התצוגה תתחלף לבד.
+          </p>
+        ) : null}
+      </Section>
+
+      {/* Only meaningful when there is media under it, so it does not render
+          without one — a slider that changes nothing visible is the shape of a
+          control that appears to work and does not. */}
+      {heroMediaUrl.trim() ? (
+        <Section
+          title="כהות הבאנר"
+          description="כמה להכהות את התמונה מתחת לשם ולסמל"
+        >
+          <div className="flex items-center gap-3">
+            <input
+              id="heroOverlay"
+              type="range"
+              min={HERO_OVERLAY_MIN}
+              max={HERO_OVERLAY_MAX}
+              step={5}
+              value={heroOverlay}
+              onChange={(e) => setHeroOverlay(Number(e.target.value))}
+              className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-200 accent-(--accent) dark:bg-zinc-800"
+              aria-describedby="heroOverlayValue"
+            />
+            <output
+              id="heroOverlayValue"
+              htmlFor="heroOverlay"
+              className="w-12 shrink-0 text-end text-xs font-semibold text-zinc-600 tabular-nums dark:text-zinc-400"
+            >
+              {heroOverlay}%
+            </output>
+          </div>
+
+          {/* The owner's own banner under the owner's own value. Nothing here
+              is a stand-in, so what they approve is what ships. */}
+          <div
+            className="relative mt-3 aspect-[16/9] w-full overflow-hidden"
+            style={
+              {
+                borderRadius: "var(--radius-card)",
+                "--hero-overlay": heroOverlay / 100,
+              } as CSSProperties
+            }
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host */}
+            <img
+              src={heroMediaUrl.trim()}
+              alt=""
+              className="size-full object-cover"
+            />
+            <span aria-hidden className="hero-scrim absolute inset-0" />
+            <span className="absolute inset-x-0 bottom-0 p-3 text-center text-sm font-bold text-white">
+              {previewName}
+            </span>
+          </div>
+        </Section>
+      ) : null}
 
       <Section
         title="באנר עליון"

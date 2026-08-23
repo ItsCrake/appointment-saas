@@ -526,7 +526,11 @@ body {
   /* No base at all in the week view: the open-hours band and today's tint have
      to read through, or "glass" is just paint. 16% is low enough that zinc-900
      body text keeps a wide margin over AA on every swatch and every staff hue. */
-  --cal-tint: color-mix(in oklch, var(--cal-hue, var(--accent)) 16%, transparent);
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 16%,
+    transparent
+  );
   background-color: transparent;
   background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
   border-color: color-mix(
@@ -567,7 +571,11 @@ body {
    view's translucency exists to stop seven narrow columns becoming a wall of
    colour — a problem the day view does not have. */
 .cal-glass-solid {
-  --cal-tint: color-mix(in oklch, var(--cal-hue, var(--accent)) 18%, transparent);
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 18%,
+    transparent
+  );
   background-color: rgb(255 255 255 / 0.9);
   background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
   border-color: color-mix(
@@ -899,4 +907,214 @@ body {
       transparent 65%
     ),
     linear-gradient(160deg, #1e1b4b 0%, #111827 55%, #09090b 100%);
+}
+
+/* ---------------------------------------------------------------------------
+   Booking-page dressing (0027).
+
+   Four owner choices arrive as `data-*` attributes on the page root and become
+   custom properties here — the same division `data-accent` uses, and for the
+   same reason: Tailwind cannot emit a class from a runtime value.
+
+   Every token resolves at the element rather than at `:root`, so `--accent` is
+   the *tenant's* by the time these read it. A value baked at `:root` would come
+   out indigo for every shop, which is the trap `--shadow-accent` documents.
+   -------------------------------------------------------------------------- */
+
+/* The bare selector fires only when the attribute is present; the values here
+   reproduce exactly what every card looked like before 0027. */
+[data-card],
+[data-card="elevated"] {
+  --card-bg: #fff;
+  --card-ring: rgb(24 24 27 / 0.08);
+  --card-ring-hover: var(--accent);
+  --card-shadow: var(--shadow-lift);
+  --card-shadow-hover: var(--shadow-raise);
+  --card-blur: none;
+  /* No wash: an elevated card is white on the page's own background. */
+  --page-wash: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Glass, and why it is allowed to exist here.
+
+   Blur used as decoration is a costume. This earns it by having something to
+   read through: `--page-wash` puts a low accent gradient behind the content
+   column, so a card in this mode is a tinted panel over coloured ground rather
+   than grey paint on white.
+
+   The tint is held at 10% for the reason `.cal-glass` holds 16% — zinc-900 body
+   text has to keep a wide margin over AA on all six swatches, and the card also
+   carries prices at a smaller size. Raising it is a contrast change and has to
+   be re-measured rather than eyeballed.
+   -------------------------------------------------------------------------- */
+[data-card="glass"] {
+  --card-bg: color-mix(in oklab, var(--accent) 10%, rgb(255 255 255 / 0.82));
+  --card-ring: color-mix(in oklab, var(--accent) 26%, transparent);
+  --card-ring-hover: color-mix(in oklab, var(--accent) 60%, transparent);
+  --card-shadow:
+    0 1px 2px -1px rgb(24 24 27 / 0.05),
+    0 8px 24px -12px color-mix(in oklab, var(--accent) 45%, transparent);
+  --card-shadow-hover:
+    0 2px 6px -2px rgb(24 24 27 / 0.07),
+    0 18px 40px -14px color-mix(in oklab, var(--accent) 55%, transparent);
+  --card-blur: saturate(1.35) blur(14px);
+  --page-wash: color-mix(in oklab, var(--accent) 7%, transparent);
+}
+
+/* Hairline and nothing else. For an owner whose photographs should carry the
+   page and whose chrome should get out of the way. */
+[data-card="flat"] {
+  --card-bg: #fff;
+  --card-ring: rgb(24 24 27 / 0.14);
+  --card-ring-hover: var(--accent);
+  --card-shadow: none;
+  --card-shadow-hover: none;
+  --card-blur: none;
+  --page-wash: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-card],
+  [data-card="elevated"] {
+    --card-bg: oklch(21% 0.006 285.885);
+    --card-ring: rgb(255 255 255 / 0.1);
+  }
+
+  [data-card="glass"] {
+    /* Dark glass tints *up* from the surface rather than down from white, or
+       the panel reads as a grey smear over the page instead of as a material. */
+    --card-bg: color-mix(in oklab, var(--accent) 16%, rgb(24 24 27 / 0.72));
+    --card-ring: color-mix(in oklab, var(--accent) 34%, transparent);
+  }
+
+  [data-card="flat"] {
+    --card-bg: oklch(21% 0.006 285.885);
+    --card-ring: rgb(255 255 255 / 0.16);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Corner softness.
+
+   Three steps rather than a slider, so the geometry keeps its *relationships*:
+   a container, a surface nested in it, and the media inside that move together.
+   A free number would let an owner set 3px on a card and 40px on the thing
+   inside it, and the page's rhythm is a brand commitment rather than taste.
+   -------------------------------------------------------------------------- */
+[data-corner="soft"] {
+  --radius-card: 0.875rem;
+  --radius-inner: 0.625rem;
+  --radius-hero: 1.25rem;
+}
+
+[data-corner],
+[data-corner="rounded"] {
+  --radius-card: 1rem;
+  --radius-inner: 0.75rem;
+  --radius-hero: 2rem;
+}
+
+[data-corner="round"] {
+  --radius-card: 1.75rem;
+  --radius-inner: 1.25rem;
+  --radius-hero: 2.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+   The card itself.
+
+   A single class so a component says `booking-card` instead of restating six
+   token references, and so changing the material is one edit rather than
+   fifteen. `background-image` rather than `background-color` for the same
+   reason `.cal-glass` uses it — a `color-mix` carrying alpha composites
+   correctly as a gradient layer over whatever the wash is doing underneath.
+   -------------------------------------------------------------------------- */
+.booking-card {
+  background-color: transparent;
+  background-image: linear-gradient(var(--card-bg), var(--card-bg));
+  border-radius: var(--radius-card);
+  box-shadow:
+    var(--card-shadow),
+    0 0 0 1px var(--card-ring) inset;
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
+  transition:
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-image 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Depth on hover, and the card never moves — a translate makes the element a
+   moving target for the ~200ms after a pointer lands on it, and a tap that
+   registers as a hover first arrives mid-flight. */
+@media (hover: hover) {
+  .booking-card:hover {
+    box-shadow:
+      var(--card-shadow-hover),
+      0 0 0 1px var(--card-ring-hover) inset;
+  }
+}
+
+.booking-card[data-selected="true"] {
+  box-shadow:
+    var(--shadow-accent),
+    0 0 0 1.5px var(--accent) inset;
+}
+
+/* The ground a glass card reads through. Transparent in the other two modes,
+   so this element costs nothing when it is not in use. */
+.booking-wash {
+  background-image: radial-gradient(
+    ellipse 90% 60% at 50% 0%,
+    var(--page-wash) 0%,
+    transparent 70%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Hero overlay.
+
+   A scrim, not a filter. Text sits over a photograph the tenant chose and we
+   have never seen, so the gradient is what guarantees the name and the CTA stay
+   legible over a white studio wall and a black tattoo parlour alike.
+
+   Bottom-weighted rather than flat: the top of a hero is usually the part worth
+   seeing, and the text is at the bottom. `--hero-overlay` arrives as a 0–1
+   number from the owner's 0–90 setting.
+   -------------------------------------------------------------------------- */
+.hero-scrim {
+  background-image: linear-gradient(
+    to top,
+    rgb(9 9 11 / calc(var(--hero-overlay, 0.45) * 1.15)) 0%,
+    rgb(9 9 11 / calc(var(--hero-overlay, 0.45) * 0.7)) 45%,
+    rgb(9 9 11 / calc(var(--hero-overlay, 0.45) * 0.15)) 100%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   The stepper pills.
+
+   Glass here does the one job blur is actually for: these sit over the tenant's
+   hero media, and a solid pill would be a row of stickers on a photograph. The
+   blur is what lets the image stay visible while the label stays readable.
+
+   The active pill is filled with `--accent`, which already carries a measured
+   AA contrast pair in `--accent-contrast`; the rest inherit the hero's own
+   foreground, which the scrim above guarantees.
+   -------------------------------------------------------------------------- */
+.step-pill {
+  border-radius: 9999px;
+  backdrop-filter: saturate(1.6) blur(12px);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  transition:
+    background-color 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .booking-card,
+  .step-pill {
+    transition: none;
+  }
 }
