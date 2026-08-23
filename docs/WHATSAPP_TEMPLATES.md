@@ -84,10 +84,20 @@ token. It could not share the others': an invite token is a `randomUUID()`
 exactly like a cancel token, so the proxy cannot tell them apart and every
 invite button would have opened a cancellation page.
 
-**A plain date, not the confirmation's phrase.** `appointment_confirmation` was
-approved with the weekday inside its own `{{2}}` ("יום שלישי, 20/08/2026"). The
-four later templates take a bare date, so they use `datePlain`. Reusing
-`datePhrase` would push a weekday into copy written without one.
+**One date phrase for all five.** Every appointment template sends
+`datePhrase` — "יום שלישי, 17/02/2026", weekday included.
+
+> This briefly shipped as a bare date for the four approved later, inferred
+> from their **sample values** on the Meta dashboard. That was wrong, and the
+> mistake is worth recording: a sample value constrains nothing. Their approved
+> *body* puts 📅 beside `{{2}}` with no "ביום" of its own — exactly like
+> `appointment_confirmation` — so the weekday belongs inside the parameter, and
+> a bare date rendered as a date with no day beside a calendar emoji. Read the
+> body copy, not the samples.
+
+`waitlist_invite` is the one exception, and it is not the same variable: its
+`{{2}}` is a **day name alone** ("שלישי"), because its copy supplies the
+surrounding words itself.
 
 > ### ⚠️ Still true, and the reason all of this mattered
 >
@@ -135,14 +145,15 @@ BODY     *התפנה תור ב{{1}}!*
 BUTTON   לתפיסת התור  →  https://www.bazman.app/w/{{1}}
 ```
 
-| Component | Var     | Value                                    |
-| --------- | ------- | ---------------------------------------- |
-| header    | `{{1}}` | client name                              |
-| body      | `{{1}}` | business name                            |
-| body      | `{{2}}` | date phrase — `יום שלישי, 24/08/2026`    |
-| body      | `{{3}}` | time phrase — `12:20`                    |
-| body      | `{{4}}` | offer deadline time — `13:20`            |
-| button    | `{{1}}` | bare invite token                        |
+| Component | Var     | Value                                     |
+| --------- | ------- | ----------------------------------------- |
+| header    | —       | **none** — sending one would be rejected  |
+| body      | `{{1}}` | business name — `מספרת בלאק`              |
+| body      | `{{2}}` | **day name alone** — `רביעי`              |
+| body      | `{{3}}` | time — `16:30`                            |
+| body      | `{{4}}` | window in **whole minutes** — `60`        |
+| footer    | —       | static: `ניהול תורים - בזמן.`             |
+| button    | `{{1}}` | bare invite token, against the `/w/` base |
 
 > **Implementation note.** `{{4}}` comes from `offerDeadline`, which returns the
 > slot's own start when a shop sets `waitlist_offer_ttl_min = 0`. The copy would

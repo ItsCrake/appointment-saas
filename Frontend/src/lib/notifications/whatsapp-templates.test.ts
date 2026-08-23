@@ -17,6 +17,13 @@ const HOUR = 3_600_000;
 /** U+200F RIGHT-TO-LEFT MARK, spelled out so the tests below stay readable. */
 const RLM = "‏";
 
+/**
+ * Drops the direction marks `anchorRtl` wraps around dates and times. They are
+ * real content to Meta and whitespace to a reader, so assertions about what a
+ * client *sees* compare the stripped form.
+ */
+const strip = (value: string) => value.replaceAll(RLM, "");
+
 const TOKEN = "34e64171-cb3e-47b3-8548-82297eff1270";
 
 const context = (
@@ -127,6 +134,31 @@ describe("template selection", () => {
     // ...while the two that offer a fresh booking take the slug instead.
     const rejected = whatsappTemplateFor(context({ kind: "booking_rejected" }));
     expect(rejected?.buttonUrlSuffix).toBe("demo-barber");
+  });
+
+  it("sends the weekday inside {{2}} for all four, not a bare date", () => {
+    /**
+     * This flipped once already. The Meta dashboard's *sample values* for these
+     * four are bare dates ("17/06/2026"), which looked like a constraint and is
+     * not one — the approved **body** puts 📅 beside `{{2}}` with no "ביום" of
+     * its own, so a bare date renders as a date with no day beside a calendar
+     * emoji.
+     *
+     * Pinned across all four rather than spot-checked, because they share one
+     * code path and the next person to read a sample value will reach the same
+     * wrong conclusion.
+     */
+    for (const kind of [
+      "booking_pending",
+      "booking_approved",
+      "booking_rejected",
+      "cancellation_confirmation",
+    ] as const) {
+      const template = whatsappTemplateFor(context({ kind }));
+      const date = strip(template?.parameters[1] ?? "");
+
+      expect(date).toBe("יום חמישי, 20/08/2026");
+    }
   });
 
   it("omits the header only for the template that has none", () => {
@@ -303,7 +335,6 @@ describe("parameter values", () => {
 describe("direction marks keep the emoji beside the number", () => {
   /** Strong right-to-left: Hebrew, or the mark itself. */
   const STRONG_RTL = /[‏֐-׿]/;
-  const strip = (value: string) => value.replaceAll(RLM, "");
 
   /**
    * The defect and the fix in one assertion.

@@ -124,29 +124,20 @@ export function anchorRtl(value: string): string {
 /**
  * The 📅 slot: "יום שלישי, 20/08/2026".
  *
- * The weekday is part of the string rather than a fourth variable because the
- * approved copy has one placeholder on that line. `formatFullDateTime` is the
- * same formatter the confirmation screen uses, so the message and the page
- * cannot disagree about what day an appointment is on.
+ * The weekday is part of the string rather than a separate variable because
+ * every approved body puts one placeholder on that line, beside the emoji and
+ * without a "ביום" of its own. `formatFullDateTime` is the same formatter the
+ * confirmation screen uses, so the message and the page cannot disagree about
+ * what day an appointment is on.
+ *
+ * **Used by all five appointment templates.** There was briefly a second,
+ * bare-date helper for the four approved later, inferred from their sample
+ * values on the Meta dashboard — but a sample constrains nothing, and their
+ * body copy is laid out exactly like this one's. One phrase, one helper.
  */
 export function datePhrase(context: AppointmentContext): string {
   const when = formatFullDateTime(context.startsAt, context.businessTimezone);
   return anchorRtl(`יום ${when.weekday}, ${when.date}`);
-}
-
-/**
- * A bare date: "17/06/2026".
- *
- * Separate from `datePhrase` because the two are not interchangeable.
- * `appointment_confirmation` was approved with the weekday *inside* its own
- * placeholder, so its `{{2}}` reads "יום שלישי, 20/08/2026"; the four
- * templates approved later take a plain date, and pushing a weekday into copy
- * written without one would read as a mistake to every client who got it.
- */
-export function datePlain(context: AppointmentContext): string {
-  return anchorRtl(
-    formatFullDateTime(context.startsAt, context.businessTimezone).date,
-  );
 }
 
 /** The ⏰ slot: "14:30", in the business's own timezone. */
@@ -322,12 +313,18 @@ export function whatsappTemplateFor(
         : { header: [filled(appointment.clientName)] }),
       parameters: [
         filled(appointment.businessName),
-        // `datePlain`, not `datePhrase`. The approved samples for all four are
-        // a bare date — "17/06/2026" — where `appointment_confirmation` was
-        // approved with the weekday inside its own `{{2}}` ("יום שלישי,
-        // 20/08/2026"). Reusing that here would push a weekday into copy
-        // written without one.
-        datePlain(appointment),
+        /**
+         * The same phrase `appointment_confirmation` uses — "יום שלישי,
+         * 17/02/2026", weekday included.
+         *
+         * This briefly sent a bare date instead, inferred from the sample
+         * values on the Meta dashboard. The samples were a red herring: the
+         * approved *body* puts 📅 beside `{{2}}` with no "ביום" of its own, so
+         * the weekday belongs inside the parameter and a bare date left the
+         * line reading as a date with no day. Sample values do not constrain
+         * what gets sent; the surrounding copy does.
+         */
+        datePhrase(appointment),
         timePhrase(appointment),
       ],
       buttonUrlSuffix:
