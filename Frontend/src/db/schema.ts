@@ -149,9 +149,7 @@ export const businesses = pgTable("businesses", {
    * cancellation and the shop filling it. The effective deadline is the
    * *earlier* of this and the slot's own start — see `offerDeadline`.
    */
-  waitlistOfferTtlMin: integer("waitlist_offer_ttl_min")
-    .notNull()
-    .default(60),
+  waitlistOfferTtlMin: integer("waitlist_offer_ttl_min").notNull().default(60),
   /** Where owner alerts go. NULL means the owner gets no notifications. */
   notificationEmail: text("notification_email"),
   /**
@@ -163,6 +161,13 @@ export const businesses = pgTable("businesses", {
    * did not reserve the time would be a request to be disappointed.
    */
   requiresApproval: boolean("requires_approval").notNull().default(false),
+  /**
+   * Which starting point the owner picked in the wizard (0026). Nullable
+   * because every shop created before it chose nothing, and text rather than
+   * an enum because the list is a product decision that will churn — see the
+   * migration. Nothing in the product branches on it; it seeds form defaults.
+   */
+  onboardingPreset: text("onboarding_preset"),
   /**
    * Owner opt-in for web push (0020). Separate from `push_subscriptions`
    * because a device can stay registered while notifications are switched off
@@ -848,8 +853,7 @@ export const waitlistEntries = pgTable(
 export type WaitlistEntry = typeof waitlistEntries.$inferSelect;
 export type NewWaitlistEntry = typeof waitlistEntries.$inferInsert;
 export type WaitlistStatus = (typeof waitlistStatus.enumValues)[number];
-export type WaitlistTimeWindow =
-  (typeof waitlistTimeWindow.enumValues)[number];
+export type WaitlistTimeWindow = (typeof waitlistTimeWindow.enumValues)[number];
 
 export const notifications = pgTable(
   "notifications",

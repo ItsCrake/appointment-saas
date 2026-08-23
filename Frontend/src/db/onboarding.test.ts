@@ -12,6 +12,7 @@ import {
   updateBusiness,
 } from "@/db/queries";
 import type { Database } from "@/db/types";
+import { presetServices } from "@/lib/onboarding-presets";
 import { createBusiness, createService as makeService } from "@/test/factories";
 import { createTestDb } from "@/test/pglite";
 
@@ -134,5 +135,56 @@ describe("setup step 3 — hours", () => {
     expect(rows).toHaveLength(3);
     expect(rows.filter((r) => r.weekday === 0)).toHaveLength(2); // split shift
     expect(rows.some((r) => r.weekday === 1)).toBe(false); // old row gone
+  });
+});
+
+describe("setup step 0 — the preset", () => {
+  it("defaults to nothing chosen, which is what every pre-0026 shop has", async () => {
+    // Nullable on purpose: a shop created before presets existed made no
+    // choice, and `presetServices` reads that absence as the default set.
+    const business = await createBusiness(db);
+    expect(business.onboardingPreset).toBeNull();
+  });
+
+  it("survives on the row, which is what the services step reads it from", async () => {
+    /**
+     * The whole reason this is a column rather than a query param. Step 0 runs
+     * before the business exists and step 2 runs two navigations later, so
+     * `?preset=` cannot bridge them on its own — it is a one-shot hint that
+     * `saveBusinessDetailsAction` writes here.
+     */
+    const business = await createBusiness(db, { onboardingPreset: "nails" });
+
+    const reloaded = await getBusinessByOwner(db, business.ownerUserId);
+    expect(reloaded?.onboardingPreset).toBe("nails");
+  });
+
+  it("is re-recorded when an owner steps back and changes trade", async () => {
+    const business = await createBusiness(db, {
+      onboardingPreset: "barbershop",
+    });
+
+    await updateBusiness(db, business.id, { onboardingPreset: "nails" });
+
+    const reloaded = await getBusinessByOwner(db, business.ownerUserId);
+    expect(reloaded?.onboardingPreset).toBe("nails");
+  });
+
+  it("accepts a value the code no longer recognises", async () => {
+    /**
+     * Text rather than an enum, so retiring a preset cannot strand the rows
+     * that chose it. The stored string stays readable and `presetServices`
+     * degrades it to the default set rather than throwing — which is why
+     * dropping a preset from the catalogue needs no migration.
+     */
+    const business = await createBusiness(db, {
+      onboardingPreset: "retired-preset",
+    });
+
+    const reloaded = await getBusinessByOwner(db, business.ownerUserId);
+    expect(reloaded?.onboardingPreset).toBe("retired-preset");
+    expect(presetServices(reloaded?.onboardingPreset)).toEqual(
+      presetServices("barbershop"),
+    );
   });
 });

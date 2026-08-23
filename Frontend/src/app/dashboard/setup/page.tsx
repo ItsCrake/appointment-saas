@@ -7,15 +7,25 @@ import { db } from "@/db";
 import { listServices, listWorkingHours } from "@/db/queries";
 import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
 import { requireBusinessForSetup } from "@/lib/dashboard-session";
+import { isOnboardingPreset } from "@/lib/onboarding-presets";
 import { toPlanType } from "@/lib/plans";
 
 export const metadata: Metadata = { title: "הקמת העסק" };
 export const dynamic = "force-dynamic";
 
-const STEPS = ["details", "services", "hours", "plan", "done"] as const;
+const STEPS = [
+  "preset",
+  "details",
+  "services",
+  "hours",
+  "plan",
+  "done",
+] as const;
 type Step = (typeof STEPS)[number];
 
-type PageProps = { searchParams: Promise<{ step?: string; plan?: string }> };
+type PageProps = {
+  searchParams: Promise<{ step?: string; plan?: string; preset?: string }>;
+};
 
 export default async function SetupPage({ searchParams }: PageProps) {
   const { business } = await requireBusinessForSetup();
@@ -25,12 +35,35 @@ export default async function SetupPage({ searchParams }: PageProps) {
 
   // ?plan= comes from the landing page's pricing cards, so a tier chosen
   // before signing up survives into the wizard.
-  const { step: rawStep, plan: requestedPlan } = await searchParams;
+  const {
+    step: rawStep,
+    plan: requestedPlan,
+    preset: requestedPreset,
+  } = await searchParams;
   const requested = STEPS.includes(rawStep as Step) ? (rawStep as Step) : null;
 
-  // Steps beyond the first need a business row, so a deep link without one
-  // falls back to step 1 rather than erroring.
-  const step: Step = !business ? "details" : (requested ?? "details");
+  /**
+   * Steps beyond the first need a business row — but "the first step" is now
+   * `preset` for a brand-new owner and `details` for one returning mid-flow.
+   *
+   * Without a row the only reachable steps are `preset` and `details`, so a
+   * deep link past them falls back rather than erroring. With a row, an owner
+   * who already named their shop should not be sent back to pick a trade, so
+   * an absent `?step=` resumes at `details`.
+   */
+  const step: Step = !business
+    ? requested === "details"
+      ? "details"
+      : "preset"
+    : (requested ?? "details");
+
+  /**
+   * The saved choice wins over the query hint: once it is on the row, that is
+   * the answer. `?preset=` only matters for the one navigation between step 0
+   * and step 1, before there is anywhere to put it.
+   */
+  const presetValue = business?.onboardingPreset ?? requestedPreset ?? null;
+  const preset = isOnboardingPreset(presetValue) ? presetValue : null;
 
   const [services, hours] = business
     ? await Promise.all([
@@ -76,6 +109,7 @@ export default async function SetupPage({ searchParams }: PageProps) {
             endTime: h.endTime.slice(0, 5),
           }))}
         planType={toPlanType(business?.planType ?? requestedPlan)}
+        preset={preset}
         appUrl={appUrl}
       />
     </div>

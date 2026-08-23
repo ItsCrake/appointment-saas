@@ -20,10 +20,12 @@ function suggestSlug(name: string) {
 export function SetupDetailsStep({
   business,
   pending,
+  onBack,
   onSubmit,
 }: {
   business: SetupBusiness | null;
   pending: boolean;
+  onBack: () => void;
   onSubmit: (values: { name: string; slug: string; phone: string }) => void;
 }) {
   const [name, setName] = useState(business?.name ?? "");
@@ -93,13 +95,23 @@ export function SetupDetailsStep({
         />
       </label>
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="h-12 w-full rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
-      >
-        המשך לשירותים
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={pending}
+          className="h-12 flex-1 rounded-xl bg-zinc-900 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          המשך לשירותים
+        </button>
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={pending}
+          className="h-12 rounded-xl border border-zinc-300 px-5 text-sm font-semibold text-zinc-700 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300"
+        >
+          חזרה
+        </button>
+      </div>
     </form>
   );
 }

@@ -13,9 +13,11 @@ import {
 } from "@/app/dashboard/setup/actions";
 import { BRAND } from "@/lib/brand";
 import type { PlanType } from "@/lib/plans";
+import type { OnboardingPreset } from "@/lib/onboarding-presets";
 import { cn } from "@/lib/utils";
 
 import { SetupDetailsStep } from "./setup-details-step";
+import { SetupPresetStep } from "./setup-preset-step";
 import { SetupDoneStep } from "./setup-done-step";
 import { SetupHoursStep } from "./setup-hours-step";
 import { SetupPlanStep } from "./setup-plan-step";
@@ -34,9 +36,10 @@ export type SetupShift = {
   endTime: string;
 };
 
-type Step = "details" | "services" | "hours" | "plan" | "done";
+type Step = "preset" | "details" | "services" | "hours" | "plan" | "done";
 
 const STEP_LABELS: Record<Step, string> = {
+  preset: "סוג העסק",
   details: "פרטי העסק",
   services: "שירותים",
   hours: "שעות",
@@ -44,7 +47,14 @@ const STEP_LABELS: Record<Step, string> = {
   done: "סיום",
 };
 
-const ORDER: Step[] = ["details", "services", "hours", "plan", "done"];
+const ORDER: Step[] = [
+  "preset",
+  "details",
+  "services",
+  "hours",
+  "plan",
+  "done",
+];
 
 export function SetupFlow({
   step,
@@ -52,6 +62,7 @@ export function SetupFlow({
   services,
   shifts,
   planType,
+  preset,
   appUrl,
 }: {
   step: Step;
@@ -64,15 +75,29 @@ export function SetupFlow({
   }[];
   shifts: SetupShift[];
   planType: PlanType;
+  /**
+   * The row's saved choice, or the `?preset=` hint before the row exists. Null
+   * for every shop created before 0026 and for anyone deep-linking past step 0.
+   */
+  preset: OnboardingPreset | null;
   appUrl: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string>();
   const [pending, startTransition] = useTransition();
 
-  function go(next: string) {
-    if (next.startsWith("/")) router.push(next);
-    else router.push(`/dashboard/setup?step=${next}`);
+  /**
+   * `params` carries the preset from step 0 into step 1, which is the only hop
+   * that needs it — once `saveBusinessDetailsAction` has run it lives on the
+   * business row and the page reads it from there.
+   */
+  function go(next: string, params: Record<string, string> = {}) {
+    if (next.startsWith("/")) {
+      router.push(next);
+      return;
+    }
+    const query = new URLSearchParams({ step: next, ...params });
+    router.push(`/dashboard/setup?${query}`);
   }
 
   /**
@@ -102,7 +127,7 @@ export function SetupFlow({
         <p className="mt-1 text-sm text-zinc-500">
           {step === "done"
             ? "עמוד ההזמנות שלכם באוויר"
-            : "חמישה שלבים קצרים. אפשר לשנות הכול אחר כך."}
+            : "כמה שלבים קצרים. אפשר לשנות הכול אחר כך."}
         </p>
       </header>
 
@@ -156,12 +181,22 @@ export function SetupFlow({
       ) : null}
 
       <div key={step} className="animate-step">
+        {step === "preset" ? (
+          <SetupPresetStep
+            selected={preset}
+            // Writes nothing: there is no business row yet, so the choice
+            // travels as a query param and is persisted at the next step.
+            onSubmit={(next) => go("details", { preset: next })}
+          />
+        ) : null}
+
         {step === "details" ? (
           <SetupDetailsStep
             business={business}
             pending={pending}
+            onBack={() => go("preset")}
             onSubmit={(values) =>
-              submit(() => saveBusinessDetailsAction(values))
+              submit(() => saveBusinessDetailsAction({ ...values, preset }))
             }
           />
         ) : null}
@@ -169,6 +204,7 @@ export function SetupFlow({
         {step === "services" ? (
           <SetupServicesStep
             existing={services}
+            preset={preset}
             pending={pending}
             onBack={() => go("details")}
             onSubmit={(drafts: DraftService[]) =>

@@ -15,6 +15,7 @@ import {
   updateBusiness,
 } from "@/db/queries";
 import { requireBusinessForSetup, requireUser } from "@/lib/dashboard-session";
+import { ONBOARDING_PRESETS } from "@/lib/onboarding-presets";
 import { PLAN_TYPES, TRIAL_DAYS } from "@/lib/plans";
 import { isManageTokenShape } from "@/lib/public-slug";
 
@@ -34,6 +35,13 @@ const detailsSchema = z.object({
     // looked up as a shop — see `isManageTokenShape`.
     .refine((value) => !isManageTokenShape(value), "כתובת זו שמורה למערכת"),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
+  /**
+   * The starting point chosen in step 0, arriving as a query param because that
+   * step runs before this row exists. Optional so an owner who deep-linked
+   * straight to `?step=details` still saves — a missing preset is a real state,
+   * not a validation failure.
+   */
+  preset: z.enum(ONBOARDING_PRESETS).nullish(),
 });
 
 // Sensible Israeli defaults, shown for confirmation in step 3. Not exported:
@@ -60,7 +68,7 @@ export async function saveBusinessDetailsAction(
 
   const user = await requireUser();
   const existing = await getBusinessByOwner(db, user.id);
-  const { name, slug, phone } = parsed.data;
+  const { name, slug, phone, preset } = parsed.data;
 
   if (await isSlugTaken(db, slug, existing?.id)) {
     return { ok: false, error: "הכתובת הזו כבר תפוסה. בחרו אחרת." };
@@ -71,6 +79,13 @@ export async function saveBusinessDetailsAction(
       name,
       slug,
       phone: phone || null,
+      /**
+       * Re-recorded on the way back through, so an owner who steps back to
+       * change their trade gets the new one — but never cleared by a submit
+       * that carries no preset, which is what a deep link to `?step=details`
+       * looks like.
+       */
+      ...(preset ? { onboardingPreset: preset } : {}),
     });
   } else {
     const business = await createBusiness(db, {
@@ -80,6 +95,7 @@ export async function saveBusinessDetailsAction(
       phone: phone || null,
       timezone: "Asia/Jerusalem",
       locale: "he",
+      onboardingPreset: preset ?? null,
       // The trial clock starts here, and nowhere else.
       //
       // Until now nothing ever wrote this column: migration 0011 backfilled

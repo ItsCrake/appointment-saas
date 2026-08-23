@@ -4,6 +4,10 @@ import { useState } from "react";
 import { Check, Plus, Trash2 } from "lucide-react";
 
 import { formatDuration, formatPrice } from "@/lib/format";
+import {
+  presetServices,
+  type OnboardingPreset,
+} from "@/lib/onboarding-presets";
 import { cn } from "@/lib/utils";
 
 export type DraftService = {
@@ -30,13 +34,6 @@ type DraftRow = {
   price: string;
 };
 
-/** Editable starting point — nobody should face an empty form here. */
-const TEMPLATES: DraftRow[] = [
-  { name: "תספורת גבר", duration: "30", price: "70" },
-  { name: "תספורת ילד", duration: "20", price: "60" },
-  { name: "עיצוב זקן", duration: "15", price: "30" },
-];
-
 /** Selects the whole value so the first keystroke replaces it. */
 function selectOnFocus(event: React.FocusEvent<HTMLInputElement>) {
   event.target.select();
@@ -47,6 +44,7 @@ const FIELD =
 
 export function SetupServicesStep({
   existing,
+  preset,
   pending,
   onBack,
   onSubmit,
@@ -57,19 +55,39 @@ export function SetupServicesStep({
     durationMin: number;
     priceCents: number;
   }[];
+  /**
+   * The trade chosen in step 0, which decides what this form opens with. Null
+   * falls back to the set every shop saw before presets existed — see
+   * `presetServices`.
+   */
+  preset: OnboardingPreset | null;
   pending: boolean;
   onBack: () => void;
   onSubmit: (services: DraftService[]) => void;
 }) {
-  // Returning to this step shows what was already saved, not the templates.
-  const [drafts, setDrafts] = useState<DraftRow[]>(
+  /**
+   * Returning to this step shows what was already saved, not the preset.
+   *
+   * The order matters: an owner who came back to edit must never have their
+   * own three services silently replaced by the preset's three. Saved rows
+   * win, and the preset only fills a form that has never been submitted.
+   *
+   * `useState` initialises once, which is exactly right here — the preset is a
+   * starting point, not a binding. Every edit below is the owner's, and
+   * nothing re-seeds them.
+   */
+  const [drafts, setDrafts] = useState<DraftRow[]>(() =>
     existing.length > 0
       ? existing.map((s) => ({
           name: s.name,
           duration: String(s.durationMin),
           price: String(s.priceCents / 100),
         }))
-      : TEMPLATES,
+      : presetServices(preset).map((s) => ({
+          name: s.name,
+          duration: String(s.durationMin),
+          price: String(s.priceCents / 100),
+        })),
   );
 
   function update(index: number, patch: Partial<DraftRow>) {
@@ -100,8 +118,11 @@ export function SetupServicesStep({
   return (
     <div>
       <p className="mb-4 rounded-xl bg-zinc-50 px-4 py-3 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-        התחלנו עם שלוש הצעות נפוצות. ערכו, מחקו או הוסיפו — אפשר לשנות מתי
-        שתרצו.
+        {/* "three common suggestions" is false for the blank preset, which
+            opens with one empty row. */}
+        {preset === "custom"
+          ? "הוסיפו את השירותים שלכם. אפשר לשנות מתי שתרצו."
+          : "התחלנו עם כמה הצעות נפוצות. ערכו, מחקו או הוסיפו — אפשר לשנות מתי שתרצו."}
       </p>
 
       <ul className="space-y-3">
