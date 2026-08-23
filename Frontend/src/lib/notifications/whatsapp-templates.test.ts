@@ -28,6 +28,7 @@ const context = (
   businessAddress: "הרצל 10, תל אביב",
   businessTimezone: "Asia/Jerusalem",
   bookingUrl: "https://www.bazman.app/demo-barber",
+  businessSlug: "demo-barber",
   manageUrl: `https://www.bazman.app/b/${TOKEN}`,
   manageToken: TOKEN,
   clientName: "דני",
@@ -69,19 +70,75 @@ describe("template selection", () => {
     expect(reminderTemplateFor(undefined)).toBeNull();
   });
 
-  it("has no template for kinds Meta has not approved", () => {
-    // Not an oversight: three are approved and five are drafted but not yet
-    // submitted. On the official path these fall through to SMS or email
-    // rather than being accepted by Meta and dropped.
+  it("has no template for the kinds Meta still has not approved", () => {
+    /**
+     * `client_winback` is the last one outstanding, and the only client-facing
+     * kind left with no template. It is **Marketing** rather than Utility, so
+     * it carries obligations the other seven do not — a named sender and an
+     * in-message opt-out — and is submitted separately.
+     *
+     * On the official path this is a *failed* send, not a fallback: the channel
+     * was chosen at enqueue time and nothing re-routes it at dispatch.
+     */
+    expect(whatsappTemplateFor(context({ kind: "client_winback" }))).toBeNull();
+  });
+
+  it("resolves every kind that Meta has now approved", () => {
+    // The four wired after the original three. A regression here means real
+    // clients stop receiving these, and the failure is silent from the shop's
+    // side — the owner sees a booking that worked.
     for (const kind of [
       "booking_pending",
       "booking_approved",
       "booking_rejected",
       "cancellation_confirmation",
-      "client_winback",
     ] as const) {
-      expect(whatsappTemplateFor(context({ kind }))).toBeNull();
+      expect(whatsappTemplateFor(context({ kind }))).not.toBeNull();
     }
+  });
+
+  it("sends the Hebrew resubmissions under their _he names", () => {
+    /**
+     * The un-suffixed names are already taken on the Meta account by the
+     * original **English** submissions, and a template name is unique per
+     * account. Sending `booking_pending` would deliver the English template to
+     * a Hebrew-speaking client — which is why this is pinned rather than
+     * trusted to a comment.
+     */
+    expect(
+      whatsappTemplateFor(context({ kind: "booking_pending" }))?.name,
+    ).toBe("booking_pending_he");
+    expect(
+      whatsappTemplateFor(context({ kind: "cancellation_confirmation" }))?.name,
+    ).toBe("cancellation_confirmation_he");
+  });
+
+  it("points the manage button at a whole path, not a bare token", () => {
+    /**
+     * The one thing that makes these unlike `appointment_confirmation`. That
+     * template takes a bare token against the same base and leans on the root
+     * redirect in `classifyPublicPath`; these were registered later and take
+     * `b/<token>` directly. A bare token here lands the client on a shop page
+     * named after a UUID.
+     */
+    const approved = whatsappTemplateFor(context({ kind: "booking_approved" }));
+    expect(approved?.buttonUrlSuffix).toMatch(/^b\//);
+
+    // ...while the two that offer a fresh booking take the slug instead.
+    const rejected = whatsappTemplateFor(context({ kind: "booking_rejected" }));
+    expect(rejected?.buttonUrlSuffix).toBe("demo-barber");
+  });
+
+  it("omits the header only for the template that has none", () => {
+    // Meta rejects a header parameter for a template with no header component,
+    // so this is a property of the approved artifact rather than a preference.
+    expect(
+      whatsappTemplateFor(context({ kind: "cancellation_confirmation" }))
+        ?.header,
+    ).toBeUndefined();
+    expect(
+      whatsappTemplateFor(context({ kind: "booking_approved" }))?.header,
+    ).toHaveLength(1);
   });
 
   it("has no template for a billing message", () => {
@@ -97,11 +154,20 @@ describe("template selection", () => {
     ).toBeNull();
   });
 
-  it("declares the three approved names and no others", () => {
+  it("declares exactly the names registered on the Meta account", () => {
+    // Eight templates, seven of which map to a kind — the two reminders share
+    // `reminder` and split on lead time. Pinned because a name that does not
+    // exist on the account is a rejected send, and a name that exists in the
+    // wrong language is worse: it delivers.
     expect([...WHATSAPP_TEMPLATES]).toEqual([
       "appointment_confirmation",
       "reminder_24h",
       "reminder_2h",
+      "booking_approved",
+      "booking_rejected",
+      "booking_pending_he",
+      "cancellation_confirmation_he",
+      "waitlist_invite",
     ]);
   });
 });

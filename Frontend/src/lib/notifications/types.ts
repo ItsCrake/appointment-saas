@@ -115,6 +115,15 @@ export type AppointmentContext = {
   businessAddress: string | null;
   businessTimezone: string;
   bookingUrl: string;
+  /**
+   * The tenant's own slug, carried rather than recovered from `bookingUrl`.
+   *
+   * Same reasoning as `manageToken` below: two approved templates —
+   * `cancellation_confirmation_he` and `booking_rejected` — take the slug as
+   * their button parameter, and pulling it back out with a regex over a string
+   * this layer also builds would be a second source of truth that can drift.
+   */
+  businessSlug: string;
   manageUrl: string;
   /**
    * The bare cancel token behind `manageUrl`.
@@ -192,6 +201,21 @@ export type WaitlistContext = {
    * long the slot will wait, because there is none to make.
    */
   offerExpiresAt: string | null;
+  /**
+   * The same window expressed as **whole minutes**, which is what the approved
+   * `waitlist_invite` template takes as `{{4}}`.
+   *
+   * Carried beside the instant rather than derived from it at render time,
+   * because a duration needs a starting point and the template layer has no
+   * clock. Measured from `invited_at` to the effective deadline, so it is the
+   * length of the window the client was actually given — and it shrinks
+   * correctly when the slot itself is the binding deadline.
+   *
+   * Null when the shop has switched expiry off. The template cannot be sent in
+   * that state: there is no number to put in `{{4}}`, and an empty body
+   * parameter fails the whole send.
+   */
+  offerExpiresInMin: number | null;
 };
 
 export type NotificationContext =

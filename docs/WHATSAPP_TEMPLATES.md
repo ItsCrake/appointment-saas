@@ -43,108 +43,81 @@ side.
 > routed: it is two segments, so `classifyPublicPath` returns `platform` and
 > Next serves `/w/[token]` directly.
 
-## 2. Audit — Meta vs. the code
+## 2. Status — Meta vs. the code
 
-Checked against the Meta dashboard on **2026-08-23**. Seven templates are
-active; the code knows **three**.
+Wired against the dashboard definitions on **2026-08-23**. Eight templates are
+registered; the code now maps **all eight**, covering seven kinds — the two
+reminders share `reminder` and split on lead time.
 
-| Meta template | Language | Code knows it | Kind it serves | Verdict |
-| --- | --- | --- | --- | --- |
-| `appointment_confirmation` | he | ✅ | `booking_confirmation` | **Working** — 2 sent in production |
-| `reminder_24h` | he | ✅ | `reminder` @ 24h lead | **Working** |
-| `reminder_2h` | he | ✅ | `reminder` @ 2h lead | **Working** |
-| `booking_approved` | he | ❌ | `booking_approved` | ⚠️ **Approved but unwired** |
-| `booking_rejected` | he | ❌ | `booking_rejected` | ⚠️ **Approved but unwired** |
-| `booking_pending` | **en** | ❌ | `booking_pending` | ⚠️ Unwired **and wrong language** |
-| `cancellation_confirmation` | **en** | ❌ | `cancellation_confirmation` | ⚠️ Unwired **and wrong language** |
-| `waitlist_invite` | — | ❌ | `waitlist_invite` | ❌ **Not submitted** — this is the live failure |
-| `booking_rescheduled` | — | ❌ | *(kind does not exist)* | ❌ Not submitted, and needs code |
-
-> ### ⚠️ The finding that matters: an unwired kind **fails**, it does not fall back
->
-> The comment in `whatsapp-templates.ts` claims a kind with no template
-> "falls through to SMS or email". **That is wrong, and production proves it.**
->
-> The channel is chosen at *enqueue* time by `clientDelivery`, which picks
-> WhatsApp because WhatsApp is live. At *dispatch* time `whatsappTemplateFor`
-> returns `null`, and `metaCloudProvider` refuses with
-> `retryable: false` — so the row goes straight to `failed`. There is no
-> second channel and no retry. The client receives nothing and the owner is
-> never told.
->
-> Four approved templates are currently sitting behind that refusal.
-
-### What the outbox actually looks like
-
-| Kind | Channel | Status | Count |
+| Meta template | Lang | Kind | Status |
 | --- | --- | --- | --- |
-| `booking_confirmation` | whatsapp | **sent** | 2 |
-| `booking_confirmation` | whatsapp | skipped | 4 |
-| `cancellation_confirmation` | whatsapp | skipped | 1 |
-| `reminder` | whatsapp | pending | 1 |
-| `reminder` | whatsapp | skipped | 7 |
-| `waitlist_invite` | whatsapp | **failed** | 1 |
+| `appointment_confirmation` | he | `booking_confirmation` | ✅ wired · sent in production |
+| `reminder_24h` | he | `reminder` @ 24h | ✅ wired |
+| `reminder_2h` | he | `reminder` @ 2h | ✅ wired |
+| `booking_approved` | he | `booking_approved` | ✅ wired |
+| `booking_rejected` | he | `booking_rejected` | ✅ wired |
+| `booking_pending_he` | he | `booking_pending` | ✅ wired |
+| `cancellation_confirmation_he` | he | `cancellation_confirmation` | ✅ wired |
+| `waitlist_invite` | he | `waitlist_invite` | ✅ wired — closes the live failure |
+| — | — | `client_winback` | ❌ unsubmitted (**Marketing**, separate rules) |
+| — | — | `booking_rescheduled` | ❌ unsubmitted, **and the kind does not exist** |
 
-Two things to read out of that.
+### Three things the wiring had to get right
 
-**Messages have genuinely left on Meta Cloud.** Two confirmations were sent to
-real numbers. PROJECT_PLAN §5 still says "no message has left on any backend" —
-that line is stale and the WhatsApp blocker row with it.
+**The `_he` suffix is load-bearing.** `booking_pending` and
+`cancellation_confirmation` are already taken on the account by the original
+**English** submissions, and a template name is unique per account. Sending the
+un-suffixed name would not fail — it would *deliver the English template* to a
+Hebrew-speaking client, which is the worse outcome. Pinned by a test.
 
-**`cancellation_confirmation` has only ever been *skipped*, never attempted.**
-Skipped means the dispatcher dropped it before sending — the appointment had
-already moved on. So its missing template has not bitten yet. It will on the
-first cancellation that reaches dispatch with the row still live.
+**Two button-suffix shapes, not one.** `appointment_confirmation` was
+registered with a **bare token** against `https://www.bazman.app/` and leans on
+the root redirect in `classifyPublicPath` (`/{token}` → `/b/{token}`). The four
+approved later take the **whole path** `b/<token>` against the same base, so
+they resolve directly. A bare token there would land the client on a shop page
+named after a UUID. `booking_rejected` and `cancellation_confirmation_he` take
+the **slug** instead, because their next step is booking again rather than
+managing something that no longer exists.
+
+`waitlist_invite` has its own base — `https://www.bazman.app/w/` — and a bare
+token. It could not share the others': an invite token is a `randomUUID()`
+exactly like a cancel token, so the proxy cannot tell them apart and every
+invite button would have opened a cancellation page.
+
+**A plain date, not the confirmation's phrase.** `appointment_confirmation` was
+approved with the weekday inside its own `{{2}}` ("יום שלישי, 20/08/2026"). The
+four later templates take a bare date, so they use `datePlain`. Reusing
+`datePhrase` would push a weekday into copy written without one.
+
+> ### ⚠️ Still true, and the reason all of this mattered
+>
+> An unmapped kind **fails** — it does not fall back. The channel is chosen once
+> at *enqueue* time, when WhatsApp is live and wins; by *dispatch*
+> `metaCloudProvider` refuses with `retryable: false`. No second channel, no
+> retry, client gets nothing, owner never told. That is what the four unwired
+> templates were doing, and what `waitlist_invite` was doing in production.
+
+### `waitlist_invite` refuses itself when there is no window
+
+`{{4}}` is the offer window in whole minutes. A shop with
+`waitlist_offer_ttl_min = 0` has no number to put there, and an empty body
+parameter fails the *entire* send at Meta — so the template is dropped for that
+shop instead. One refused row rather than a failed row on every offer it ever
+makes.
 
 ### Are the triggers correct?
 
-Yes — every one, and the one that is easiest to get wrong is right.
+Yes — every one, and the subtle one is right. `wasRequest` in
+`setAppointmentStatusAction` reads the appointment *before* updating it, so
+rejecting a pending request and cancelling a confirmed booking stay distinct
+even though both land on `cancelled`. No trigger changes were needed; the whole
+gap was the template mapping.
 
-| Kind | Fires at | Verified in |
-| --- | --- | --- |
-| `booking_confirmation` | booking created, approval **off** | `enqueue.ts` — branches on `status === "pending"` |
-| `booking_pending` | booking created, approval **on** | same branch, other arm |
-| `booking_approved` | owner sets `confirmed` **and** it was a request | `dashboard/actions.ts` — guarded by `wasRequest` |
-| `booking_rejected` | owner sets `cancelled` **and** it was a request | same guard |
-| `cancellation_confirmation` | owner or client cancels a **confirmed** booking | the other arm of `wasRequest` |
-| `reminder` | booking or approval, **one per appointment** | `planReminder` returns a single plan |
-| `waitlist_invite` | slot freed, or an offer lapses and cycles | `waitlist-offer.ts` |
+## 3. Copy reference
 
-`wasRequest` is the subtle one: rejecting a pending request and cancelling a
-confirmed booking both land on `cancelled`, and by dispatch time nothing can
-tell them apart from the row. The action reads the appointment *before*
-updating it, which is what keeps "בוטל" off a request that was never confirmed.
-
-**No trigger changes are needed.** The gap is entirely in the template mapping.
-
-### What wiring the four requires
-
-`whatsappTemplateFor` needs one branch per kind, and each branch has to
-reproduce the **exact component layout Meta approved** — how many body
-variables, whether there is a header, whether there is a button. Getting the
-parameter count wrong is a rejected send, which is no better than the refusal
-it replaces.
-
-That structure is not in this repository and cannot be guessed. **Paste the
-approved copy for `booking_approved` and `booking_rejected`** (the two already
-in Hebrew) and they can be wired immediately. `booking_pending` and
-`cancellation_confirmation` should be re-submitted in Hebrew first, from §3
-below, so they are wired once rather than twice.
-
-## 3. The copy to paste into Meta
-
-Four to submit or fix, in the order they are worth doing.
-
-| # | Template | Action | Why this order |
-| --- | --- | --- | --- |
-| 1 | `waitlist_invite` | **new** | The only one failing in production today |
-| 2 | `cancellation_confirmation` | **replace en with he** | Next to bite; every cancellation reaches it |
-| 3 | `booking_pending` | **replace en with he** | Only affects shops running approval |
-| 4 | `booking_rescheduled` | **new** | Needs code as well; ship last |
-
-All Hebrew (`he`), all **Utility**. Parameters are numbered per component,
-starting from 1 *within that component* — a header `{{1}}` and a body `{{1}}`
-are different variables.
+The four below are **already registered** — kept as a record of what each
+variable carries, not as something to paste. Only `booking_rescheduled` at the
+end is still to be submitted, and it needs code as well.
 
 ### `waitlist_invite`
 
@@ -371,12 +344,12 @@ they never touch WhatsApp and never cost a Meta message.
 | Kind                        | Fires when                              | To     | Channel        | Template status |
 | --------------------------- | --------------------------------------- | ------ | -------------- | --------------- |
 | `booking_confirmation`      | booking created, approval **off**       | client | WA → SMS → email | ✅ approved     |
-| `booking_pending`           | booking created, approval **on**        | client | WA → SMS → email | ⚠️ en, needs he |
-| `booking_approved`          | owner approves a request                | client | WA → SMS → email | ⚠️ approved, unwired |
-| `booking_rejected`          | owner rejects a request                 | client | WA → SMS → email | ⚠️ approved, unwired |
+| `booking_pending`           | booking created, approval **on**        | client | WA → SMS → email | ✅ `booking_pending_he` |
+| `booking_approved`          | owner approves a request                | client | WA → SMS → email | ✅ wired          |
+| `booking_rejected`          | owner rejects a request                 | client | WA → SMS → email | ✅ wired          |
 | `reminder`                  | scheduled at booking; **one per appointment** | client | WA → SMS → email | ✅ approved (both leads) |
-| `cancellation_confirmation` | client link **or** owner cancels        | client | WA → SMS → email | ⚠️ en, needs he |
-| `waitlist_invite`           | slot freed, **or** an offer lapses and cycles | client | WA → SMS → email | ❌ draft        |
+| `cancellation_confirmation` | client link **or** owner cancels        | client | WA → SMS → email | ✅ `cancellation_confirmation_he` |
+| `waitlist_invite`           | slot freed, **or** an offer lapses and cycles | client | WA → SMS → email | ✅ wired          |
 | `client_winback`            | daily retention sweep                   | client | WhatsApp only  | ❌ draft (Marketing) |
 | `booking_alert`             | booking created                         | owner  | **email**      | n/a             |
 | `cancellation_alert`        | any cancellation                        | owner  | **email**      | n/a             |

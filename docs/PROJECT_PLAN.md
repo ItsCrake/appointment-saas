@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1190 tests across 80 files**; Playwright
+**Green:** `npm run verify` at **1196 tests across 80 files**; Playwright
 **11/11** across 3 specs (not run every session). All **28 migrations
 (0000–0027)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1227,14 +1227,23 @@ in order: **frozen → `free`**, trialing → Pro, active → the stored tier, e
 `free`. Frozen outranks a live subscription *and* a running trial. Never read
 `plan_type` without the status and the freeze flag.
 
-**2. WhatsApp sends Meta templates on the official path only, and just two kinds
-can actually go.** `appointment_confirmation`, `reminder_24h` and `reminder_2h`
-are approved — that is the `booking_confirmation` and `reminder` kinds.
-Everything else resolves to no template and is **refused rather than sent as
-free text**; `notifications/audit.test.ts` pins that list. Each template
-component numbers its variables from 1 *independently*. The button base is
-registered as `https://www.bazman.app/` (no `b/`), so the parameter is a bare
-cancel token and `proxy.ts` redirects `/{token}` → `/b/{token}`.
+**2. WhatsApp sends Meta templates on the official path only, and seven kinds
+now go.** Eight templates are registered and all eight are wired; the two
+reminders share one kind. Only `client_winback` and `booking_rescheduled` are
+left, and a kind with no template is **refused, not re-routed** — the channel
+was chosen at enqueue time, so `retryable: false` means the client simply gets
+nothing. `notifications/audit.test.ts` pins the deliverable list.
+
+Three things that bite. Each component numbers its variables from 1
+*independently*. **The `_he` suffix is not decoration** — `booking_pending` and
+`cancellation_confirmation` hold the original **English** submissions, so the
+Hebrew ones are `booking_pending_he` / `cancellation_confirmation_he` and using
+the bare name would *deliver English*. And there are **three button-suffix
+shapes**: `appointment_confirmation` takes a bare token against
+`https://www.bazman.app/` and relies on `proxy.ts` redirecting `/{token}` →
+`/b/{token}`; the four newer ones take the whole `b/<token>` path or the
+**slug**; `waitlist_invite` has its own `/w/` base and a bare token, because an
+invite token is a `randomUUID()` indistinguishable from a cancel token.
 
 Three backends, preferred in order: **Meta Cloud API** → **Green API** → Twilio.
 Green API sends **free text**, so kinds with no Meta template *do* deliver there
@@ -1382,7 +1391,7 @@ it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 | Billing 8d–8e | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
 | SMS | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
 | ~~WhatsApp transport~~ | **Done.** Credentials are live and **real messages have been delivered** on Meta Cloud — 2 `booking_confirmation` sends in production as of 2026-08-23. This row was stale for weeks. |
-| WhatsApp, the remaining kinds | Meta now has **7 active templates while the code maps 3** — see [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §2. `booking_approved`/`booking_rejected` are approved in Hebrew but **unwired**; `booking_pending`/`cancellation_confirmation` are approved in **English** and need resubmitting; `waitlist_invite` and `client_winback` are unsubmitted. **An unwired kind does not fall back — it fails**, with `retryable: false`, and the client gets nothing. Wiring needs each template's exact approved component layout, which is not in this repo. |
+| WhatsApp, the last two | **Seven of eight kinds now deliver.** All 8 registered templates are wired — see [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §2. Outstanding: `client_winback` (**Marketing**, different rules) and `booking_rescheduled`, which needs a migration and a `renderNotification` case before a template is worth submitting. Two traps are pinned by tests: the `_he` suffix (the un-suffixed names hold the **English** originals and would deliver those), and three distinct button-suffix shapes — bare token, `b/<token>`, and the slug. |
 | Voice ("ליבי") | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated, and no real utterance has been parsed. |
 | Web push | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven: no notification has reached a real device. |
 | Media uploads | `npm run storage:setup` against the production project. |

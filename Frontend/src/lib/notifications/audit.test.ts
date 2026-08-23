@@ -37,6 +37,7 @@ const APPOINTMENT_BASE = {
   businessAddress: "דיזנגוף 100, תל אביב",
   businessTimezone: "Asia/Jerusalem",
   bookingUrl: "https://bazman.app/demo-barber",
+  businessSlug: "demo-barber",
   manageUrl: "https://bazman.app/b/tok-123",
   manageToken: "tok-123",
   clientName: "עומר לוי",
@@ -74,6 +75,7 @@ function contextFor(kind: NotificationKind): NotificationContext {
       serviceName: "תספורת גבר",
       startsAt: "2026-08-04T07:00:00.000Z",
       offerExpiresAt: "2026-08-03T09:00:00.000Z",
+      offerExpiresInMin: 60,
     };
   }
 
@@ -163,29 +165,86 @@ describe("what the official WhatsApp path can actually send", () => {
 
   it("is exactly the kinds with an approved template", () => {
     /**
-     * Three templates are approved on the platform's Meta account —
-     * `appointment_confirmation`, `reminder_24h` and `reminder_2h` — and the
-     * last two are one *kind*. Everything else, including every waitlist invite
-     * and every cancellation, resolves to null and is refused rather than sent
-     * as text Meta drops silently.
+     * Eight templates are registered on the platform's Meta account and cover
+     * seven kinds — the two reminders share `reminder` and split on lead time.
+     *
+     * The two absentees are the whole remaining gap, and they are different
+     * from each other. `client_winback` is **Marketing**, with obligations the
+     * Utility templates do not carry, and is submitted separately.
+     * `booking_alert` and the billing kinds address the *owner* by email and
+     * were never WhatsApp at all.
+     *
+     * This list is not cosmetic. A kind missing from it is refused at dispatch
+     * with `retryable: false` — no fallback, no retry, and the client receives
+     * nothing while the booking looks fine from the shop's side.
      */
     expect([...deliverable].sort()).toEqual([
+      "booking_approved",
       "booking_confirmation",
+      "booking_pending",
+      "booking_rejected",
+      "cancellation_confirmation",
       "reminder",
+      "waitlist_invite",
     ]);
   });
 
-  it("refuses billing and waitlist kinds before the appointment cast", () => {
+  it("refuses every billing kind before the appointment cast", () => {
     /**
-     * `whatsappTemplateFor` casts its context to an appointment once billing and
-     * waitlist are excluded. A waitlist context carries no `manageToken` and no
-     * price, so a branch reaching it would post `undefined` into an approved
-     * template's parameters — which Meta accepts and renders to the client.
+     * `whatsappTemplateFor` casts its context to an appointment once billing
+     * and waitlist are handled. Billing addresses the owner about their own
+     * account, carries no appointment at all, and was never a WhatsApp kind —
+     * a branch reaching it would post `undefined` into an approved template's
+     * parameters, which Meta accepts and renders to a real recipient.
      */
     for (const kind of ALL_KINDS) {
-      if (!isBillingKind(kind) && !isWaitlistKind(kind)) continue;
+      if (!isBillingKind(kind)) continue;
       expect(resolve(kind)).toBeNull();
     }
+  });
+
+  it("builds the waitlist invite without touching appointment fields", () => {
+    /**
+     * The waitlist branch now returns a template, so it runs *before* the cast
+     * rather than being excluded by it — and that is exactly where the old
+     * hazard lives. A `WaitlistContext` has no `manageToken`, no price and no
+     * `businessSlug`; if this branch ever drifted into the appointment path it
+     * would fill an approved template with `undefined` and Meta would deliver
+     * it.
+     *
+     * Asserted through the output: four body parameters, no header, and a
+     * button suffix that is the bare invite token rather than a `b/` path.
+     */
+    for (const kind of ALL_KINDS) {
+      if (!isWaitlistKind(kind)) continue;
+
+      const template = resolve(kind);
+      expect(template?.name).toBe("waitlist_invite");
+      expect(template?.header).toBeUndefined();
+      expect(template?.parameters).toHaveLength(4);
+      expect(template?.buttonUrlSuffix).not.toContain("b/");
+      for (const parameter of template?.parameters ?? []) {
+        expect(String(parameter)).not.toContain("undefined");
+      }
+    }
+  });
+
+  it("refuses the invite when the shop has no expiry window", () => {
+    /**
+     * `{{4}}` is the window in whole minutes, and a shop with
+     * `waitlist_offer_ttl_min = 0` has no number to put there. An empty body
+     * parameter fails the *entire* send at Meta, so the template is dropped
+     * here instead — which is the difference between one refused row and a
+     * failed row on every single offer that shop ever makes.
+     */
+    const invite = contextFor("waitlist_invite") as Extract<
+      NotificationContext,
+      { kind: "waitlist_invite" }
+    >;
+
+    expect(
+      whatsappTemplateFor({ ...invite, offerExpiresInMin: null }),
+    ).toBeNull();
   });
 
   it("fills every parameter of the templates it does resolve", () => {

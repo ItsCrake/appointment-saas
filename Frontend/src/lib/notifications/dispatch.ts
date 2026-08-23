@@ -153,13 +153,40 @@ export async function dispatchDueNotifications(
          * message promising an hour while the server refuses after thirty
          * minutes would be the worst version of this feature.
          */
-        offerExpiresAt:
-          business.waitlistOfferTtlMin > 0
-            ? (offerDeadline(
-                waitlist,
-                business.waitlistOfferTtlMin,
-              )?.toISOString() ?? null)
-            : null,
+        ...(() => {
+          /**
+           * The window, as both an instant and a length.
+           *
+           * The rendered body says "held until 13:20" and the approved Meta
+           * template says "held for 60 minutes" — the same fact in two shapes,
+           * so both are computed here from one `offerDeadline` call rather
+           * than letting either layer work the other out and drift.
+           *
+           * Measured from `invited_at`, which is the moment the client was
+           * given the window. Dispatch follows the offer within seconds on
+           * both paths, so this is what the recipient actually has.
+           */
+          const deadline =
+            business.waitlistOfferTtlMin > 0
+              ? offerDeadline(waitlist, business.waitlistOfferTtlMin)
+              : null;
+
+          if (!deadline || !waitlist.invitedAt) {
+            return { offerExpiresAt: null, offerExpiresInMin: null };
+          }
+
+          const minutes = Math.round(
+            (deadline.getTime() - waitlist.invitedAt.getTime()) / 60_000,
+          );
+
+          return {
+            offerExpiresAt: deadline.toISOString(),
+            // A window that has already closed is not a number to put in front
+            // of a client. Null drops the template, and the dispatcher refuses
+            // rather than sending "held for 0 minutes".
+            offerExpiresInMin: minutes > 0 ? minutes : null,
+          };
+        })(),
       };
     } else {
       if (!appointment) {
@@ -233,6 +260,7 @@ export async function dispatchDueNotifications(
         businessAddress: business.address,
         businessTimezone: business.timezone,
         bookingUrl: urls.bookingUrl,
+        businessSlug: business.slug,
         manageUrl: urls.manageUrl,
         manageToken: appointment.cancelToken,
         clientName: appointment.clientName,

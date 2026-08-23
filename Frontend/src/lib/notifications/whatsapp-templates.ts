@@ -3,6 +3,7 @@ import { formatFullDateTime } from "@/lib/format";
 import type {
   AppointmentContext,
   NotificationContext,
+  WaitlistContext,
   WhatsAppTemplateRef,
 } from "./types";
 import { isBillingKind, isWaitlistKind } from "./types";
@@ -40,6 +41,17 @@ export const WHATSAPP_TEMPLATES = [
   "appointment_confirmation",
   "reminder_24h",
   "reminder_2h",
+  "booking_approved",
+  "booking_rejected",
+  /**
+   * The `_he` suffix is not decoration. The un-suffixed names are already taken
+   * on the Meta account by the original **English** submissions, and a template
+   * name is unique per account — so the Hebrew versions had to be registered
+   * under new names. Sending `booking_pending` would deliver the English one.
+   */
+  "booking_pending_he",
+  "cancellation_confirmation_he",
+  "waitlist_invite",
 ] as const;
 
 export type WhatsAppTemplateName = (typeof WHATSAPP_TEMPLATES)[number];
@@ -122,6 +134,21 @@ export function datePhrase(context: AppointmentContext): string {
   return anchorRtl(`יום ${when.weekday}, ${when.date}`);
 }
 
+/**
+ * A bare date: "17/06/2026".
+ *
+ * Separate from `datePhrase` because the two are not interchangeable.
+ * `appointment_confirmation` was approved with the weekday *inside* its own
+ * placeholder, so its `{{2}}` reads "יום שלישי, 20/08/2026"; the four
+ * templates approved later take a plain date, and pushing a weekday into copy
+ * written without one would read as a mistake to every client who got it.
+ */
+export function datePlain(context: AppointmentContext): string {
+  return anchorRtl(
+    formatFullDateTime(context.startsAt, context.businessTimezone).date,
+  );
+}
+
 /** The ⏰ slot: "14:30", in the business's own timezone. */
 export function timePhrase(context: AppointmentContext): string {
   return anchorRtl(
@@ -164,17 +191,61 @@ export function whatsappTemplateFor(
   options: { leadHours?: number } = {},
 ): WhatsAppTemplate | null {
   /**
-   * Two families have no approved template and must never reach the cast below.
-   *
-   * Billing addresses the owner and was never a WhatsApp kind. **Waitlist
-   * invites are the live gap**: they are a real client message with no Meta
-   * template yet, and a `WaitlistContext` has no `manageToken` and no price — so
-   * a branch that treated one as an appointment would post `undefined` into an
-   * approved template's parameters rather than fail. Excluded by name, before
-   * the cast, so adding a branch cannot reach them by accident.
+   * Billing addresses the owner about their own account and was never a
+   * WhatsApp kind. Excluded by name, before the cast below, so adding a branch
+   * cannot reach it by accident.
    */
-  if (isBillingKind(context.kind) || isWaitlistKind(context.kind)) return null;
+  if (isBillingKind(context.kind)) return null;
 
+  /**
+   * Approved copy:
+   *
+   *   header  (none)
+   *   body    …{{1}}… {{2}} … {{3}} … {{4}} …
+   *   footer  ניהול תורים - בזמן.
+   *   button  לאישורי התור → https://www.bazman.app/w/{{1}}
+   *
+   * `{{2}}` is a **weekday name**, not a date — "רביעי", the shape
+   * `formatFullDateTime` already returns. `{{4}}` is the window in **whole
+   * minutes**, which is why `WaitlistContext` carries it as a number beside
+   * the instant the rendered body uses.
+   *
+   * The button base ends in `/w/`, so the parameter is the bare token. It
+   * could not have shared the other templates' base: `classifyPublicPath`
+   * sends any bare UUID at the root to `/b/<token>`, and an invite token is a
+   * `randomUUID()` exactly like a cancel token — every invite button would
+   * have opened a cancellation page for an appointment that does not exist.
+   */
+  if (isWaitlistKind(context.kind)) {
+    const invite = context as WaitlistContext;
+
+    // No window means no `{{4}}`, and an empty body parameter fails the whole
+    // send. Refusing here is what keeps a shop with expiry switched off from
+    // producing a failed row on every offer.
+    if (invite.offerExpiresInMin === null) return null;
+
+    const when = formatFullDateTime(invite.startsAt, invite.businessTimezone);
+
+    return {
+      name: "waitlist_invite",
+      language: LANGUAGE,
+      parameters: [
+        filled(invite.businessName),
+        anchorRtl(when.weekday),
+        anchorRtl(when.time),
+        anchorRtl(String(invite.offerExpiresInMin)),
+      ],
+      buttonUrlSuffix: filled(invite.inviteToken),
+    };
+  }
+
+  /**
+   * Everything past this point is an appointment. The two families above are
+   * excluded by *name* rather than by shape, because a `WaitlistContext` has no
+   * `manageToken` and no price — a branch that treated one as an appointment
+   * would post `undefined` into an approved template's parameters, which Meta
+   * accepts and renders to the client.
+   */
   const appointment = context as AppointmentContext;
 
   /**
@@ -200,6 +271,69 @@ export function whatsappTemplateFor(
         timePhrase(appointment),
       ],
       buttonUrlSuffix: manageSuffix(appointment),
+    };
+  }
+
+  /**
+   * The four kinds approved after the original three, and the reason this file
+   * grew a second suffix builder.
+   *
+   * All four share one body shape — business, date, time — and split on two
+   * axes only: whether they carry the "שלום {{1}}," header, and what their
+   * button points at. Written as a table rather than four near-identical
+   * blocks, so the differences are the only thing on screen.
+   *
+   *   booking_approved            header · b/<token>  · לניהול התור
+   *   booking_pending_he          header · b/<token>  · לניהול הבקשה
+   *   booking_rejected            header · <slug>     · לבחירת מועד אחר
+   *   cancellation_confirmation_he  —    · <slug>     · לקביעת תור חדש
+   *
+   * **Their button parameter is a whole path, not a bare token**, which is the
+   * one thing that makes them unlike `appointment_confirmation`. That template
+   * was registered against `https://www.bazman.app/` with a bare token, and
+   * `classifyPublicPath` redirects `/{token}` → `/b/{token}` to rescue it.
+   * These were registered later and take `b/<token>` directly, so they resolve
+   * without the redirect. Sending a bare token here would land the client on a
+   * shop page named after a UUID, which does not exist.
+   */
+  const LATER_TEMPLATES = {
+    booking_approved: { name: "booking_approved", target: "manage" },
+    booking_pending: { name: "booking_pending_he", target: "manage" },
+    booking_rejected: { name: "booking_rejected", target: "slug" },
+    cancellation_confirmation: {
+      name: "cancellation_confirmation_he",
+      target: "slug",
+    },
+  } as const;
+
+  const later =
+    LATER_TEMPLATES[appointment.kind as keyof typeof LATER_TEMPLATES];
+
+  if (later) {
+    return {
+      name: later.name,
+      language: LANGUAGE,
+      // `cancellation_confirmation_he` has no header; the other three open
+      // with "שלום {{1}},". Meta rejects a header parameter for a template
+      // that has no header component, so this is a property of the approved
+      // artifact rather than a preference.
+      ...(later.name === "cancellation_confirmation_he"
+        ? {}
+        : { header: [filled(appointment.clientName)] }),
+      parameters: [
+        filled(appointment.businessName),
+        // `datePlain`, not `datePhrase`. The approved samples for all four are
+        // a bare date — "17/06/2026" — where `appointment_confirmation` was
+        // approved with the weekday inside its own `{{2}}` ("יום שלישי,
+        // 20/08/2026"). Reusing that here would push a weekday into copy
+        // written without one.
+        datePlain(appointment),
+        timePhrase(appointment),
+      ],
+      buttonUrlSuffix:
+        later.target === "manage"
+          ? managePathSuffix(appointment)
+          : filled(appointment.businessSlug),
     };
   }
 
@@ -258,6 +392,20 @@ export function whatsappTemplateFor(
  */
 function manageSuffix(context: AppointmentContext): string {
   return filled(context.manageToken);
+}
+
+/**
+ * The same destination, as a whole path: `b/<token>`.
+ *
+ * The templates approved later were registered against the same
+ * `https://www.bazman.app/` base but take the path rather than the bare token,
+ * so their links resolve directly instead of leaning on the root redirect in
+ * `classifyPublicPath`. Two builders rather than one flag, because which of
+ * them a template wants is frozen at approval and is not a runtime choice.
+ */
+function managePathSuffix(context: AppointmentContext): string {
+  const token = context.manageToken?.trim();
+  return token ? `b/${token}` : ABSENT;
 }
 
 /**

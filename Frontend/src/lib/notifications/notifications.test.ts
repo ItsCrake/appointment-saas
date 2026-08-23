@@ -547,6 +547,7 @@ describe("templates", () => {
     businessAddress: "דיזנגוף 100",
     businessTimezone: "Asia/Jerusalem",
     bookingUrl: "https://example.test/demo-barber",
+    businessSlug: "demo-barber",
     manageUrl: "https://example.test/b/token",
     manageToken: "token",
     clientName: "דני",
