@@ -1194,9 +1194,9 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1154 tests across 77 files**; Playwright
-**11/11** across 3 specs (not run every session). All **26 migrations
-(0000–0025)** are applied to production. Fifteen tables, RLS on every one, zero
+**Green:** `npm run verify` at **1169 tests across 78 files**; Playwright
+**11/11** across 3 specs (not run every session). All **27 migrations
+(0000–0026)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
 
 > ⚠️ **The ordering rule 0025 established, for every migration after it.**
@@ -1285,6 +1285,19 @@ optional. What follows from that:
 - **Appointment dialog** — two tabs, booking and client card. Reschedule re-runs
   availability with the appointment excluded from its own busy set, or it blocks
   itself. Amber confirm sends `force: true` for off-hours.
+- **Onboarding presets** (0026) — the wizard opens by asking the trade
+  (מספרת גברים / ציפורניים ויופי / blank), and the services step opens with that
+  set instead of three hardcoded barber rows. `lib/onboarding-presets.ts` is
+  pure data with no imports **because a preset is defaults, not a mode** —
+  nothing downstream branches on it. Stored as a column rather than a query
+  param since step 0 runs before the business row exists and step 2 runs two
+  navigations later; `?preset=` bridges that one hop, as `?plan=` does. Text
+  not an enum, so retiring a preset needs no migration and an unknown value
+  degrades to the default set. **Saved services always beat the preset**, or an
+  owner returning to edit would lose their own three. Media pre-fill is
+  structured but **empty on every preset, pinned by a test** — `demo-nails` has
+  no assets and `demo-barber`'s live under its own tenant storage path, so
+  wiring either would put one fabricated shop's premises on real booking pages.
 - **Waitlist** (0024) — public join from the booking page, `/w/[token]` invite
   with a first-come screen, `/dashboard/waitlist` as the single management
   surface. A cancellation offers the slot to the **front of the queue
