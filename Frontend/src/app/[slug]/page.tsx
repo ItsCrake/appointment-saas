@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarClock } from "lucide-react";
 
+import { AmbientBackground } from "@/components/booking/ambient-background";
 import { BookingFlow } from "@/components/booking/booking-flow";
 import { BusinessGallery } from "@/components/booking/business-gallery";
 import { BusinessHeader } from "@/components/booking/business-header";
@@ -228,8 +229,15 @@ export default async function BusinessPage({
           "--hero-overlay": appearance.heroOverlay / 100,
         } as CSSProperties
       }
-      className="booking-wash mx-auto flex w-full max-w-lg flex-1 flex-col"
+      className="mx-auto flex w-full max-w-lg flex-1 flex-col"
     >
+      {/* Behind everything, viewport-wide rather than column-wide: the page is
+          a 512px column, and a wash that stopped at its edge would read as a
+          panel rather than as the room the page is standing in. It replaces
+          the static `.booking-wash` that used to sit on this element — one
+          mechanism for the ground, not two stacked. */}
+      <AmbientBackground />
+
       {previewFor ? <PreviewBar businessName={previewFor} /> : null}
       {structuredData ? (
         <script

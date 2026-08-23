@@ -90,17 +90,31 @@ export function SlotPicker({
                         // animating long after the thumb arrived.
                         style={{ "--i": Math.min(index, 5) } as CSSProperties}
                         className={cn(
-                          "animate-rise h-13 rounded-2xl text-sm font-semibold tabular-nums",
-                          "ring-1 ring-inset",
+                          "animate-rise h-13 text-sm font-semibold tabular-nums",
                           // Transform excluded: the press scale snaps down and
                           // back rather than easing, which both feels crisper
                           // and keeps the button stable the instant it is
                           // released.
                           "transition-[background-color,color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-95",
                           "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
+                          // Radius from the owner's corner setting either way,
+                          // so a chosen slot keeps the shape of the ones
+                          // around it.
+                          "rounded-(--radius-card)",
+                          // A free slot wears the shop's own card material
+                          // rather than a hardcoded white, so a glass page gets
+                          // glass slots instead of twenty opaque tiles sitting
+                          // on top of it.
+                          //
+                          // The chosen one deliberately does *not* use
+                          // `.booking-card`: that class paints `--card-bg` as a
+                          // `background-image`, which composites over
+                          // `background-color` and would swallow the accent
+                          // fill entirely. Solid accent is the whole point of
+                          // the selected state, so it is drawn on its own.
                           active
-                            ? "shadow-accent bg-(--accent) text-(--accent-contrast) ring-(--accent)"
-                            : "shadow-lift hover:shadow-raise bg-white text-zinc-800 ring-zinc-900/8 hover:ring-(--accent) dark:bg-zinc-900 dark:text-zinc-200 dark:ring-white/10",
+                            ? "shadow-accent bg-(--accent) text-(--accent-contrast) ring-1 ring-(--accent) ring-inset"
+                            : "booking-card text-zinc-800 dark:text-zinc-200",
                         )}
                       >
                         {slot.label}

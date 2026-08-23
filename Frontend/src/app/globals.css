@@ -1118,3 +1118,163 @@ body {
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Ambient background (0027).
+
+   Three slow blobs in the tenant's own accent, drifting behind the whole page.
+   The point is that the surface feels alive rather than printed — but the
+   client this is built for is a stranger on mobile data with a phone that may
+   be five years old, so how it animates matters more than that it does.
+
+   **Transform only, and nothing else.** Each blob is a static radial gradient
+   that never repaints; only `translate3d` and `scale` change, so the whole
+   effect lives on the compositor. The obvious version — animating
+   `background-position` on one big gradient — repaints a full-viewport layer
+   every frame and is exactly how a booking page ends up janky on the device it
+   was written for.
+
+   **Durations are long and mutually prime-ish** (29s / 37s / 43s), with
+   `alternate` so each reverses rather than cutting back to its start. Nothing
+   returns to the same arrangement inside a session, which is what stops it
+   reading as a loop.
+
+   **`will-change` is deliberately absent.** Three permanently-promoted layers
+   cost real memory on a low-end phone, and the transform already promotes them
+   for the duration of the animation.
+
+   Stopped automatically by the accessibility widget: `[data-a11y-still] *`
+   kills every animation with `!important`, and these are descendants of the
+   root it stamps. The reduced-motion block below is the OS-level equivalent —
+   the blobs stay, at rest, because the *colour* is part of the tenant's
+   identity and only the movement was ever the accessibility question.
+   -------------------------------------------------------------------------- */
+
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+  /* Paints its own ground, so the blobs composite over a known colour rather
+     than over whatever the body happens to be. */
+  background-color: var(--background);
+}
+
+.ambient-blob {
+  position: absolute;
+  border-radius: 9999px;
+  /* Sized in vmax so one blob covers a comparable share of a phone and of a
+     laptop; a fixed rem size is a smear on one and a dot on the other. */
+  width: 70vmax;
+  height: 70vmax;
+  /* The softness is in the gradient rather than in `filter: blur()`, which
+     would force an expensive offscreen pass on every frame. */
+  background-image: radial-gradient(
+    circle closest-side,
+    color-mix(in oklab, var(--accent) var(--ambient-strength, 12%), transparent)
+      0%,
+    transparent 100%
+  );
+}
+
+.ambient-blob-a {
+  top: -22vmax;
+  inset-inline-start: -18vmax;
+  animation: ambient-drift-a 29s cubic-bezier(0.45, 0, 0.55, 1) infinite
+    alternate;
+}
+
+.ambient-blob-b {
+  top: 18vmax;
+  inset-inline-end: -26vmax;
+  /* A second hue, mixed from the accent rather than chosen, so a shop that
+     picks rose never gets a stray blue cloud on its page. The shift is small
+     and stays inside the tenant's own colour. */
+  background-image: radial-gradient(
+    circle closest-side,
+    color-mix(
+        in oklab,
+        var(--accent-strong, var(--accent)) var(--ambient-strength-soft, 9%),
+        transparent
+      )
+      0%,
+    transparent 100%
+  );
+  animation: ambient-drift-b 37s cubic-bezier(0.45, 0, 0.55, 1) infinite
+    alternate;
+}
+
+.ambient-blob-c {
+  bottom: -30vmax;
+  inset-inline-start: 12vmax;
+  animation: ambient-drift-c 43s cubic-bezier(0.45, 0, 0.55, 1) infinite
+    alternate;
+}
+
+@keyframes ambient-drift-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(9vmax, 7vmax, 0) scale(1.18);
+  }
+}
+
+@keyframes ambient-drift-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+  to {
+    transform: translate3d(-11vmax, 10vmax, 0) scale(0.92);
+  }
+}
+
+@keyframes ambient-drift-c {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.95);
+  }
+  to {
+    transform: translate3d(8vmax, -9vmax, 0) scale(1.22);
+  }
+}
+
+/* Glass has to read *through* something, so it lifts the ambient rather than
+   adding a second wash of its own. One mechanism, modulated — not two effects
+   stacked and hoping. */
+[data-card="glass"] {
+  --ambient-strength: 20%;
+  --ambient-strength-soft: 15%;
+}
+
+/* A flat page is chrome-light on purpose; the photographs are meant to carry
+   it, so the ambient steps back rather than competing. */
+[data-card="flat"] {
+  --ambient-strength: 8%;
+  --ambient-strength-soft: 6%;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Dark surfaces swallow a low tint entirely — the same tint that reads as a
+     wash on white is invisible on near-black, so it is raised rather than
+     inherited. */
+  .ambient {
+    --ambient-strength: 22%;
+    --ambient-strength-soft: 16%;
+  }
+
+  [data-card="glass"] {
+    --ambient-strength: 30%;
+    --ambient-strength-soft: 22%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* At rest, not removed. The colour is the tenant's identity; only the
+     movement was ever the question. */
+  .ambient-blob-a,
+  .ambient-blob-b,
+  .ambient-blob-c {
+    animation: none;
+  }
+}

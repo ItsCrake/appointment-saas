@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1182 tests across 79 files**; Playwright
+**Green:** `npm run verify` at **1190 tests across 80 files**; Playwright
 **11/11** across 3 specs (not run every session). All **28 migrations
 (0000–0027)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1285,6 +1285,19 @@ optional. What follows from that:
 - **Appointment dialog** — two tabs, booking and client card. Reschedule re-runs
   availability with the appointment excluded from its own busy set, or it blocks
   itself. Amber confirm sends `force: true` for off-hours.
+- **Ambient ground + the arrival bug** — three accent blobs drift behind
+  `/[slug]`, **transform-only** so they composite on the GPU rather than
+  repainting a full-viewport layer on the five-year-old phone this is opened
+  on; `booking-page-shell.test.ts` bans the repainting properties from the
+  keyframes outright. Reduced motion settles them *at rest* rather than
+  removing them — the colour is the tenant's identity, only the movement was
+  the question — and `[data-a11y-still] *` already stops them for free.
+  **The page used to scroll past its own hero on arrival**: `step` starts at 1,
+  so the step effect fired on mount and threw away the logo, banner, name and
+  hours before anyone saw them. Guarded by a ref rather than `step > 1`, so
+  going *back* to step 1 still scrolls. The hero's seam fade now ends on
+  `--background`, the exact value `.ambient` paints, instead of a hardcoded
+  white that became a visible band the moment the ground was tinted.
 - **Booking-page dressing** (0027) — four owner controls: card surface
   (`elevated` / `glass` / `flat`), corner softness, service layout
   (`compact` / `showcase`), and a 0–90 hero overlay. Names not values, arriving

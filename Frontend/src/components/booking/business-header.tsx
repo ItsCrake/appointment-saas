@@ -119,9 +119,18 @@ export function BusinessHeader({
           <div aria-hidden className="hero-scrim absolute inset-0" />
         ) : null}
 
+        {/* Fades to `--background`, which is the exact colour `.ambient` paints
+            its own ground with — so the banner's last pixel and the page's
+            first are one value rather than two that happen to look alike. It
+            used to be a hardcoded white, which was fine on a white page and
+            became a seam the moment the ground was tinted. */}
         <div
           aria-hidden
-          className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-white dark:to-zinc-950"
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(to bottom, transparent 0%, transparent 55%, var(--background) 100%)",
+          }}
         />
       </div>
 

@@ -106,9 +106,37 @@ export function BookingFlow({
     [slug],
   );
 
-  // Move focus to the top of each step so screen readers and thumbs agree.
+  /**
+   * Move to the top of each step so screen readers and thumbs agree — **on a
+   * step change, and never on arrival.**
+   *
+   * `step` starts at 1, so this effect used to fire once on mount and scroll a
+   * first-time visitor straight past the hero: the logo, the banner, the name,
+   * the address and the opening hours all flicked by before they had seen any
+   * of it. On the page whose second job is convincing a shop owner to sign up,
+   * that was the worst possible opening frame, and it looked like a layout bug
+   * rather than a decision.
+   *
+   * The guard is a ref rather than `step > 1`, because a client who reaches
+   * step 2 and comes back to step 1 *should* be moved — they are navigating,
+   * not arriving. Only the very first run is skipped.
+   */
+  const hasNavigated = useRef(false);
   useEffect(() => {
-    headingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!hasNavigated.current) {
+      hasNavigated.current = true;
+      return;
+    }
+
+    headingRef.current?.scrollIntoView({
+      // Honoured here as well as in CSS: `scroll-behavior` does not apply to
+      // a programmatic `scrollIntoView` that names its own behaviour, so a
+      // visitor who asked for less motion would still get a smooth glide.
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
   }, [step]);
 
   // Slots are fetched from the handlers rather than an effect: the fetch is a
