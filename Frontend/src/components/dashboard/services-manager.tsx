@@ -28,6 +28,7 @@ type Service = {
   currency: string;
   bufferMin: number | null;
   imageUrl: string | null;
+  requiresApproval: boolean;
 };
 
 type Draft = {
@@ -40,6 +41,7 @@ type Draft = {
   isActive: boolean;
   /** Null clears the picture; the column is nullable and that is the normal state. */
   imageUrl: string | null;
+  requiresApproval: boolean;
 };
 
 const EMPTY: Draft = {
@@ -51,6 +53,7 @@ const EMPTY: Draft = {
   sortOrder: "0",
   isActive: true,
   imageUrl: null,
+  requiresApproval: false,
 };
 
 function toDraft(service: Service): Draft {
@@ -65,6 +68,7 @@ function toDraft(service: Service): Draft {
     sortOrder: String(service.sortOrder),
     isActive: service.isActive,
     imageUrl: service.imageUrl,
+    requiresApproval: service.requiresApproval,
   };
 }
 
@@ -111,6 +115,7 @@ export function ServicesManager({ services }: { services: Service[] }) {
       bufferMin: draft.bufferMin.trim() === "" ? null : Number(draft.bufferMin),
       sortOrder: Number(draft.sortOrder) || 0,
       isActive: draft.isActive,
+      requiresApproval: draft.requiresApproval,
       // "" is the action's clear signal; null is what the draft holds when
       // there is no picture.
       imageUrl: draft.imageUrl ?? "",
@@ -281,6 +286,29 @@ export function ServicesManager({ services }: { services: Service[] }) {
               מוצג בעמוד ההזמנות
             </label>
 
+            {/* Per-service approval (0029). The hint says what the client will
+                actually experience, because "requires approval" describes the
+                owner's side and the thing worth knowing is that the slot is
+                held while they decide — an owner who thinks the time is left
+                open will vet requests far more slowly. */}
+            <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                checked={draft.requiresApproval}
+                onChange={(e) =>
+                  setDraft({ ...draft, requiresApproval: e.target.checked })
+                }
+                className="mt-0.5 size-4 rounded border-zinc-300"
+              />
+              <span>
+                תור באישור
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  הזמנה לשירות הזה תגיע כבקשה שממתינה לאישורכם. המועד נשמר ללקוח
+                  בינתיים.
+                </span>
+              </span>
+            </label>
+
             {error ? (
               <p role="alert" className="text-xs font-medium text-red-600">
                 {error}
@@ -325,6 +353,7 @@ export function ServicesManager({ services }: { services: Service[] }) {
                   {formatDuration(service.durationMin)} ·{" "}
                   {formatPrice(service.priceCents, service.currency)}
                   {!service.isActive ? " · מוסתר" : ""}
+                  {service.requiresApproval ? " · באישור" : ""}
                 </p>
               </div>
 

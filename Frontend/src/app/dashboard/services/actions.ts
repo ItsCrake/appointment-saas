@@ -45,6 +45,11 @@ const serviceSchema = z.object({
    * hostile value would reach a browser. Empty clears it.
    */
   imageUrl: z.union([mediaUrlSchema, z.literal("")]).optional(),
+  /**
+   * Per-service approval (0029). Optional so a client that predates the toggle
+   * still saves; absent means "leave it as it was" rather than "switch it off".
+   */
+  requiresApproval: z.boolean().optional(),
 });
 
 export async function saveServiceAction(
@@ -62,6 +67,9 @@ export async function saveServiceAction(
     description: parsed.data.description || null,
     imageUrl: parsed.data.imageUrl ? parsed.data.imageUrl : null,
   };
+  if (parsed.data.requiresApproval !== undefined) {
+    values.requiresApproval = parsed.data.requiresApproval;
+  }
 
   if (serviceId) {
     const updated = await updateService(db, business.id, serviceId, values);

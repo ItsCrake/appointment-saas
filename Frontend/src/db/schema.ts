@@ -453,6 +453,12 @@ export const services = pgTable(
     priceCents: integer("price_cents").notNull(),
     currency: text("currency").notNull().default("ILS"),
     imageUrl: text("image_url"),
+    /**
+     * This service alone lands as `pending` (0029), whatever the shop's own
+     * flag says. OR'd with `businesses.requires_approval` rather than
+     * replacing it — see `requiresApprovalFor`.
+     */
+    requiresApproval: boolean("requires_approval").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })

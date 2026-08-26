@@ -6,6 +6,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { z } from "zod";
 
 import { db } from "@/db";
+import { bookingStatusFor } from "@/lib/approval";
 import {
   createAppointment,
   getActiveBusinessBySlug,
@@ -262,12 +263,17 @@ export async function createBookingAction(
       startsAt: start,
       endsAt: end,
       /**
+       * The shop's flag OR this service's own (0029) — see `bookingStatusFor`.
+       * A shop that vets everything keeps vetting everything; a service marked
+       * for approval inside an otherwise auto-confirming shop becomes the one
+       * exception.
+       *
        * `pending` holds the slot exactly as `confirmed` does — it is
        * non-terminal, so the exclusion constraint blocks it. A request that
        * did not reserve the time would be a request to be disappointed:
        * someone else books it while the owner is deciding.
        */
-      status: businessRow.requiresApproval ? "pending" : "confirmed",
+      status: bookingStatusFor({ business: businessRow, service }),
       clientName,
       clientPhone: normalisedPhone,
       clientEmail: clientEmail || null,
@@ -410,8 +416,7 @@ const waitlistSchema = z.object({
 });
 
 export type WaitlistResult =
-  | { ok: true; rejoined: boolean }
-  | { ok: false; error: string };
+  { ok: true; rejoined: boolean } | { ok: false; error: string };
 
 /**
  * Joins the queue for a shop whose calendar has nothing to offer.
@@ -438,7 +443,10 @@ export async function joinWaitlistAction(
 ): Promise<WaitlistResult> {
   const parsed = waitlistSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "פרטים לא תקינים" };
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "פרטים לא תקינים",
+    };
   }
 
   const { slug, clientName, clientPhone, preferredDays, preferredTimeWindow } =
