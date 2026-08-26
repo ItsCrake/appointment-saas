@@ -1207,6 +1207,10 @@ reachable by `anon`. **No migration pending.**
 > A push to `main` deploys. **Apply the migration before the push, never
 > after.**
 
+**Security:** [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — full pre-launch review.
+Two fixed (a live stored XSS in the booking page's JSON-LD; owner binding
+accepting an unconfirmed address), sixteen passed, four needing a decision.
+
 **Pilot readiness:** [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) holds the
 copy for the six unsubmitted Meta templates and the message-volume formula;
 [EDGE_CASES.md](EDGE_CASES.md) maps what the suite proves, what it cannot, and
