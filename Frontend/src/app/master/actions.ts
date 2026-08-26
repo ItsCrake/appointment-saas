@@ -6,8 +6,11 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import {
+  createPendingBusiness,
   extendTrial,
   getBusinessById,
+  isSlugTaken,
+  replaceWorkingHours,
   setTenantActive,
   setTenantPlan,
   setWhatsappDispatchDisabled,
@@ -15,6 +18,7 @@ import {
 import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
 import { clearImpersonation, setImpersonation } from "@/lib/impersonation";
 import { requireSuperAdmin } from "@/lib/master-session";
+import { isManageTokenShape } from "@/lib/public-slug";
 import { reportError, reportWarning } from "@/lib/observability";
 
 export type MasterResult =
@@ -254,5 +258,104 @@ export async function setWhatsappDispatchAction(
       disabled: parsed.data.disabled,
     });
     return { ok: false, error: "העדכון נכשל" };
+  }
+}
+
+const createBusinessSchema = z.object({
+  name: z.string().trim().min(2, "יש להזין שם עסק").max(80, "השם ארוך מדי"),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(3, "הכתובת חייבת להכיל לפחות 3 תווים")
+    .max(40)
+    .regex(/^[a-z0-9-]+$/, "אותיות באנגלית, מספרים ומקפים בלבד")
+    // A UUID-shaped address resolves to a cancellation link before it is ever
+    // looked up as a shop — the same refusal both owner-facing forms make.
+    .refine((value) => !isManageTokenShape(value), "כתובת זו שמורה למערכת"),
+  ownerEmail: z.email("כתובת אימייל לא תקינה").max(160),
+  phone: z.string().trim().max(30).optional().or(z.literal("")),
+});
+
+/**
+ * Creates a shop for a pilot and names the address that will run it (0028).
+ *
+ * ---------------------------------------------------------------------------
+ * **The owner does not need an account yet, and is never sent a password.**
+ * The address is recorded on the row; the first time that person signs in — by
+ * any route, including the reset-password flow — `businessForOwnerOrClaim`
+ * binds the shop to them. Nothing here creates a user, sets a credential, or
+ * emails anybody, which is deliberate: this platform has exactly one way to
+ * become authenticated and inventing a second for onboarding would be a second
+ * thing to get wrong.
+ *
+ * Until it is claimed the row is owned by the operator who created it, so RLS
+ * keeps it away from every tenant on the platform, and `getBusinessByOwner`
+ * keeps it out of the operator's own dashboard. See migration 0028.
+ *
+ * The slug uniqueness check is a friendly message, not the guarantee — the
+ * unique index is. Likewise the pending-email check: the partial unique index
+ * is what actually stops one address waiting for two shops.
+ * ---------------------------------------------------------------------------
+ */
+export async function createBusinessForOwnerAction(
+  input: unknown,
+): Promise<MasterResult> {
+  const admin = await requireSuperAdmin();
+
+  const parsed = createBusinessSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  const { name, slug, ownerEmail, phone } = parsed.data;
+
+  if (await isSlugTaken(db, slug)) {
+    return { ok: false, error: "הכתובת הזו כבר תפוסה. בחרו אחרת." };
+  }
+
+  try {
+    const created = await createPendingBusiness(db, {
+      operatorUserId: admin.id,
+      pendingOwnerEmail: ownerEmail,
+      name,
+      slug,
+      phone: phone || null,
+    });
+
+    // The default week, so the shop the owner inherits is bookable rather than
+    // closed every day — the same seed `saveBusinessDetailsAction` applies.
+    await replaceWorkingHours(
+      db,
+      created.id,
+      [0, 1, 2, 3, 4].map((weekday) => ({
+        weekday,
+        startTime: "09:00:00",
+        endTime: "17:00:00",
+        isClosed: false,
+      })),
+    );
+
+    reportWarning("master.createBusiness", "business created for pilot owner", {
+      businessId: created.id,
+      operatorId: admin.id,
+    });
+
+    revalidatePath("/master/businesses");
+    return {
+      ok: true,
+      message: `נוצר "${created.name}". ישויך ל-${ownerEmail} בהתחברות הראשונה.`,
+    };
+  } catch (error) {
+    /**
+     * The partial unique index on `lower(pending_owner_email)` is the most
+     * likely thing to reject this, and its raw message names a constraint the
+     * operator has no use for. Reported with the detail, answered without it.
+     */
+    reportError("master.createBusiness", error, { operatorId: admin.id });
+    return {
+      ok: false,
+      error: "יצירת העסק נכשלה. ייתכן שכתובת זו כבר ממתינה לעסק אחר.",
+    };
   }
 }

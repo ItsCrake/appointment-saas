@@ -176,3 +176,55 @@ describe("server action write-gate coverage", () => {
     expect(wrong).toEqual([]);
   });
 });
+
+/**
+ * The owner-binding guard (0028).
+ *
+ * A pending business binds to whoever signs in with a matching address, so the
+ * address has to be *proven* rather than merely typed. Supabase enforces that
+ * too when the project has "Confirm email" enabled — but that is a toggle in a
+ * dashboard this repository cannot see or test, and a feature whose security
+ * rests on an unrelated setting is one settings change away from tenant
+ * takeover.
+ *
+ * Syntactic, like the coverage check above, and for the same reason: the
+ * property is "does the claim path name the confirmation", which is what a
+ * reviewer scans for and eventually misses.
+ */
+describe("claiming a pending business", () => {
+  const SESSION = readFileSync(
+    path.resolve(process.cwd(), "src/lib/dashboard-session.ts"),
+    "utf8",
+  );
+
+  it("refuses an unconfirmed address", () => {
+    expect(SESSION).toContain("email_confirmed_at");
+    // The guard must return *before* the claim, not merely mention the field.
+    const guardAt = SESSION.indexOf("if (!user.email_confirmed_at)");
+    const claimAt = SESSION.indexOf("claimPendingBusiness(db,");
+
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(claimAt).toBeGreaterThan(-1);
+    expect(guardAt).toBeLessThan(claimAt);
+  });
+
+  it("keeps the claim out of the ordinary owner lookup", () => {
+    /**
+     * `businessForOwner` is what every established tenant hits on every
+     * request. Putting the claim there would run an extra write-path query for
+     * a platform of shops that will never have anything pending — and would
+     * make the confirmation guard bypassable by any caller that used the
+     * plain lookup.
+     */
+    expect(SESSION).toContain("businessForOwnerOrClaim");
+
+    // The plain lookup's own body, not the gap to the next declaration — that
+    // gap is the claiming variant's doc comment, which names the claim in
+    // prose and would make this assertion pass or fail on wording.
+    const start = SESSION.indexOf("export const businessForOwner =");
+    const body = SESSION.slice(start, SESSION.indexOf(");", start));
+
+    expect(body).toContain("getBusinessByOwner");
+    expect(body).not.toContain("claimPendingBusiness");
+  });
+});

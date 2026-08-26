@@ -2,7 +2,12 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { db } from "@/db";
-import { getBusinessById, getBusinessByOwner } from "@/db/queries";
+import {
+  claimPendingBusiness,
+  getBusinessById,
+  getBusinessByOwner,
+} from "@/db/queries";
+import { reportWarning } from "@/lib/observability";
 import { readImpersonatedBusinessId } from "@/lib/impersonation";
 import { currentSuperAdmin } from "@/lib/master-session";
 import { getCurrentUser } from "@/lib/supabase/server";
@@ -35,6 +40,84 @@ function accessFor(business: { isActive: boolean }): DashboardAccess {
  */
 export const businessForOwner = cache(async (userId: string) =>
   getBusinessByOwner(db, userId),
+);
+
+/**
+ * The business this account owns, claiming one that was waiting for it (0028).
+ *
+ * ---------------------------------------------------------------------------
+ * **The binding completes on the owner's first authenticated request**, not on
+ * a link they have to find in an email. The operator sets a shop up and names
+ * the address; the person signs in however they like — password, reset link,
+ * magic link — and the shop is simply theirs.
+ *
+ * The lookup runs **only when they own nothing yet**, which makes it free for
+ * every established tenant: one indexed miss on the account's own row, then
+ * nothing. A platform of ten thousand shops pays for this on the handful of
+ * requests where somebody genuinely has no business.
+ *
+ * `claimPendingBusiness` settles the race in its WHERE clause rather than
+ * here, so two tabs racing a first login cannot both claim the shop.
+ *
+ * Wrapped in `cache` per request like the lookup it wraps: several pages and
+ * actions resolve the session in one render, and the claim must not be
+ * attempted repeatedly within a single request.
+ * ---------------------------------------------------------------------------
+ */
+export const businessForOwnerOrClaim = cache(
+  async (user: {
+    id: string;
+    email?: string | null;
+    email_confirmed_at?: string | null;
+  }) => {
+    const existing = await businessForOwner(user.id);
+    if (existing) return existing;
+
+    const email = user.email ?? null;
+    if (!email) return null;
+
+    /**
+     * **The address has to be proven, not merely typed.**
+     *
+     * A claim binds a whole business — its calendar, its clients, its
+     * phone numbers — to whoever signs in with a matching address. Without
+     * this check the only thing standing between an attacker and a pilot
+     * shop is knowing the owner's email, which is usually printed on the
+     * shop's own door: sign up as `owner@shop.com`, and the business is
+     * yours the moment the dashboard loads.
+     *
+     * Supabase *does* gate sign-in on confirmation when the project has
+     * "Confirm email" enabled — but that is a toggle in a dashboard this
+     * repository cannot see, cannot test, and does not control. Making the
+     * claim depend on it would mean a single unrelated setting change
+     * silently turns tenant takeover on. So the guarantee is asserted here,
+     * where it is visible and tested, and the project setting becomes
+     * defence in depth rather than the defence.
+     *
+     * An unconfirmed user simply owns nothing yet. They are sent to the
+     * setup wizard like any other new account, and their shop is still
+     * waiting the next time they sign in — this refuses the claim, it does
+     * not consume it.
+     */
+    if (!user.email_confirmed_at) {
+      reportWarning(
+        "onboarding.claimRefused",
+        "unconfirmed address attempted a pending-business claim",
+        { userId: user.id },
+      );
+      return null;
+    }
+
+    const claimed = await claimPendingBusiness(db, user.id, email);
+    if (claimed) {
+      reportWarning("onboarding.claimed", "pending business bound to owner", {
+        businessId: claimed.id,
+        userId: user.id,
+      });
+    }
+
+    return claimed;
+  },
 );
 
 /**
@@ -73,7 +156,7 @@ export async function requireBusiness() {
     }
   }
 
-  const business = await businessForOwner(user.id);
+  const business = await businessForOwnerOrClaim(user);
   if (!business) redirect("/dashboard/setup");
 
   // A business row exists but the owner never finished setup — most likely
@@ -119,7 +202,15 @@ export async function requireBusinessForSetup() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const business = await businessForOwner(user.id);
+  /**
+   * Claims here too, not only in `requireBusiness` (0028).
+   *
+   * An invited owner whose first authenticated page is the wizard — a bookmark,
+   * a `?next=` on the login form, or simply the redirect from a dashboard they
+   * do not yet own — would otherwise be handed the "create your business" flow
+   * while their shop sat waiting three feet away, and would end up with two.
+   */
+  const business = await businessForOwnerOrClaim(user);
   return { user, business };
 }
 

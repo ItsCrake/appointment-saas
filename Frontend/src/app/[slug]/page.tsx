@@ -25,6 +25,7 @@ import {
   type HeroMediaType,
 } from "@/lib/branding";
 import { resolveServiceLayout, toAppearance } from "@/lib/appearance";
+import { serialiseJsonLd } from "@/lib/json-ld";
 import { BRAND } from "@/lib/brand";
 import { isDemoBusiness } from "@/lib/demo";
 import { getCurrentUser } from "@/lib/supabase/server";
@@ -242,8 +243,17 @@ export default async function BusinessPage({
       {structuredData ? (
         <script
           type="application/ld+json"
-          // Serialised from our own database, not user-controlled markup.
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+          /**
+           * `serialiseJsonLd`, never a bare `JSON.stringify`.
+           *
+           * The old comment here said "from our own database, not
+           * user-controlled markup" — and the database is exactly where the
+           * tenant's own free text lives. `JSON.stringify` does not escape
+           * `<`, so a business name containing `</script>` ended this element
+           * early and everything after it was parsed as markup, on a public
+           * page that needs no login.
+           */
+          dangerouslySetInnerHTML={{ __html: serialiseJsonLd(structuredData) }}
         />
       ) : null}
       <BusinessHeader

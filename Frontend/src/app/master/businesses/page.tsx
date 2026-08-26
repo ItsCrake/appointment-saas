@@ -1,3 +1,4 @@
+import { CreateBusinessForm } from "@/components/master/create-business-form";
 import { TenantTable } from "@/components/master/tenant-table";
 import { db } from "@/db";
 import { requireSuperAdmin } from "@/lib/master-session";
@@ -45,6 +46,8 @@ export default async function MasterBusinessesPage() {
           חיפוש, כניסת תמיכה, הארכת ניסיון והקפאה
         </p>
       </header>
+
+      <CreateBusinessForm />
 
       <TenantTable
         tenants={tenants.map((t) => {

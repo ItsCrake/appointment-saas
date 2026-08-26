@@ -169,6 +169,16 @@ export const businesses = pgTable("businesses", {
    */
   onboardingPreset: text("onboarding_preset"),
   /**
+   * The address this business is waiting to be claimed by (0028).
+   *
+   * Set when the operator creates a shop for a pilot before its owner has an
+   * account. While it is non-null the row is owned by the *operator* — see the
+   * migration for why `owner_user_id` was not loosened instead — and
+   * `getBusinessByOwner` filters it out, so it never shows up as the
+   * operator's own shop. `claimPendingBusiness` clears it.
+   */
+  pendingOwnerEmail: text("pending_owner_email"),
+  /**
    * Owner opt-in for web push (0020). Separate from `push_subscriptions`
    * because a device can stay registered while notifications are switched off
    * — turning them back on should not require asking the browser for
