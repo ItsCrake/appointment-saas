@@ -10,6 +10,7 @@ import { ProofStrip } from "@/components/marketing/proof-strip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { MockupShowcase } from "@/components/marketing/mockup-showcase";
 import { PricingTable } from "@/components/marketing/pricing-table";
+import { ProductTour } from "@/components/marketing/product-tour";
 import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
 import { BRAND, BRAND_MARK } from "@/lib/brand";
 // FEATURES moved into `FeatureCards`, which owns both the copy and the
@@ -272,6 +273,32 @@ export default function LandingPage() {
               </li>
             ))}
           </ol>
+        </section>
+
+        {/* PRODUCT TOUR — the real screens.
+
+            Placed after "how it works" and before "what you get": the reader
+            has just been told the shape of the thing in three sentences, and
+            this is where they find out whether it is real. Three screenshots
+            rather than the eight that exist, because a wall of near-identical
+            Hebrew UI is a gallery and teaches nothing — each of these is the
+            only evidence for one claim.
+
+            It is also the section that earns the page its right to be seen by
+            a shop owner who arrived from a competitor's booking link, which
+            PRODUCT.md names as this surface's second job. */}
+        <section className="border-t border-zinc-200 dark:border-zinc-800">
+          <div className="py-20 sm:py-28">
+            <div className="mx-auto w-full max-w-[1400px] px-5 sm:px-8">
+              <h2 className={sectionTitle}>ככה זה נראה מבפנים</h2>
+              <p className="mt-3 max-w-md text-base text-zinc-600 dark:text-zinc-400">
+                לא איורים — צילומי מסך מהמערכת עצמה.
+              </p>
+            </div>
+            <div className="mt-14">
+              <ProductTour />
+            </div>
+          </div>
         </section>
 
         {/* FEATURES — one open at a time. The list is what gets skimmed and

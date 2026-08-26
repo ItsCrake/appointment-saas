@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { BellRing, CalendarCheck, Clock3 } from "lucide-react";
 
 import { DashboardMockup } from "./dashboard-mockup";
+import { PhoneFrame } from "./phone-frame";
 
 /**
  * The agenda preview, presented inside a brand-gradient card.
@@ -53,7 +54,27 @@ export function MockupShowcase() {
         ))}
       </div>
 
-      <DashboardMockup className="relative" />
+      {/**
+       * The real agenda, in a phone, with the drawn one underneath it.
+       *
+       * This card used to render `DashboardMockup` directly — a CSS agenda that
+       * looked right and proved nothing. The screenshot is the same screen with
+       * real bookings, real prices and a real Hebrew client list, which is the
+       * one asset on this page a competitor cannot draw.
+       *
+       * `priority` because it is the largest element in the first viewport and
+       * is the page's LCP candidate; every other screenshot on the page loads
+       * lazily. The drawn mockup stays as the fallback, so a missing file
+       * degrades to what shipped before rather than to a grey rectangle.
+       */}
+      <PhoneFrame
+        src="/screenshots/agenda-today.jpg"
+        alt="מסך היומן של בעל עסק: ארבעה תורים היום, סכום צפוי, וכפתורי אישור וביטול לכל תור"
+        fallback={<DashboardMockup className="relative" />}
+        priority
+        sizes="(min-width: 1024px) 288px, (min-width: 640px) 38vw, 68vw"
+        className="relative"
+      />
     </div>
   );
 }

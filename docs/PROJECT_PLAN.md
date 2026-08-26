@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1216 tests across 83 files**; Playwright
+**Green:** `npm run verify` at **1221 tests across 84 files**; Playwright
 **11/11** across 3 specs (not run every session). All **29 migrations
 (0000–0028)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
