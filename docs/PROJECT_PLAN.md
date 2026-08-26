@@ -1195,8 +1195,8 @@ right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
 **Green:** `npm run verify` at **1211 tests across 82 files**; Playwright
-**11/11** across 3 specs (not run every session). All **28 migrations
-(0000–0027)** are applied to production. Fifteen tables, RLS on every one, zero
+**11/11** across 3 specs (not run every session). All **29 migrations
+(0000–0028)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
 
 > ⚠️ **The ordering rule 0025 established, for every migration after it.**
