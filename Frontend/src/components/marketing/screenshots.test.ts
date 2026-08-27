@@ -1,79 +1,117 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  resolveScreenshot,
+  SCREENSHOT_SLOTS,
+  type ScreenshotSlot,
+} from "@/lib/screenshots";
+
 /**
- * The landing page's screenshots, and the two ways they go missing quietly.
+ * The landing page's screenshots, and the ways they go wrong quietly.
  *
  * ---------------------------------------------------------------------------
- * A `src` pointing at a file that is not there does not fail the build, does
- * not fail typecheck, and does not throw at runtime — it renders a broken
- * image on the page whose entire job is convincing a shop owner the product is
- * real. `PhoneFrame` catches that at runtime and swaps in the drawn mockup,
- * which is the safety net; this is the thing that stops the net ever being
+ * A `src` pointing at a file that is not there does not fail typecheck and does
+ * not throw — it renders a broken image on the page whose whole job is
+ * convincing a shop owner the product is real. `PhoneFrame` catches that at
+ * runtime and swaps in the drawn mockup; this is what stops the net being
  * needed.
  *
- * Source assertions, like `booking-page-shell.test.ts`: the property is "does
- * this string match a file on disk", which no unit test of a component can
- * reach.
+ * Since the HD folder exists, there is a second failure mode: a replacement
+ * that is *smaller* than the file it replaces, which would look like an
+ * upgrade and be a downgrade.
  * ---------------------------------------------------------------------------
  */
 
 const MARKETING = path.resolve(process.cwd(), "src/components/marketing");
-const PUBLIC = path.resolve(process.cwd(), "public");
+const SHOTS = path.resolve(process.cwd(), "public/screenshots");
 
-/** Every `/screenshots/…` path referenced anywhere in the marketing folder. */
-function referencedScreenshots(): { file: string; src: string }[] {
-  const found: { file: string; src: string }[] = [];
-  for (const name of readdirSync(MARKETING)) {
-    if (!name.endsWith(".tsx")) continue;
-    const source = readFileSync(path.join(MARKETING, name), "utf8");
-    for (const match of source.matchAll(/["'](\/screenshots\/[^"']+)["']/g)) {
-      found.push({ file: name, src: match[1] });
+/**
+ * The frame caps the image at 284 CSS px (`max-w-[19rem]` minus its padding),
+ * so a 3× phone needs 852 real pixels. Anything narrower is upscaled.
+ */
+const MIN_WIDTH_FOR_3X = 852;
+
+/** Files only — `hd/` is a directory and `README.md` documents it. */
+const imageFiles = (dir: string) =>
+  readdirSync(dir).filter(
+    (name) => statSync(path.join(dir, name)).isFile() && name !== "README.md",
+  );
+
+describe("screenshot slots", () => {
+  it("resolves every declared slot to a real file", () => {
+    // `resolveScreenshot` throws when a slot has neither an HD nor a base file,
+    // which is the behaviour worth pinning: a missing slot should stop the
+    // build rather than reach a visitor.
+    for (const slot of SCREENSHOT_SLOTS) {
+      const shot = resolveScreenshot(slot);
+      expect(shot.src.startsWith("/screenshots/")).toBe(true);
+      expect(shot.width).toBeGreaterThan(0);
+      expect(shot.height).toBeGreaterThan(0);
     }
-  }
-  return found;
-}
-
-describe("landing-page screenshots", () => {
-  const referenced = referencedScreenshots();
-
-  it("references at least the hero and the three tour screens", () => {
-    // A guard on the guard: if the components stop referencing screenshots
-    // entirely, every assertion below passes vacuously.
-    expect(referenced.length).toBeGreaterThanOrEqual(4);
   });
 
-  it("points every reference at a file that exists", () => {
-    for (const { file, src } of referenced) {
-      const onDisk = path.join(PUBLIC, src);
+  it("reads real dimensions rather than assuming the original shape", () => {
+    /**
+     * The originals are all 736×1600. An HD replacement is a different size —
+     * an iPhone capture is 1179×2556 — and a hardcoded ratio that disagreed
+     * with the file would distort it. So this asserts the *shape*, not a
+     * constant: a portrait phone screen, roughly 0.46 wide-to-tall.
+     */
+    for (const slot of SCREENSHOT_SLOTS) {
+      const { width, height } = resolveScreenshot(slot);
+      expect(height).toBeGreaterThan(width);
+      expect(width / height).toBeGreaterThan(0.4);
+      expect(width / height).toBeLessThan(0.52);
+    }
+  });
+
+  it("refuses an HD file narrower than the one it replaces", () => {
+    /**
+     * The whole point of the folder. A 640px "HD" capture would resolve
+     * cleanly, look like an upgrade, and be softer than the 736px original it
+     * shadowed — the exact mistake this folder invites.
+     */
+    for (const slot of SCREENSHOT_SLOTS) {
+      const shot = resolveScreenshot(slot);
+      if (!shot.hd) continue;
+
       expect(
-        existsSync(onDisk),
-        `${file} references ${src}, which is not in public/`,
-      ).toBe(true);
+        shot.width,
+        `${slot}: HD file is ${shot.width}px, narrower than the ${MIN_WIDTH_FOR_3X}px a 3× display needs`,
+      ).toBeGreaterThanOrEqual(MIN_WIDTH_FOR_3X);
     }
   });
 
-  it("uses web-safe filenames", () => {
+  it("uses web-safe filenames in both folders", () => {
     /**
      * These arrived as "WhatsApp Image 2026-08-26 at 19.49.27 (1).jpeg".
      * Spaces and parentheses survive a local dev server and then need
-     * percent-encoding everywhere else, which is the kind of thing that works
-     * until it is deployed.
+     * percent-encoding everywhere else — the kind of thing that works until it
+     * is deployed.
      */
-    for (const name of readdirSync(path.join(PUBLIC, "screenshots"))) {
-      expect(name, `${name} needs a web-safe name`).toMatch(
-        /^[a-z0-9-]+\.(jpg|png|webp|avif)$/,
-      );
+    const safe = /^[a-z0-9-]+\.(jpg|jpeg|png|webp|avif)$/;
+
+    for (const name of imageFiles(SHOTS)) {
+      expect(name, `${name} needs a web-safe name`).toMatch(safe);
+    }
+    for (const name of imageFiles(path.join(SHOTS, "hd"))) {
+      expect(name, `hd/${name} needs a web-safe name`).toMatch(safe);
+      const slot = name.replace(/\.[a-z]+$/, "") as ScreenshotSlot;
+      expect(
+        SCREENSHOT_SLOTS as readonly string[],
+        `hd/${name} does not match any slot, so nothing will ever load it`,
+      ).toContain(slot);
     }
   });
 
   it("gives every screenshot a drawn fallback", () => {
     /**
      * `PhoneFrame` renders `fallback` when the file cannot be loaded. A usage
-     * without one shows an empty frame instead — worse than the CSS mockup
-     * this page shipped with, and worse than nothing.
+     * without one shows an empty frame — worse than the CSS mockup this page
+     * shipped with, and worse than nothing.
      */
     for (const name of readdirSync(MARKETING)) {
       if (!name.endsWith(".tsx")) continue;

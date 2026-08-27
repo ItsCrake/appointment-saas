@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import { BellRing, CalendarCheck, Clock3 } from "lucide-react";
 
+import { resolveScreenshot } from "@/lib/screenshots";
+
 import { DashboardMockup } from "./dashboard-mockup";
 import { PhoneFrame } from "./phone-frame";
 
@@ -24,6 +26,8 @@ const TILES = [
 ] as const;
 
 export function MockupShowcase() {
+  const hero = resolveScreenshot("agenda-today");
+
   return (
     <div className="relative rounded-3xl bg-gradient-to-br from-purple-900 via-indigo-800 to-blue-700 p-3 pt-0 shadow-[0_24px_60px_-24px_rgb(49_46_129/0.55)]">
       {/* Dot matrix, faded downward so it never fights the white mockup edge. */}
@@ -68,11 +72,12 @@ export function MockupShowcase() {
        * degrades to what shipped before rather than to a grey rectangle.
        */}
       <PhoneFrame
-        src="/screenshots/agenda-today.jpg"
+        src={hero.src}
+        width={hero.width}
+        height={hero.height}
         alt="מסך היומן של בעל עסק: ארבעה תורים היום, סכום צפוי, וכפתורי אישור וביטול לכל תור"
         fallback={<DashboardMockup className="relative" />}
         priority
-        sizes="(min-width: 1024px) 288px, (min-width: 640px) 38vw, 68vw"
         className="relative"
       />
     </div>

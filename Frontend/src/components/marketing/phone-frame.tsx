@@ -34,10 +34,23 @@ import { cn } from "@/lib/utils";
 export function PhoneFrame({
   src,
   alt,
+  width,
+  height,
   fallback,
   priority = false,
   className,
-  sizes = "(min-width: 1024px) 320px, (min-width: 640px) 45vw, 78vw",
+  /**
+   * **A flat 284px, at every breakpoint.** The frame below is capped by
+   * `max-w-[19rem]` (304px) minus its own 10px padding either side, so the
+   * image is never wider than 284 CSS pixels however wide the viewport gets.
+   *
+   * It previously declared `78vw` / `45vw`, which told the browser to fetch for
+   * a width the layout cannot produce — over-fetching on a phone while doing
+   * nothing for sharpness. Naming the real cap lets the browser multiply it by
+   * the device pixel ratio and land on the right rung of the srcset: 384 at 1×,
+   * 640 at 2×, 1080 at 3×.
+   */
+  sizes = "284px",
 }: {
   src: string;
   /**
@@ -46,6 +59,14 @@ export function PhoneFrame({
    * their alt text is the one a screen reader needs to convey the feature.
    */
   alt: string;
+  /**
+   * Intrinsic pixel size of the file, from `resolveScreenshot`. Passed rather
+   * than hardcoded because the HD replacements are a different shape from the
+   * 736×1600 originals, and a declared ratio that disagrees with the real one
+   * distorts the image.
+   */
+  width: number;
+  height: number;
   /** The drawn mockup, rendered instead if the file cannot be loaded. */
   fallback?: ReactNode;
   priority?: boolean;
@@ -82,10 +103,25 @@ export function PhoneFrame({
           <Image
             src={src}
             alt={alt}
-            width={736}
-            height={1600}
+            width={width}
+            height={height}
             sizes={sizes}
             priority={priority}
+            /**
+             * 90 rather than the default 75.
+             *
+             * The sources arrived through WhatsApp at roughly 0.06 bytes per
+             * pixel — five to eight times more compressed than a quality-90
+             * JPEG — so re-encoding at 75 stacked a *second* lossy generation on
+             * an already-mushy image. This does not recover detail that is not
+             * in the file; it stops the pipeline removing more. The real fix is
+             * a better source in `screenshots/hd/`, which `resolveScreenshot`
+             * picks up automatically.
+             *
+             * The cost is small in absolute terms because these render at 284
+             * CSS pixels, so even the 3× rung is a modest file.
+             */
+            quality={90}
             // Below the fold everywhere except the hero, and the hero passes
             // `priority` — so the rest genuinely should wait.
             loading={priority ? undefined : "lazy"}
