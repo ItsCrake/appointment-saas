@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft, Check } from "lucide-react";
 
 import { CtaBanner } from "@/components/marketing/cta-banner";
+import { DemoLinks } from "@/components/marketing/demo-links";
 import { FeatureCards } from "@/components/marketing/feature-cards";
 import { InstallGuide } from "@/components/marketing/install-guide";
 import { ProofStrip } from "@/components/marketing/proof-strip";
@@ -88,9 +89,6 @@ const CTA_DEMO = "צפייה בהדגמה";
 const btnPrimary =
   "inline-flex items-center justify-center gap-2 rounded-full bg-zinc-950 px-6 text-sm font-semibold whitespace-nowrap text-white transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-white";
 
-const btnGhost =
-  "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-300 px-6 text-sm font-semibold whitespace-nowrap text-zinc-900 transition-colors hover:border-zinc-950 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none active:translate-y-px dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-100 dark:hover:bg-zinc-900 dark:focus-visible:ring-white";
-
 const sectionTitle =
   "text-3xl font-black tracking-tighter text-zinc-950 sm:text-4xl dark:text-zinc-50";
 
@@ -168,11 +166,19 @@ export default function LandingPage() {
                 מתמלא בלי חורים ובלי טלפונים.
               </p>
 
-              {/* Width, never flex, controls the mobile stack. `flex-1` inside
+              {/* The one action being asked for, alone on its row.
+
+                  It used to share the row with a ghost "צפייה בהדגמה", which
+                  put a second thing of nearly equal weight beside the only
+                  conversion on the page. The demos are still here — a step
+                  below, as a pair, where they answer "show me first" without
+                  competing with "start".
+
+                  Width, never flex, controls the mobile stack: `flex-1` inside
                   a flex-col parent sizes the *cross axis*, which silently beat
-                  `h-12` and squashed both buttons to 20px: under the 44px
+                  `h-12` and squashed the buttons to 20px — under the 44px
                   minimum touch target, and invisible in a desktop-only check. */}
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-8">
                 <Link
                   href="/dashboard/setup"
                   className={`${btnPrimary} h-12 w-full sm:w-auto`}
@@ -180,12 +186,10 @@ export default function LandingPage() {
                   {CTA_SIGNUP}
                   <ArrowLeft className="size-4" aria-hidden />
                 </Link>
-                <Link
-                  href="/demo-barber"
-                  className={`${btnGhost} h-12 w-full sm:w-auto`}
-                >
-                  {CTA_DEMO}
-                </Link>
+              </div>
+
+              <div className="mt-6">
+                <DemoLinks />
               </div>
 
               {/* Three facts, as a line rather than three cards. The floor is
