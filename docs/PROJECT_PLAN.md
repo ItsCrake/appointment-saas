@@ -1366,6 +1366,18 @@ optional. What follows from that:
   to `slot_interval_min`; dense behind and half-empty ahead, so the E2E suite can
   still book against `demo-barber`.
 
+- **Landing page** — one canvas, not two panels. The hero's full-bleed violet
+  block is gone; it forced everything over it to hardcode `text-white` and
+  squeezed the only proof on the page into a column that vanished below `lg`.
+  Now a hairline grid and one glow sit behind a real screenshot.
+  `lib/screenshots.ts` resolves eight slots and **throws at build time** when a
+  file is missing, so a deleted image fails the build rather than the page.
+  The two demo buttons are solid `amber-500` / `rose-500` — the accent each
+  tenant actually renders — with **near-black labels, never white**: white on
+  amber-500 measures **2.15:1**, and the obvious hover to `-600` puts rose at
+  **4.24:1**, so it brightens instead. Both are the natural edit and both break
+  the button, so `demo-links.test.ts` pins them at the source.
+
 ### What it deliberately does not do
 
 - **The client is never told an appointment moved.** No notification kind exists
@@ -1403,11 +1415,15 @@ it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 
 ### Never verified in a browser
 
-Every UI change since the calendar rebuild was proven by tests, typecheck and
-build — **not by looking at it**. The preview needs an authenticated dashboard
-session, which no session has had. Worth one pass on a real tenant: the calendar
-at phone width, the appointment dialog as a bottom sheet, and the gradient header
-on the management pages.
+**The dashboard**, specifically. Every UI change there since the calendar
+rebuild was proven by tests, typecheck and build — **not by looking at it** —
+because the preview needs an authenticated session, which no session has had.
+Worth one pass on a real tenant: the calendar at phone width, the appointment
+dialog as a bottom sheet, and the gradient header on the management pages.
+
+The **landing page** is no longer in this bucket: it has been checked in the
+browser in both themes at 375px and desktop, with contrast measured in-page
+rather than eyeballed.
 
 ---
 
