@@ -1216,10 +1216,30 @@ copy for the six unsubmitted Meta templates and the message-volume formula;
 [EDGE_CASES.md](EDGE_CASES.md) maps what the suite proves, what it cannot, and
 the ranked residual risk.
 
-**Live demo tenants:** `/demo-barber` (1 chair, approval off, ~293 appointments)
-and `/demo-nails` (1 chair, approval **on**, ~124). Both are seeded for
-screenshots and both are owned by real accounts — read the seed traps below
-before running it.
+**Live demo tenants:** `/demo-barber` (1 chair, approval off, owned by
+`itaybarkay64@`) and `/demo-nails` (**2 active providers**, approval **on**,
+owned by `xitaybarkay@`). Both are owned by real accounts — read the seed traps
+below before running it.
+
+> ⚠️ **Both demo shops hold zero appointments** as of 2026-08-29, verified
+> against production. This block used to claim ~293 and ~124; it was stale, and
+> the numbers are the first thing a session trusts. Everything *else* is intact
+> — services, staff, logos, galleries, reviews, waitlist rows — so both booking
+> pages work and the E2E suite still books against `demo-barber`. What is gone
+> is the history behind them: the landing page's two demo buttons lead to shops
+> with an empty calendar, and the dashboard has nothing to screenshot.
+>
+> Nothing cascaded them away, and that is worth knowing before hunting for a
+> bug — `appointments.service_id` and `staff_id` are `onDelete: restrict`, so
+> deleting a service or a provider is *refused* while appointments reference
+> it. They were cleared deliberately at some point and never re-seeded.
+> `npm run db:seed` restores them; run `-- --dry-run` first, as always.
+
+`demo-nails` having a **team** is the correction that changes behaviour, not
+just a count: two providers put it in grid-mode availability and give the public
+flow the provider-picker step, which is exactly the shape
+`chooseProviderIfAsked` exists to absorb. A single-chair assumption about it is
+wrong.
 
 ### The three rules a new session most needs
 
@@ -1364,7 +1384,9 @@ optional. What follows from that:
   the tight start *always* would reverse that fix — a real trade, one line away.
 - **Demo seed** — deterministic per tenant so screenshots reproduce; starts snap
   to `slot_interval_min`; dense behind and half-empty ahead, so the E2E suite can
-  still book against `demo-barber`.
+  still book against `demo-barber`. That describes what the seed *writes*, not
+  what is in production — see the demo-tenant warning above, which is currently
+  the opposite.
 
 - **Landing page** — one canvas, not two panels. The hero's full-bleed violet
   block is gone; it forced everything over it to hardcode `text-white` and
@@ -1415,14 +1437,48 @@ it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 
 ### Never verified in a browser
 
-**The dashboard**, specifically. Every UI change there since the calendar
-rebuild was proven by tests, typecheck and build — **not by looking at it** —
-because the preview needs an authenticated session, which no session has had.
-Worth one pass on a real tenant: the calendar at phone width, the appointment
-dialog as a bottom sheet, and the gradient header on the management pages.
+**Mostly cleared for the dashboard (2026-08-29).** The blocker was never the
+browser, it was the session — and the repository already solved that:
+`E2E_EMAIL` / `E2E_PASSWORD` in `.env.local` drive `signInAsOwner`, so a
+Playwright script signs in the way the suite does and no password is ever typed
+by hand. That is the mechanism to reuse; a fresh session should not go looking
+for another one.
 
-The **landing page** is no longer in this bucket: it has been checked in the
-browser in both themes at 375px and desktop, with contrast measured in-page
+All ten dashboard routes were walked signed-in as `demo-barber`'s owner at
+**390px and 1440px**. What that proved:
+
+- **Zero horizontal overflow at 390px on every route** — measured as
+  `scrollWidth - innerWidth`, not eyeballed, because a viewport screenshot is
+  itself clipped and cannot show the overflow it is hiding.
+- **Zero console errors** across the sweep.
+- The **gradient header** on the management pages renders as intended — icon
+  chip, title, subtitle, hairline rule.
+- The **week calendar** is right where it is easiest to get wrong: RTL day
+  order, time axis on the right, working-hours shading carrying the 13:00–14:00
+  break, Friday closing at 13:00, and Saturday absent entirely.
+- Empty states are the honest kind — analytics prints `0` for a real zero and
+  an em-dash for "no data", which are different answers.
+
+**Two false positives, recorded so the next pass does not re-find them.** Both
+cost time here:
+
+- A dark circular badge sits over the "לקוחות" item in the phone bottom bar. It
+  is the **Next.js dev-mode indicator**, present only under `next dev`, not a
+  product defect. It is at the identical position on every route, which is how
+  to tell.
+- The agenda toolbar appears **twice** in a `fullPage` screenshot, top and
+  bottom. The DOM has exactly one — it is a capture artifact of `fullPage`
+  against a sticky element. Confirm a duplicate by counting in the DOM before
+  believing a full-page image.
+
+**Still unverified, and blocked on data rather than on access:** the calendar
+carrying real appointments, and the appointment dialog as a bottom sheet. Both
+need something on the calendar to open, and both demo tenants hold zero
+appointments — see the demo-tenant warning at the top of §5. Re-seed first, then
+these are one script away.
+
+The **landing page** is no longer in this bucket either: it has been checked in
+the browser in both themes at 375px and desktop, with contrast measured in-page
 rather than eyeballed.
 
 ---
