@@ -50,6 +50,44 @@ function refresh() {
   revalidatePath("/dashboard");
 }
 
+/**
+ * Turns the team switch on the moment a second provider actually exists.
+ *
+ * ---------------------------------------------------------------------------
+ * **The flag and the roster used to be able to disagree, and the disagreement
+ * was invisible.** `has_multiple_staff` decides who is *bookable*, not merely
+ * what renders — `resolveBookableStaff` hands the engine `[primary]` while it
+ * is off — so a shop that added a second barber and did not also find the
+ * toggle had someone on the rota, on the calendar legend and in the dashboard
+ * who could never receive a booking. Nothing errored. The owner's evidence
+ * that it worked was that the person was visibly there.
+ *
+ * Adding a provider *is* the answer to "do you have more than one?", so the
+ * question stops being asked separately. This only ever turns the flag **on**:
+ * the off direction stays manual, because it is destructive
+ * (`deactivateSecondaryStaff`) and must not fire because a shop happened to
+ * deactivate somebody for a week.
+ *
+ * Returns whether it flipped, so the caller can say so — a switch that moves
+ * without being touched has to be reported, or the next person to open
+ * settings finds a setting they did not choose.
+ * ---------------------------------------------------------------------------
+ */
+async function enableMultiStaffIfTeam(business: {
+  id: string;
+  hasMultipleStaff: boolean;
+}): Promise<boolean> {
+  if (business.hasMultipleStaff) return false;
+
+  const active = await listActiveStaff(db, business.id);
+  if (active.length <= 1) return false;
+
+  await updateBusiness(db, business.id, { hasMultipleStaff: true });
+  // The toggle itself lives on this page as well as on /dashboard/staff.
+  revalidatePath("/dashboard/settings");
+  return true;
+}
+
 export async function createStaffAction(
   input: unknown,
 ): Promise<StaffActionResult> {
@@ -74,8 +112,17 @@ export async function createStaffAction(
     return { ok: false, error: "אירעה שגיאה בהוספת נותן השירות" };
   }
 
+  // A new provider is created active, so this is the moment the shop becomes a
+  // team. See `enableMultiStaffIfTeam` for why the flag cannot be left behind.
+  const enabled = await enableMultiStaffIfTeam(business);
+
   refresh();
-  return { ok: true, message: "נותן השירות נוסף" };
+  return {
+    ok: true,
+    message: enabled
+      ? "נותן השירות נוסף. ניהול צוות הופעל אוטומטית"
+      : "נותן השירות נוסף",
+  };
 }
 
 export async function updateStaffAction(
@@ -148,8 +195,20 @@ export async function setStaffActiveAction(
   });
   if (!updated) return { ok: false, error: "נותן השירות לא נמצא" };
 
+  // Reactivating somebody is the other way a shop becomes a team, and it is the
+  // easier one to miss: the person was already on the page, greyed out, so
+  // nothing about putting them back suggests a tenant setting is involved.
+  const enabled = isActive ? await enableMultiStaffIfTeam(business) : false;
+
   refresh();
-  return { ok: true, message: isActive ? "הופעל מחדש" : "הושבת" };
+  return {
+    ok: true,
+    message: isActive
+      ? enabled
+        ? "הופעל מחדש. ניהול צוות הופעל אוטומטית"
+        : "הופעל מחדש"
+      : "הושבת",
+  };
 }
 
 /**
@@ -279,9 +338,14 @@ export async function deleteStaffTimeOffAction(
  * history moves, and turning the switch back on is one click per person — the
  * same control an owner already uses to put someone back on the rota.
  *
- * The primary is exempt by the same rule availability uses: `primaryStaff()` is
- * the head of `listActiveStaff`, and a tenant with no active provider takes no
- * bookings at all.
+ * **The longest-serving provider is exempt** — earliest `created_at`, see
+ * `longestServing`. Seniority rather than display order, because an owner can
+ * rearrange the list but cannot rearrange who has been there longest, and a
+ * tenant with no active provider takes no bookings at all.
+ *
+ * The reverse direction is automatic and lives in `enableMultiStaffIfTeam`:
+ * adding or reactivating a second provider turns this back on by itself. Only
+ * the *off* direction is manual, because only this one destroys anything.
  */
 export async function setMultiStaffAction(
   enabled: boolean,

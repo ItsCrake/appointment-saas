@@ -154,12 +154,51 @@ export async function updateStaff(
 }
 
 /**
- * Deactivates everyone except the primary provider.
+ * The provider a shop collapsing back to one chair keeps: the **longest
+ * serving**, by earliest `created_at`.
  *
- * Driven by the same `primaryStaff()` rule availability uses, so the person
- * left standing is exactly the one who will take the bookings — resolving it
- * differently here would deactivate the provider the engine then tries to book
- * into.
+ * ---------------------------------------------------------------------------
+ * **This is deliberately not `primaryStaff()`, and the difference is worth
+ * naming.** `primaryStaff` orders by `sortOrder, createdAt, id` — display
+ * order first, which is the owner's arrangement of the list. Seniority is a
+ * fact about the roster that an owner cannot reorder by accident, and
+ * collapsing a team is the one operation where "who has been here longest"
+ * is a fairer answer than "who is currently at the top of the list".
+ *
+ * The two agree wherever nobody has reordered anything, because `sortOrder`
+ * defaults to `0` for every row and the tie then breaks on `createdAt` — the
+ * same column. They diverge only for a shop that has explicitly dragged a
+ * newer provider to the top, and there this keeps the senior one.
+ *
+ * **No divergence survives the call.** Whoever is kept is the only active row
+ * left, so `primaryStaff()` resolves to exactly them on the very next read and
+ * the engine books into the person this chose. The warning on `primaryStaff`
+ * about two copies of the rule disagreeing is about resolving *bookability*
+ * twice; this resolves *seniority* once, and then there is only one candidate.
+ *
+ * `id` breaks a `createdAt` tie so the order is total — seeded rows can share a
+ * timestamp to the microsecond, and an unstable pick would deactivate a
+ * different person on each run.
+ * ---------------------------------------------------------------------------
+ */
+function longestServing<T extends { id: string; createdAt: Date }>(
+  team: readonly T[],
+): T | null {
+  return (
+    [...team].sort(
+      (a, b) =>
+        a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    )[0] ?? null
+  );
+}
+
+/**
+ * Deactivates everyone except the longest-serving provider.
+ *
+ * Nobody is deleted and no history moves — deactivation is the reversible half
+ * of collapsing a team, and turning the switch back on is one click per person.
+ * See {@link longestServing} for who is kept and why it is seniority rather
+ * than display order.
  *
  * Returns how many rows moved, so the caller can say so rather than reporting a
  * silent success on a shop that already had one chair.
@@ -169,10 +208,10 @@ export async function deactivateSecondaryStaff(
   businessId: string,
 ): Promise<number> {
   const active = await listActiveStaff(db, businessId);
-  const primary = primaryStaff(active);
-  if (!primary) return 0;
+  const kept = longestServing(active);
+  if (!kept) return 0;
 
-  const others = active.filter((member) => member.id !== primary.id);
+  const others = active.filter((member) => member.id !== kept.id);
   if (others.length === 0) return 0;
 
   await db

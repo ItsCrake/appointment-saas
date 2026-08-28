@@ -160,7 +160,34 @@ export function StaffManager({
         ) : (
           <ul className="space-y-3">
             {staff.map((member) => (
-              <li key={member.id} className={cn(cardClass, "p-4")}>
+              <li
+                key={member.id}
+                className={cn(
+                  cardClass,
+                  "p-4",
+                  /**
+                   * **Whether this person is on the rota, on the edge of their
+                   * own card.**
+                   *
+                   * `cardClass` ships a zinc border and `cn` is `twMerge`, so
+                   * these win by being later rather than by being heavier.
+                   *
+                   * The ring doubles the edge without costing a pixel of
+                   * layout — a `border-2` would move the content of every card
+                   * in the list by 1px the moment somebody is deactivated,
+                   * which is a reflow to announce a status change.
+                   *
+                   * **Colour is not carrying this alone**, which is what makes
+                   * it safe for a red/green pair specifically: the name is
+                   * struck through and greyed when inactive, and the button on
+                   * the card reads "הפעלה" rather than "השבתה". Anyone who
+                   * cannot separate these two hues still has both.
+                   */
+                  member.isActive
+                    ? "border-emerald-500/60 ring-1 ring-emerald-500/25 dark:border-emerald-500/45 dark:ring-emerald-500/20"
+                    : "border-rose-500/60 ring-1 ring-rose-500/25 dark:border-rose-500/45 dark:ring-rose-500/20",
+                )}
+              >
                 <StaffCard
                   member={member}
                   editing={editingId === member.id}

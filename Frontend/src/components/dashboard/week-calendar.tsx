@@ -38,6 +38,7 @@ import {
 } from "@/lib/calendar-layout";
 import { formatPrice } from "@/lib/format";
 import { staffSwatch } from "@/lib/staff-colors";
+import { staffVariantClass, staffVariants } from "@/lib/staff-variants";
 import { cn } from "@/lib/utils";
 
 import {
@@ -246,6 +247,17 @@ export function WeekCalendar({
   const gridTemplate = `3rem repeat(${days.length}, minmax(0, 1fr))`;
 
   /**
+   * Which providers had to share a colour, and the texture each one gets.
+   *
+   * Derived from the **roster** rather than from the entries on screen, so a
+   * person keeps their texture on a day they happen to have no bookings — and
+   * so the legend and the grid cannot disagree about it. Someone deactivated
+   * since a booking was taken is absent here and falls back to the solid bar,
+   * which is right: there is nobody left to confuse them with.
+   */
+  const variants = useMemo(() => staffVariants(staff), [staff]);
+
+  /**
    * Memoised because they are the expensive part and they are recomputed on
    * every render otherwise — including on each hover, which sets state at the
    * root. Lane assignment is O(n²) within a day and was running for all seven
@@ -418,11 +430,16 @@ export function WeekCalendar({
               key={member.id}
               className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400"
             >
+              {/* The key carries the texture too, or it stops being a key.
+                  Distinguishing two same-coloured providers on the grid while
+                  the legend shows them as one identical dot moves the question
+                  rather than answering it. */}
               <span
                 aria-hidden
                 className={cn(
                   "size-2.5 rounded-full",
                   staffSwatch(member.color).dot,
+                  staffVariantClass(variants.get(member.id)),
                 )}
               />
               {member.name}
@@ -431,9 +448,36 @@ export function WeekCalendar({
         </ul>
       ) : null}
 
-      {/* One scroll container: the seven columns keep a usable width on a phone
-          by scrolling sideways rather than compressing to nothing. */}
-      <div className={cn(cardClass, "overflow-x-auto")}>
+      {/**
+       * One scroll container: the seven columns keep a usable width on a phone
+       * by scrolling sideways rather than compressing to nothing.
+       *
+       * ---------------------------------------------------------------------
+       * **It scrolls vertically too, and that is what makes the day header
+       * stick.** `overflow-x: auto` alone does not leave the other axis
+       * `visible` — CSS computes `overflow-y` to `auto` the moment one axis is
+       * not `visible`, so this element was *already* a scroll container in both
+       * directions. It simply had no height to scroll within, so the page
+       * scrolled instead and a `position: sticky` header inside it had nothing
+       * to stick to: sticky resolves against the nearest scrollport, and this
+       * one was exactly as tall as its content.
+       *
+       * Bounding the height is therefore not decoration around the sticky
+       * header — it is the thing that makes sticky work at all. A viewport
+       * unit rather than a pixel offset because what has to fit is "the screen
+       * minus the chrome around it", and that chrome differs between a phone
+       * with a bottom bar and a desktop with a sidebar. `dvh` rather than `vh`
+       * so a mobile browser collapsing its address bar does not leave the
+       * calendar overshooting the window it is measured against.
+       * ---------------------------------------------------------------------
+       */}
+      <div
+        className={cn(
+          cardClass,
+          "overflow-auto overscroll-x-contain",
+          "max-h-[68dvh] sm:max-h-[76dvh]",
+        )}
+      >
         {/**
          * The floor that keeps cards readable, in pixels rather than a fixed
          * `min-w-*`: it has to answer to how many lanes are on screen, and a
@@ -445,8 +489,27 @@ export function WeekCalendar({
          * applies and only the column count differs.
          */}
         <div style={{ minWidth: `${minWidthPx}px` }}>
+          {/**
+           * **The day and date stay on screen at every scroll depth.**
+           *
+           * An owner scrolling to an 18:00 booking was reading a column with
+           * nothing above it saying which day it was — worst on a phone, where
+           * one screen holds about three hours and the header leaves almost
+           * immediately.
+           *
+           * Opaque on purpose. A sticky row with a transparent background lets
+           * the cards it is meant to be sitting over show straight through it,
+           * which reads as a rendering fault rather than as a header. It takes
+           * the same paper as the card around it.
+           *
+           * `z-20` clears `hover:z-10` on the cards, which is the only other
+           * stacking level in this grid.
+           */}
           <div
-            className="grid border-b border-zinc-200 dark:border-zinc-800"
+            className={cn(
+              "sticky top-0 z-20 grid border-b border-zinc-200 dark:border-zinc-800",
+              "bg-white dark:bg-zinc-900",
+            )}
             style={{ gridTemplateColumns: gridTemplate }}
           >
             <div />
@@ -535,6 +598,9 @@ export function WeekCalendar({
                       key={entry.id}
                       entry={entry}
                       dayView={dayView}
+                      variant={
+                        entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
+                      }
                       requiresApproval={requiresApproval}
                       minHeightPx={cardHeightPx(
                         entry.endMinutes - entry.startMinutes,
@@ -664,6 +730,7 @@ function EntryCard({
   entry,
   style,
   dayView,
+  variant,
   requiresApproval,
   minHeightPx,
   onHoverChange,
@@ -673,6 +740,11 @@ function EntryCard({
   style: React.CSSProperties;
   /** One column instead of seven — the card can afford to be read, not scanned. */
   dayView: boolean;
+  /**
+   * This provider's texture index among everyone who picked the same colour.
+   * `0` — the overwhelmingly common case — is the untouched solid bar.
+   */
+  variant: number;
   /** See the prop of the same name on `WeekCalendar`. */
   requiresApproval: boolean;
   /**
@@ -788,8 +860,21 @@ function EntryCard({
         aria-hidden
         className={cn(
           "shrink-0 rounded-s-lg",
-          dayView ? "w-1.5" : "w-1",
+          /**
+           * A textured bar is widened by one step, because the texture is the
+           * information and a 4px stripe at 4px wide is a smudge. Only where
+           * there is a collision to resolve — an unshared colour keeps the
+           * narrower bar and gives the room back to the text.
+           */
+          variant
+            ? dayView
+              ? "w-2"
+              : "w-1.5"
+            : dayView
+              ? "w-1.5"
+              : "w-1",
           accentBar(entry),
+          staffVariantClass(variant),
         )}
       />
 

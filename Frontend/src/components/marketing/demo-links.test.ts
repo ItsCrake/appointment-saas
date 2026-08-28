@@ -13,12 +13,24 @@ import { describe, expect, it } from "vitest";
  * house pattern for exactly this is `booking-page-shell.test.ts`; this follows
  * it, and targets the *mechanism* so a reflow passes and a rewrite fails.
  *
- * **What is actually at risk.** The obvious edit to a saturated fill is white
- * label text, and on `amber-500` that measures **2.15:1** — under a third of
- * the AA floor, and one of the most common contrast failures on the web. The
- * second obvious edit is a hover that steps to 600, which on rose lands at
- * **4.24:1**: under the floor, on hover only, in a state no screenshot review
- * ever looks at. Both are improvements to make and both break the button.
+ * **What is actually at risk, now that the fill is a wash.** The buttons were
+ * solid `amber-500` / `rose-500`, and the danger then was the label: white on
+ * `amber-500` is **2.15:1**. That specific trap is gone, because the label is
+ * no longer read against the fill — it is read against the page, which is what
+ * a 10% wash effectively still is.
+ *
+ * The traps that replaced it are the reverse ones, and they are just as quiet:
+ *
+ * 1. **Restoring the solid fill** — the obvious "make it pop again" edit —
+ *    puts a near-white or accent-coloured label back on a saturated 500 and
+ *    reinstates the original failure at a stroke.
+ * 2. **Colouring the label to match** (`text-amber-600` on an amber wash) is
+ *    the natural instinct for a tinted button and lands somewhere near 3:1.
+ *    Neutral ink is what holds this design at ~15:1.
+ * 3. **Dropping the border** leaves a control that is a 10% wash away from the
+ *    page, which is no longer visibly a button at all.
+ *
+ * None of the three looks wrong in a screenshot taken by whoever made it.
  * ---------------------------------------------------------------------------
  */
 
@@ -29,23 +41,57 @@ const SOURCE = readFileSync(
 
 const PAGE = readFileSync(join(process.cwd(), "src/app/page.tsx"), "utf8");
 
+/**
+ * The `DEMOS` table alone — the per-shop surfaces. Scoped because the accent
+ * legitimately appears at full strength elsewhere in this file (the dot), and
+ * an assertion over the whole source could not tell the two apart.
+ */
+const DEMOS_BLOCK = SOURCE.slice(
+  SOURCE.indexOf("const DEMOS = ["),
+  SOURCE.indexOf("] as const;"),
+);
+
 describe("the demo buttons stay readable", () => {
-  it("keeps both fills at the saturated 500", () => {
-    // The vibrance is the point. A darker shade would pass with white text and
-    // lose the thing these buttons exist for.
-    expect(SOURCE).toContain("bg-amber-500");
-    expect(SOURCE).toContain("bg-rose-500");
+  it("keeps both surfaces a translucent wash, never a solid fill", () => {
+    expect(DEMOS_BLOCK).toMatch(/bg-amber-500\/1\d/);
+    expect(DEMOS_BLOCK).toMatch(/bg-rose-500\/1\d/);
+
+    // Every accent background in the table carries an alpha. The dot is the
+    // one deliberate full-strength mark and is excluded by name — it sits
+    // outside the text, so nothing is ever read against it.
+    const surfaces = DEMOS_BLOCK.split("\n").filter(
+      (line) => /bg-(amber|rose)-\d00/.test(line) && !line.includes("dot:"),
+    );
+    expect(surfaces.length).toBeGreaterThan(0);
+    for (const line of surfaces) {
+      expect(line).not.toMatch(/bg-(amber|rose)-\d00(?!\/)/);
+    }
   });
 
-  it("labels them in ink, never in white", () => {
-    // 9.26:1 and 5.42:1. White would be 2.15:1 and 3.67:1.
-    expect(SOURCE).toContain("text-zinc-950");
-    expect(SOURCE).not.toMatch(/text-white/);
+  it("labels them in neutral ink, per theme, never in the accent", () => {
+    // ~15:1 on the light wash, comparable on the dark one. The ink needs a
+    // dark variant precisely because the surface now follows the theme.
+    expect(SOURCE).toContain("text-zinc-900");
+    expect(SOURCE).toContain("dark:text-zinc-50");
+
+    // An unqualified white label would apply in light mode, over a near-white
+    // wash. `dark:text-*` is a different thing and is allowed.
+    expect(SOURCE).not.toMatch(/(?<!dark:)text-white/);
+
+    // Tinting the label to match the button is the instinct this resists.
+    expect(SOURCE).not.toMatch(/text-(amber|rose)-\d00/);
   });
 
-  it("brightens on hover instead of deepening the fill", () => {
-    expect(SOURCE).toContain("hover:brightness-");
-    expect(SOURCE).not.toMatch(/hover:bg-(amber|rose)-[6-9]00/);
+  it("keeps a visible border, which is what makes the wash a control", () => {
+    expect(DEMOS_BLOCK).toMatch(/border-amber-500\/\d\d/);
+    expect(DEMOS_BLOCK).toMatch(/border-rose-500\/\d\d/);
+  });
+
+  it("keeps the accent at full strength somewhere it is safe", () => {
+    // The dot is the whole of what the solid fill used to do. Losing it makes
+    // the two buttons near-identical grey capsules.
+    expect(DEMOS_BLOCK).toMatch(/dot: "bg-amber-500"/);
+    expect(DEMOS_BLOCK).toMatch(/dot: "bg-rose-500"/);
   });
 });
 

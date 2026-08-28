@@ -566,6 +566,43 @@ body {
   --cal-hue: oklch(66.7% 0.295 322.15);
 }
 
+/* Two providers who picked the same colour, told apart by texture rather than
+   by hue — see `lib/staff-variants.ts` for why not a hue.
+
+   These ride on top of whatever `bg-*` the swatch already set, as a
+   `background-image` over its `background-color`, so one rule covers all seven
+   colours instead of seven times three. The stripes are white and black at low
+   alpha rather than a named colour for the same reason: they have to read on a
+   fuchsia bar and on a slate one.
+
+   Applied to the accent bar and to the legend dot that keys it, never to a
+   surface carrying text — which is what makes the whole mechanism unable to
+   affect contrast. The bar is `aria-hidden` decoration; the name on the card is
+   what actually says whose booking it is. */
+.cal-dup-1 {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.55) 0 2px,
+    transparent 2px 5px
+  );
+}
+.cal-dup-2 {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(0 0 0 / 0.34) 0 2px,
+    transparent 2px 5px
+  );
+}
+/* Horizontal, so it is not merely the first pattern mirrored — at 4px wide a
+   45° and a 135° stripe are hard to tell apart. */
+.cal-dup-3 {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.6) 0 2px,
+    transparent 2px 6px
+  );
+}
+
 /* The day view has one wide column and nothing to compete with, so it spends
    the room on legibility: same hue, over a nearly opaque paper base. The week
    view's translucency exists to stop seven narrow columns becoming a wall of

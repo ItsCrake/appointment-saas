@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1230 tests across 85 files**; Playwright
+**Green:** `npm run verify` at **1243 tests across 87 files**; Playwright
 **11/11** across 3 specs (not run every session). All **30 migrations
 (0000–0029)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1289,6 +1289,7 @@ the served tier plus the reason.
 | **`redirect()` signals success by throwing** | `unstable_rethrow` first, always, or a successful login reports a connection error. | `lib/call-action.ts` |
 | **Waitlist expiry cycles only as often as the cron** | `vercel.json` is `0 8 * * *` because Hobby rejects anything more frequent — the real cadence is the GitHub Actions workflow hitting the same URL every 15 min. Offers still *lapse* on time (the clock is read on the page and in the claim action), but nothing is **re-offered** until a sweep runs. If that workflow is disabled, every lapsed slot dies silently. Never set a TTL below the sweep interval. | `.github/workflows/dispatch-notifications.yml` |
 | **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
+| **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
 
 ### The guarantee everything else leans on
 
@@ -1315,6 +1316,40 @@ optional. What follows from that:
   (name / time / service): `lineBudget` and `MIN_CARD_PX` decide how many fit,
   capped so a floor never draws over the next booking. `gridMinWidthPx` sizes the
   grid from the widest lane count, so overlaps scroll rather than collapse.
+  **The day/date row is pinned** while the hours scroll under it — an owner
+  reading an 18:00 booking on a phone had nothing on screen telling them which
+  day they were looking at. That needed the scroll wrapper's height bounded;
+  see the `overflow-x-auto` trap above for why sticky did nothing without it.
+- **The team switch keeps itself honest** — `has_multiple_staff` decides who is
+  *bookable*, not merely what renders, so a roster and a flag that disagree
+  produce a provider who is visibly on the rota and can never receive a
+  booking. Adding **or reactivating** a second provider now turns the flag on by
+  itself (`enableMultiStaffIfTeam`), and the action says so, because a switch
+  that moves untouched has to be reported. Only the *on* direction is
+  automatic: off is destructive, and must not fire because somebody was
+  deactivated for a week. Turning it off keeps the **longest-serving** provider
+  — earliest `created_at`, `longestServing` — and deactivates the rest.
+  Deliberately **not** `primaryStaff()`, which leads with `sortOrder` and so
+  with however the owner last arranged the list; the two agree wherever nobody
+  reordered anything, since `sortOrder` defaults to `0` and the tie breaks on
+  `createdAt` anyway. `staff-collapse.test.ts` holds the one case that
+  separates them.
+- **Two providers who picked the same colour** are told apart by a **texture on
+  the accent bar**, not by a hue — `lib/staff-variants.ts`. A shifted hue would
+  mean re-proving AA for every generated shade against
+  `calendar-glass-contrast.test.ts`, would need relative colour syntax the old
+  phones may not have, and is either too small to see or no longer the colour in
+  the legend. The texture rides on top of whatever `bg-*` the swatch set, so one
+  rule covers all seven colours; it survives colour blindness; and it touches no
+  surface that carries text, which is what makes it unable to affect contrast at
+  all. The **legend dot carries the same texture**, or distinguishing the cards
+  would just move the question. Nobody with a unique colour sees any of it —
+  variant `0` is the untouched bar.
+- **Staff cards carry their status on their edge** — emerald for active, rose
+  for inactive, as a border plus a ring rather than a heavier border, because
+  `border-2` would reflow every card in the list the moment somebody is
+  deactivated. Colour is not carrying it alone: the name is struck through and
+  the card's own button reads "הפעלה" instead of "השבתה".
 - **Appointment dialog** — two tabs, booking and client card. Reschedule re-runs
   availability with the appointment excluded from its own busy set, or it blocks
   itself. Amber confirm sends `force: true` for off-hours.
@@ -1394,11 +1429,21 @@ optional. What follows from that:
   Now a hairline grid and one glow sit behind a real screenshot.
   `lib/screenshots.ts` resolves eight slots and **throws at build time** when a
   file is missing, so a deleted image fails the build rather than the page.
-  The two demo buttons are solid `amber-500` / `rose-500` — the accent each
-  tenant actually renders — with **near-black labels, never white**: white on
-  amber-500 measures **2.15:1**, and the obvious hover to `-600` puts rose at
-  **4.24:1**, so it brightens instead. Both are the natural edit and both break
-  the button, so `demo-links.test.ts` pins them at the source.
+  The two demo buttons are a **tinted wash with a matching border** — the 500 at
+  10% over a 1px border at 45%, in the accent each tenant actually renders —
+  with the shop's colour surviving at full strength in an 8px dot. They were
+  solid 500 blocks, which shouted louder than the primary CTA above them.
+  **The contrast argument moved rather than went away.** A saturated fill put
+  the label on the fill (white on amber-500 is **2.15:1**), so the ink was
+  near-black and needed no `dark:` variant. A 10% wash is within a hair of the
+  page, so the label is measured against the *page* and the ink now follows the
+  theme: `zinc-900` / `dark:zinc-50`, measured in-browser at **16.3:1** and
+  **15.2:1** light, **15.8:1** and **16.8:1** dark — wider margins than the
+  solid fill had. `demo-links.test.ts` guards the new mechanism, not the old
+  one: the wash must keep its alpha, the ink must stay neutral and per-theme
+  (an accent-coloured label on an accent wash is the natural edit and lands
+  near 3:1), and the border must survive, because a 10% wash with no border is
+  not visibly a control.
 
 ### What it deliberately does not do
 
