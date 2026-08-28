@@ -2,37 +2,29 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * Where the landing page's product screenshots come from, and how a better one
- * replaces a worse one without touching a component.
+ * Where the landing page's product screenshots come from.
  *
  * ---------------------------------------------------------------------------
- * **The originals arrived through WhatsApp**, which downscales and recompresses
- * hard: 736×1600 at roughly 0.06 bytes per pixel, where a quality-90 JPEG runs
- * five to eight times that. On a 3× phone the frame also needs 852px against a
- * 736px source, so there is a 16% upscale on top. The compression is the larger
- * of the two problems and no encoder setting can undo it — the detail is not in
- * the file.
+ * Components name a **slot** rather than a path, and this resolves it to a file
+ * plus that file's real pixel dimensions. Two things fall out of that, and
+ * both are why it survived the removal of the HD experiment:
  *
- * So this resolves each slot against `public/screenshots/hd/` **first** and
- * falls back to the original. Dropping a proper capture in that folder is the
- * entire upgrade: no import changes, no rebuild of the components, and no
- * window where the page renders a broken image because a file has not arrived
- * yet.
+ * - A slot with no file **throws at build time**, naming the slot. A literal
+ *   `src` that has drifted from the filesystem fails silently and renders a
+ *   broken image on the page whose job is convincing a shop owner the product
+ *   is real. `PhoneFrame`'s runtime fallback is the net; this is what stops it
+ *   being needed.
+ * - Dimensions are **read from the file** rather than declared. A hardcoded
+ *   `width`/`height` that disagrees with the image distorts it, and the sizes
+ *   here are not something a component should be asserting from memory.
  *
- * **Dimensions are read from the file rather than declared**, because a
- * hardcoded `width`/`height` that disagrees with the real image distorts it —
- * and the whole point of the HD folder is that the replacement may be a
- * different size. iPhone captures are 1179×2556 or 1290×2796 depending on the
- * model, and neither matches the 736×1600 this page started with.
- *
- * Server-only: it touches the filesystem, so every caller is a server
- * component that passes the resolved values down to `PhoneFrame`.
+ * Server-only: it touches the filesystem, so callers are server components
+ * that pass the resolved values down.
  * ---------------------------------------------------------------------------
  */
 
 const PUBLIC = path.resolve(process.cwd(), "public");
 const BASE_DIR = "screenshots";
-const HD_DIR = "screenshots/hd";
 
 /** The eight captures the landing page can draw on, by slot name. */
 export const SCREENSHOT_SLOTS = [
@@ -53,16 +45,7 @@ export type ResolvedScreenshot = {
   src: string;
   width: number;
   height: number;
-  /** True when the HD folder supplied it — useful for a build-time report. */
-  hd: boolean;
 };
-
-/**
- * Preferred first. PNG leads because it is what a phone produces natively and
- * carries no second lossy generation; `next/image` re-encodes to AVIF/WebP for
- * delivery either way, so a lossless source is strictly better input.
- */
-const HD_EXTENSIONS = ["png", "webp", "jpg", "jpeg"] as const;
 
 /** Intrinsic size, straight from the file header. */
 function dimensionsOf(absolute: string): { width: number; height: number } {
@@ -119,27 +102,18 @@ function dimensionsOf(absolute: string): { width: number; height: number } {
 }
 
 /**
- * The best available file for a slot.
+ * The file for a slot.
  *
- * Throws when neither an HD nor a base file exists, which is deliberate: a
- * missing slot is a build-time mistake, and `PhoneFrame`'s runtime fallback is
- * for a file that vanishes *after* a successful build rather than for one that
- * was never there.
+ * Throws when it is absent, which is deliberate: a missing slot is a
+ * build-time mistake and should stop the build rather than reach a visitor.
  */
 export function resolveScreenshot(slot: ScreenshotSlot): ResolvedScreenshot {
-  for (const extension of HD_EXTENSIONS) {
-    const relative = `${HD_DIR}/${slot}.${extension}`;
-    const absolute = path.join(PUBLIC, relative);
-    if (existsSync(absolute)) {
-      return { src: `/${relative}`, ...dimensionsOf(absolute), hd: true };
-    }
-  }
-
   const relative = `${BASE_DIR}/${slot}.jpg`;
   const absolute = path.join(PUBLIC, relative);
+
   if (!existsSync(absolute)) {
     throw new Error(`screenshots: no file for slot "${slot}"`);
   }
 
-  return { src: `/${relative}`, ...dimensionsOf(absolute), hd: false };
+  return { src: `/${relative}`, ...dimensionsOf(absolute) };
 }

@@ -84,6 +84,9 @@ export function ProductTour() {
                   // component that carried this page before the screenshots
                   // existed, so the fallback is a downgrade rather than a hole.
                   fallback={<DashboardMockup className="relative" />}
+                  // 19rem cap minus the frame's 5px bezel either side.
+                  className="max-w-[19rem]"
+                  sizes="294px"
                 />
               </div>
 

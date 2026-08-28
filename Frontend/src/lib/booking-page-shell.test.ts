@@ -72,9 +72,17 @@ describe("the ambient background", () => {
      * The unified-theme guarantee. A literal colour anywhere in these
      * gradients would give every shop the same cloud, which is precisely what
      * the `data-accent` system exists to prevent.
+     *
+     * Scoped to the `.ambient-blob` rules themselves rather than "from here to
+     * the end of the file", which is what it used to do — the landing page's
+     * own `.hero-glow` also uses radial gradients and is *correctly* a literal
+     * violet→blue, because that surface is the platform's rather than a
+     * tenant's. Anything appended to the stylesheet used to be swept in here.
      */
-    const blobs = CSS.slice(CSS.indexOf(".ambient-blob"));
-    const gradients = blobs.match(/radial-gradient\([^;]*\)/g) ?? [];
+    const rules = CSS.match(/\.ambient-blob[^{]*\{[^}]*\}/g) ?? [];
+    const gradients = rules.flatMap(
+      (rule) => rule.match(/radial-gradient\([^;]*\)/g) ?? [],
+    );
 
     expect(gradients.length).toBeGreaterThan(0);
     for (const gradient of gradients) {
@@ -113,9 +121,20 @@ describe("the ambient background", () => {
     /**
      * The colour is the tenant's identity; only the movement was ever the
      * accessibility question. `animation: none` keeps the blobs painted.
+     *
+     * Found by the block that *mentions the blobs*, not by taking the last one
+     * in the file — the stylesheet has several reduced-motion blocks, and
+     * picking by position meant any rule appended later silently became the
+     * thing under test.
      */
-    const block = CSS.slice(CSS.lastIndexOf("@media (prefers-reduced-motion"));
-    expect(block).toContain("ambient-blob-a");
+    const block = (
+      CSS.match(/@media \(prefers-reduced-motion[^{]*\{[\s\S]*?\n\}/g) ?? []
+    ).find((candidate) => candidate.includes("ambient-blob"));
+
+    expect(
+      block,
+      "no reduced-motion block covers the ambient blobs",
+    ).toBeDefined();
     expect(block).toContain("animation: none");
     expect(block).not.toContain("display: none");
   });

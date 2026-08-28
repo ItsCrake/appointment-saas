@@ -79,7 +79,10 @@ export function TypewriterLogo({ className }: { className?: string }) {
       className={cn(
         // Tracking is tightened hard at display size: Heebo set loose at 8xl
         // reads as a default, set tight it reads as a wordmark.
-        "text-5xl font-black tracking-tighter text-white sm:text-6xl lg:text-7xl xl:text-8xl",
+        // Colour is inherited, not asserted. It used to hardcode `text-white`
+        // for the dark hero panel, which is precisely what pinned the h1 to
+        // that panel — the caller sets it now.
+        "text-5xl font-black tracking-tighter sm:text-6xl lg:text-7xl xl:text-8xl",
         className,
       )}
     >
@@ -92,11 +95,12 @@ export function TypewriterLogo({ className }: { className?: string }) {
         {/* min-height keeps the row from collapsing when text is empty
             mid-cycle, so the layout below never jumps. */}
         <span className="min-h-[1.2em]">{text}</span>
-        {/* The caret is the one place the mark carries a colour, and in a
-            monochrome system that colour is the paper itself. */}
+        {/* The caret takes the heading's own colour, so the mark stays one
+            object in light and dark alike. */}
         <span
           className={cn(
-            "ms-1 inline-block w-[0.055em] self-stretch bg-white",
+            // Follows the text rather than the old panel's paper.
+            "ms-1 inline-block w-[0.055em] self-stretch bg-current",
             !reducedMotion && "animate-caret",
           )}
         />

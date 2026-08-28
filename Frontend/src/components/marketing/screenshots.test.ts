@@ -3,11 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  resolveScreenshot,
-  SCREENSHOT_SLOTS,
-  type ScreenshotSlot,
-} from "@/lib/screenshots";
+import { resolveScreenshot, SCREENSHOT_SLOTS } from "@/lib/screenshots";
 
 /**
  * The landing page's screenshots, and the ways they go wrong quietly.
@@ -18,23 +14,13 @@ import {
  * convincing a shop owner the product is real. `PhoneFrame` catches that at
  * runtime and swaps in the drawn mockup; this is what stops the net being
  * needed.
- *
- * Since the HD folder exists, there is a second failure mode: a replacement
- * that is *smaller* than the file it replaces, which would look like an
- * upgrade and be a downgrade.
  * ---------------------------------------------------------------------------
  */
 
 const MARKETING = path.resolve(process.cwd(), "src/components/marketing");
 const SHOTS = path.resolve(process.cwd(), "public/screenshots");
 
-/**
- * The frame caps the image at 284 CSS px (`max-w-[19rem]` minus its padding),
- * so a 3× phone needs 852 real pixels. Anything narrower is upscaled.
- */
-const MIN_WIDTH_FOR_3X = 852;
-
-/** Files only — `hd/` is a directory and `README.md` documents it. */
+/** Files only, so a stray directory does not fail the name check. */
 const imageFiles = (dir: string) =>
   readdirSync(dir).filter(
     (name) => statSync(path.join(dir, name)).isFile() && name !== "README.md",
@@ -53,12 +39,12 @@ describe("screenshot slots", () => {
     }
   });
 
-  it("reads real dimensions rather than assuming the original shape", () => {
+  it("reads real dimensions rather than assuming a constant", () => {
     /**
-     * The originals are all 736×1600. An HD replacement is a different size —
-     * an iPhone capture is 1179×2556 — and a hardcoded ratio that disagreed
-     * with the file would distort it. So this asserts the *shape*, not a
-     * constant: a portrait phone screen, roughly 0.46 wide-to-tall.
+     * Asserts the *shape* rather than the numbers: a portrait phone screen,
+     * roughly 0.46 wide-to-tall. A hardcoded `width`/`height` that disagreed
+     * with the file would distort it, and re-capturing a screen at a different
+     * device size must not silently start squashing it.
      */
     for (const slot of SCREENSHOT_SLOTS) {
       const { width, height } = resolveScreenshot(slot);
@@ -68,24 +54,7 @@ describe("screenshot slots", () => {
     }
   });
 
-  it("refuses an HD file narrower than the one it replaces", () => {
-    /**
-     * The whole point of the folder. A 640px "HD" capture would resolve
-     * cleanly, look like an upgrade, and be softer than the 736px original it
-     * shadowed — the exact mistake this folder invites.
-     */
-    for (const slot of SCREENSHOT_SLOTS) {
-      const shot = resolveScreenshot(slot);
-      if (!shot.hd) continue;
-
-      expect(
-        shot.width,
-        `${slot}: HD file is ${shot.width}px, narrower than the ${MIN_WIDTH_FOR_3X}px a 3× display needs`,
-      ).toBeGreaterThanOrEqual(MIN_WIDTH_FOR_3X);
-    }
-  });
-
-  it("uses web-safe filenames in both folders", () => {
+  it("uses web-safe filenames", () => {
     /**
      * These arrived as "WhatsApp Image 2026-08-26 at 19.49.27 (1).jpeg".
      * Spaces and parentheses survive a local dev server and then need
@@ -96,14 +65,6 @@ describe("screenshot slots", () => {
 
     for (const name of imageFiles(SHOTS)) {
       expect(name, `${name} needs a web-safe name`).toMatch(safe);
-    }
-    for (const name of imageFiles(path.join(SHOTS, "hd"))) {
-      expect(name, `hd/${name} needs a web-safe name`).toMatch(safe);
-      const slot = name.replace(/\.[a-z]+$/, "") as ScreenshotSlot;
-      expect(
-        SCREENSHOT_SLOTS as readonly string[],
-        `hd/${name} does not match any slot, so nothing will ever load it`,
-      ).toContain(slot);
     }
   });
 

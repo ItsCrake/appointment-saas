@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-import { BellRing, CalendarCheck, Clock3 } from "lucide-react";
+import { Check, MessageCircle } from "lucide-react";
 
 import { resolveScreenshot } from "@/lib/screenshots";
 
@@ -7,79 +6,99 @@ import { DashboardMockup } from "./dashboard-mockup";
 import { PhoneFrame } from "./phone-frame";
 
 /**
- * The agenda preview, presented inside a brand-gradient card.
+ * The product, standing on the page rather than inside a box.
  *
- * The glass tiles sit in a band *above* the mockup rather than scattered over
- * it. Floating them across the card looked richer in the abstract and covered
- * live rows in practice: a status badge half-hidden behind a frosted square is
- * worse than no decoration at all. The band gives them somewhere to float that
- * is genuinely empty.
+ * ---------------------------------------------------------------------------
+ * **What this replaced, and why.** The phone used to sit inside a
+ * violet→blue gradient card with a dot texture and three frosted squares
+ * floating above it. That card was doing the work a product shot should do by
+ * itself: it supplied the colour, the depth and the interest, and the screen it
+ * contained was incidental. It also forced everything near it to be white,
+ * which is how the wordmark ended up hardcoding `text-white`.
  *
- * Everything decorative here is `aria-hidden`. The mockup below carries the
- * single `role="img"` description for the whole composition.
+ * Now the ground is the page's own paper with a hairline grid, one soft brand
+ * glow sits behind the device, and the only things floating are two badges
+ * that **carry real content**. The floor is explicit that soft-shadowed
+ * rounded rectangles standing in for content are a costume — so the frosted
+ * squares are gone, and what replaced them says what the product actually did:
+ * a booking arrived, and a WhatsApp message went out.
+ *
+ * **Two badges, not five.** Each one is a claim the page makes elsewhere in
+ * words, shown happening. A third would turn the composition back into
+ * decoration, which is what was wrong with it before.
+ *
+ * The badges are positioned against the phone's own box rather than the
+ * section, so they keep their relationship to the device at every width, and
+ * they are `aria-hidden`: the screenshot's `alt` already describes the screen,
+ * and a screen reader meeting "new booking, 14:30" out of context learns
+ * nothing true.
+ * ---------------------------------------------------------------------------
  */
-
-const TILES = [
-  { icon: Clock3, tilt: "-8deg", duration: "7.5s", delay: "0s" },
-  { icon: CalendarCheck, tilt: "6deg", duration: "8.4s", delay: "-1.6s" },
-  { icon: BellRing, tilt: "-5deg", duration: "9.1s", delay: "-3.2s" },
-] as const;
-
 export function MockupShowcase() {
   const hero = resolveScreenshot("agenda-today");
 
   return (
-    <div className="relative rounded-3xl bg-gradient-to-br from-purple-900 via-indigo-800 to-blue-700 p-3 pt-0 shadow-[0_24px_60px_-24px_rgb(49_46_129/0.55)]">
-      {/* Dot matrix, faded downward so it never fights the white mockup edge. */}
+    <div className="relative mx-auto w-full max-w-[22rem]">
+      {/* The glow, behind everything and larger than the phone, so the device
+          edge never lands on the gradient's own edge. */}
       <div
         aria-hidden
-        className="dot-matrix pointer-events-none absolute inset-0 rounded-3xl [mask-image:linear-gradient(to_bottom,#000_15%,transparent_75%)]"
+        className="hero-glow pointer-events-none absolute -inset-x-16 -inset-y-12 -z-10"
       />
 
-      {/* The band the tiles float in. */}
-      <div
-        aria-hidden
-        className="relative flex items-center justify-center gap-3 py-3"
-      >
-        {TILES.map(({ icon: Icon, tilt, duration, delay }, i) => (
-          <span
-            key={i}
-            style={
-              {
-                "--tilt": tilt,
-                "--float-duration": duration,
-                "--float-delay": delay,
-              } as CSSProperties
-            }
-            className="animate-tile inline-flex size-9 items-center justify-center rounded-xl border border-white/25 bg-white/10 shadow-[inset_0_1px_0_rgb(255_255_255/0.35)] backdrop-blur-md"
-          >
-            <Icon className="size-4 text-white/85" strokeWidth={1.5} />
-          </span>
-        ))}
-      </div>
-
-      {/**
-       * The real agenda, in a phone, with the drawn one underneath it.
-       *
-       * This card used to render `DashboardMockup` directly — a CSS agenda that
-       * looked right and proved nothing. The screenshot is the same screen with
-       * real bookings, real prices and a real Hebrew client list, which is the
-       * one asset on this page a competitor cannot draw.
-       *
-       * `priority` because it is the largest element in the first viewport and
-       * is the page's LCP candidate; every other screenshot on the page loads
-       * lazily. The drawn mockup stays as the fallback, so a missing file
-       * degrades to what shipped before rather than to a grey rectangle.
-       */}
       <PhoneFrame
         src={hero.src}
         width={hero.width}
         height={hero.height}
         alt="מסך היומן של בעל עסק: תורי היום עם הסכום הצפוי, בקשה אחת שממתינה לאישור, וכפתורי אישור וביטול לכל תור"
+        // The drawn agenda, if the file is ever missing — the same component
+        // that carried this page before the screenshots existed.
         fallback={<DashboardMockup className="relative" />}
         priority
-        className="relative"
+        // 22rem cap minus the frame's 5px bezel either side.
+        sizes="342px"
       />
+
+      {/* A booking that just arrived. Sits on the leading edge, clear of the
+          phone's own status bar and its bottom tab row. */}
+      <div
+        aria-hidden
+        className="hero-badge absolute -start-4 top-[22%] flex items-center gap-2.5 rounded-2xl px-3 py-2 sm:-start-8"
+      >
+        <span className="relative flex size-2.5 shrink-0 text-emerald-500">
+          <span className="hero-ping absolute inset-0 rounded-full" />
+          <span className="relative size-2.5 rounded-full bg-emerald-500" />
+        </span>
+        <span className="text-start">
+          <span className="block text-[11px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100">
+            נקבע תור חדש
+          </span>
+          <span className="block text-[10px] leading-tight text-zinc-500 tabular-nums dark:text-zinc-400">
+            14:30 · תספורת גבר
+          </span>
+        </span>
+      </div>
+
+      {/* The message that went out because of it. Trailing edge, lower, so the
+          two badges read as a sequence down the device rather than as a pair
+          of stickers at the same height. */}
+      <div
+        aria-hidden
+        className="hero-badge absolute -end-4 bottom-[18%] flex items-center gap-2.5 rounded-2xl px-3 py-2 sm:-end-8"
+      >
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
+          <MessageCircle className="size-3.5" strokeWidth={2} />
+        </span>
+        <span className="text-start">
+          <span className="block text-[11px] leading-tight font-semibold text-zinc-900 dark:text-zinc-100">
+            נשלח בוואטסאפ
+          </span>
+          <span className="flex items-center gap-1 text-[10px] leading-tight text-zinc-500 dark:text-zinc-400">
+            <Check className="size-2.5 shrink-0" strokeWidth={3} />
+            אישור התור נמסר
+          </span>
+        </span>
+      </div>
     </div>
   );
 }

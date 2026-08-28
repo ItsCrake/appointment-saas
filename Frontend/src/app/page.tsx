@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
 import { CtaBanner } from "@/components/marketing/cta-banner";
 import { FeatureCards } from "@/components/marketing/feature-cards";
 import { InstallGuide } from "@/components/marketing/install-guide";
-import { HeroParticles } from "@/components/marketing/hero-particles";
 import { ProofStrip } from "@/components/marketing/proof-strip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { MockupShowcase } from "@/components/marketing/mockup-showcase";
@@ -15,7 +14,7 @@ import { TypewriterLogo } from "@/components/marketing/typewriter-logo";
 import { BRAND, BRAND_MARK } from "@/lib/brand";
 // FEATURES moved into `FeatureCards`, which owns both the copy and the
 // disclosure state — the two are one thing now.
-import { FAQS, STEPS } from "@/lib/landing-content";
+import { FAQS, HERO_FACTS, STEPS } from "@/lib/landing-content";
 import { TRIAL_DAYS } from "@/lib/plans";
 
 // No database access and no dynamic APIs, so this prerenders as static HTML
@@ -132,88 +131,88 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1">
-        {/* HERO — exactly 70% of the viewport below the header, so the section
-            beneath it occupies the remaining 30% and peeks above the fold. The
-            floor stops it collapsing on a short laptop, where 70% of 500px
-            would crush the mockup. */}
-        <section className="relative h-[calc((100dvh-4rem)*0.7)] min-h-[32rem] lg:min-h-[30rem]">
-          {/* Two crisp panels meeting on one edge. The feathered mask that used
-              to blend them read as a smudge rather than a transition, so the
-              split is structural again: real grid cells, no blending. */}
-          <div className="grid h-full grid-cols-1 grid-rows-[10rem_1fr] lg:grid-cols-2 lg:grid-rows-1">
-            {/* Visual left on desktop, top on mobile.
+        {/* HERO — one canvas, not two panels.
 
-                On a phone this panel *is* the first screen — 10rem of it above
-                everything else — so flat ink meant the product introduced
-                itself in black and white. The mesh is the same violet→blue
-                family as the closing banner, which makes the top and bottom of
-                the page one product rather than two. Contrast is measured in
-                `globals.css`; do not brighten it without re-measuring. */}
-            <div className="brand-mesh relative overflow-hidden lg:order-2">
-              {/* Same dot grid as the closing banner, faded out before the
-                  wordmark so texture never competes with type. */}
-              <div
-                aria-hidden
-                className="dot-matrix pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_bottom,#000_0%,transparent_70%)]"
-              />
-              <HeroParticles className="absolute inset-0 h-full w-full" />
-              <div className="relative flex h-full items-center justify-center">
-                <TypewriterLogo className="px-6 text-center" />
+            It was a hard split: a full-bleed violet mesh carrying the wordmark
+            on one side, white carrying the copy on the other, with the product
+            squeezed into the copy column at `max-w-md` and hidden below `lg`
+            entirely. Three things were wrong with that. The mockup — the only
+            proof on the page — was the smallest element in the composition and
+            invisible to every phone visitor, which is most of them. The seam
+            forced the wordmark to hardcode `text-white`, so the h1 could not
+            move. And the block of colour was the first thing seen, before
+            anything about the product.
+
+            Now the section is the page's own paper with a hairline grid and a
+            single soft glow behind the device. Copy leads, the product sits
+            beside it at a size worth looking at, and it is visible at every
+            width. Height is `auto` rather than a viewport fraction: the old
+            70dvh cap is what forced the mockup to be small enough to fit. */}
+        <section className="relative overflow-hidden">
+          {/* Ground. Grid first, glow over it, both behind the content and both
+              pointer-transparent so nothing here can eat a click. */}
+          <div
+            aria-hidden
+            className="hero-grid pointer-events-none absolute inset-0"
+          />
+
+          <div className="relative mx-auto grid w-full max-w-[1400px] items-center gap-12 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-16 lg:py-24">
+            <div className="mx-auto w-full max-w-xl lg:mx-0">
+              {/* The wordmark is the page's `<h1>`, so it stays first in the
+                  DOM and stays a heading. It inherits its colour now instead
+                  of forcing white, which is what let it leave the dark panel. */}
+              <TypewriterLogo className="text-zinc-950 dark:text-zinc-50" />
+
+              <p className="mt-5 max-w-md text-base leading-relaxed text-pretty text-zinc-600 sm:text-lg dark:text-zinc-300">
+                עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בעצמם, והיומן
+                מתמלא בלי חורים ובלי טלפונים.
+              </p>
+
+              {/* Width, never flex, controls the mobile stack. `flex-1` inside
+                  a flex-col parent sizes the *cross axis*, which silently beat
+                  `h-12` and squashed both buttons to 20px: under the 44px
+                  minimum touch target, and invisible in a desktop-only check. */}
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/dashboard/setup"
+                  className={`${btnPrimary} h-12 w-full sm:w-auto`}
+                >
+                  {CTA_SIGNUP}
+                  <ArrowLeft className="size-4" aria-hidden />
+                </Link>
+                <Link
+                  href="/demo-barber"
+                  className={`${btnGhost} h-12 w-full sm:w-auto`}
+                >
+                  {CTA_DEMO}
+                </Link>
               </div>
+
+              {/* Three facts, as a line rather than three cards. The floor is
+                  explicit that same-size icon-heading-text cards are the lazy
+                  container, and at this size the claims are short enough to
+                  read as one sentence with separators. */}
+              <ul className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-zinc-500 dark:text-zinc-400">
+                {HERO_FACTS.map((fact) => (
+                  <li key={fact} className="flex items-center gap-1.5">
+                    <Check
+                      className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      strokeWidth={2.5}
+                      aria-hidden
+                    />
+                    {fact}
+                  </li>
+                ))}
+              </ul>
             </div>
 
-            {/* Visual right on desktop, below on mobile. No extra bottom
-                clearance is reserved for the scroll cue: the cue is centred on
-                the *section*, which on desktop is the panel seam, while this
-                column's content starts ~90px to its side. They cannot collide
-                horizontally, and the reserved strip only squeezed the card. */}
-            <div className="flex flex-col justify-center bg-white px-6 py-8 sm:px-10 lg:order-1 lg:px-12 xl:px-14 dark:bg-zinc-900">
-              <div className="mx-auto w-full max-w-md">
-                <p className="text-base leading-relaxed text-zinc-600 dark:text-zinc-300">
-                  עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בעצמם, והיומן
-                  מתמלא בלי חורים ובלי טלפונים.
-                </p>
-
-                {/* Hidden below lg: at phone width the agenda shrinks to
-                    unreadable and only pushes the actions off screen. */}
-                <div className="mt-5 hidden lg:block">
-                  <MockupShowcase />
-                </div>
-
-                {/* Width, never flex, controls the mobile stack. `flex-1` inside
-                    a flex-col parent sizes the *cross axis*, which silently beat
-                    `h-12` and squashed both buttons to 20px: under the 44px
-                    minimum touch target, and invisible in a desktop-only check. */}
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <Link
-                    href="/dashboard/setup"
-                    className={`${btnPrimary} h-12 w-full sm:w-auto`}
-                  >
-                    {CTA_SIGNUP}
-                    <ArrowLeft className="size-4" aria-hidden />
-                  </Link>
-                  <Link
-                    href="/demo-barber"
-                    className={`${btnGhost} h-12 w-full sm:w-auto`}
-                  >
-                    {CTA_DEMO}
-                  </Link>
-                </div>
-              </div>
+            {/* The product. Visible at every width now — on a phone it sits
+                under the CTAs, which is where a visitor looks after deciding
+                whether to care. */}
+            <div className="relative">
+              <MockupShowcase />
             </div>
           </div>
-
-          {/* Anchored to the SECTION, not to a panel. Living inside the
-              vertically-centred copy column is what let it cut through the
-              demo button; at the section's own bottom edge it has nothing to
-              collide with. Mid-grey because on desktop it lands exactly on the
-              seam, with black one side and white the other. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute bottom-4 left-1/2 hidden h-9 w-px -translate-x-1/2 rounded-full bg-zinc-400/60 lg:block"
-          >
-            <span className="animate-scroll-hint block h-full w-full rounded-full bg-zinc-500" />
-          </span>
         </section>
 
         {/* PROOF — the first thing under the fold, and the one strip that has

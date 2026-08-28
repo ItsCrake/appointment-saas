@@ -40,17 +40,15 @@ export function PhoneFrame({
   priority = false,
   className,
   /**
-   * **A flat 284px, at every breakpoint.** The frame below is capped by
-   * `max-w-[19rem]` (304px) minus its own 10px padding either side, so the
-   * image is never wider than 284 CSS pixels however wide the viewport gets.
+   * **The width the image actually renders at, as a flat value.**
    *
-   * It previously declared `78vw` / `45vw`, which told the browser to fetch for
-   * a width the layout cannot produce — over-fetching on a phone while doing
-   * nothing for sharpness. Naming the real cap lets the browser multiply it by
-   * the device pixel ratio and land on the right rung of the srcset: 384 at 1×,
-   * 640 at 2×, 1080 at 3×.
+   * Callers cap their own width now, so each one states its real number rather
+   * than inheriting a guess. Declaring `78vw`/`45vw` — as this did — tells the
+   * browser to fetch for a width the layout cannot produce: over-fetching on a
+   * phone while doing nothing for sharpness. A flat cap lets it multiply by the
+   * device pixel ratio and land on the right rung of the srcset.
    */
-  sizes = "284px",
+  sizes,
 }: {
   src: string;
   /**
@@ -70,33 +68,38 @@ export function PhoneFrame({
   /** The drawn mockup, rendered instead if the file cannot be loaded. */
   fallback?: ReactNode;
   priority?: boolean;
+  /** Controls the frame's width; the caller owns the cap. */
   className?: string;
-  sizes?: string;
+  sizes: string;
 }) {
   const [failed, setFailed] = useState(false);
 
   return (
     <div
       className={cn(
-        "relative mx-auto w-full max-w-[19rem]",
-        // The bezel. `rounded-[2.5rem]` against the screen's `rounded-[2rem]`
-        // is what reads as a phone rather than as a rounded rectangle: the
-        // outer curve has to be larger than the inner by roughly the bezel
-        // width or the two look concentric and wrong.
-        "rounded-[2.5rem] bg-zinc-900 p-2.5",
-        "shadow-[0_2px_8px_-2px_rgb(24_24_27/0.28),0_32px_64px_-24px_rgb(24_24_27/0.45)]",
-        "ring-1 ring-white/10 ring-inset",
+        "relative mx-auto w-full",
+        /**
+         * A hairline bezel, not a slab.
+         *
+         * This was a 10px black surround with a heavy double shadow, which is
+         * the shape a device *photograph* has — and next to a flat page it read
+         * as a sticker of a phone rather than as the product. 5px of a
+         * theme-aware neutral, one inner hairline for the screen edge, and a
+         * layered shadow with a real offset does the same job and gets out of
+         * the way.
+         *
+         * The outer radius still exceeds the inner by roughly the bezel width;
+         * matching them makes the two curves look concentric and wrong.
+         */
+        "rounded-[2.25rem] p-[5px]",
+        "bg-zinc-200/80 dark:bg-zinc-800/80",
+        "ring-1 ring-zinc-900/8 ring-inset dark:ring-white/10",
+        "shadow-[0_1px_2px_-1px_rgb(24_24_27/0.12),0_18px_40px_-16px_rgb(24_24_27/0.28),0_40px_80px_-32px_rgb(24_24_27/0.22)]",
+        "dark:shadow-[0_1px_2px_-1px_rgb(0_0_0/0.5),0_18px_40px_-16px_rgb(0_0_0/0.6)]",
         className,
       )}
     >
-      {/* The speaker slot. Small, centred, and the one detail that makes the
-          frame read as a device at a glance. */}
-      <span
-        aria-hidden
-        className="absolute top-[0.9rem] left-1/2 z-10 h-1 w-14 -translate-x-1/2 rounded-full bg-zinc-700/90"
-      />
-
-      <div className="relative overflow-hidden rounded-[2rem] bg-white dark:bg-zinc-950">
+      <div className="relative overflow-hidden rounded-[1.9rem] bg-white ring-1 ring-zinc-900/10 ring-inset dark:bg-zinc-950 dark:ring-white/10">
         {failed && fallback ? (
           fallback
         ) : (
@@ -114,9 +117,8 @@ export function PhoneFrame({
              * pixel — five to eight times more compressed than a quality-90
              * JPEG — so re-encoding at 75 stacked a *second* lossy generation on
              * an already-mushy image. This does not recover detail that is not
-             * in the file; it stops the pipeline removing more. The real fix is
-             * a better source in `screenshots/hd/`, which `resolveScreenshot`
-             * picks up automatically.
+             * in the file; it stops the pipeline removing more. The only real
+             * fix is a less-compressed source file.
              *
              * The cost is small in absolute terms because these render at 284
              * CSS pixels, so even the 3× rung is a modest file.

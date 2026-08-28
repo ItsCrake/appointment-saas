@@ -14,6 +14,24 @@ export type Feature = {
   body: string;
 };
 
+/**
+ * The three claims under the hero's buttons.
+ *
+ * **Product facts, never social proof.** PRODUCT.md records that there are no
+ * testimonials, no customer logos and no usage figures, and that design must
+ * not imply any exist — so "trusted by N shops" is not available here and never
+ * will be until somebody agrees to be named. Each of these is instead something
+ * the product does, checkable on the page it links to.
+ *
+ * The trial length is not written out: it lives in `TRIAL_DAYS`, and a number
+ * typed here would drift from the one the billing sweep actually applies.
+ */
+export const HERO_FACTS: readonly string[] = [
+  "בלי הרשמה ללקוח",
+  "בעברית, מותאם לישראל",
+  "הודעות אוטומטיות בוואטסאפ",
+] as const;
+
 export const FEATURES: Feature[] = [
   {
     icon: "smartphone",

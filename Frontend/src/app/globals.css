@@ -1278,3 +1278,156 @@ body {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Hero ground.
+
+   Replaces the full-bleed violet block the hero used to stand on. That block
+   was doing two jobs badly: it was the only colour on the page's first screen,
+   and it forced everything laid over it into white — which is why the wordmark
+   hardcoded `text-white` and why the product mockup had to sit inside its own
+   opaque card to be legible at all.
+
+   Ground first, colour second. The section keeps the page's own paper, a
+   hairline grid gives it structure, and a single soft brand glow sits behind
+   the product. Everything above it can then use the ordinary zinc ramp and the
+   ordinary contrast rules.
+   -------------------------------------------------------------------------- */
+
+/**
+ * A 64px hairline lattice, faded out before it reaches the copy.
+ *
+ * Two linear gradients rather than an SVG or a repeating background image:
+ * they cost nothing, scale to any viewport, and the line colour can follow the
+ * theme. 64px because at 32px the grid reads as graph paper behind the type and
+ * at 128px it stops reading as a grid at all on a phone.
+ */
+.hero-grid {
+  background-image:
+    linear-gradient(to left, var(--hero-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--hero-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  /* Fades before the fold rather than running under the buttons, where a live
+     line through a CTA reads as a rendering artefact. */
+  mask-image: radial-gradient(
+    ellipse 90% 70% at 50% 35%,
+    #000 30%,
+    transparent 78%
+  );
+}
+
+:root {
+  --hero-line: rgb(24 24 27 / 0.055);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hero-line: rgb(255 255 255 / 0.055);
+  }
+}
+
+/**
+ * The one spot of colour on the first screen, behind the product.
+ *
+ * Violet into blue, the same family as `.brand-mesh` and the closing banner, so
+ * the top and bottom of the page stay one product — but at a fraction of the
+ * strength, because here it is *light* rather than a surface. Text never sits
+ * on it: it is behind the phone, and the copy column is clear of it.
+ */
+.hero-glow {
+  background-image:
+    radial-gradient(
+      ellipse 58% 46% at 68% 34%,
+      rgb(124 58 237 / 0.16) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 46% 40% at 40% 62%,
+      rgb(37 99 235 / 0.13) 0%,
+      transparent 72%
+    );
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Lifted on a near-black ground, where the same alpha disappears entirely. */
+  .hero-glow {
+    background-image:
+      radial-gradient(
+        ellipse 58% 46% at 68% 34%,
+        rgb(139 92 246 / 0.24) 0%,
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 46% 40% at 40% 62%,
+        rgb(59 130 246 / 0.2) 0%,
+        transparent 72%
+      );
+  }
+}
+
+/**
+ * The floating badges beside the phone.
+ *
+ * Blur earns its place here for the one reason it ever does: these sit half
+ * over the product screenshot and half over the page, and a solid card would
+ * cut a hard rectangle out of the image. The backdrop keeps the screen visible
+ * underneath while the label stays readable over either ground.
+ *
+ * The shadow carries a real offset and a wide blur — a zero-offset halo reads
+ * as a glow rather than as something lifted off the page.
+ */
+.hero-badge {
+  background-color: rgb(255 255 255 / 0.82);
+  backdrop-filter: saturate(1.5) blur(12px);
+  -webkit-backdrop-filter: saturate(1.5) blur(12px);
+  box-shadow:
+    0 1px 2px -1px rgb(24 24 27 / 0.1),
+    0 12px 28px -12px rgb(24 24 27 / 0.3);
+  border: 1px solid rgb(24 24 27 / 0.07);
+}
+
+@media (prefers-color-scheme: dark) {
+  .hero-badge {
+    background-color: rgb(39 39 42 / 0.82);
+    border-color: rgb(255 255 255 / 0.1);
+    box-shadow:
+      0 1px 2px -1px rgb(0 0 0 / 0.4),
+      0 12px 28px -12px rgb(0 0 0 / 0.6);
+  }
+}
+
+/**
+ * The live dot on the booking badge.
+ *
+ * A ring that expands and fades — the shape a status indicator has everywhere,
+ * so it reads as "live" without a label saying so. Scale and opacity only, on a
+ * 10px element, so it composites and never lays out.
+ */
+@keyframes hero-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.hero-ping::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: hero-ping 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* The badges settle rather than disappearing: they carry real content, and the
+   `[data-a11y-still] *` rule already stops the animation for the widget. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-ping::after {
+    animation: none;
+  }
+}
