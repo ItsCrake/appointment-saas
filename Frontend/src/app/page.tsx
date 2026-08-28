@@ -226,37 +226,17 @@ export default function LandingPage() {
             colour bleeding out of it reads as the hero continuing. */}
         <ProofStrip />
 
-        {/* PEEK TARGET — full-bleed band, so what shows below the proof strip
-            is a hard tonal change rather than more of the same white. */}
-        <section className="border-y border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
-          <div className="mx-auto w-full max-w-[1400px] px-5 py-14 sm:px-8 sm:py-20">
-            <Link
-              href="/demo-barber"
-              className="group flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between"
-            >
-              <span className="max-w-2xl">
-                <span className={`${sectionTitle} block`}>
-                  אפשר לראות איך זה נראה ללקוח
-                </span>
-                <span className="mt-3 block text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-                  עמוד ההדגמה של מספרת בלאק פתוח לכולם. קבעו בו תור אמיתי,
-                  מהטלפון, בפחות מדקה.
-                </span>
-              </span>
-              <span className="inline-flex shrink-0 items-center gap-2 border-b-2 border-zinc-950 pb-1 text-sm font-bold text-zinc-950 dark:border-zinc-50 dark:text-zinc-50">
-                {CTA_DEMO}
-                <ArrowLeft
-                  className="size-4 transition-transform duration-300 group-hover:-translate-x-1"
-                  aria-hidden
-                />
-              </span>
-            </Link>
-          </div>
-        </section>
-
         {/* HOW IT WORKS — hairline-topped columns. No step numerals: the order
-            is the order, and "שלב 1" adds a word without adding meaning. */}
-        <section className="mx-auto w-full max-w-[1400px] px-5 py-20 sm:px-8 sm:py-28">
+            is the order, and "שלב 1" adds a word without adding meaning.
+
+            The hairline is new, and it is doing a job the removed band used to
+            do badly. That band was a full-bleed zinc-50 strip whose stated
+            purpose was "a hard tonal change rather than more of the same
+            white" — a whole section of chrome earning its place by being a
+            different colour. With it gone the proof strip and this section meet
+            on one paper, and a 1px rule separates them the way every section
+            below already does. */}
+        <section className="mx-auto w-full max-w-[1400px] border-t border-zinc-200 px-5 py-20 sm:px-8 sm:py-28 dark:border-zinc-800">
           <h2 className={sectionTitle}>איך זה עובד</h2>
           {/* Hairline-segmented panel with a soft shell, not three cards. The
               rounded outer shape carries the page's geometry; splitting it into
