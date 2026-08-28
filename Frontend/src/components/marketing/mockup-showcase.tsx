@@ -75,7 +75,7 @@ export function MockupShowcase() {
         src={hero.src}
         width={hero.width}
         height={hero.height}
-        alt="מסך היומן של בעל עסק: ארבעה תורים היום, סכום צפוי, וכפתורי אישור וביטול לכל תור"
+        alt="מסך היומן של בעל עסק: תורי היום עם הסכום הצפוי, בקשה אחת שממתינה לאישור, וכפתורי אישור וביטול לכל תור"
         fallback={<DashboardMockup className="relative" />}
         priority
         className="relative"
