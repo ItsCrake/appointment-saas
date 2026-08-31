@@ -84,3 +84,25 @@ export function staffVariantClass(variant: number | undefined): string | null {
   if (!variant) return null;
   return `cal-dup-${((variant - 1) % (STAFF_VARIANT_COUNT - 1)) + 1}`;
 }
+
+/**
+ * The class that steps the card's own tint, or `null` for the base strength.
+ *
+ * **The bar answers the question once you are looking at a card; this answers it
+ * while you are scanning a week.** Six pixels of texture is a difference you
+ * have to go and find, and the grid exists to be read at a glance — so the same
+ * collision index also deepens the glass, and a row of same-coloured providers
+ * reads as a ladder of one hue rather than as one flat block of it.
+ *
+ * Strength, never hue. The legend promises that a card's colour is the dot
+ * beside that person's name, and a shifted hue would quietly break that promise
+ * to keep a different one.
+ *
+ * Paired with `staffVariantClass` on the same index, so the deepest card is
+ * always the one with the busiest bar — two cues that agree instead of two the
+ * owner has to reconcile.
+ */
+export function staffToneClass(variant: number | undefined): string | null {
+  if (!variant) return null;
+  return `cal-tone-${((variant - 1) % (STAFF_VARIANT_COUNT - 1)) + 1}`;
+}

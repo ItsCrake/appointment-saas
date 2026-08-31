@@ -284,11 +284,18 @@ describe("lineBudget", () => {
   });
 
   it("gets all three lines onto a quarter-hour booking, via the floor", () => {
-    // The shortest booking the product sells is the one that decides the floor:
-    // on its own height it manages two lines, and lifted to the floor it clears
-    // all three. That is why the budget is measured in rendered pixels rather
-    // than in minutes.
-    expect(lineBudget(slotHeightPx(15, "week"), "week")).toBe(2);
+    /**
+     * The shortest booking the product sells is the one that decides the floor.
+     * On its own height it now manages a single line — the week row was
+     * compressed to `h-24`, so a quarter hour is 24px rather than 32 — and
+     * lifted to the floor it still clears all three.
+     *
+     * **That gap is the floor's whole job**, and it got wider rather than
+     * appearing: this card always depended on being lifted. The pair is kept as
+     * two assertions precisely so the dependency stays visible, and so raising
+     * the row height back does not quietly make the floor look unnecessary.
+     */
+    expect(lineBudget(slotHeightPx(15, "week"), "week")).toBe(1);
     expect(budgetFor(15, "week")).toBe(MAX_CARD_LINES);
   });
 
@@ -301,12 +308,25 @@ describe("lineBudget", () => {
     }
   });
 
-  it("drops to two only where a neighbour caps the floor", () => {
-    // Back to back with another quarter-hour booking, the floor is capped so the
-    // card cannot draw over its neighbour. Two lines is what fits — and the card
-    // sets the time and the service on one row there rather than dropping one.
-    expect(budgetFor(15, "week", 15)).toBe(2);
+  it("gives up lines only where a neighbour caps the floor", () => {
+    /**
+     * Back to back with another quarter-hour booking, the floor is capped so
+     * the card cannot draw over its neighbour — 24px, and one line is what
+     * fits.
+     *
+     * **This is the price of the denser week row, and it is the whole price.**
+     * At `h-32` the same card had 32px and showed two. Nothing else regressed:
+     * a card with room after it is still lifted to all three, and a half hour —
+     * which is what actually fills these calendars — now clears three on its
+     * own height at 48px rather than needing the floor at all.
+     *
+     * Two lines cannot be bought back by tuning: they need 32px, which needs a
+     * 128px hour, which is the height that was just given up on purpose.
+     */
+    expect(budgetFor(15, "week", 15)).toBe(1);
     expect(budgetFor(30, "week", 30)).toBe(MAX_CARD_LINES);
+    // The half hour clears three without the floor's help at this density.
+    expect(lineBudget(slotHeightPx(30, "week"), "week")).toBe(MAX_CARD_LINES);
   });
 
   it("never returns nothing, however short or strange the booking", () => {

@@ -1,6 +1,9 @@
+"use client";
+
 import { Hourglass } from "lucide-react";
 
 import { AgendaList, type AgendaAppointment } from "./agenda-list";
+import { useResolvedStatuses } from "./appointment-status-store";
 
 /**
  * Requests waiting on the owner, above the agenda.
@@ -13,6 +16,20 @@ import { AgendaList, type AgendaAppointment } from "./agenda-list";
  * Renders nothing at all when there is nothing to answer, so a shop that does
  * not use "תורים באישור" never sees an empty panel explaining a feature they
  * have not turned on.
+ *
+ * ---------------------------------------------------------------------------
+ * **A client component, so that "nothing left to answer" is true on the click
+ * rather than on the refetch.** The list and the heading count used to come
+ * straight from the server prop, so approving the last request left the panel
+ * on screen still saying "בקשה אחת ממתינה לאישורכם" — above an agenda row that
+ * had already flipped to approved. The panel disagreeing with the row directly
+ * beneath it is what the "delay" actually looked like; the write itself had
+ * already returned.
+ *
+ * The rows themselves are still handed the **server** status: each one resolves
+ * its own through the same store, and passing a rewritten status down would be
+ * a second copy of the same answer.
+ * ---------------------------------------------------------------------------
  */
 export function PendingRequests({
   appointments,
@@ -21,7 +38,12 @@ export function PendingRequests({
   appointments: AgendaAppointment[];
   timezone: string;
 }) {
-  if (appointments.length === 0) return null;
+  const resolved = useResolvedStatuses(appointments);
+  const waiting = appointments.filter(
+    (_, index) => resolved[index].status === "pending",
+  );
+
+  if (waiting.length === 0) return null;
 
   return (
     <section
@@ -40,9 +62,9 @@ export function PendingRequests({
             id="pending-requests-heading"
             className="text-sm font-bold text-amber-900 dark:text-amber-100"
           >
-            {appointments.length === 1
+            {waiting.length === 1
               ? "בקשה אחת ממתינה לאישורכם"
-              : `${appointments.length} בקשות ממתינות לאישורכם`}
+              : `${waiting.length} בקשות ממתינות לאישורכם`}
           </h2>
           <p className="text-xs text-amber-800/80 dark:text-amber-200/70">
             המועד שמור ללקוח עד שתחליטו.
@@ -51,7 +73,7 @@ export function PendingRequests({
       </div>
 
       {/* Dates shown, unlike the agenda below — this list spans days. */}
-      <AgendaList appointments={appointments} timezone={timezone} showDate />
+      <AgendaList appointments={waiting} timezone={timezone} showDate />
     </section>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Loader2, Phone, UserX, X } from "lucide-react";
+import { Check, Loader2, MessageCircle, Phone, UserX, X } from "lucide-react";
 
 import { setAppointmentStatusAction } from "@/app/dashboard/actions";
+import { useSharedStatus } from "@/components/dashboard/appointment-status-store";
 import { useToast } from "@/components/ui/toast";
 import {
   NotesBadge,
@@ -13,6 +14,7 @@ import {
 } from "@/components/dashboard/ui";
 import { formatFullDateTime, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { whatsappHref } from "@/lib/whatsapp-link";
 
 export type AgendaAppointment = {
   id: string;
@@ -59,13 +61,22 @@ function AgendaRow({
   timezone: string;
   showDate?: boolean;
 }) {
-  const [status, setStatus] = useState(appointment.status);
+  /**
+   * Shared rather than local: this row can be on screen twice — once in the
+   * pending panel, once in the day's agenda — and two copies of one booking
+   * disagreeing about whether it is approved is the bug this replaces.
+   */
+  const [status, setStatus] = useSharedStatus(
+    appointment.id,
+    appointment.status,
+  );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
   const { toast } = useToast();
 
   const start = formatFullDateTime(appointment.startsAt, timezone);
   const end = formatFullDateTime(appointment.endsAt, timezone);
+  const waHref = whatsappHref(appointment.clientPhone);
   const open = status === "confirmed" || status === "pending";
   /** A request the owner has not answered yet — see `requires_approval`. */
   const awaitingApproval = status === "pending";
@@ -184,6 +195,32 @@ function AgendaRow({
           <Phone className="size-3.5" aria-hidden />
           <span dir="ltr">{appointment.clientPhone}</span>
         </a>
+
+        {/**
+         * Calling was the only way to reach a client from this card, and it is
+         * the one owners use least — a barber mid-cut cannot take a call, and
+         * "running ten minutes late" is a message, not a conversation.
+         *
+         * Ungated, unlike `canSendWhatsapp`. That entitlement covers messages
+         * *this system* sends through the API, which cost us per tenant; this
+         * opens the owner's own WhatsApp and costs nothing, exactly as the
+         * waitlist manager's button already does.
+         *
+         * Absent rather than broken when the number is unusable — a manual
+         * booking is allowed to carry no phone at all.
+         */}
+        {waHref ? (
+          <a
+            href={waHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 px-3 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+          >
+            <MessageCircle className="size-3.5" aria-hidden />
+            שליחת וואטסאפ
+            <span className="sr-only"> (נפתח בכרטיסייה חדשה)</span>
+          </a>
+        ) : null}
 
         {/* A request has exactly two useful answers, and they are not the same
             two as a booking's. Showing "הושלם" beside something the owner has

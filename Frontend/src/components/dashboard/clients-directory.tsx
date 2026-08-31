@@ -12,8 +12,8 @@ import {
 
 import { loadClientProfileAction } from "@/app/dashboard/clients/actions";
 import { useToast } from "@/components/ui/toast";
-import { toE164 } from "@/lib/notifications/providers";
 import { cn } from "@/lib/utils";
+import { whatsappHref } from "@/lib/whatsapp-link";
 
 import {
   ClientProfileDrawer,
@@ -247,9 +247,9 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
 }
 
 function ContactShortcuts({ client }: { client: DirectoryClient }) {
-  // WhatsApp needs E.164 without the plus; the same helper the SMS provider
-  // uses, so one phone format rule serves both.
-  const wa = toE164(client.clientPhone).replace("+", "");
+  // The shared rule, which also keeps `@/lib/notifications/providers` — a
+  // server module that reads `process.env` — out of this client bundle.
+  const wa = whatsappHref(client.clientPhone);
 
   return (
     <span className="flex shrink-0 items-center gap-1.5">
@@ -261,7 +261,7 @@ function ContactShortcuts({ client }: { client: DirectoryClient }) {
         <Phone className="size-4" aria-hidden />
       </a>
       <a
-        href={`https://wa.me/${wa}`}
+        href={wa ?? undefined}
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`וואטסאפ ל${client.clientName}`}

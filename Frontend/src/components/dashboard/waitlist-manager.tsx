@@ -21,6 +21,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { TIME_WINDOW_LABELS, WEEKDAY_NAMES } from "@/lib/waitlist";
 import { cn } from "@/lib/utils";
+import { whatsappHref } from "@/lib/whatsapp-link";
 
 import {
   btnPrimary,
@@ -159,8 +160,9 @@ function EntryRow({ entry }: { entry: Entry }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const phone = entry.clientPhone.replace(/\D/g, "");
-  const wa = phone.startsWith("0") ? `972${phone.slice(1)}` : phone;
+  // Was an inline strip-and-swap here; it is now the one shared rule, so this
+  // and the agenda's button cannot drift apart. See `whatsappHref`.
+  const wa = whatsappHref(entry.clientPhone);
 
   function remove() {
     startTransition(async () => {
@@ -228,15 +230,17 @@ function EntryRow({ entry }: { entry: Entry }) {
           <Phone className="size-3.5" aria-hidden />
           <span dir="ltr">{entry.clientPhone}</span>
         </a>
-        <a
-          href={`https://wa.me/${wa}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(btnSecondary, "h-9 px-3 text-xs")}
-        >
-          <MessageCircle className="size-3.5" aria-hidden />
-          וואטסאפ
-        </a>
+        {wa ? (
+          <a
+            href={wa}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(btnSecondary, "h-9 px-3 text-xs")}
+          >
+            <MessageCircle className="size-3.5" aria-hidden />
+            וואטסאפ
+          </a>
+        ) : null}
       </div>
     </li>
   );

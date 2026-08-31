@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1243 tests across 87 files**; Playwright
+**Green:** `npm run verify` at **1264 tests across 89 files**; Playwright
 **11/11** across 3 specs (not run every session). All **30 migrations
 (0000–0029)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1316,6 +1316,14 @@ optional. What follows from that:
   (name / time / service): `lineBudget` and `MIN_CARD_PX` decide how many fit,
   capped so a floor never draws over the next booking. `gridMinWidthPx` sizes the
   grid from the widest lane count, so overlaps scroll rather than collapse.
+  **The week row is `h-24`** — 96px an hour, down from 128, a quarter of the
+  grid's height given back to an owner who wants to scan rather than read. The
+  cost is exact and is pinned in `calendar-layout.test.ts`: two back-to-back
+  quarter-hour bookings now get one line of type instead of two, because two
+  lines need 32px which needs a 128px hour. Everything longer is unaffected —
+  a half hour clears all three lines on its own height at 48px, where before it
+  needed the floor. The day view keeps `h-40`; compressing both would have
+  removed the difference between them.
   **The day/date row is pinned** while the hours scroll under it — an owner
   reading an 18:00 booking on a phone had nothing on screen telling them which
   day they were looking at. That needed the scroll wrapper's height bounded;
@@ -1334,22 +1342,67 @@ optional. What follows from that:
   reordered anything, since `sortOrder` defaults to `0` and the tie breaks on
   `createdAt` anyway. `staff-collapse.test.ts` holds the one case that
   separates them.
-- **Two providers who picked the same colour** are told apart by a **texture on
-  the accent bar**, not by a hue — `lib/staff-variants.ts`. A shifted hue would
-  mean re-proving AA for every generated shade against
-  `calendar-glass-contrast.test.ts`, would need relative colour syntax the old
-  phones may not have, and is either too small to see or no longer the colour in
-  the legend. The texture rides on top of whatever `bg-*` the swatch set, so one
-  rule covers all seven colours; it survives colour blindness; and it touches no
-  surface that carries text, which is what makes it unable to affect contrast at
-  all. The **legend dot carries the same texture**, or distinguishing the cards
-  would just move the question. Nobody with a unique colour sees any of it —
-  variant `0` is the untouched bar.
+- **Two providers who picked the same colour** are told apart by **two cues on
+  the same index** — `lib/staff-variants.ts`. A texture on the accent bar
+  (`cal-dup-*`, `staffVariantClass`) and a deeper step of the same tint on the
+  card body (`cal-tone-*`, `staffToneClass`). The bar answers the question once
+  you are looking at a card; six pixels is not enough to answer it while
+  *scanning* a week, which is what the grid is for, so the surface carries it
+  too and a row of same-coloured providers reads as a ladder of one hue.
+  **Strength, never hue** — the legend promises a card's colour is the dot
+  beside that person's name, and shifting the hue would break that promise to
+  keep a different one. The three bar patterns differ by **direction**
+  (horizontal bands, diagonal stripes, dotted grid): they were two diagonals
+  and a horizontal, and the two diagonals were nearly the same mark at 6px,
+  so the thing meant to separate two people needed them side by side to read.
+  Every rung of the tone ladder is measured by
+  `calendar-glass-contrast.test.ts` — seven staff hues over six tenant accents,
+  both themes, both views, all four steps — because a ladder that walked a
+  surface under AA is exactly what that suite exists to catch. The **legend dot
+  carries the texture** too, or distinguishing the cards just moves the
+  question. Nobody with a unique colour sees any of it: variant `0` is the
+  untouched bar at the base tint.
 - **Staff cards carry their status on their edge** — emerald for active, rose
   for inactive, as a border plus a ring rather than a heavier border, because
   `border-2` would reflow every card in the list the moment somebody is
   deactivated. Colour is not carrying it alone: the name is struck through and
   the card's own button reads "הפעלה" instead of "השבתה".
+- **The provider picker is shown whenever there is anybody to assign**, in the
+  move dialog and in manual booking, where it used to need a team of two before
+  it appeared at all. `createManualBookingAction` had always accepted a
+  `staffId` and resolved it through the business; nothing in the UI offered
+  one, so every manual booking silently went to `getDefaultStaff` — on a team,
+  a booking quietly given to whoever sorts first. With one provider the field
+  reads as a statement rather than a choice, and becomes a choice the moment a
+  second exists.
+- **Opening a panel focuses the panel, not its first field.** The edit and move
+  forms called `firstFieldRef.current?.focus()` on mount, which on a phone
+  opens the keyboard over the form the owner just asked to see — or, in the
+  move form, springs a date picker. Dropping the call outright is the wrong fix:
+  the control that was focused has just been replaced, so focus falls to
+  `<body>`. The form takes `tabIndex={-1}` and the focus instead, which keeps
+  the announcement and the tab order without asking any device for text input.
+- **One rule turns a phone number into a WhatsApp link** — `lib/whatsapp-link.ts`,
+  composed on top of `normalizePhone` rather than beside it. There were four
+  copies: `toE164` (correct) in the clients directory, and three inline
+  strip-and-swaps in the dialog, the hover card and the waitlist manager. The
+  inline ones were **wrong for a `00972…` number** — they read the leading zero
+  as a trunk code and produced `9720972…`, a chat with nobody. `whatsappHref`
+  returns `null` rather than a broken href, because a manual booking may carry
+  no phone at all. The agenda card on `/dashboard` now offers it beside the
+  call button; every other surface already did.
+- **Approving a request updates every component on the click**, not on the
+  refetch — `appointment-status-store.tsx`. The same request is on the dashboard
+  **twice**: in `PendingRequests`, which spans days, and in the agenda for that
+  day below it. Each row held its own `useState`, so approving one left the
+  other showing `pending` with a live approve button on an already-approved
+  booking, and the panel heading counted from the server prop. That was the
+  "delay" — the write returned immediately; three components disagreed while
+  they waited. The optimistic value now lives above both. **The server stays
+  authoritative**: an override is dropped the moment the revalidated props carry
+  the same value, so a stale local answer cannot mask a change made from another
+  device. The hook falls back to local state when no provider is above it, so
+  `AgendaList` still works anywhere.
 - **Appointment dialog** — two tabs, booking and client card. Reschedule re-runs
   availability with the appointment excluded from its own busy set, or it blocks
   itself. Amber confirm sends `force: true` for off-hours.

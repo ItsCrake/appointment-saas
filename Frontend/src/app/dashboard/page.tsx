@@ -4,6 +4,7 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { CalendarRange, ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
+import { AppointmentStatusProvider } from "@/components/dashboard/appointment-status-store";
 import { PendingRequests } from "@/components/dashboard/pending-requests";
 import { TodaySummary } from "@/components/dashboard/today-summary";
 import { db } from "@/db";
@@ -14,6 +15,7 @@ import {
   listPendingRequests,
   listServices,
 } from "@/db/queries";
+import { listActiveStaff } from "@/db/queries/staff";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
 import { todayInTimezone } from "@/lib/format";
@@ -53,7 +55,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
 
   const windows = getStatsWindows(business.timezone);
 
-  const [appointments, services, stats, nextUpcoming, requests] =
+  const [appointments, services, stats, nextUpcoming, requests, team] =
     await Promise.all([
       listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
         "pending",
@@ -66,6 +68,10 @@ export default async function AgendaPage({ searchParams }: PageProps) {
       getNextUpcomingAppointment(db, business.id, windows.now),
       // Every open request, not only today's — see `PendingRequests`.
       listPendingRequests(db, business.id, windows.now),
+      // Who a manual booking may be assigned to. Active only: an inactive
+      // provider is off the rota, and offering them here would create a
+      // booking the availability engine does not believe in.
+      listActiveStaff(db, business.id),
     ]);
 
   return (
@@ -133,69 +139,76 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         ratesWindowDays={RATES_WINDOW_DAYS}
       />
 
-      {/* Above the agenda, because it is the only thing on this page that is
+      {/* Both lists share one optimistic status, because the *same* request can
+          be in both: approving it in the panel has to empty the panel and flip
+          the row in the agenda below on the same click. See
+          `appointment-status-store`. */}
+      <AppointmentStatusProvider>
+        {/* Above the agenda, because it is the only thing on this page that is
           waiting on the owner rather than merely informing them. */}
-      <PendingRequests
-        timezone={business.timezone}
-        appointments={requests.map((a) => ({
-          id: a.id,
-          startsAt: a.startsAt.toISOString(),
-          endsAt: a.endsAt.toISOString(),
-          status: a.status,
-          clientName: a.clientName,
-          clientPhone: a.clientPhone,
-          serviceName: a.serviceName,
-          priceCents: a.priceCents,
-          notes: a.notes,
-        }))}
-      />
+        <PendingRequests
+          timezone={business.timezone}
+          appointments={requests.map((a) => ({
+            id: a.id,
+            startsAt: a.startsAt.toISOString(),
+            endsAt: a.endsAt.toISOString(),
+            status: a.status,
+            clientName: a.clientName,
+            clientPhone: a.clientPhone,
+            serviceName: a.serviceName,
+            priceCents: a.priceCents,
+            notes: a.notes,
+          }))}
+        />
 
-      <AgendaView
-        /* Both halves, resolved server-side: the tenant must be entitled *and*
+        <AgendaView
+          /* Both halves, resolved server-side: the tenant must be entitled *and*
            the deploy must have a key. Either missing and the microphone is not
            rendered — no paywall teaser on a toolbar icon, and no control that
            cannot work. */
-        canUseVoice={
-          entitlementsFor(business).canAccessLibi && isLibiConfigured()
-        }
-        upcomingCount={stats.upcomingCount}
-        nextUpcoming={
-          nextUpcoming
-            ? {
-                date: formatInTimeZone(
-                  nextUpcoming.startsAt,
-                  business.timezone,
-                  "yyyy-MM-dd",
-                ),
-                time: formatInTimeZone(
-                  nextUpcoming.startsAt,
-                  business.timezone,
-                  "HH:mm",
-                ),
-                clientName: nextUpcoming.clientName,
-              }
-            : null
-        }
-        today={today}
-        selectedDate={day}
-        timezone={business.timezone}
-        services={services.map((s) => ({
-          id: s.id,
-          name: s.name,
-          durationMin: s.durationMin,
-        }))}
-        appointments={appointments.map((a) => ({
-          id: a.id,
-          startsAt: a.startsAt.toISOString(),
-          endsAt: a.endsAt.toISOString(),
-          status: a.status,
-          clientName: a.clientName,
-          clientPhone: a.clientPhone,
-          serviceName: a.serviceName,
-          priceCents: a.priceCents,
-          notes: a.notes,
-        }))}
-      />
+          canUseVoice={
+            entitlementsFor(business).canAccessLibi && isLibiConfigured()
+          }
+          upcomingCount={stats.upcomingCount}
+          nextUpcoming={
+            nextUpcoming
+              ? {
+                  date: formatInTimeZone(
+                    nextUpcoming.startsAt,
+                    business.timezone,
+                    "yyyy-MM-dd",
+                  ),
+                  time: formatInTimeZone(
+                    nextUpcoming.startsAt,
+                    business.timezone,
+                    "HH:mm",
+                  ),
+                  clientName: nextUpcoming.clientName,
+                }
+              : null
+          }
+          today={today}
+          selectedDate={day}
+          timezone={business.timezone}
+          services={services.map((s) => ({
+            id: s.id,
+            name: s.name,
+            durationMin: s.durationMin,
+          }))}
+          staff={team.map((member) => ({ id: member.id, name: member.name }))}
+          appointments={appointments.map((a) => ({
+            id: a.id,
+            startsAt: a.startsAt.toISOString(),
+            endsAt: a.endsAt.toISOString(),
+            status: a.status,
+            clientName: a.clientName,
+            clientPhone: a.clientPhone,
+            serviceName: a.serviceName,
+            priceCents: a.priceCents,
+            notes: a.notes,
+          }))}
+        />
+      </AppointmentStatusProvider>
     </div>
   );
 }

@@ -38,8 +38,13 @@ import {
 } from "@/lib/calendar-layout";
 import { formatPrice } from "@/lib/format";
 import { staffSwatch } from "@/lib/staff-colors";
-import { staffVariantClass, staffVariants } from "@/lib/staff-variants";
+import {
+  staffToneClass,
+  staffVariantClass,
+  staffVariants,
+} from "@/lib/staff-variants";
 import { cn } from "@/lib/utils";
+import { whatsappHref } from "@/lib/whatsapp-link";
 
 import {
   btnPrimary,
@@ -107,16 +112,28 @@ export type CalendarEntry = CalendarItem & {
  * exactly: a difference of a single step shears the whole week, and the times
  * on the left stop describing the cards on the right.
  *
- * `h-32`, raised through `h-14`, `h-20` and `h-24`. The number that decides it
- * is **the shortest booking the product sells**: at 128px an hour a quarter-hour
- * slot is 32 pixels, and lifted to the 46px floor it clears all three lines —
- * name, time, service — so no card has to be opened to be read. A half hour is
- * 64 pixels and clears them outright.
+ * `h-24` — 96px an hour, down from `h-32`, which is a quarter of the grid's
+ * height given back. A shop open 09:00–19:00 was 1280px of scroll for a week
+ * an owner wanted to *scan*; it is now 960, and the difference is roughly one
+ * phone screen less travel to reach the evening.
+ *
+ * **What that costs, stated plainly.** The number this was originally tuned
+ * against is the shortest booking sold: a quarter hour is now 24px rather than
+ * 32. Neither reaches the 46px floor on its own, so both already depended on it
+ * — the floor is absolute and did not move. What changes is how often the
+ * floor's *cap* bites, since `cardHeightPx` will not draw a card past the start
+ * of the next one in its lane: two back-to-back fifteen-minute bookings now
+ * have 24px each instead of 32, which is one line of type rather than two. A
+ * half hour is 48px and still clears all three lines outright, which is the
+ * case that actually fills these calendars.
+ *
+ * The day view keeps its full height. It exists to be read rather than scanned,
+ * and compressing both would have removed the difference between them.
  *
  * Transcribed into `HOUR_ROW_PX` in `calendar-layout`, which the line budget is
  * arithmetic on, and `calendar-layout.test.ts` fails if the two drift apart.
  */
-const HOUR_ROW_WEEK = "h-32";
+const HOUR_ROW_WEEK = "h-24";
 
 /**
  * The day view spends its extra room vertically as well as horizontally.
@@ -517,11 +534,15 @@ export function WeekCalendar({
               <div
                 key={day.date}
                 className={cn(
-                  "px-1 py-2 text-center",
+                  // Tighter than it was: the pinned header is now permanently
+                  // on screen, so every pixel it takes is one the grid under it
+                  // does not get, at every scroll depth rather than only at the
+                  // top.
+                  "px-1 py-1.5 text-center",
                   day.isToday && "bg-(--accent-soft)",
                 )}
               >
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-[11px] leading-tight text-zinc-500">
                   {WEEKDAY_SHORT[day.weekday]}
                 </p>
                 <p
@@ -843,6 +864,13 @@ function EntryCard({
            */
           entry.staffColor && staffSwatch(entry.staffColor).tint,
           /**
+           * The collision step, on the card's own surface. Null for anybody
+           * whose colour is theirs alone, so an ordinary team renders exactly
+           * as it did — this only ever appears where there is something to
+           * disambiguate.
+           */
+          staffToneClass(variant),
+          /**
            * Last, so it wins the hue from the staff tint above — see
            * `.cal-pending`. A request is not booked, and until it is answered
            * "what has to happen" outranks "whose it is".
@@ -1059,8 +1087,10 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
   );
   const opensUpward = rect.bottom + 200 > window.innerHeight;
 
-  const phone = entry.clientPhone?.replace(/\D/g, "");
-  const wa = phone?.startsWith("0") ? `972${phone.slice(1)}` : phone;
+  // One shared rule. The inline strip-and-swap this replaces mishandled a
+  // `00972…` number — it saw the leading zero as a trunk code and produced
+  // `9720972…`, a chat with nobody. See `whatsappHref`.
+  const wa = whatsappHref(entry.clientPhone);
 
   return (
     <div
@@ -1162,15 +1192,17 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
             <Phone className="size-3.5" aria-hidden />
             חיוג
           </a>
-          <a
-            href={`https://wa.me/${wa}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-950 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-100 dark:hover:text-zinc-50"
-          >
-            <MessageCircle className="size-3.5" aria-hidden />
-            וואטסאפ
-          </a>
+          {wa ? (
+            <a
+              href={wa}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-950 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-100 dark:hover:text-zinc-50"
+            >
+              <MessageCircle className="size-3.5" aria-hidden />
+              וואטסאפ
+            </a>
+          ) : null}
         </div>
       ) : null}
     </div>

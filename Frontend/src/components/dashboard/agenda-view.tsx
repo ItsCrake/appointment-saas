@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import {
   ArrowLeft,
+  CalendarCheck,
   CalendarClock,
   CalendarOff,
   ChevronLeft,
@@ -21,6 +22,7 @@ import { dayOfMonth, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type ServiceOption = { id: string; name: string; durationMin: number };
+type StaffOption = { id: string; name: string };
 
 export type NextUpcoming = {
   date: string;
@@ -48,6 +50,7 @@ export function AgendaView({
   selectedDate,
   timezone,
   services,
+  staff,
   appointments,
   upcomingCount,
   nextUpcoming,
@@ -57,6 +60,8 @@ export function AgendaView({
   selectedDate: string;
   timezone: string;
   services: ServiceOption[];
+  /** Who a manual booking may be assigned to. Active providers, in roster order. */
+  staff: StaffOption[];
   appointments: AgendaAppointment[];
   /** Everything still ahead, across all days. */
   upcomingCount: number;
@@ -163,18 +168,48 @@ export function AgendaView({
       </div>
 
       <section>
-        <div className="mb-2 flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            {selectedDate === today
-              ? "היום"
-              : `יום ${weekdayLabel(selectedDate)}`}
-            <span className="ms-2 text-xs font-normal text-zinc-400">
+        {/**
+         * **Which day, and how much of it — the two facts an owner opens this
+         * page for.**
+         *
+         * Both used to be `text-xs text-zinc-400`: the same weight as a hint,
+         * lighter than every appointment card under them, and the count sat at
+         * the far end of a `justify-between` row where nothing led the eye to
+         * it. The heading is now the size of the thing it heads, "היום" is
+         * marked in the tenant's own accent so today is distinguishable from a
+         * date the owner navigated to, and the count is a chip rather than a
+         * whisper.
+         *
+         * `--accent-soft` / `--accent-on-soft` rather than a picked colour:
+         * they are the pair `theme-coverage.test.ts` already holds to AA on
+         * every tenant accent, and the same pair the calendar's today column
+         * uses — so "today" reads identically on both screens.
+         */}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+              {selectedDate === today
+                ? "היום"
+                : `יום ${weekdayLabel(selectedDate)}`}
+            </h2>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+                selectedDate === today
+                  ? "bg-(--accent-soft) text-(--accent-on-soft)"
+                  : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+              )}
+            >
               {dayOfMonth(selectedDate)}/{month(selectedDate)}
             </span>
-          </h2>
+          </div>
+
           {dayAppointments.length > 0 ? (
-            <span className="text-xs text-zinc-400">
-              {dayAppointments.length} תורים
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-2.5 py-1 text-xs font-bold text-white tabular-nums dark:bg-zinc-100 dark:text-zinc-900">
+              <CalendarCheck className="size-3.5" aria-hidden />
+              {dayAppointments.length === 1
+                ? "תור אחד"
+                : `${dayAppointments.length} תורים`}
             </span>
           ) : null}
         </div>
@@ -222,6 +257,7 @@ export function AgendaView({
         <ManualBookingDialog
           date={dialogDate}
           services={services}
+          staff={staff}
           onClose={() => setDialogDate(null)}
           onCreated={() => {
             setDialogDate(null);

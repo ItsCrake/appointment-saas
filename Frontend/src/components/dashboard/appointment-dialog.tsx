@@ -25,6 +25,7 @@ import { saveClientProfileAction } from "@/app/dashboard/clients/actions";
 import { useToast } from "@/components/ui/toast";
 import { dayOfMonth, formatPrice, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { whatsappHref } from "@/lib/whatsapp-link";
 
 import {
   btnPrimary,
@@ -120,8 +121,10 @@ export function AppointmentDialog({
   /** A request the owner has not answered yet — see `requires_approval`. */
   const awaitingApproval = status === "pending";
 
-  const phone = entry.clientPhone?.replace(/\D/g, "");
-  const wa = phone?.startsWith("0") ? `972${phone.slice(1)}` : phone;
+  // One shared rule. The inline strip-and-swap this replaces mishandled a
+  // `00972…` number — it saw the leading zero as a trunk code and produced
+  // `9720972…`, a chat with nobody. See `whatsappHref`.
+  const wa = whatsappHref(entry.clientPhone);
 
   function changeStatus(next: AppointmentStatusName) {
     const previous = status as AppointmentStatusName;
@@ -271,15 +274,17 @@ export function AppointmentDialog({
                 <Phone className="size-3.5" aria-hidden />
                 חיוג
               </a>
-              <a
-                href={`https://wa.me/${wa}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
-              >
-                <MessageCircle className="size-3.5" aria-hidden />
-                וואטסאפ
-              </a>
+              {wa ? (
+                <a
+                  href={wa}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
+                >
+                  <MessageCircle className="size-3.5" aria-hidden />
+                  וואטסאפ
+                </a>
+              ) : null}
             </div>
           ) : null}
 
@@ -631,15 +636,30 @@ function EditPanel({
   onError: (message: string) => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const firstFieldRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLFormElement>(null);
   const [form, setForm] = useState({
     clientName: entry.title,
     clientPhone: entry.clientPhone ?? "",
     notes: entry.notes ?? "",
   });
 
+  /**
+   * **Focus the panel, not the first field.**
+   *
+   * Focusing the name input opened the on-screen keyboard the instant "עריכת
+   * פרטים" was tapped, covering half the form the owner had just asked to see —
+   * on the device this product is actually used on, mid-appointment.
+   *
+   * Dropping the focus call outright is the wrong fix: the control that was
+   * focused has just been replaced by this panel, so focus would fall back to
+   * `<body>` and a keyboard or screen-reader user would be dumped at the top of
+   * the document with no idea the form had opened. Moving it to the form itself
+   * — `tabIndex={-1}`, so it is focusable programmatically but not a tab stop —
+   * keeps the announcement and the tab order without asking any device for text
+   * input. Tapping a field is still what focuses a field.
+   */
   useEffect(() => {
-    firstFieldRef.current?.focus();
+    panelRef.current?.focus();
   }, []);
 
   function submit(event: React.FormEvent) {
@@ -656,11 +676,16 @@ function EditPanel({
   }
 
   return (
-    <form onSubmit={submit} noValidate className="mt-4 space-y-3">
+    <form
+      ref={panelRef}
+      tabIndex={-1}
+      onSubmit={submit}
+      noValidate
+      className="mt-4 space-y-3 focus:outline-none"
+    >
       <Field label="שם הלקוח" htmlFor="ap-name">
         <input
           id="ap-name"
-          ref={firstFieldRef}
           value={form.clientName}
           onChange={(e) => setForm({ ...form, clientName: e.target.value })}
           className={inputClass}
@@ -722,17 +747,26 @@ function MovePanel({
   onError: (message: string) => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const firstFieldRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLFormElement>(null);
   /** The warning to show, or null. Set only by a refusal the owner can waive. */
   const [confirm, setConfirm] = useState<string | null>(null);
   const [form, setForm] = useState({
     date: entry.date,
     time: entry.startTime,
-    staffId: entry.staffId ?? "",
+    /**
+     * Falls back to the first provider rather than to `""`, or the select would
+     * *display* the first option while holding an empty value — the classic
+     * uncontrolled-select mismatch, where submitting without touching the field
+     * sends something other than what the owner is looking at.
+     */
+    staffId: entry.staffId ?? staff[0]?.id ?? "",
   });
 
+  // The panel rather than the first field — see `EditPanel` for the whole
+  // argument. It applies here at least as strongly: this form's first field is
+  // a date input, which springs a picker rather than a keyboard.
   useEffect(() => {
-    firstFieldRef.current?.focus();
+    panelRef.current?.focus();
   }, []);
 
   function submit(event: React.FormEvent) {
@@ -753,8 +787,15 @@ function MovePanel({
         appointmentId,
         date: form.date,
         time: form.time,
-        // A one-chair shop sends nothing and keeps whoever holds it.
-        staffId: staff.length > 1 ? form.staffId : "",
+        /**
+         * Always the chosen provider, where a one-chair shop used to send `""`
+         * and let the server keep whoever held it. The two agree on a single
+         * provider — it is the same person either way — and sending it
+         * explicitly is what lets the field exist at all for such a shop. The
+         * id is still resolved through the business server-side, so this is not
+         * a new trust boundary.
+         */
+        staffId: form.staffId,
         force,
       });
 
@@ -774,12 +815,17 @@ function MovePanel({
   }
 
   return (
-    <form onSubmit={submit} noValidate className="mt-4 space-y-3">
+    <form
+      ref={panelRef}
+      tabIndex={-1}
+      onSubmit={submit}
+      noValidate
+      className="mt-4 space-y-3 focus:outline-none"
+    >
       <div className="grid grid-cols-2 gap-3">
         <Field label="תאריך" htmlFor="ap-date">
           <input
             id="ap-date"
-            ref={firstFieldRef}
             type="date"
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
@@ -798,7 +844,20 @@ function MovePanel({
         </Field>
       </div>
 
-      {staff.length > 1 ? (
+      {/**
+       * Shown whenever there is anybody to assign, where this used to need a
+       * team of two before it appeared at all.
+       *
+       * The threshold was hiding the field from the shop most likely to be
+       * confused by its absence: an owner who has just added a second provider
+       * sees the control appear out of nowhere on a dialog they already knew,
+       * and one who has not cannot see who a booking belongs to without opening
+       * the calendar legend. Who performs the service is a property of the
+       * appointment at every roster size, so it is shown at every roster size —
+       * with one provider it reads as a statement rather than a choice, and
+       * becomes a choice the moment a second exists.
+       */}
+      {staff.length > 0 ? (
         <Field label="נותן שירות" htmlFor="ap-staff">
           <select
             id="ap-staff"

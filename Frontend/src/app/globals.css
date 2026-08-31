@@ -579,27 +579,105 @@ body {
    surface carrying text — which is what makes the whole mechanism unable to
    affect contrast. The bar is `aria-hidden` decoration; the name on the card is
    what actually says whose booking it is. */
+/* The three treatments differ in *structure*, not merely in the colour of the
+   stripe. They were two diagonals and a horizontal, and the two diagonals —
+   one white, one black, both at 135° — were nearly the same mark on a 6px bar:
+   the thing that was supposed to separate two providers needed them side by
+   side to read. Direction is what survives at this size, so it is direction
+   that carries the difference: horizontal bands, diagonal stripes, then a
+   dotted grid that is not a stripe at all. */
 .cal-dup-1 {
   background-image: repeating-linear-gradient(
-    135deg,
-    rgb(255 255 255 / 0.55) 0 2px,
-    transparent 2px 5px
+    to bottom,
+    rgb(255 255 255 / 0.7) 0 2px,
+    transparent 2px 6px
   );
 }
 .cal-dup-2 {
   background-image: repeating-linear-gradient(
     135deg,
-    rgb(0 0 0 / 0.34) 0 2px,
-    transparent 2px 5px
+    rgb(0 0 0 / 0.42) 0 2px,
+    transparent 2px 6px
   );
 }
-/* Horizontal, so it is not merely the first pattern mirrored — at 4px wide a
-   45° and a 135° stripe are hard to tell apart. */
+/* A grid of dots rather than a third stripe: two crossed gradients, so it reads
+   as texture at 6px where a diagonal at another angle would not. */
 .cal-dup-3 {
-  background-image: repeating-linear-gradient(
-    to bottom,
-    rgb(255 255 255 / 0.6) 0 2px,
-    transparent 2px 6px
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgb(255 255 255 / 0.75) 0 2px,
+      transparent 2px 5px
+    ),
+    repeating-linear-gradient(
+      to right,
+      rgb(255 255 255 / 0.75) 0 2px,
+      transparent 2px 5px
+    );
+}
+
+/* ---------------------------------------------------------------------------
+   ...and the same collision on the card body, as a tone.
+
+   The bar is 6px. It is enough to tell two cards apart once you are looking at
+   them, and not enough to tell them apart while *scanning* a week — which is
+   what the grid is for. So the surface carries the difference too: the same
+   hue, mixed in progressively harder, so a row of same-coloured providers reads
+   as a ladder rather than as one flat colour.
+
+   The hue is deliberately unchanged. Shifting it would break the legend, which
+   promises that a card's colour is the dot beside that person's name; a
+   *strength* difference leaves that promise intact and still separates them.
+
+   Compound selectors (`.cal-glass.cal-tone-1`) rather than a later single
+   class, so the week and day bases each get their own ladder and neither
+   depends on rule order to win.
+
+   Every percentage here is measured by `calendar-glass-contrast.test.ts` —
+   seven staff hues over six tenant accents, in both themes and both views, at
+   every step. A tone ladder that walked a surface under AA would be the exact
+   failure that test exists to catch.
+--------------------------------------------------------------------------- */
+.cal-glass.cal-tone-1 {
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 24%,
+    transparent
+  );
+}
+.cal-glass.cal-tone-2 {
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 32%,
+    transparent
+  );
+}
+.cal-glass.cal-tone-3 {
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 40%,
+    transparent
+  );
+}
+.cal-glass-solid.cal-tone-1 {
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 26%,
+    transparent
+  );
+}
+.cal-glass-solid.cal-tone-2 {
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 34%,
+    transparent
+  );
+}
+.cal-glass-solid.cal-tone-3 {
+  --cal-tint: color-mix(
+    in oklch,
+    var(--cal-hue, var(--accent)) 42%,
+    transparent
   );
 }
 
@@ -651,6 +729,54 @@ body {
     border-color: color-mix(
       in oklch,
       var(--cal-hue, var(--accent)) 46%,
+      transparent
+    );
+  }
+
+  /* The ladder in dark, and it climbs more gently than the light one.
+     The tint here sits on an ink base rather than on paper, so raising it moves
+     the surface *towards* the hue and towards the light text on top of it —
+     the opposite direction from light mode, where a heavier tint darkens away
+     from dark text. Same three steps, smaller rise, same test proving it. */
+  .cal-glass.cal-tone-1 {
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 32%,
+      transparent
+    );
+  }
+  .cal-glass.cal-tone-2 {
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 38%,
+      transparent
+    );
+  }
+  .cal-glass.cal-tone-3 {
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 44%,
+      transparent
+    );
+  }
+  .cal-glass-solid.cal-tone-1 {
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 32%,
+      transparent
+    );
+  }
+  .cal-glass-solid.cal-tone-2 {
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 38%,
+      transparent
+    );
+  }
+  .cal-glass-solid.cal-tone-3 {
+    --cal-tint: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 44%,
       transparent
     );
   }

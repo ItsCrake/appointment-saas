@@ -204,7 +204,7 @@ export function hourRows(bounds: GridBounds): number[] {
  * on them, and that arithmetic is the whole reason a booking either shows its
  * service name or does not.
  */
-export const HOUR_ROW_PX = { week: 128, day: 160 } as const;
+export const HOUR_ROW_PX = { week: 96, day: 160 } as const;
 
 /** Vertical padding inside a card, and the height of one line of its type. */
 const CARD_METRICS = {

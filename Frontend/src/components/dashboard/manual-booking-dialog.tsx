@@ -8,15 +8,27 @@ import { useToast } from "@/components/ui/toast";
 import { formatDuration } from "@/lib/format";
 
 type ServiceOption = { id: string; name: string; durationMin: number };
+type StaffOption = { id: string; name: string };
 
 export function ManualBookingDialog({
   date,
   services,
+  staff,
   onClose,
   onCreated,
 }: {
   date: string;
   services: ServiceOption[];
+  /**
+   * Who this booking may be assigned to.
+   *
+   * The action has always accepted a `staffId` and resolved it through the
+   * business; nothing here offered one, so every manual booking silently went
+   * to `getDefaultStaff` — the head of the roster. On a team that is a booking
+   * quietly given to whoever happens to sort first, which the owner then finds
+   * on the wrong person's column.
+   */
+  staff: StaffOption[];
   onClose: () => void;
   /**
    * Refreshing has to happen in the parent: calling router.refresh() from this
@@ -29,6 +41,10 @@ export function ManualBookingDialog({
   const firstFieldRef = useRef<HTMLSelectElement>(null);
 
   const [serviceId, setServiceId] = useState(services[0]?.id ?? "");
+  // Defaults to the first provider, which is exactly who the server would have
+  // picked anyway — so the field starts by *showing* the existing behaviour
+  // rather than changing it.
+  const [staffId, setStaffId] = useState(staff[0]?.id ?? "");
   const [bookingDate, setBookingDate] = useState(date);
   const [time, setTime] = useState("10:00");
   const [clientName, setClientName] = useState("");
@@ -57,6 +73,7 @@ export function ManualBookingDialog({
     startTransition(async () => {
       const result = await createManualBookingAction({
         serviceId,
+        staffId,
         date: bookingDate,
         time,
         clientName,
@@ -146,6 +163,27 @@ export function ManualBookingDialog({
               ))}
             </select>
           </Field>
+
+          {/* Rendered whenever anybody can take it, not only for a team — the
+              same rule the move dialog now follows. With one provider it says
+              who the booking is going to; with several it is the only place the
+              owner gets to decide. */}
+          {staff.length > 0 ? (
+            <Field label="נותן שירות" htmlFor="mb-staff">
+              <select
+                id="mb-staff"
+                value={staffId}
+                onChange={(e) => setStaffId(e.target.value)}
+                className={FIELD}
+              >
+                {staff.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="תאריך" htmlFor="mb-date">

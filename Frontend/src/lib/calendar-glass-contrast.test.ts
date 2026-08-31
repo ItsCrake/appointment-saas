@@ -215,14 +215,38 @@ const PAPER = hex("#fafafa"); // zinc-50, the card's text in dark mode
  */
 const GLASS = {
   light: {
-    week: { tint: 0.16, base: null },
-    day: { tint: 0.18, base: { color: hex("#ffffff"), alpha: 0.9 } },
+    week: { tint: 0.16, tones: [0.24, 0.32, 0.4], base: null },
+    day: {
+      tint: 0.18,
+      tones: [0.26, 0.34, 0.42],
+      base: { color: hex("#ffffff"), alpha: 0.9 },
+    },
   },
   dark: {
-    week: { tint: 0.26, base: { color: hex("#09090b"), alpha: 0.55 } },
-    day: { tint: 0.26, base: { color: hex("#09090b"), alpha: 0.88 } },
+    week: {
+      tint: 0.26,
+      tones: [0.32, 0.38, 0.44],
+      base: { color: hex("#09090b"), alpha: 0.55 },
+    },
+    day: {
+      tint: 0.26,
+      tones: [0.32, 0.38, 0.44],
+      base: { color: hex("#09090b"), alpha: 0.88 },
+    },
   },
 } as const;
+
+/**
+ * The tone ladder `.cal-tone-*` walks when two providers share a colour.
+ *
+ * `0` is the base tint every card uses. The three steps above it deepen the
+ * same hue so a row of same-coloured providers reads as a ladder — and each one
+ * is a new surface that text has to stay legible on, which is the entire reason
+ * they are measured here rather than eyeballed once. The dark ladder climbs
+ * more gently on purpose: raising the tint there moves the surface *towards*
+ * the light text on it, where in light mode it moves away from the dark text.
+ */
+const TONE_STEPS = [0, 1, 2, 3] as const;
 
 /**
  * Everything under the card, in paint order.
@@ -266,16 +290,19 @@ function surface(
   mode: "light" | "dark",
   view: "week" | "day",
   hue: Rgb = accentOf(name),
+  tone = 0,
 ): Rgb {
   const { base, layers } = ground(name, mode);
   const glass = GLASS[mode][view];
+  // Step 0 is the base tint; 1–3 are the collision ladder.
+  const alpha = tone === 0 ? glass.tint : glass.tones[tone - 1];
 
   return composite(base, [
     ...layers,
     ...(glass.base
       ? [{ color: glass.base.color, alpha: glass.base.alpha }]
       : []),
-    { color: hue, alpha: glass.tint },
+    { color: hue, alpha },
   ]);
 }
 
@@ -344,8 +371,32 @@ describe("the stylesheet still says what this test assumes", () => {
     ["rgb(255 255 255 / 0.9)", "light day base"],
     ["rgb(9 9 11 / 0.55)", "dark week base"],
     ["rgb(9 9 11 / 0.88)", "dark day base"],
+    // The collision ladder. Listed one by one rather than derived, so that
+    // changing a percentage in the stylesheet without changing the number this
+    // suite measures fails here instead of silently measuring the old surface.
+    ["var(--cal-hue, var(--accent)) 24%", "light week tone 1"],
+    ["var(--cal-hue, var(--accent)) 32%", "light week tone 2"],
+    ["var(--cal-hue, var(--accent)) 40%", "light week tone 3"],
+    ["var(--cal-hue, var(--accent)) 26%", "light day tone 1"],
+    ["var(--cal-hue, var(--accent)) 34%", "light day tone 2"],
+    ["var(--cal-hue, var(--accent)) 42%", "light day tone 3"],
+    ["var(--cal-hue, var(--accent)) 38%", "dark tone 2"],
+    ["var(--cal-hue, var(--accent)) 44%", "dark tone 3"],
   ])("declares %s", (fragment) => {
     expect(CSS).toContain(fragment);
+  });
+
+  it("gives every tone class a rule in both views", () => {
+    /**
+     * `staffToneClass` builds these names by arithmetic and Tailwind never
+     * emits them — they are hand written. A missing rule is a card that quietly
+     * falls back to the base tint, which looks exactly like the bug the ladder
+     * exists to fix.
+     */
+    for (let tone = 1; tone <= 3; tone++) {
+      expect(CSS).toContain(`.cal-glass.cal-tone-${tone} {`);
+      expect(CSS).toContain(`.cal-glass-solid.cal-tone-${tone} {`);
+    }
   });
 
   it("falls back to the accent when no staff hue is set", () => {
@@ -405,7 +456,17 @@ describe("a team's cards are legible in every staff colour too", () => {
       it.each([...STAFF_COLORS])(`${mode} ${view}: %s`, (staff) => {
         const hue = staffHue(staff);
         for (const accent of THEME_COLORS) {
-          assertLegible(surface(accent, mode, view, hue), mode);
+          /**
+           * Every rung of the collision ladder, not only the base tint.
+           *
+           * Two providers who picked the same colour get progressively deeper
+           * glass so they can be told apart while scanning — and the deepest is
+           * the surface most likely to have walked under the floor. Measuring
+           * only the base would prove the case that was already safe.
+           */
+          for (const tone of TONE_STEPS) {
+            assertLegible(surface(accent, mode, view, hue, tone), mode);
+          }
         }
       });
     }

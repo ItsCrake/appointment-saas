@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { STAFF_COLORS } from "./staff-colors";
 import {
   STAFF_VARIANT_COUNT,
+  staffToneClass,
   staffVariantClass,
   staffVariants,
 } from "./staff-variants";
@@ -62,11 +63,7 @@ describe("staffVariants", () => {
     // The roster arrives in a total order (`sortOrder, createdAt, id`), and a
     // texture that moved between reloads would be worse than no texture: the
     // owner would learn it means nothing.
-    const team = [
-      member("a", "sky"),
-      member("b", "sky"),
-      member("c", "sky"),
-    ];
+    const team = [member("a", "sky"), member("b", "sky"), member("c", "sky")];
 
     expect([...staffVariants(team).entries()]).toEqual([
       ...staffVariants(team).entries(),
@@ -102,6 +99,42 @@ describe("staffVariants", () => {
       const name = staffVariantClass(variant);
       expect(name).not.toBeNull();
       expect(css).toContain(`.${name} {`);
+    }
+  });
+
+  it("moves the bar and the card's tone together", () => {
+    /**
+     * The two cues are read as one thing — the busiest bar should be on the
+     * deepest card — so they are driven by the same index and must not drift.
+     * Separate functions because they land on different elements: the bar is a
+     * child span, the tone is on the card itself.
+     */
+    for (let variant = 0; variant < STAFF_VARIANT_COUNT; variant++) {
+      const bar = staffVariantClass(variant);
+      const tone = staffToneClass(variant);
+
+      if (variant === 0) {
+        expect(bar).toBeNull();
+        expect(tone).toBeNull();
+      } else {
+        expect(bar).toBe(`cal-dup-${variant}`);
+        expect(tone).toBe(`cal-tone-${variant}`);
+      }
+    }
+  });
+
+  it("names a tone class the stylesheet defines, in both views", () => {
+    // Same hazard as the bar patterns: built by arithmetic, written by hand,
+    // and a miss is a card that silently keeps the base tint.
+    const css = readFileSync(
+      join(process.cwd(), "src/app/globals.css"),
+      "utf8",
+    );
+
+    for (let variant = 1; variant < STAFF_VARIANT_COUNT; variant++) {
+      const name = staffToneClass(variant);
+      expect(css).toContain(`.cal-glass.${name} {`);
+      expect(css).toContain(`.cal-glass-solid.${name} {`);
     }
   });
 
