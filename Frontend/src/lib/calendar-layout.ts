@@ -254,6 +254,12 @@ export const MIN_CARD_PX = { week: 46, day: 58 } as const;
  * fluid and fills the screen; only a week that would not fit grows past it, and
  * the container scrolls. Scrolling a busy week is a smaller cost than making
  * every card on it unreadable.
+ *
+ * **This is now the default rather than the only answer.** It is what the
+ * `standard` density asks for, and it assumes the card is trying to show three
+ * readable lines. A mode that truncates to one line, or draws no text at all,
+ * is not bound by what a Hebrew first name needs — see `lib/calendar-density.ts`,
+ * which supplies the number this used to be.
  * ---------------------------------------------------------------------------
  */
 export const MIN_LANE_PX = 144;
@@ -271,10 +277,16 @@ export const RAIL_PX = 48;
 export function gridMinWidthPx(
   /** Lane counts per visible day — `assignLanes` output, or 1 for an empty day. */
   lanesPerDay: readonly number[],
+  /**
+   * The narrowest one lane may be, from the chosen density. Defaults to
+   * {@link MIN_LANE_PX}, which is what `standard` asks for — so every existing
+   * caller and every test that predates densities keeps its answer exactly.
+   */
+  lanePx: number = MIN_LANE_PX,
 ): number {
   if (lanesPerDay.length === 0) return 0;
   const widest = Math.max(1, ...lanesPerDay);
-  return RAIL_PX + lanesPerDay.length * widest * MIN_LANE_PX;
+  return RAIL_PX + lanesPerDay.length * widest * lanePx;
 }
 
 export type CalendarView = "week" | "day";

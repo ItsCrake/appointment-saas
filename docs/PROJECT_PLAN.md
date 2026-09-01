@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1264 tests across 89 files**; Playwright
+**Green:** `npm run verify` at **1281 tests across 90 files**; Playwright
 **11/11** across 3 specs (not run every session). All **30 migrations
 (0000–0029)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1367,6 +1367,27 @@ optional. What follows from that:
   `border-2` would reflow every card in the list the moment somebody is
   deactivated. Colour is not carrying it alone: the name is struck through and
   the card's own button reads "הפעלה" instead of "השבתה".
+- **The week grid has three densities** — `lib/calendar-density.ts`, chosen from
+  a three-icon switcher beside the day/week toggle and remembered in
+  `localStorage`. The problem is arithmetic: `gridMinWidthPx` reserves 144px a
+  lane so a card is never an ellipsis, and six days of one lane is **912px** —
+  two and a half screens of sideways travel on the 390px phone this is opened
+  on, for the one view whose question is "how full am I this week".
+  `standard` keeps 144 and is asserted byte-identical to the grid that predates
+  the switcher; `compact` drops to 42 and truncates the card to a name and a
+  start time; `summary` drops to 20, halves the hour row and draws no text at
+  all — a block of colour whose tap opens the same dialog.
+  **Sized against the content box, not the viewport.** A 390px phone leaves
+  356px inside the dashboard's padding, and the first cut of this measured
+  against 390 — so the unit test passed while the browser scrolled 28px, which
+  is exactly the failure it was written to prevent. Verified in the browser at
+  320/360/390/430: page overflow is **0px everywhere**, and on a single-provider
+  shop compact and summary both fit a **seven**-day week with nothing to scroll.
+  A two-provider week needs two columns a day and still scrolls in compact —
+  that is what summary is for, and past three providers it scrolls there too.
+  **It is a preference, not a viewport**: offered at every width, because a
+  control that disappears above a breakpoint strands whatever it last set, and
+  because this grid deliberately measures nothing at runtime.
 - **The provider picker is shown whenever there is anybody to assign**, in the
   move dialog and in manual booking, where it used to need a team of two before
   it appeared at all. `createManualBookingAction` had always accepted a

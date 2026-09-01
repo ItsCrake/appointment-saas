@@ -1,16 +1,25 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   FileText,
+  Grid2x2,
   Hourglass,
   MessageCircle,
   Phone,
+  Rows3,
   Trash2,
   UserRound,
   X,
@@ -36,6 +45,16 @@ import {
   placeItem,
   type CalendarItem,
 } from "@/lib/calendar-layout";
+import {
+  CALENDAR_DENSITIES,
+  chooseDensity,
+  densityServerSnapshot,
+  densitySnapshot,
+  DENSITY,
+  subscribeDensity,
+  SUMMARY_HOUR_ROW,
+  type CalendarDensity,
+} from "@/lib/calendar-density";
 import { formatPrice } from "@/lib/format";
 import { staffSwatch } from "@/lib/staff-colors";
 import {
@@ -56,6 +75,20 @@ import {
 } from "./ui";
 
 const WEEKDAY_SHORT = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+
+/**
+ * The switcher's marks, in the order the modes widen.
+ *
+ * Shapes rather than words, and shapes that describe the *layout* each mode
+ * produces: rows of readable cards, many narrow columns, a grid of blocks. The
+ * name is still there for anyone who cannot see them — see the `sr-only` label
+ * on each button.
+ */
+const DENSITY_ICON: Record<CalendarDensity, typeof Rows3> = {
+  standard: Rows3,
+  compact: Columns3,
+  summary: Grid2x2,
+};
 
 export type CalendarEntry = CalendarItem & {
   /**
@@ -232,8 +265,34 @@ export function WeekCalendar({
   const [view, setView] = useState<CalendarView>(initialView);
   const [focusedDate, setFocusedDate] = useState(initialDate);
 
+  /**
+   * How much of the week to fit on screen — see `lib/calendar-density.ts`.
+   *
+   * Subscribed to rather than held here: the preference lives in
+   * `localStorage`, which is an external store, and reading it through
+   * `useSyncExternalStore` is what lets the server render the default, hydrate
+   * against matching markup, and swap to the owner's choice without a render
+   * pass whose only job is correcting the one before it.
+   */
+  const density = useSyncExternalStore(
+    subscribeDensity,
+    densitySnapshot,
+    densityServerSnapshot,
+  );
+
   const dayView = view === "day";
-  const hourRow = dayView ? HOUR_ROW_DAY : HOUR_ROW_WEEK;
+  const spec = DENSITY[density];
+  /**
+   * The day view has one column and nothing to compress sideways, so density
+   * does not reach it — and `summary` is the only mode that changes the row at
+   * all, because it is the only one with no text the row height has to hold.
+   */
+  const summaryCards = !dayView && spec.card === "block";
+  const hourRow = dayView
+    ? HOUR_ROW_DAY
+    : summaryCards
+      ? SUMMARY_HOUR_ROW
+      : HOUR_ROW_WEEK;
 
   const focusedIndex = Math.max(
     0,
@@ -316,6 +375,16 @@ export function WeekCalendar({
    * because the thing that narrows a column is overlap: a one-chair shop has one
    * lane a day and fits comfortably, while three providers busy at the same hour
    * turn one column into three slivers. See `gridMinWidthPx`.
+   *
+   * **The lane width itself now comes from the density**, which is the whole
+   * mechanism behind the switcher: `standard` asks for the 144px a readable
+   * card needs, `compact` for 52 and `summary` for 28. The result stays a
+   * *minimum* — the columns are `minmax(0, 1fr)` and stretch to fill — so a
+   * quiet week in a narrow mode uses the whole screen rather than huddling at
+   * one edge.
+   *
+   * The day view is excluded: one column has nothing to compress sideways, and
+   * narrowing it would shrink the view whose entire purpose is being read.
    */
   const minWidthPx = useMemo(
     () =>
@@ -323,8 +392,9 @@ export function WeekCalendar({
         placedByDay.map((placed) =>
           placed.reduce((widest, item) => Math.max(widest, item.lanes), 1),
         ),
+        dayView ? undefined : spec.lanePx,
       ),
-    [placedByDay],
+    [placedByDay, dayView, spec.lanePx],
   );
 
   /**
@@ -400,6 +470,58 @@ export function WeekCalendar({
           </ArrowButton>
         </div>
 
+        {/**
+         * **How much of the week to fit, offered only where there is a week.**
+         *
+         * Hidden in the day view rather than disabled: density is a statement
+         * about columns, and the day view has one. A greyed-out control there
+         * would be three buttons explaining that they do not apply.
+         *
+         * Icon-only, with the label carried by `aria-label` and `title` — this
+         * sits beside the day/week toggle in a header that already runs to two
+         * rows on a phone, and three more words of chrome is what pushes it to
+         * three. The pressed state is the same white-on-zinc pill the toggle
+         * beside it uses, so the two read as one family of controls.
+         */}
+        {dayView ? null : (
+          <div
+            role="group"
+            aria-label="צפיפות התצוגה"
+            className="flex items-center gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-800"
+          >
+            {CALENDAR_DENSITIES.map((value) => {
+              const Icon = DENSITY_ICON[value];
+              const active = density === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => chooseDensity(value)}
+                  aria-pressed={active}
+                  aria-label={DENSITY[value].hint}
+                  title={DENSITY[value].hint}
+                  className={cn(
+                    // 36px square: the floor for a thumb, and the same height
+                    // as the toggle it sits beside.
+                    "flex size-9 items-center justify-center rounded-full transition-colors",
+                    active
+                      ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                      : // `zinc-400` in dark, not `zinc-500`: the unselected segment measured
+                        // **3.09:1** against `zinc-800`, which clears the 3:1 floor for a
+                        // non-text control by four hundredths. Measured, not guessed —
+                        // and applied to the view toggle beside it too, so the two keep
+                        // reading as one family.
+                        "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                  )}
+                >
+                  <Icon className="size-4" aria-hidden />
+                  <span className="sr-only">{DENSITY[value].label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Buttons, not links: the whole week is already loaded, so switching
             view is a state change rather than a navigation. */}
         <div
@@ -422,7 +544,12 @@ export function WeekCalendar({
                 "rounded-full px-4 py-1.5 text-xs font-bold transition-colors",
                 view === value
                   ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
-                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
+                  : // `zinc-400` in dark, not `zinc-500`: the unselected segment measured
+                    // **3.09:1** against `zinc-800`, which clears the 3:1 floor for a
+                    // non-text control by four hundredths. Measured, not guessed —
+                    // and applied to the view toggle beside it too, so the two keep
+                    // reading as one family.
+                    "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
               )}
             >
               {label}
@@ -623,11 +750,24 @@ export function WeekCalendar({
                         entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
                       }
                       requiresApproval={requiresApproval}
-                      minHeightPx={cardHeightPx(
-                        entry.endMinutes - entry.startMinutes,
-                        dayView ? "day" : "week",
-                        gapsByDay[dayIndex].get(entry.id) ?? null,
-                      )}
+                      card={dayView ? "full" : spec.card}
+                      /**
+                       * `summary` supplies its own floor. The line-budget one
+                       * from `cardHeightPx` is arithmetic on a 96px hour, and
+                       * applying it over this mode's 48px row would draw every
+                       * short booking at roughly twice its real length — a
+                       * calendar that lies about how full it is, in the one
+                       * view whose whole job is answering that.
+                       */
+                      minHeightPx={
+                        !dayView && spec.minCardPx !== null
+                          ? spec.minCardPx
+                          : cardHeightPx(
+                              entry.endMinutes - entry.startMinutes,
+                              dayView ? "day" : "week",
+                              gapsByDay[dayIndex].get(entry.id) ?? null,
+                            )
+                      }
                       onHoverChange={setHovered}
                       onOpen={(target) => {
                         // The hover card is supplementary detail about what is
@@ -752,6 +892,7 @@ function EntryCard({
   style,
   dayView,
   variant,
+  card,
   requiresApproval,
   minHeightPx,
   onHoverChange,
@@ -766,6 +907,11 @@ function EntryCard({
    * `0` — the overwhelmingly common case — is the untouched solid bar.
    */
   variant: number;
+  /**
+   * How much of itself the card puts on screen — the chosen density's
+   * `card` mode. See `lib/calendar-density.ts`.
+   */
+  card: "full" | "chip" | "block";
   /** See the prop of the same name on `WeekCalendar`. */
   requiresApproval: boolean;
   /**
@@ -779,6 +925,8 @@ function EntryCard({
 }) {
   const cancelled = entry.status === "cancelled" || entry.status === "no_show";
   const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
+  /** What this card would say if it had room — the tooltip, and the label. */
+  const description = `${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`;
   const minutes = entry.endMinutes - entry.startMinutes;
   /** Percentages position the card; the floor is real pixels on top of them. */
   const boxStyle: React.CSSProperties = { ...style, minHeight: minHeightPx };
@@ -894,13 +1042,7 @@ function EntryCard({
            * there is a collision to resolve — an unshared colour keeps the
            * narrower bar and gives the room back to the text.
            */
-          variant
-            ? dayView
-              ? "w-2"
-              : "w-1.5"
-            : dayView
-              ? "w-1.5"
-              : "w-1",
+          variant ? (dayView ? "w-2" : "w-1.5") : dayView ? "w-1.5" : "w-1",
           accentBar(entry),
           staffVariantClass(variant),
         )}
@@ -918,73 +1060,109 @@ function EntryCard({
        *
        * `justify-center` so a one-line card sits in the middle of its block
        * instead of clinging to the top edge.
+       *
+       * **`block` renders none of it.** In the summary mode the card is a mark
+       * of colour and the detail is one tap away — that is the mode, not a
+       * degradation of this one. Nothing is truncated to nothing; it is simply
+       * not asked for.
        */}
-      <div
-        className={cn(
-          "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
-          dayView ? "px-3 py-1.5" : "px-1.5 py-1",
-        )}
-      >
-        <div className="flex items-center gap-1">
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate font-bold",
-              cancelled && "line-through",
-            )}
-          >
-            {entry.title}
-          </span>
-          {/* Ahead of the note marks: one says there is something to read, the
-              other says something is waiting on you. */}
-          {awaitingApproval ? (
+      {card === "block" ? null : (
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
+            dayView
+              ? "px-3 py-1.5"
+              : card === "chip"
+                ? "px-1 py-0.5"
+                : "px-1.5 py-1",
+          )}
+        >
+          <div className="flex items-center gap-1">
             <span
-              role="img"
-              aria-label="ממתין לאישור"
-              className="animate-pending flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"
+              className={cn(
+                "min-w-0 flex-1 truncate font-bold",
+                cancelled && "line-through",
+              )}
             >
-              <Hourglass className="size-2.5" aria-hidden />
+              {entry.title}
+            </span>
+            {/* Ahead of the note marks: one says there is something to read, the
+                other says something is waiting on you. */}
+            {awaitingApproval ? (
+              <span
+                role="img"
+                aria-label="ממתין לאישור"
+                className="animate-pending flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"
+              >
+                <Hourglass className="size-2.5" aria-hidden />
+              </span>
+            ) : null}
+            {/**
+             * The note marks go in `compact`, and only there.
+             *
+             * A 52px column has room for a truncated name or for two 12px
+             * badges, not both — and a name cut to two characters to make space
+             * for a mark saying "there is more to read" has itself become the
+             * thing there is more to read. What is waiting on the owner stays,
+             * because that is an action rather than a footnote.
+             */}
+            {card === "full" && hasNote ? (
+              <NoteMark kind="appointment" />
+            ) : null}
+            {card === "full" && hasClientNote ? (
+              <NoteMark kind="client" />
+            ) : null}
+          </div>
+
+          {/**
+           * Three lines is the target and the floor is sized for it. Two happens
+           * only where a booking is followed immediately by another and the floor
+           * is capped to avoid drawing over it — so the service joins the time on
+           * one row rather than being dropped. Compressed, not hidden: an owner
+           * scanning a week still learns what the appointment is *for*, which is
+           * the field that would otherwise be lost exactly when the day is busy
+           * enough for it to matter.
+           *
+           * **`chip` stops at the start time.** The service name in a 52px
+           * column is three characters and an ellipsis, which reads as damage
+           * rather than as information. The time survives because it is the one
+           * field the card's own position only approximates — a block sitting
+           * between two hour lines says "about half past", and the owner
+           * checking whether they can fit somebody in needs the half.
+           */}
+          {card === "chip" ? (
+            lines >= 2 ? (
+              <span className="truncate tabular-nums opacity-75">
+                {minutesToLabel(entry.startMinutes)}
+              </span>
+            ) : null
+          ) : lines >= 3 ? (
+            <>
+              <span className="truncate tabular-nums opacity-75">{span}</span>
+              {entry.subtitle ? (
+                <span className="truncate opacity-75">{entry.subtitle}</span>
+              ) : null}
+            </>
+          ) : lines === 2 ? (
+            <span className="truncate opacity-75">
+              <span className="tabular-nums">
+                {minutesToLabel(entry.startMinutes)}
+              </span>
+              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
             </span>
           ) : null}
-          {/* Two marks, two different things — see `NoteMark`. */}
-          {hasNote ? <NoteMark kind="appointment" /> : null}
-          {hasClientNote ? <NoteMark kind="client" /> : null}
-        </div>
 
-        {/**
-         * Three lines is the target and the floor is sized for it. Two happens
-         * only where a booking is followed immediately by another and the floor
-         * is capped to avoid drawing over it — so the service joins the time on
-         * one row rather than being dropped. Compressed, not hidden: an owner
-         * scanning a week still learns what the appointment is *for*, which is
-         * the field that would otherwise be lost exactly when the day is busy
-         * enough for it to matter.
-         */}
-        {lines >= 3 ? (
-          <>
-            <span className="truncate tabular-nums opacity-75">{span}</span>
-            {entry.subtitle ? (
-              <span className="truncate opacity-75">{entry.subtitle}</span>
-            ) : null}
-          </>
-        ) : lines === 2 ? (
-          <span className="truncate opacity-75">
-            <span className="tabular-nums">
-              {minutesToLabel(entry.startMinutes)}
+          {/* The note itself, where there is genuinely room for it: one wide
+              column and a booking long enough that a fourth line does not crowd
+              out the three above. Everywhere else the mark says *look* and the
+              dialog is where it is read. */}
+          {showNoteText ? (
+            <span className="mt-0.5 truncate text-[11px] opacity-70">
+              {entry.notes}
             </span>
-            {entry.subtitle ? ` · ${entry.subtitle}` : ""}
-          </span>
-        ) : null}
-
-        {/* The note itself, where there is genuinely room for it: one wide
-            column and a booking long enough that a fourth line does not crowd
-            out the three above. Everywhere else the mark says *look* and the
-            dialog is where it is read. */}
-        {showNoteText ? (
-          <span className="mt-0.5 truncate text-[11px] opacity-70">
-            {entry.notes}
-          </span>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      )}
     </>
   );
 
@@ -996,7 +1174,7 @@ function EntryCard({
       <div
         style={boxStyle}
         tabIndex={0}
-        title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
+        title={description}
         onMouseEnter={show}
         onFocus={show}
         onMouseLeave={() => onHoverChange(null)}
@@ -1013,9 +1191,19 @@ function EntryCard({
       type="button"
       style={boxStyle}
       aria-haspopup="dialog"
+      /**
+       * **A summary block has no text, so it has no accessible name.**
+       *
+       * `title` supplies one as a last resort, and a last resort is the wrong
+       * place for the only name a control has. Given explicitly here, and only
+       * where the visible content is gone — on a card that *does* show its
+       * name, an `aria-label` would replace what a voice-control user can see
+       * and say with something longer that they cannot.
+       */
+      aria-label={card === "block" ? description : undefined}
       // The native tooltip stays as the no-JavaScript, no-pointer fallback —
       // the rich card below is an enhancement, not the only way to read this.
-      title={`${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`}
+      title={description}
       onClick={() => onOpen(entry)}
       onMouseEnter={show}
       onFocus={show}
