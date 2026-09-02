@@ -1194,9 +1194,10 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1292 tests across 91 files**; Playwright
-**11/11** across 3 specs (not run every session). All **30 migrations
-(0000–0029)** are applied to production. Fifteen tables, RLS on every one, zero
+**Green:** `npm run verify` at **1367 tests across 94 files**; Playwright
+**11/11** across 3 specs (not run every session). All **31 migrations
+(0000–0030)** are applied to production — 0030 was applied on 2026-09-03 and
+verified before the push that shipped it. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
 
 > ⚠️ **The ordering rule 0025 established, for every migration after it.**
@@ -1371,6 +1372,36 @@ optional. What follows from that:
   `border-2` would reflow every card in the list the moment somebody is
   deactivated. Colour is not carrying it alone: the name is struck through and
   the card's own button reads "הפעלה" instead of "השבתה".
+- **Siri, over a bearer token** (0030) — `/api/siri/v1?action=next|today|search`
+  answers an owner's own calendar as one Hebrew sentence for an Apple Shortcut
+  to speak. `siri_api_token` on `businesses` is the **only** thing that decides
+  whose calendar is read: no session, no cookie, no business id in the request,
+  which is what lets the question be asked mid-haircut.
+  **It reads and can never write.** No confirm, no cancel, no reschedule — a
+  token in a note or a sold phone leaks a view of a calendar, which is bad, and
+  cannot cancel a client's appointment, which would be worse. Adding a write
+  verb is not a small change to that file; it is a different threat model and
+  wants a different credential.
+  Plaintext in the column like `cancel_token`, because the owner has to read it
+  again to paste it into a Shortcut on another device; `observability.ts`
+  already redacts every key matching /token/i. The header is preferred and the
+  query string is supported anyway — Shortcuts builds a URL in one action and
+  needs another step to attach a header, and a feature an owner cannot set up
+  is not safer, only unused.
+  **There is no `.shortcut` file and the UI does not pretend there is.** An
+  Apple Shortcut is a signed archive; an unsigned one will not import without
+  the owner first allowing untrusted shortcuts, so a "download" button would
+  land on a system warning or on nothing. The button copies the finished URL
+  with the key in it, and four steps say what to do with it.
+  `SHORTCUT_GALLERY_URL` in `siri-integration.tsx` is the seam: publish a real
+  shortcut from a device, drop its iCloud link there, and it becomes one tap.
+  **On latency, measured rather than claimed.** The brief asked for sub-100ms.
+  One round trip to the production database is **286ms** from a developer
+  machine — it is in `ap-northeast-2` — so the target is a statement about
+  co-locating the app with the database, not about this code. What the code
+  controls is the number of *sequential* phases, and it is at the floor of two:
+  resolve the token, then fetch, with the `today` action's count and next-up
+  running as one parallel pair.
 - **The week grid has three densities** — `lib/calendar-density.ts`, chosen from
   a three-icon switcher beside the day/week toggle and remembered in
   `localStorage`. The problem is arithmetic: `gridMinWidthPx` reserves 144px a

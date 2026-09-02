@@ -360,6 +360,27 @@ export const businesses = pgTable("businesses", {
   /** A phone number, not a URL — `lib/social-links.ts` builds the wa.me link. */
   socialWhatsapp: text("social_whatsapp"),
   websiteUrl: text("website_url"),
+  /**
+   * Bearer token for `/api/siri/v1` — an Apple Shortcut asking this owner's
+   * own calendar out loud (0030).
+   *
+   * NULL until the owner presses the button, and setting it back to NULL is a
+   * complete revoke: this column is the only copy. Unique because the token
+   * *is* the lookup key — the endpoint resolves a business from it and from
+   * nothing else, so a duplicate would be two shops answering to one
+   * credential.
+   *
+   * Plaintext, like `appointments.cancel_token`, and for the same reason: the
+   * owner has to be able to read it again to paste it into a Shortcut on
+   * another device. What bounds the damage is scope — it reads a calendar and
+   * writes nothing — and `observability.ts` redacting every key matching
+   * /token/i before it reaches a log.
+   */
+  siriApiToken: text("siri_api_token"),
+  /** When it was minted, so the panel can say how old it is. */
+  siriTokenCreatedAt: timestamp("siri_token_created_at", {
+    withTimezone: true,
+  }),
 });
 
 /**
