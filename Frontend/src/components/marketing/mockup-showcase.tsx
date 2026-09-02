@@ -54,7 +54,7 @@ export function MockupShowcase() {
         // The drawn agenda, if the file is ever missing — the same component
         // that carried this page before the screenshots existed.
         fallback={<DashboardMockup className="relative" />}
-        priority
+        preload
         // 22rem cap minus the frame's 5px bezel either side.
         sizes="342px"
       />

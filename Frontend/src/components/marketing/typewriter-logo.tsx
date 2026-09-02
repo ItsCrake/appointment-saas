@@ -92,9 +92,32 @@ export function TypewriterLogo({ className }: { className?: string }) {
       <span className="sr-only">{ACCESSIBLE_NAME}</span>
 
       <span aria-hidden dir={PHRASES[index].dir} className="inline-flex">
-        {/* min-height keeps the row from collapsing when text is empty
-            mid-cycle, so the layout below never jumps. */}
-        <span className="min-h-[1.2em]">{text}</span>
+        {/**
+         * **The zero-width space is what stops the page moving.**
+         *
+         * `min-h-[1.2em]` was already here and was not enough, because the jump
+         * was never the span collapsing — measured, the heading got 9px *taller*
+         * at 390px and 18px taller at 1440 on the frame the text emptied, and
+         * the paragraph and CTA below it moved down by exactly that.
+         *
+         * An inline-flex box takes its baseline from the first line box inside
+         * it. With no text there is no line box, so the browser synthesises the
+         * baseline from the bottom margin edge instead — the box drops relative
+         * to the text baseline and the heading's own line box grows to
+         * contain it. The height of the span was never the variable; where it
+         * sat on the baseline was.
+         *
+         * `​` rather than ` `: both restore a line box, but a
+         * non-breaking space is a *space*, and it would shove the caret sideways
+         * by its own width on the one frame the text is empty — trading a
+         * vertical jump for a horizontal one. A zero-width space has a baseline
+         * and no advance.
+         *
+         * `min-h` stays. It is doing nothing on its own now, and it is what
+         * holds the row if the font ever loads late or a phrase is added whose
+         * glyphs are shorter.
+         */}
+        <span className="min-h-[1.2em]">{text || "​"}</span>
         {/* The caret takes the heading's own colour, so the mark stays one
             object in light and dark alike. */}
         <span

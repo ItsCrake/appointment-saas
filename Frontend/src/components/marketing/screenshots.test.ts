@@ -103,4 +103,64 @@ describe("screenshot slots", () => {
       }
     }
   });
+  it("asks for a quality the optimizer is configured to allow", () => {
+    /**
+     * **The silent one.** Next 16 changed `images.qualities` from "anything
+     * goes" to `[75]`, and a value outside that list is not honoured: the
+     * optimizer answers `"q" parameter (quality) of 90 is not allowed` with a
+     * 400, and `next/image` clamps the `q` it emits before the request is ever
+     * made. So `quality={90}` sat in this component looking deliberate, the
+     * page kept rendering, and every screenshot was served at 75 — a config
+     * default silently overruling a prop, with nothing on screen to say so.
+     *
+     * Checked against the real config file, because the failure is precisely a
+     * disagreement between these two places.
+     */
+    const config = readFileSync(
+      path.resolve(process.cwd(), "next.config.ts"),
+      "utf8",
+    );
+    const allowed = (
+      config.match(/qualities:\s*\[([^\]]*)\]/)?.[1] ?? ""
+    )
+      .split(",")
+      .map((n) => Number(n.trim()))
+      .filter((n) => Number.isFinite(n));
+
+    expect(allowed.length, "next.config.ts declares images.qualities").toBeGreaterThan(0);
+
+    const frame = readFileSync(path.join(MARKETING, "phone-frame.tsx"), "utf8");
+    for (const match of frame.matchAll(/quality=\{(\d+)\}/g)) {
+      expect(
+        allowed,
+        `quality ${match[1]} is not in images.qualities`,
+      ).toContain(Number(match[1]));
+    }
+  });
+
+  it("preloads exactly one screenshot, and does not use the deprecated prop", () => {
+    /**
+     * `priority` is deprecated in Next 16 in favour of `preload`, and a
+     * deprecated prop is not a working one — the hero passed `priority` and the
+     * rendered `<img>` came out with no `fetchpriority` and the same treatment
+     * as everything else on the page.
+     *
+     * One, not several: the docs are explicit that more than one candidate for
+     * the LCP element is a reason not to preload at all.
+     */
+    let preloads = 0;
+    for (const name of readdirSync(MARKETING)) {
+      if (!name.endsWith(".tsx")) continue;
+      const source = readFileSync(path.join(MARKETING, name), "utf8");
+      if (!source.includes("<PhoneFrame")) continue;
+
+      expect(
+        source,
+        `${name} uses the deprecated \`priority\` prop`,
+      ).not.toMatch(/^\s*priority$/m);
+
+      preloads += source.match(/^\s*preload$/gm)?.length ?? 0;
+    }
+    expect(preloads, "exactly one screenshot should be preloaded").toBe(1);
+  });
 });

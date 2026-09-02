@@ -37,7 +37,7 @@ export function PhoneFrame({
   width,
   height,
   fallback,
-  priority = false,
+  preload = false,
   className,
   /**
    * **The width the image actually renders at, as a flat value.**
@@ -67,7 +67,21 @@ export function PhoneFrame({
   height: number;
   /** The drawn mockup, rendered instead if the file cannot be loaded. */
   fallback?: ReactNode;
-  priority?: boolean;
+  /**
+   * **`preload`, not `priority` — the prop this used to take is deprecated.**
+   *
+   * Next 16 deprecated `priority` in favour of `preload`, and a deprecated prop
+   * is not a working one: the hero passed `priority` and the rendered `<img>`
+   * came out with `loading="auto"` and no `fetchpriority` at all, which is the
+   * same treatment every other image on the page got. Named after the framework
+   * rather than after the intent, so the next rename is a type error instead of
+   * a silent no-op.
+   *
+   * True on the hero only. It inserts a `<link rel="preload">` in the head, and
+   * the docs are explicit that more than one candidate for the LCP element is a
+   * reason *not* to use it.
+   */
+  preload?: boolean;
   /** Controls the frame's width; the caller owns the cap. */
   className?: string;
   sizes: string;
@@ -109,7 +123,7 @@ export function PhoneFrame({
             width={width}
             height={height}
             sizes={sizes}
-            priority={priority}
+            preload={preload}
             /**
              * 90 rather than the default 75.
              *
@@ -124,9 +138,14 @@ export function PhoneFrame({
              * CSS pixels, so even the 3× rung is a modest file.
              */
             quality={90}
-            // Below the fold everywhere except the hero, and the hero passes
-            // `priority` — so the rest genuinely should wait.
-            loading={priority ? undefined : "lazy"}
+            /**
+             * Below the fold everywhere except the hero, so the rest genuinely
+             * should wait. The preloaded one is left with no `loading` at all
+             * rather than an explicit `eager`: the docs list a `loading`
+             * property as a reason not to use `preload`, and the default for an
+             * `<img>` without one is already eager.
+             */
+            loading={preload ? undefined : "lazy"}
             onError={() => setFailed(true)}
             className="block h-auto w-full"
           />

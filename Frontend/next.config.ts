@@ -26,6 +26,31 @@ const PRIVATE_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  images: {
+    /**
+     * **Without this, `quality={90}` was silently delivered as 75.**
+     *
+     * Next 16 changed `images.qualities` from "anything goes" to `[75]`, and a
+     * value outside the list is not honoured: the optimizer rejects the URL
+     * outright — `"q" parameter (quality) of 90 is not allowed`, HTTP 400 —
+     * and `next/image` clamps the `q` it emits to the nearest allowed value
+     * before that can happen. So the landing page kept rendering, kept looking
+     * exactly as compressed as before, and the `quality={90}` on `PhoneFrame`
+     * had no effect at all. Verified by reading the emitted `srcset`, which
+     * carried `q=75`.
+     *
+     * 75 stays in the list because it is still the default every other image
+     * uses; a one-value list of `[90]` would quietly re-encode those upward
+     * for no reason.
+     *
+     * `formats` is deliberately left at its default (`webp`). AVIF would buy
+     * roughly 20% smaller files at the same quality, but the complaint here is
+     * sharpness rather than payload — and it costs about 50% more encode time
+     * on a cold request and a second cached variant per rung. Worth doing on
+     * purpose, not as a side effect of this.
+     */
+    qualities: [75, 90],
+  },
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },

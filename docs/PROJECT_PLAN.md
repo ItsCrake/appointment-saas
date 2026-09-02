@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1281 tests across 90 files**; Playwright
+**Green:** `npm run verify` at **1283 tests across 90 files**; Playwright
 **11/11** across 3 specs (not run every session). All **30 migrations
 (0000–0029)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1289,6 +1289,9 @@ the served tier plus the reason.
 | **`redirect()` signals success by throwing** | `unstable_rethrow` first, always, or a successful login reports a connection error. | `lib/call-action.ts` |
 | **Waitlist expiry cycles only as often as the cron** | `vercel.json` is `0 8 * * *` because Hobby rejects anything more frequent — the real cadence is the GitHub Actions workflow hitting the same URL every 15 min. Offers still *lapse* on time (the clock is read on the page and in the claim action), but nothing is **re-offered** until a sweep runs. If that workflow is disabled, every lapsed slot dies silently. Never set a TTL below the sweep interval. | `.github/workflows/dispatch-notifications.yml` |
 | **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
+| **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. `screenshots.test.ts` compares the two files. | `next.config.ts`, `phone-frame.tsx` |
+| **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
+| **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
 
 ### The guarantee everything else leans on
@@ -1503,6 +1506,14 @@ optional. What follows from that:
   Now a hairline grid and one glow sit behind a real screenshot.
   `lib/screenshots.ts` resolves eight slots and **throws at build time** when a
   file is missing, so a deleted image fails the build rather than the page.
+  The screenshots render at `quality={90}`, which needed `images.qualities` in
+  `next.config.ts` before it did anything at all — see the traps above; measured,
+  the optimizer went from 48.6KB to 70.2KB for the same rung. That stops the
+  pipeline adding a second lossy generation; it cannot recover detail, and the
+  **sources remain the ceiling**: 736×1600 at ~0.06 bytes/px, five to eight times
+  more compressed than a quality-90 JPEG. At a 342px slot on a 3× phone the
+  browser asks for the 1080 rung and gets 736, so the hero is effectively ~2.15×
+  rather than 3×. The only real fix is re-capturing at a higher resolution.
   The two demo buttons are a **tinted wash with a matching border** — the 500 at
   10% over a 1px border at 45%, in the accent each tenant actually renders —
   with the shop's colour surviving at full strength in an 8px dot. They were
