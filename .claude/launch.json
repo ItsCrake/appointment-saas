@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "D:\\AppointmentSaaS\\Frontend", "run", "dev"],
       "port": 3000
+    },
+    {
+      "//": "Production server, for measuring anything about loading. `next dev` ships unminified JS and an HMR client that compete with real assets for bandwidth, so LCP and byte counts taken against it are not the product's. Needs `npm run build` first.",
+      "name": "bazman-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:\\AppointmentSaaS\\Frontend", "run", "start"],
+      "port": 3000
     }
   ]
 }

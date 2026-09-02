@@ -1194,7 +1194,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1283 tests across 90 files**; Playwright
+**Green:** `npm run verify` at **1292 tests across 91 files**; Playwright
 **11/11** across 3 specs (not run every session). All **30 migrations
 (0000–0029)** are applied to production. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
@@ -1289,6 +1289,7 @@ the served tier plus the reason.
 | **`redirect()` signals success by throwing** | `unstable_rethrow` first, always, or a successful login reports a connection error. | `lib/call-action.ts` |
 | **Waitlist expiry cycles only as often as the cron** | `vercel.json` is `0 8 * * *` because Hobby rejects anything more frequent — the real cadence is the GitHub Actions workflow hitting the same URL every 15 min. Offers still *lapse* on time (the clock is read on the page and in the claim action), but nothing is **re-offered** until a sweep runs. If that workflow is disabled, every lapsed slot dies silently. Never set a TTL below the sweep interval. | `.github/workflows/dispatch-notifications.yml` |
 | **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
+| **A hand-rolled upload copied the body and not the headers** | `image-upload.tsx` reproduces `supabase-js`'s multipart upload with `XMLHttpRequest` so it can show progress. `supabase-js` sends `cacheControl` **twice** — a form field *and* a `cache-control: max-age=…` request header — and only the field was copied, so every asset ever uploaded is stored with the API's fallback and served `Cache-Control: no-cache`. Verified on production: every logo, banner, gallery photo and hero video, on every tenant. The paths are UUIDs and a new upload mints a new one, so these are immutable by construction. Pinned by `media-upload.test.ts`. | `image-upload.tsx` |
 | **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. `screenshots.test.ts` compares the two files. | `next.config.ts`, `phone-frame.tsx` |
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
 | **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
@@ -1529,6 +1530,36 @@ optional. What follows from that:
   (an accent-coloured label on an accent wash is the natural edit and lands
   near 3:1), and the border must survive, because a 10% wash with no border is
   not visibly a control.
+
+### Measured, so it is not re-audited
+
+A production build at 390px under 4× CPU and ~1.6Mbps, 2026-09-03. **Measure
+against `next start`, not `next dev`** — the dev server's unminified JS and HMR
+client compete with real assets and roughly doubled the booking page's LCP.
+`.claude/launch.json` carries a `bazman-prod` entry for exactly this.
+
+| Route | CLS | LCP | Notes |
+| --- | --- | --- | --- |
+| `/` | **0** | 1.5s (hero `<img>`) | `preload` on the hero is working |
+| `/[slug]` booking | **0** | 4.1s (`<video>`) | the banner clip *is* the LCP element |
+| `/dashboard` (PWA `start_url`) | **0** | 2.1s (text) | 15 JS files, 19KB transferred |
+| `/dashboard/agenda/full` | **0** | 2.1s (text) | 14 files, 15KB |
+
+Already correct and **not worth changing again**: fonts (`next/font` Heebo,
+`display: swap`, metric-matched fallback generated automatically); dark mode is
+pure `@media (prefers-color-scheme)` with **no theme script**, so a startup
+FOUC is not reachable; `viewportFit: "cover"` and per-scheme `themeColor` are
+set; the manifest starts at `/dashboard` deliberately; and the service worker
+caches nothing on purpose — see its own header before "fixing" that.
+
+**The one real weight is the hero video.** `demo-barber` is 3MB at 720×1280,
+drawn into a 390×293 box. On ~1.6Mbps the first frame paints at ~4s and
+autoplay does not start for far longer, because `autoplay` waits for
+`HAVE_ENOUGH_DATA` and at that bitrate that is most of the file. **No attribute
+fixes this** — `preload="auto"` was tried and measured within noise (4.14s →
+4.19s), so it was not kept. What would: a poster frame (needs a column and a
+migration), or a smaller file. `MAX_VIDEO_BYTES` currently permits **25MB**,
+eight times the demo, on the product's most-shared page.
 
 ### What it deliberately does not do
 

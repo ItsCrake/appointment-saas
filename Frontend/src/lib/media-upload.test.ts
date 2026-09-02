@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -276,5 +279,40 @@ describe("video", () => {
         unique: UNIQUE,
       }),
     ).toBe(`${BUSINESS}/hero/${UNIQUE}.webm`);
+  });
+});
+
+describe("uploads are stored cacheable", () => {
+  /**
+   * **The form field alone does nothing.** `supabase-js` sends `cacheControl`
+   * two ways for a multipart body — as a form field *and* as a
+   * `cache-control: max-age=…` request header — and `image-upload.tsx` hand
+   * rolls that request with `XMLHttpRequest` so it can report progress. It
+   * reproduced the body faithfully and omitted the header, so every asset
+   * uploaded through it was stored with the API's fallback and is served
+   * `Cache-Control: no-cache`: verified against production, on every logo,
+   * banner, gallery photo and hero video of every tenant.
+   *
+   * These paths are UUIDs and a fresh upload mints a new one, so the files are
+   * immutable by construction — the one shape of asset that should never be
+   * revalidated. Nothing about that failure is visible on screen; it is a round
+   * trip per view, on the page most likely to be opened twice on a phone.
+   */
+  const SOURCE = readFileSync(
+    path.resolve(process.cwd(), "src/components/dashboard/image-upload.tsx"),
+    "utf8",
+  );
+
+  it("sends cache-control as a header, not only as a form field", () => {
+    expect(SOURCE).toMatch(/setRequestHeader\(\s*"cache-control"/);
+    expect(SOURCE).toContain('body.append("cacheControl"');
+  });
+
+  it("asks for a year, and asks for the same one twice", () => {
+    // A header and a field that disagree would be worse than either alone:
+    // whichever the API happens to read would decide, silently.
+    const constant = SOURCE.match(/const CACHE_CONTROL = "(\d+)"/)?.[1];
+    expect(constant).toBe("31536000");
+    expect(SOURCE).toContain("`max-age=${CACHE_CONTROL}`");
   });
 });

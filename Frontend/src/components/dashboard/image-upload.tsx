@@ -55,6 +55,26 @@ function put(
     // A path is only ever issued once, so an overwrite would mean something has
     // gone wrong rather than that the owner meant it.
     xhr.setRequestHeader("x-upsert", "false");
+    /**
+     * **The header, not just the form field — the field alone does nothing.**
+     *
+     * `supabase-js` sends `cacheControl` two ways for a multipart body: as a
+     * form field *and* as `cache-control: max-age=…` on the request. This
+     * function reproduced the body faithfully and stopped there, so every asset
+     * ever uploaded through it was stored with the API's fallback and is served
+     * `Cache-Control: no-cache`.
+     *
+     * Checked against production: every logo, banner, gallery photo and hero
+     * video on every tenant answers `no-cache` today. These are UUID-named and
+     * a new upload mints a new path, so they are immutable by construction —
+     * the one shape of file that should never be revalidated. The booking page
+     * is the most-shared surface in the product and the most likely to be
+     * opened twice on a phone, and it was re-checking a 3MB video on each view.
+     *
+     * A year, matching `CACHE_CONTROL`, which was already correct and was
+     * simply never reaching the server.
+     */
+    xhr.setRequestHeader("cache-control", `max-age=${CACHE_CONTROL}`);
 
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
