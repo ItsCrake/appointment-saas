@@ -38,9 +38,44 @@ export const STT_MODEL = "whisper-1";
  */
 export const INTENT_MODEL = "gpt-4o-mini";
 
-/** Speech out. `nova` reads Hebrew more naturally than `alloy` to my ear. */
+/** Speech out. */
 export const TTS_MODEL = "tts-1";
-export const TTS_VOICE = "nova";
+
+/** The voices OpenAI actually accepts. An unknown one is a 400 mid-turn. */
+export const TTS_VOICES = [
+  "alloy",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "shimmer",
+] as const;
+
+export type TtsVoice = (typeof TTS_VOICES)[number];
+
+export const DEFAULT_TTS_VOICE: TtsVoice = "nova";
+
+/**
+ * Which voice ליבי speaks in.
+ *
+ * `nova` by default — it reads Hebrew more naturally than the alternatives,
+ * which is not a claim about the language so much as about how the others
+ * handle its vowels. Overridable with `OPENAI_TTS_VOICE` because that is a
+ * matter of taste that should not need a deploy of *code* to settle, and
+ * because a shop may well disagree.
+ *
+ * **Validated rather than passed through.** An unrecognised value would reach
+ * OpenAI and come back a 400, which surfaces to the owner as ליבי having
+ * nothing to say — a typo in an environment variable turning into a mute
+ * assistant. An unknown voice falls back to the default instead, which is the
+ * same bargain every other coerced value in this codebase takes.
+ */
+export function ttsVoice(): TtsVoice {
+  const configured = process.env.OPENAI_TTS_VOICE?.trim().toLowerCase();
+  return TTS_VOICES.includes(configured as TtsVoice)
+    ? (configured as TtsVoice)
+    : DEFAULT_TTS_VOICE;
+}
 
 /**
  * Whether the assistant can reach a model at all.

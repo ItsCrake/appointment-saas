@@ -1161,7 +1161,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1344 tests across 93 files**; Playwright
+**Green:** `npm run verify` at **1361 tests across 94 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1360,9 +1360,25 @@ optional. What follows from that:
   Create and reschedule are deliberately absent: both need the availability
   engine and the overlap refusal surfaced as something a person can answer, and
   a voice turn is the wrong place for that conversation.
-  **The model does not write the sentence.** It picks a tool; the tool's own
-  Hebrew comes from `bazman-speech.ts`, which is pure and has 42 tests. That is
-  what stops a summary drifting from the data it is summarising.
+  **The tools stay authoritative; the diary fills the gaps.** The prompt now
+  carries the shop's date and time and a bounded roster — today plus seven days,
+  capped at 25 rows, **never a phone number**, cancelled and no-shows filtered
+  out before they can be read back as booked. That is a real change to the
+  bargain and worth stating: until now the model could not assert a fact, only
+  choose a tool whose Hebrew came from `libi-speech`. It can now answer things
+  no tool covers ("מה יש לי ביום חמישי?"), and in exchange it can say something
+  no test wrote. Three things narrow it — the prompt orders tools first and says
+  so, `temperature: 0`, and the context is a literal transcription of rows with
+  "this list is complete" stated, so "I do not see it in the diary" is an
+  available answer. Verified live: *"מה התאריך היום?"* → answered from the clock
+  with no tool, *"מה יש לי ביום חמישי?"* → answered from the diary with no tool,
+  *"כמה תורים יש לי היום?"* → still routed to `get_today_summary`.
+  The clock was the half that was simply absent — a model has no idea what day
+  it is, so every "היום" and "מחר" was previously a guess.
+  **The voice is `OPENAI_TTS_VOICE`**, defaulting to `nova`. Validated against
+  the six OpenAI accepts and falling back rather than passing an unknown one
+  through: a typo would come back a 400 from the speech call and reach the owner
+  as ליבי having nothing to say, with the answer still on screen.
   **Two things a browser found that no unit test could.** The app's own
   `Permissions-Policy` header said `microphone=()` — closed to this origin too —
   so `getUserMedia` was refused by our own header and reported as a console

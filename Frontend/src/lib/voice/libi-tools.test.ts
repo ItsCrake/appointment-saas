@@ -8,7 +8,13 @@ import {
 } from "@/test/factories";
 import { createTestDb } from "@/test/pglite";
 
-import { runVoiceTool, VOICE_TOOLS, type ToolContext } from "./libi-tools";
+import {
+  runVoiceTool,
+  upcomingRoster,
+  ROSTER_LIMIT,
+  VOICE_TOOLS,
+  type ToolContext,
+} from "./libi-tools";
 
 /**
  * What the assistant is allowed to do to a calendar.
@@ -241,5 +247,77 @@ describe("an unknown tool", () => {
     const out = await runVoiceTool("drop_everything", {}, s.ctx);
     expect(out.actionTaken).toBe("none");
     expect(out.spoken).toContain("לא הבנתי");
+  });
+});
+
+describe("upcomingRoster", () => {
+  it("starts at the shop's midnight, not at now", async () => {
+    /**
+     * An owner asking at four in the afternoon what their day looked like has
+     * to see the morning. Anchoring on `now` would answer "nothing so far
+     * today" to somebody who has cut hair since eight.
+     */
+    const s = await shop();
+    await book(s, "2026-09-03T05:00:00Z", "בוקר");
+    await book(s, "2026-09-03T13:00:00Z", "אחר הצהריים");
+
+    const roster = await upcomingRoster(s.ctx);
+    expect(roster.map((r) => r.clientName)).toEqual(["בוקר", "אחר הצהריים"]);
+  });
+
+  it("never carries a phone number", async () => {
+    // Every row here is sent to OpenAI on every turn. A client's number is not
+    // needed to say when they are coming, and the cheapest way to keep it out
+    // of a third party's logs is not to select it.
+    const s = await shop();
+    await book(s, "2026-09-03T11:00:00Z", "דנה");
+
+    const [row] = await upcomingRoster(s.ctx);
+    expect(Object.keys(row).sort()).toEqual([
+      "clientName",
+      "serviceName",
+      "startsAt",
+      "status",
+    ]);
+  });
+
+  it("omits cancelled and no-show bookings", async () => {
+    /**
+     * The most expensive thing this assistant could get wrong. A cancelled slot
+     * read back as booked sends an owner to meet somebody who is not coming —
+     * and once it is in the prompt, no tool is standing between that row and
+     * the sentence.
+     */
+    const s = await shop();
+    await book(s, "2026-09-03T10:00:00Z", "ביטל", { status: "cancelled" });
+    await book(s, "2026-09-03T10:30:00Z", "לא הגיע", { status: "no_show" });
+    await book(s, "2026-09-03T12:00:00Z", "מגיע");
+
+    const roster = await upcomingRoster(s.ctx);
+    expect(roster.map((r) => r.clientName)).toEqual(["מגיע"]);
+  });
+
+  it("stays inside the tenant", async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    await book(theirs, "2026-09-03T10:00:00Z", "של מישהו אחר");
+
+    expect(await upcomingRoster(mine.ctx)).toEqual([]);
+  });
+
+  it("stops at the window and at the cap", async () => {
+    // Bounded on both axes: every row costs tokens and latency on a turn the
+    // owner is waiting through.
+    const s = await shop();
+    await book(s, "2026-09-20T08:00:00Z", "מחוץ לחלון");
+    for (let i = 0; i < ROSTER_LIMIT + 5; i++) {
+      const hour = String(6 + (i % 12)).padStart(2, "0");
+      const day = String(3 + Math.floor(i / 12)).padStart(2, "0");
+      await book(s, `2026-09-${day}T${hour}:0${i % 6}:00Z`, `לקוח ${i}`);
+    }
+
+    const roster = await upcomingRoster(s.ctx);
+    expect(roster.length).toBeLessThanOrEqual(ROSTER_LIMIT);
+    expect(roster.some((r) => r.clientName === "מחוץ לחלון")).toBe(false);
   });
 });

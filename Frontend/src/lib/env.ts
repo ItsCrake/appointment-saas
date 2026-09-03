@@ -178,6 +178,20 @@ export const ENV_VARS: EnvVar[] = [
         ? null
         : 'does not look like an OpenAI key — they start with "sk-"',
   },
+  {
+    name: "OPENAI_TTS_VOICE",
+    requirement: "optional",
+    group: "Voice assistant",
+    description:
+      "Which OpenAI voice ליבי speaks in. Defaults to nova, which reads Hebrew most naturally. An unrecognised value falls back rather than muting her.",
+    howTo: "One of alloy, echo, fable, onyx, nova, shimmer.",
+    validate: (value) =>
+      ["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(
+        value.trim().toLowerCase(),
+      )
+        ? null
+        : "not an OpenAI voice — nova will be used instead",
+  },
   /*
    * Web push. `optional` rather than `production` because the failure is
    * visible and self-limiting: with no keys the settings card says push is not

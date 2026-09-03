@@ -292,5 +292,65 @@ async function proposeCancel(
   };
 }
 
+/**
+ * The diary ליבי is allowed to see while she is deciding.
+ *
+ * ---------------------------------------------------------------------------
+ * **Bounded on both axes, on purpose.** Every row here is sent to OpenAI on
+ * every turn — so the window is a week and the count is capped, rather than
+ * "the calendar". A busy shop's year would be a large prompt, a slow turn and a
+ * per-turn bill, for context that answers nothing anybody asked.
+ *
+ * **No phone numbers, ever.** The transcript and the tool results already leave
+ * this machine; a client's number is not needed to say when they are coming,
+ * and the cheapest way to keep it out of a third party's logs is not to put it
+ * in the request.
+ *
+ * `status` is carried because a cancelled slot that still reads as booked is
+ * worse than no answer — see the note in the prompt builder.
+ * ---------------------------------------------------------------------------
+ */
+export type RosterRow = {
+  startsAt: Date;
+  clientName: string;
+  serviceName: string;
+  status: string;
+};
+
+/** How far ahead the prompt looks, and how much of it it will carry. */
+export const ROSTER_DAYS = 7;
+export const ROSTER_LIMIT = 25;
+
+export async function upcomingRoster(
+  ctx: ToolContext,
+  days = ROSTER_DAYS,
+  limit = ROSTER_LIMIT,
+): Promise<RosterRow[]> {
+  // From the start of the shop's today, not from `now`: an owner asking at
+  // 16:00 what their day looked like should see the morning too.
+  const day = todayInTimezone(ctx.timezone, ctx.now);
+  const from = fromZonedTime(`${day}T00:00:00`, ctx.timezone);
+  const to = new Date(from.getTime() + days * 86_400_000);
+
+  return ctx.db
+    .select({
+      startsAt: appointments.startsAt,
+      clientName: appointments.clientName,
+      serviceName: appointments.serviceName,
+      status: appointments.status,
+    })
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, ctx.businessId),
+        gte(appointments.startsAt, from),
+        lt(appointments.startsAt, to),
+        inArray(appointments.status, [...BLOCKING_STATUSES]),
+      ),
+    )
+    .orderBy(asc(appointments.startsAt))
+    .limit(limit);
+}
+
 /** Re-exported so the route need not know where the speech lives. */
 export type { SpokenAppointment };

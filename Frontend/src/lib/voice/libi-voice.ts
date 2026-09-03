@@ -3,10 +3,17 @@ import {
   INTENT_MODEL,
   STT_MODEL,
   TTS_MODEL,
-  TTS_VOICE,
+  ttsVoice,
   voiceApiKey,
 } from "./libi-config";
-import { VOICE_TOOLS, runVoiceTool, type ToolContext, type ToolOutcome } from "./libi-tools";
+import {
+  VOICE_TOOLS,
+  runVoiceTool,
+  upcomingRoster,
+  type ToolContext,
+  type ToolOutcome,
+} from "./libi-tools";
+import { buildPromptContext } from "./libi-context";
 
 /**
  * The three steps: hear, decide, speak.
@@ -84,13 +91,26 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
   return (text ?? "").trim();
 }
 
-const SYSTEM_PROMPT = `את "ליבי", העוזרת הקולית של בזמן — מערכת ניהול תורים לעסקים בישראל.
+/**
+ * The instructions half of the prompt. The data half is built per request by
+ * `buildPromptContext` and prepended to this.
+ *
+ * **The tools stay authoritative and the prompt says so.** With the roster in
+ * front of it, a model will happily answer "מה התור הבא שלי?" from the list —
+ * and its sentence would be plausible, ungrounded prose where the tool's is
+ * exact, tested Hebrew with the shop's own counting and time formatting. So the
+ * ordering is stated: use a tool when one fits, and read from the diary only
+ * for the questions no tool covers.
+ */
+const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן — מערכת ניהול תורים לעסקים בישראל.
 בעל העסק מדבר אלייך בעברית ושואל על היומן שלו.
 
 כללים:
-- בחר תמיד בכלי המתאים. אל תמציא מידע על תורים — הוא מגיע רק מהכלים.
-- אם המשתמש מבקש לבטל תור, השתמש ב-propose_cancel_appointment. אתה לא מבטל בעצמך.
-- אם המשתמש מבקש לקבוע או להזיז תור, הסבר בקצרה שצריך לעשות זאת ביומן עצמו.
+- כשיש כלי שמתאים לשאלה — השתמשי בו. הכלים הם המקור המדויק.
+- לשאלות שאין להן כלי (למשל "מה יש לי ביום חמישי?" או "בשביל מה התור ב-15:00?") — עני מתוך היומן שקיבלת למעלה בלבד.
+- אל תמציאי שום פרט שאינו מופיע ברשימה. אם משהו לא שם, אמרי שאינך רואה אותו ביומן.
+- אם המשתמש מבקש לבטל תור, השתמשי ב-propose_cancel_appointment. את לא מבטלת בעצמך.
+- אם המשתמש מבקש לקבוע או להזיז תור, הסבירי בקצרה שצריך לעשות זאת ביומן עצמו.
 - אם לא הבנת, בקשי שיחזור — אל תנחשי.
 - עני במשפט אחד קצר בעברית, מתאים להקראה בקול.
 - אם שואלים מי את, עני: "היי, אני ליבי — העוזרת של בזמן."`;
@@ -119,8 +139,23 @@ export async function decide(
   transcript: string,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
+  /**
+   * Fetched before the model call rather than offered as another tool.
+   *
+   * A tool would cost a second round trip through the model to answer half the
+   * questions asked — the owner is waiting through this — and the clock is
+   * needed whichever tool is chosen, since "today" and "Thursday" are
+   * arguments the model cannot resolve without it.
+   */
+  const roster = await upcomingRoster(ctx);
+
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "system",
+      content: `${buildPromptContext(ctx.now, ctx.timezone, roster)}
+
+${INSTRUCTIONS}`,
+    },
     { role: "user", content: transcript },
   ];
 
@@ -132,6 +167,8 @@ export async function decide(
       messages,
       tools: VOICE_TOOLS,
       tool_choice: "auto",
+      // Zero, and it matters more now that the model can read the diary: this
+      // is the difference between reading a row back and paraphrasing it.
       temperature: 0,
       max_tokens: 200,
     }),
@@ -181,7 +218,7 @@ export async function speak(text: string): Promise<string> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: TTS_MODEL,
-      voice: TTS_VOICE,
+      voice: ttsVoice(),
       input: text,
       response_format: "mp3",
     }),
