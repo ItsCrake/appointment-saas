@@ -5,13 +5,14 @@ import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { FrozenBanner } from "@/components/dashboard/frozen-banner";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { ToastProvider } from "@/components/ui/toast";
-import { VoiceAssistant } from "@/components/dashboard/voice-assistant";
+import { LibiAssistant } from "@/components/dashboard/libi-assistant";
 import { getBusinessById } from "@/db/queries";
 import { businessForOwner } from "@/lib/dashboard-session";
 import { readImpersonatedBusinessId } from "@/lib/impersonation";
 import { currentSuperAdmin } from "@/lib/master-session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { isVoiceConfigured } from "@/lib/voice/bazman-config";
+import { entitlementsFor } from "@/lib/entitlements";
+import { isVoiceConfigured } from "@/lib/voice/libi-config";
 import { getCurrentUser } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -64,6 +65,33 @@ async function frozenState(): Promise<{ reason: string | null } | null> {
   return { reason: business.frozenReason };
 }
 
+/**
+ * Whether this tenant's plan includes ליבי.
+ *
+ * **Necessary and not sufficient**, alongside the key — the pair the legacy
+ * assistant was always gated on, restored here after the move into the layout
+ * briefly dropped the entitlement half and handed a Pro feature to every
+ * Starter tenant. `canAccessLibi` is the flag; `entitlementsFor` resolves the
+ * *served* plan, so a frozen or lapsed subscription loses it the same way it
+ * loses analytics.
+ *
+ * Resolved through `businessForOwner`, which is `cache`d per request, so this
+ * costs nothing beyond the lookup the freeze banner already did.
+ */
+async function libiEntitled(): Promise<boolean> {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  const impersonatedId = await readImpersonatedBusinessId();
+  const business = impersonatedId
+    ? (await currentSuperAdmin())
+      ? await getBusinessById(db, impersonatedId)
+      : null
+    : await businessForOwner(user.id);
+
+  return business ? entitlementsFor(business).canAccessLibi : false;
+}
+
 export default async function DashboardLayout({
   children,
 }: {
@@ -90,7 +118,7 @@ export default async function DashboardLayout({
     frozenState(),
   ]);
 
-  const voiceReady = isVoiceConfigured();
+  const voiceReady = isVoiceConfigured() && (await libiEntitled());
 
   return (
     <ToastProvider>
@@ -117,7 +145,7 @@ export default async function DashboardLayout({
           `NEXT_PUBLIC_` prefix, so asking in the browser would always answer
           no. Absent rather than disabled when unconfigured — the same rule
           Libi follows. */}
-      {voiceReady ? <VoiceAssistant /> : null}
+      {voiceReady ? <LibiAssistant /> : null}
     </ToastProvider>
   );
 }

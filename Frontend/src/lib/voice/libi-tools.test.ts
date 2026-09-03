@@ -8,7 +8,7 @@ import {
 } from "@/test/factories";
 import { createTestDb } from "@/test/pglite";
 
-import { runVoiceTool, VOICE_TOOLS, type ToolContext } from "./bazman-tools";
+import { runVoiceTool, VOICE_TOOLS, type ToolContext } from "./libi-tools";
 
 /**
  * What the assistant is allowed to do to a calendar.

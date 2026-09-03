@@ -8,7 +8,7 @@ import {
   spokenTime,
   spokenToday,
   type SpokenAppointment,
-} from "./bazman-speech";
+} from "./libi-speech";
 
 /**
  * What the assistant says, and the three ways it can be wrong without anything failing.

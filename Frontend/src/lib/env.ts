@@ -156,40 +156,22 @@ export const ENV_VARS: EnvVar[] = [
         : "must contain an email address",
   },
   /*
-   * "ליבי", the Hebrew voice assistant. `optional` for the same reason web push
-   * is: the failure is visible and self-limiting. With no key the microphone is
-   * not rendered at all, so an owner is never offered a control that cannot
-   * work — and there is deliberately no console fallback, because a fake parse
-   * would either invent an appointment or refuse every sentence.
-   */
-  {
-    name: "ANTHROPIC_API_KEY",
-    requirement: "optional",
-    group: "Voice assistant",
-    description:
-      "Claude API key for Libi, the Hebrew voice booking assistant. Without it the microphone is hidden and manual booking is unaffected.",
-    howTo: "platform.claude.com → API Keys. Pro-tier tenants only.",
-    validate: (value) =>
-      value.startsWith("sk-ant-")
-        ? null
-        : 'does not look like an Anthropic key — they start with "sk-ant-"',
-  },
-  /*
-   * Bazman Voice — the in-dashboard assistant. `optional` on the same terms as
-   * Libi above: with no key the microphone is not rendered, and every other way
-   * of reading the calendar is unaffected.
+   * "ליבי", the in-dashboard voice assistant. `optional` for the same reason
+   * web push is: the failure is visible and self-limiting. With no key the
+   * microphone is not rendered at all, so an owner is never offered a control
+   * that cannot work — and there is deliberately no console fallback, because a
+   * fake transcript would either invent an appointment or refuse every
+   * sentence.
    *
-   * A **second** model provider, which is worth seeing in this list rather than
-   * discovering in a bill. Whisper and TTS have no Anthropic equivalent, so
-   * speech in and speech out have to come from OpenAI; the intent step in the
-   * middle is the one part that could run on the key directly above it.
+   * The **only** model key this product uses, since the Anthropic-era
+   * implementation was retired. One key, one provider, one bill.
    */
   {
     name: "OPENAI_API_KEY",
     requirement: "optional",
     group: "Voice assistant",
     description:
-      "OpenAI key for Bazman Voice — Whisper transcription, intent, and speech. Without it the dashboard microphone is hidden.",
+      "OpenAI key for ליבי — Whisper transcription, intent, and speech. Without it the dashboard microphone is hidden.",
     howTo: "platform.openai.com → API keys.",
     validate: (value) =>
       value.startsWith("sk-")

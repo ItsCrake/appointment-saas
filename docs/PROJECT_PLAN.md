@@ -1004,55 +1004,22 @@ Playwright suite stay the check on it.
 > and token resolution, plus the full Playwright run for the interactive flow.
 > The rendered composition still wants a human eye.
 
-### "ליבי" — Hebrew voice booking ✅
+### "ליבי" — the voice assistant ✅
 
-A microphone beside "תור ידני" on `/dashboard`. The owner speaks; Libi extracts
-the fields, asks in Hebrew for what is missing, and books through the existing
-manual path.
+**Rebuilt on OpenAI, and there is now exactly one of her.** The original was
+browser speech recognition plus Claude, extracting a booking draft the owner
+confirmed. It is gone — `libi-button.tsx`, `voice-actions.ts`, `libi.ts` and
+`libi-schema.ts` with it — and the name moved to the implementation that
+replaced it, so the app no longer has two assistants doing overlapping work.
 
-- [x] **The browser does the audio, Claude does the meaning.**
-      `webkitSpeechRecognition` at `he-IL` — no recording leaves the device, no
-      per-minute cost, and only a short string reaches the server. The price is
-      browser support, so the control removes itself on Firefox rather than
-      failing on click.
-- [x] **`parseVoiceAppointment` writes nothing.** It returns a draft;
-      `createManualBookingAction` still does the booking, so voice adds no
-      second path into `appointments` and inherits the exclusion constraint,
-      staff resolution and notification dispatch unchanged.
-- [x] **Multi-turn, because `client_phone` is NOT NULL** and is the identity the
-      clients list, `client_profiles` and the win-back campaign are all keyed
-      on. A placeholder number would merge distinct people; Libi asks instead.
-      A null never overwrites a gathered value, or the conversation could never
-      finish.
-- [x] **She never reopens the microphone herself.** Each turn needs a press —
-      an assistant that reopens the mic on its own is listening to a room the
-      owner did not agree to have listened to.
-- [x] **The model is not trusted with what it cannot be trusted with.**
-      `serviceId` is re-matched against the tenant's catalogue, `missingFields`
-      is recomputed server-side, and `startLocal` stays a **wall clock** for
-      `fromZonedTime` — a model doing timezone arithmetic is wrong twice a year,
-      silently.
-- [x] `claude-opus-5` at **`low` effort**, adaptive thinking left on. The model
-      is not downgraded for cost — a mis-parse books the wrong person — and
-      effort is where the latency/cost lever belongs. Structured outputs over
-      the same Zod schema the server validates with, so grammar, validator and
-      type cannot drift.
-- [x] **Pro-gated** (`voiceAssistant`), re-checked inside the action rather than
-      only at the button, and gated again on `ANTHROPIC_API_KEY`. No console
-      fallback: a fake parse would invent an appointment or refuse everything.
-- [x] `libi-isolation.test.ts` keeps the key out of the browser, mirroring
-      `admin-isolation.test.ts`. Verified by adding the forbidden import and
-      confirming both assertions named the file.
-- [x] 20 new unit tests; `npm run verify` green at **839 across 62 files**.
-
-> **Unproven on a wire.** No real utterance has been parsed — this environment
-> has no `ANTHROPIC_API_KEY` and no microphone. The logic, the isolation and the
-> gates are tested; the model call and Hebrew STT accuracy are not.
-
-> **`/legal/privacy` does not yet name a model provider as a processor.** A
-> transcript can carry a client's name and phone. No audio is sent and nothing
-> extra is stored, but the privacy text should say so before this runs against
-> real client data.
+- **`OPENAI_API_KEY` is the only model key this product uses.** The Anthropic
+  entry was removed from `env.ts` with the code that read it. One key, one
+  provider, one bill.
+- **Pro-gated, and that gate is load-bearing.** `canAccessLibi && isVoiceConfigured()`
+  in `dashboard/layout.tsx`. The move into the layout briefly dropped the
+  entitlement half and handed a Pro feature to every Starter tenant; restoring
+  it is why `libiEntitled()` exists there.
+- **Reads run; writes are proposed.** See the bullet under *Shipped* below.
 
 ### Manual tier changes from `/master` ✅
 
@@ -1194,7 +1161,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1353 tests across 93 files**; Playwright
+**Green:** `npm run verify` at **1335 tests across 92 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1374,7 +1341,7 @@ optional. What follows from that:
   `border-2` would reflow every card in the list the moment somebody is
   deactivated. Colour is not carrying it alone: the name is struck through and
   the card's own button reads "הפעלה" instead of "השבתה".
-- **Bazman Voice** — a microphone in the dashboard layout, `/api/voice/process`,
+- **ליבי** — a microphone in the dashboard layout, `/api/voice/process`,
   and a gradient ring around the viewport while it listens. Replaces the Apple
   Shortcuts endpoint, which is gone along with `siri_api_token`; **0031 drops
   those columns and can be applied at any time** — see the note in its own file,
@@ -1408,10 +1375,11 @@ optional. What follows from that:
   `@property` angle, and the three model calls are `fetch` with the runtime's
   own `FormData`. A 50KB animation library on a dashboard that ships 19KB, to
   animate a border the compositor animates for free, is not a trade worth making.
-  **`OPENAI_API_KEY` is not set anywhere yet**, so the microphone does not
-  render — the same rule Libi follows. Whisper and TTS have no Anthropic
-  equivalent; the intent step is the one part that could run on the key this
-  product already has.
+  **`OPENAI_API_KEY` is set**, so the microphone does
+  render. **Measured live end to end**: Whisper heard three Hebrew utterances,
+  `gpt-4o-mini` chose the right tool for each, and TTS returned 31–48KB of mp3
+  — 6.1s to 9.5s a turn, which is three sequential model calls plus a database
+  round trip and is the number to beat if this ever feels slow.
 - **The week grid has three densities** — `lib/calendar-density.ts`, chosen from
   a three-icon switcher beside the day/week toggle and remembered in
   `localStorage`. The problem is arithmetic: `gridMinWidthPx` reserves 144px a
@@ -1632,7 +1600,7 @@ it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 | SMS | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
 | ~~WhatsApp transport~~ | **Done.** Credentials are live and **real messages have been delivered** on Meta Cloud — 2 `booking_confirmation` sends in production as of 2026-08-23. This row was stale for weeks. |
 | WhatsApp, the last two | **Seven of eight kinds now deliver.** All 8 registered templates are wired — see [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §2. Outstanding: `client_winback` (**Marketing**, different rules) and `booking_rescheduled`, which needs a migration and a `renderNotification` case before a template is worth submitting. Two traps are pinned by tests: the `_he` suffix (the un-suffixed names hold the **English** originals and would deliver those), and three distinct button-suffix shapes — bare token, `b/<token>`, and the slug. |
-| Voice ("ליבי") | `ANTHROPIC_API_KEY`. With none the microphone is not rendered. Pro-gated, and no real utterance has been parsed. |
+| ~~Voice ("ליבי")~~ | **Done.** `OPENAI_API_KEY` is live and real Hebrew utterances have been transcribed, routed to the right tool and spoken back. Pro-gated. |
 | Web push | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven: no notification has reached a real device. |
 | Media uploads | `npm run storage:setup` against the production project. |
 | Legal text | An Israeli lawyer. `LEGAL_ENTITY` still holds placeholder ח.פ. and address fields. |

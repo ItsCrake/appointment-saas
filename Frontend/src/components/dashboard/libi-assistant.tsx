@@ -16,7 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 /**
- * Bazman Voice — the microphone, the ring, and the card.
+ * ליבי — the microphone, the ring, and the card.
  *
  * ---------------------------------------------------------------------------
  * **The ring is CSS, not a motion library.** A conic gradient masked to the rim,
@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
  * **Nothing is cancelled by voice.** A destructive intent comes back as a
  * proposal and lands on this card as a button with the client's name and time
  * on it. Speech in a barbershop is not a good enough signal to end somebody
- * else's appointment on — see `bazman-tools.ts`.
+ * else's appointment on — see `libi-tools.ts`.
  * ---------------------------------------------------------------------------
  */
 type Phase = "idle" | "recording" | "processing" | "speaking";
@@ -66,7 +66,7 @@ const MAX_RECORDING_MS = 20_000;
  */
 const TAP_MS = 400;
 
-export function VoiceAssistant() {
+export function LibiAssistant() {
   const { toast } = useToast();
   const router = useRouter();
 
@@ -237,9 +237,9 @@ export function VoiceAssistant() {
           transcript and the answer as they arrive rather than not at all. */}
       <div aria-live="polite" className="sr-only">
         {phase === "recording"
-          ? "מקליט"
+          ? "ליבי מקשיבה"
           : phase === "processing"
-            ? "מעבד"
+            ? "ליבי מעבדת"
             : (result?.textResult ?? "")}
       </div>
 
@@ -257,7 +257,7 @@ export function VoiceAssistant() {
             <div className="min-w-0 flex-1">
               {result.transcribedText ? (
                 <p className="truncate text-xs text-zinc-500">
-                  שמעתי: &laquo;{result.transcribedText}&raquo;
+                  ליבי שמעה: &laquo;{result.transcribedText}&raquo;
                 </p>
               ) : null}
               <p className="mt-1 text-sm leading-relaxed font-semibold text-zinc-900 dark:text-zinc-50">
@@ -306,7 +306,7 @@ export function VoiceAssistant() {
             <p className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400">
               <AlertCircle className="size-3.5 shrink-0" aria-hidden />
               {result.error === "not_configured"
-                ? "העוזר הקולי לא מוגדר בשרת."
+                ? "ליבי לא מוגדרת בשרת."
                 : "משהו השתבש בדרך."}
             </p>
           ) : null}
@@ -351,7 +351,7 @@ export function VoiceAssistant() {
           else void start();
         }}
         disabled={phase === "processing" || phase === "speaking"}
-        aria-label={phase === "recording" ? "עצירת ההקלטה" : "דיבור עם בזמן"}
+        aria-label={phase === "recording" ? "עצירת ההקלטה" : "דיבור עם ליבי"}
         aria-pressed={phase === "recording"}
         className={cn(
           "fixed end-4 z-50 flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",

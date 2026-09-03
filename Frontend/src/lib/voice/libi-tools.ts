@@ -12,7 +12,7 @@ import {
   spokenToday,
   spokenTime,
   type SpokenAppointment,
-} from "./bazman-speech";
+} from "./libi-speech";
 
 /**
  * What the assistant is allowed to do, and what it is deliberately not.

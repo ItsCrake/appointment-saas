@@ -7,7 +7,7 @@
  * inline `undefined` and the feature would fail quietly — inviting somebody to
  * "fix" it by renaming the variable, which is the step that publishes a
  * billable key to every visitor. The guard is a runtime throw plus
- * `bazman-isolation.test.ts`, mirroring `libi.ts` exactly.
+ * `voice-isolation.test.ts`.
  *
  * **A second provider, and that is a real cost worth naming.** This product
  * already talks to Anthropic for Libi. Whisper and TTS have no Anthropic
@@ -21,7 +21,7 @@
 export function assertVoiceServer(): void {
   if (typeof window !== "undefined") {
     throw new Error(
-      "lib/voice/bazman-config is server-only and must not be bundled",
+      "lib/voice/libi-config is server-only and must not be bundled",
     );
   }
 }

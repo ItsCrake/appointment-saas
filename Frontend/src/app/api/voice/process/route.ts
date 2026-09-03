@@ -7,8 +7,8 @@ import {
   isAcceptedAudioType,
   isVoiceConfigured,
   MAX_AUDIO_BYTES,
-} from "@/lib/voice/bazman-config";
-import { decide, speak, transcribe } from "@/lib/voice/bazman-voice";
+} from "@/lib/voice/libi-config";
+import { decide, speak, transcribe } from "@/lib/voice/libi-voice";
 
 /**
  * `/api/voice/process` — one spoken turn.

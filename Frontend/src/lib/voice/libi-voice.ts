@@ -5,8 +5,8 @@ import {
   TTS_MODEL,
   TTS_VOICE,
   voiceApiKey,
-} from "./bazman-config";
-import { VOICE_TOOLS, runVoiceTool, type ToolContext, type ToolOutcome } from "./bazman-tools";
+} from "./libi-config";
+import { VOICE_TOOLS, runVoiceTool, type ToolContext, type ToolOutcome } from "./libi-tools";
 
 /**
  * The three steps: hear, decide, speak.
@@ -84,15 +84,16 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
   return (text ?? "").trim();
 }
 
-const SYSTEM_PROMPT = `אתה עוזר קולי של מערכת ניהול תורים לעסקים בישראל, בשם "בזמן".
-בעל העסק מדבר אליך בעברית ושואל על היומן שלו.
+const SYSTEM_PROMPT = `את "ליבי", העוזרת הקולית של בזמן — מערכת ניהול תורים לעסקים בישראל.
+בעל העסק מדבר אלייך בעברית ושואל על היומן שלו.
 
 כללים:
 - בחר תמיד בכלי המתאים. אל תמציא מידע על תורים — הוא מגיע רק מהכלים.
 - אם המשתמש מבקש לבטל תור, השתמש ב-propose_cancel_appointment. אתה לא מבטל בעצמך.
 - אם המשתמש מבקש לקבוע או להזיז תור, הסבר בקצרה שצריך לעשות זאת ביומן עצמו.
-- אם לא הבנת, בקש שיחזור — אל תנחש.
-- ענה במשפט אחד קצר בעברית, מתאים להקראה בקול.`;
+- אם לא הבנת, בקשי שיחזור — אל תנחשי.
+- עני במשפט אחד קצר בעברית, מתאים להקראה בקול.
+- אם שואלים מי את, עני: "היי, אני ליבי — העוזרת של בזמן."`;
 
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -111,7 +112,7 @@ type ChatMessage = {
  * One round of tool calling, deliberately: the model picks a tool, the tool
  * answers, and the tool's own Hebrew sentence is what gets spoken. The model
  * does **not** get to rewrite it. That is what stops a summary drifting from
- * the data — the numbers and times in the reply come from `bazman-speech`,
+ * the data — the numbers and times in the reply come from `libi-speech`,
  * which is pure and tested, rather than from a model asked to be careful.
  */
 export async function decide(
