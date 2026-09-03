@@ -1161,7 +1161,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1335 tests across 92 files**; Playwright
+**Green:** `npm run verify` at **1344 tests across 93 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1378,8 +1378,26 @@ optional. What follows from that:
   **`OPENAI_API_KEY` is set**, so the microphone does
   render. **Measured live end to end**: Whisper heard three Hebrew utterances,
   `gpt-4o-mini` chose the right tool for each, and TTS returned 31–48KB of mp3
-  — 6.1s to 9.5s a turn, which is three sequential model calls plus a database
-  round trip and is the number to beat if this ever feels slow.
+  — and the turn is now three separate waits rather than one.
+  **The reply streams as two NDJSON lines**: the card renders off the first,
+  about a second before the voice arrives on the second (measured: card at
+  7.45s, audio decode at 8.47s). A stream rather than a second endpoint, so
+  the sentence is not shipped back to be spoken and there is no route that will
+  read any text a signed-in caller hands it.
+  **The recording ends when the speaking does** — an `AnalyserNode` sampled per
+  animation frame, reduced to RMS, stopping after 1.8s of continuous quiet.
+  Measured against a 1.54s utterance the recorder ran 3.337s: exactly 1.800s
+  after the speech ended. The latch in `libi-vad.ts` is the load-bearing part —
+  nothing may stop before the level has crossed the threshold once, or a quiet
+  room closes the microphone before the owner has drawn breath. The 20s cap is
+  now a backstop rather than how a turn normally ends.
+  **Audio output is unlocked on the press**, not on arrival. A reply lands six
+  to nine seconds after the tap, by which time the gesture no longer counts for
+  an autoplay policy — which is why the `<Audio>` element this replaces was
+  refused intermittently, most often on the mobile browsers the feature exists
+  for. An `AudioContext` resumed inside the gesture stays running for the life
+  of the page; `unlockAudio()` is called *before* `await getUserMedia`, because
+  that await is long enough to lose the activation.
 - **The week grid has three densities** — `lib/calendar-density.ts`, chosen from
   a three-icon switcher beside the day/week toggle and remembered in
   `localStorage`. The problem is arithmetic: `gridMinWidthPx` reserves 144px a

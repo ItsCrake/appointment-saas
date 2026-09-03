@@ -14,6 +14,11 @@ import { AlertCircle, Check, Loader2, Mic, Square, X } from "lucide-react";
 import { setAppointmentStatusAction } from "@/app/dashboard/actions";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import {
+  decideSilence,
+  frameLevel,
+  INITIAL_SILENCE_STATE,
+} from "@/lib/voice/libi-vad";
 
 /**
  * ליבי — the microphone, the ring, and the card.
@@ -59,6 +64,11 @@ type Result = {
 /** Past this, stop on our own: a pocket recording is a bill, not a question. */
 const MAX_RECORDING_MS = 20_000;
 
+
+
+/** NDJSON's delimiter, named so no template has to escape it. */
+const NEWLINE = String.fromCharCode(10);
+
 /**
  * Shorter than this and the press was a tap, not a hold — so releasing does not
  * end the recording. Long enough to survive a slow finger, short enough that a
@@ -76,10 +86,12 @@ export function LibiAssistant() {
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** When the current press began, so a tap and a hold can be told apart. */
   const pressedAtRef = useRef(0);
+  /** Kept across turns: closing it would need another gesture to unlock. */
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<{ stop: () => void } | null>(null);
 
   /**
    * Whether this browser can record at all.
@@ -100,6 +112,113 @@ export function LibiAssistant() {
     () => false,
   );
 
+  /**
+   * **Unlocks audio output on the gesture that starts the recording.**
+   *
+   * The reply arrives six to nine seconds after the tap, and by then the tap is
+   * long gone as far as an autoplay policy is concerned — which is why the
+   * `<Audio>` element this replaces was intermittently refused, most often on
+   * exactly the mobile browsers the feature exists for. An `AudioContext`
+   * *resumed* inside a real gesture stays running for the life of the page, so
+   * the unlock happens once, at the press, and every later reply plays through
+   * it without asking again.
+   *
+   * Kept across turns and never closed: closing it would put the lock back and
+   * the next answer would be silent.
+   */
+  const unlockAudio = useCallback((): AudioContext | null => {
+    type WithWebkit = typeof window & {
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const Ctor =
+      window.AudioContext ?? (window as WithWebkit).webkitAudioContext;
+    if (!Ctor) return null;
+
+    audioCtxRef.current ??= new Ctor();
+    // `resume()` is the part that must happen inside the gesture. It is safe to
+    // call on an already-running context.
+    if (audioCtxRef.current.state !== "running") {
+      void audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  }, []);
+
+  /** Plays one base64 mp3 through the unlocked context. */
+  const play = useCallback(async (base64: string) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    // `decodeAudioData` wants its own ArrayBuffer and detaches what it is given.
+    const buffer = await ctx.decodeAudioData(bytes.buffer);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.onended = () => setPhase("idle");
+    setPhase("speaking");
+    source.start();
+  }, []);
+
+  /**
+   * Stops the recording once the speaking stops.
+   *
+   * An `AnalyserNode` on the live stream, sampled per animation frame, reduced
+   * to one RMS number. Two rules: the level has to cross {@link SPEECH_RMS} at
+   * least once before anything can auto-stop — otherwise a quiet room ends the
+   * recording before the owner has drawn breath — and after that, a continuous
+   * {@link SILENCE_MS} below the line ends it.
+   *
+   * `requestAnimationFrame` rather than a timer: it is already the browser's
+   * paint clock, it pauses with a backgrounded tab, and it gives roughly 60
+   * samples a second, which is far finer than the 1.8s it is measuring.
+   */
+  const listenForSilence = useCallback(
+    (ctx: AudioContext, stream: MediaStream, onSilent: () => void) => {
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const samples = new Uint8Array(analyser.fftSize);
+      let state = INITIAL_SILENCE_STATE;
+      let frame = 0;
+
+      const tick = () => {
+        analyser.getByteTimeDomainData(samples);
+
+        // The maths and the latch live in `libi-vad`, which is tested; this
+        // loop only supplies frames and a clock.
+        const outcome = decideSilence(
+          state,
+          frameLevel(samples),
+          performance.now(),
+        );
+        state = outcome.state;
+
+        if (outcome.stop) {
+          onSilent();
+          return;
+        }
+
+        frame = requestAnimationFrame(tick);
+      };
+
+      frame = requestAnimationFrame(tick);
+
+      return {
+        stop: () => {
+          cancelAnimationFrame(frame);
+          source.disconnect();
+          analyser.disconnect();
+        },
+      };
+    },
+    [],
+  );
+
   /** Releases the microphone. The browser's recording indicator is a promise. */
   const releaseStream = useCallback(() => {
     recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
@@ -109,8 +228,8 @@ export function LibiAssistant() {
   useEffect(() => {
     return () => {
       if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      analyserRef.current?.stop();
       releaseStream();
-      audioRef.current?.pause();
     };
   }, [releaseStream]);
 
@@ -128,22 +247,57 @@ export function LibiAssistant() {
           method: "POST",
           body: form,
         });
-        const body = (await response.json()) as Result;
-        setResult(body);
 
-        if (body.audioBase64) {
-          const audioEl = new Audio(
-            `data:audio/mpeg;base64,${body.audioBase64}`,
-          );
-          audioRef.current = audioEl;
-          setPhase("speaking");
-          audioEl.onended = () => setPhase("idle");
-          // Autoplay after a user gesture is allowed, but a refusal must not
-          // strand the ring on — the card still carries the answer in text.
-          audioEl.play().catch(() => setPhase("idle"));
-        } else {
+        /**
+         * A refusal is one JSON object; a success is two lines of NDJSON. The
+         * content type is what says which, so a 500 behind a proxy that
+         * rewrote the body cannot be parsed as a stream that never came.
+         */
+        const isStream = response.headers
+          .get("content-type")
+          ?.includes("ndjson");
+
+        if (!isStream || !response.body) {
+          setResult((await response.json()) as Result);
           setPhase("idle");
+          return;
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffered = "";
+        let spokeAloud = false;
+
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+
+          // A chunk boundary can land mid-line, so only whole lines are parsed.
+          let newline = buffered.indexOf(NEWLINE);
+          while (newline >= 0) {
+            const line = buffered.slice(0, newline).trim();
+            buffered = buffered.slice(newline + 1);
+            newline = buffered.indexOf(NEWLINE);
+            if (!line) continue;
+
+            const message = JSON.parse(line) as
+              | (Result & { type: "text" })
+              | { type: "audio"; audioBase64: string | null };
+
+            if (message.type === "text") {
+              // The card, about two seconds before she can say it.
+              setResult({ ...message, audioBase64: null });
+            } else if (message.audioBase64) {
+              spokeAloud = true;
+              await play(message.audioBase64).catch(() => setPhase("idle"));
+            }
+          }
+        }
+
+        // No audio line, or one that carried nothing: the answer is on screen
+        // and there is nothing left to wait for.
+        if (!spokeAloud) setPhase("idle");
       } catch {
         setResult({
           transcribedText: "",
@@ -155,7 +309,7 @@ export function LibiAssistant() {
         setPhase("idle");
       }
     },
-    [],
+    [play],
   );
 
   const stop = useCallback(() => {
@@ -163,6 +317,8 @@ export function LibiAssistant() {
       clearTimeout(stopTimerRef.current);
       stopTimerRef.current = null;
     }
+    analyserRef.current?.stop();
+    analyserRef.current = null;
     if (recorderRef.current?.state === "recording") {
       recorderRef.current.stop();
     }
@@ -170,6 +326,14 @@ export function LibiAssistant() {
 
   const start = useCallback(async () => {
     if (phase !== "idle") return;
+
+    /**
+     * **Before anything async.** `resume()` only counts as user-activated while
+     * the gesture is still live, and `await getUserMedia(...)` is long enough
+     * to lose that. Unlocking first is the whole fix for replies that used to
+     * arrive silently.
+     */
+    const audioCtx = unlockAudio();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -196,14 +360,23 @@ export function LibiAssistant() {
       recorder.start();
       setResult(null);
       setPhase("recording");
+
+      /**
+       * The cap is now a backstop rather than the way a turn normally ends.
+       * Silence stops it after {@link SILENCE_MS}; twenty seconds is what
+       * catches a pocket, a stuck threshold, or a browser with no AudioContext.
+       */
       stopTimerRef.current = setTimeout(stop, MAX_RECORDING_MS);
+      if (audioCtx) {
+        analyserRef.current = listenForSilence(audioCtx, stream, stop);
+      }
     } catch {
       // Denied, or no device. Both are the owner's to fix and neither is worth
       // a thrown error in a dashboard.
       toast("אין גישה למיקרופון. אפשר לאשר בהגדרות הדפדפן.", "error");
       setPhase("idle");
     }
-  }, [phase, releaseStream, send, stop, toast]);
+  }, [phase, listenForSilence, releaseStream, send, stop, toast, unlockAudio]);
 
   function confirmCancel(proposal: Proposal) {
     startConfirm(async () => {

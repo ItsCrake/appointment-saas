@@ -28,6 +28,18 @@ import { decide, speak, transcribe } from "@/lib/voice/libi-voice";
  *
  * **The transcript is returned even when a later step fails.** "It thought I
  * said Dana" is something an owner can act on; "it did not work" is not.
+ *
+ * **Two lines of NDJSON, not one JSON object.** The answer is known about two
+ * seconds before it can be spoken, and holding it back until the audio is
+ * encoded made the whole turn feel as slow as its slowest step. The first line
+ * carries the transcript, the sentence and any proposal — the card renders off
+ * that — and the second carries the audio when it arrives.
+ *
+ * A stream rather than a second endpoint, deliberately. Splitting TTS into its
+ * own route would mean shipping the sentence back to the server to be spoken,
+ * which is a second round trip *and* an endpoint that will read any text a
+ * signed-in caller hands it. Here the only thing that can be spoken is
+ * something this request already produced.
  * ---------------------------------------------------------------------------
  */
 export const dynamic = "force-dynamic";
@@ -50,6 +62,13 @@ export type VoiceProcessResponse = {
   error?: string;
 };
 
+/**
+ * A refusal is one JSON object, not a stream.
+ *
+ * There is nothing to wait for — no audio is coming — and a client that has to
+ * parse two shapes for the error path would be parsing a stream to find out
+ * there is no stream.
+ */
 function fail(
   status: number,
   textResult: string,
@@ -122,28 +141,56 @@ export async function POST(request: Request) {
       now: new Date(),
     });
 
-    /**
-     * Speech is best-effort. A failed TTS call must not lose the answer — the
-     * card shows `textResult` either way, and a silent reply an owner can read
-     * beats an error that discards work already paid for.
-     */
-    let audioBase64: string | null = null;
-    try {
-      audioBase64 = await speak(outcome.spoken);
-    } catch (error) {
-      reportError("voice.tts", error, { businessId: business.id });
-    }
+    const spoken = outcome.spoken;
+    const encoder = new TextEncoder();
+    /** NDJSON is newline-delimited; naming it keeps the escape out of a template. */
+    const NEWLINE = String.fromCharCode(10);
 
-    return NextResponse.json<VoiceProcessResponse>(
-      {
-        transcribedText,
-        textResult: outcome.spoken,
-        audioBase64,
-        actionTaken: outcome.actionTaken,
-        ...(outcome.proposal ? { proposal: outcome.proposal } : {}),
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        // Line one, immediately: everything the card needs.
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              type: "text",
+              transcribedText,
+              textResult: spoken,
+              actionTaken: outcome.actionTaken,
+              ...(outcome.proposal ? { proposal: outcome.proposal } : {}),
+            }) + NEWLINE,
+          ),
+        );
+
+        /**
+         * Line two, when the voice is ready. Speech is best-effort: a failed
+         * TTS call must not lose an answer the owner can already read, so the
+         * audio line simply says so and the card stays as it is.
+         */
+        try {
+          const audioBase64 = await speak(spoken);
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ type: "audio", audioBase64 }) + NEWLINE),
+          );
+        } catch (error) {
+          reportError("voice.tts", error, { businessId: business.id });
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ type: "audio", audioBase64: null }) + NEWLINE),
+          );
+        }
+
+        controller.close();
       },
-      { headers: { "Cache-Control": "private, no-store" } },
-    );
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        // Tells a proxy that buffers by default not to. Without it the two
+        // lines arrive together and the split buys nothing.
+        "X-Accel-Buffering": "no",
+      },
+    });
   } catch (error) {
     reportError("voice.process", error, { businessId: business.id });
     return fail(500, "לא הצלחתי לעבד את ההקלטה. כדאי לנסות שוב.", {
