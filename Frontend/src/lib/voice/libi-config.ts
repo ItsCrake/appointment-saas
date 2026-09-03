@@ -82,22 +82,32 @@ export function ttsVoice(): TtsVoice {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The two models worth pointing at Hebrew.
+ * The models worth pointing at Hebrew, most expressive first.
  *
- * `eleven_multilingual_v2` is the default and the better reader; `turbo_v2_5`
- * trades some of that for latency, which is a real consideration on a turn the
- * owner is standing still for. Configurable rather than chosen here because
- * which side of that trade a shop wants is not a code decision.
+ * ---------------------------------------------------------------------------
+ * **`eleven_v3` is the default, and it is the slow one.** Measured warm against
+ * this account, three runs each on a full sentence: v3 **2962ms**,
+ * `multilingual_v2` **1196ms**, `turbo_v2_5` **570ms**. So the default trades
+ * roughly 1.8 seconds of every turn for v3's delivery — a deliberate choice
+ * about how ליבי sounds, not an oversight, and the one line to change if a shop
+ * would rather have the speed.
+ *
+ * All three are verified against the real endpoint rather than assumed from a
+ * changelog: an unsupported `model_id` comes back a 422, and since this list is
+ * also what `elevenLabsModel()` coerces *to*, a wrong default would mean every
+ * turn failing over to OpenAI — the accent the switch existed to remove,
+ * restored silently and by default.
+ * ---------------------------------------------------------------------------
  */
 export const ELEVENLABS_MODELS = [
+  "eleven_v3",
   "eleven_multilingual_v2",
   "eleven_turbo_v2_5",
 ] as const;
 
 export type ElevenLabsModel = (typeof ELEVENLABS_MODELS)[number];
 
-export const DEFAULT_ELEVENLABS_MODEL: ElevenLabsModel =
-  "eleven_multilingual_v2";
+export const DEFAULT_ELEVENLABS_MODEL: ElevenLabsModel = "eleven_v3";
 
 export function elevenLabsModel(): ElevenLabsModel {
   const configured = process.env.ELEVENLABS_MODEL_ID?.trim();

@@ -1390,13 +1390,23 @@ optional. What follows from that:
   are distinguishable at the byte level (ElevenLabs emits an `ID3` header,
   `tts-1` a raw MPEG frame), and a turn with the key removed came back with the
   OpenAI shape and no lost answer.
-  **It is also faster**, which was not the reason for the switch. Measured warm,
-  three runs each: `eleven_multilingual_v2` **1353ms**, `eleven_turbo_v2_5`
-  **681ms**, `tts-1` **1950ms**. The first ElevenLabs call of a process is ~10s
-  of cold start and is not representative — do not tune on it.
-  `ELEVENLABS_MODEL_ID` picks between the two; the multilingual default is the
-  better reader and already beats what it replaced. `OPENAI_TTS_VOICE` still
-  governs the fallback's voice, defaulting to `nova`.
+  **`eleven_v3` is the default, and it is the slow one.** Measured warm, three
+  runs each, median: `eleven_v3` **2962ms**, `eleven_multilingual_v2`
+  **1196ms**, `eleven_turbo_v2_5` **570ms**, `tts-1` **1950ms**. So the default
+  is the one option here slower than the OpenAI voice it replaced, and it was
+  still chosen: v3 is the most expressive reader of the three, and this is the
+  one part of the product a shop's clients overhear. It costs ~1.8s a turn
+  against the multilingual model, on a turn that also pays for Whisper and the
+  intent model — measured end to end at ~10s. The first ElevenLabs call of a
+  process is ~10s of cold start and is not representative — do not tune on it.
+  `ELEVENLABS_MODEL_ID` picks between the three, and `eleven_turbo_v2_5` is the
+  answer if a turn ever feels slow. **An unknown value coerces to the default
+  rather than erroring**, which is the trap this file should name: get the
+  default itself wrong and every turn fails over to OpenAI silently — the accent
+  the switch existed to remove, restored by default and audible only to whoever
+  is standing there. That is why `eleven_v3` was proved against the live
+  endpoint before it became the default rather than after.
+  `OPENAI_TTS_VOICE` still governs the fallback's voice, defaulting to `nova`.
   **Two things a browser found that no unit test could.** The app's own
   `Permissions-Policy` header said `microphone=()` — closed to this origin too —
   so `getUserMedia` was refused by our own header and reported as a console

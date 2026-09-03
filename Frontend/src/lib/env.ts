@@ -220,12 +220,16 @@ export const ENV_VARS: EnvVar[] = [
     requirement: "optional",
     group: "Voice assistant",
     description:
-      "eleven_multilingual_v2 (default, the better reader) or eleven_turbo_v2_5 (faster). Anything else falls back to the default.",
-    howTo: "Leave unset unless the turn feels slow.",
+      "eleven_v3 (default, most expressive, ~3.0s), eleven_multilingual_v2 (~1.2s) or eleven_turbo_v2_5 (~0.6s). Anything else falls back to the default.",
+    howTo: "Leave unset unless the turn feels slow — then eleven_turbo_v2_5.",
     validate: (value) =>
-      ["eleven_multilingual_v2", "eleven_turbo_v2_5"].includes(value.trim())
+      [
+        "eleven_v3",
+        "eleven_multilingual_v2",
+        "eleven_turbo_v2_5",
+      ].includes(value.trim())
         ? null
-        : "not a model this pipeline uses — eleven_multilingual_v2 will be used",
+        : "not a model this pipeline uses — eleven_v3 will be used",
   },
   /*
    * Web push. `optional` rather than `production` because the failure is

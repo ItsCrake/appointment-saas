@@ -224,7 +224,7 @@ describe("elevenLabsConfig", () => {
     process.env.ELEVENLABS_VOICE_ID = "voice-123";
 
     delete process.env.ELEVENLABS_MODEL_ID;
-    expect(elevenLabsConfig()?.model).toBe("eleven_multilingual_v2");
+    expect(elevenLabsConfig()?.model).toBe("eleven_v3");
 
     for (const model of ELEVENLABS_MODELS) {
       process.env.ELEVENLABS_MODEL_ID = model;
@@ -233,7 +233,7 @@ describe("elevenLabsConfig", () => {
 
     // An unknown model would come back a 422 mid-turn, which reaches the owner
     // as silence. Falling back keeps her talking.
-    for (const junk of ["", "eleven_v3", "turbo", "gpt-4o-mini"]) {
+    for (const junk of ["", "eleven_v4", "turbo", "gpt-4o-mini"]) {
       process.env.ELEVENLABS_MODEL_ID = junk;
       expect(elevenLabsConfig()?.model).toBe(DEFAULT_ELEVENLABS_MODEL);
     }
