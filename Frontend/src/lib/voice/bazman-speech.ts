@@ -3,7 +3,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { todayInTimezone, weekdayLabel } from "@/lib/format";
 
 /**
- * What Siri actually says.
+ * What the assistant actually says.
  *
  * ---------------------------------------------------------------------------
  * **Pure, and separated from the route on purpose.** Everything hard about this

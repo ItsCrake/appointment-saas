@@ -27,24 +27,41 @@ const SRC = path.resolve(process.cwd(), "src");
 const LIBI_MODULE = "lib/voice/libi";
 
 /**
+ * Every module that reads a model provider's key.
+ *
+ * Two providers now: Anthropic behind Libi, OpenAI behind Bazman Voice. The
+ * property is the same for both and so is the failure — a `"use client"` module
+ * importing one inlines `undefined`, the feature dies quietly, and the obvious
+ * "fix" is a `NEXT_PUBLIC_` rename that publishes a billable key to every
+ * visitor. A second provider doubles the surface, so it is listed here rather
+ * than trusted to be noticed.
+ */
+const KEY_BEARING_MODULES = [
+  LIBI_MODULE,
+  "lib/voice/bazman-config",
+  "lib/voice/bazman-voice",
+] as const;
+
+/**
  * Resolves each import and asks whether it *is* the model module — rather than
  * matching the text "libi", which would also hit `libi-schema` (pure, safe, and
  * imported by the client component on purpose) and make this suite cry wolf.
  */
-function importsLibi(rel: string, source: string): boolean {
+function importsModule(rel: string, source: string, target: string): boolean {
   const specifiers = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
     (match) => match[1],
   );
 
   return specifiers.some((specifier) => {
-    if (specifier.startsWith("@/")) return specifier.slice(2) === LIBI_MODULE;
+    if (specifier.startsWith("@/")) return specifier.slice(2) === target;
     if (!specifier.startsWith(".")) return false;
     const from = path.posix.dirname(rel);
-    return (
-      path.posix.normalize(path.posix.join(from, specifier)) === LIBI_MODULE
-    );
+    return path.posix.normalize(path.posix.join(from, specifier)) === target;
   });
 }
+
+const importsLibi = (rel: string, source: string) =>
+  importsModule(rel, source, LIBI_MODULE);
 
 function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -101,6 +118,40 @@ describe("voice assistant key isolation", () => {
     const libi = files.find((f) => f.rel === "lib/voice/libi.ts");
     expect(libi).toBeDefined();
     expect(libi!.source).toContain('typeof window !== "undefined"');
+  });
+
+  it.each(KEY_BEARING_MODULES)(
+    "no client component imports %s",
+    (target) => {
+      const offenders = clientFiles
+        .filter((f) => importsModule(f.rel, f.source, target))
+        .map((f) => f.rel);
+
+      expect(offenders).toEqual([]);
+    },
+  );
+
+  it.each(["lib/voice/bazman-config.ts", "lib/voice/bazman-voice.ts"])(
+    "%s keeps the runtime guard",
+    (rel) => {
+      // The syntactic scan above cannot see a dynamic import or a re-export
+      // chain; the throw is what stops either becoming a silent bundle.
+      const found = files.find((f) => f.rel === rel);
+      expect(found).toBeDefined();
+      expect(found!.source).toMatch(/typeof window !== "undefined"|assertVoiceServer/);
+    },
+  );
+
+  it("keeps the voice tools free of any key", () => {
+    /**
+     * `bazman-tools` is the half that talks to the database rather than to a
+     * model, and it must stay that way: it is the module a future contributor
+     * is most likely to import somewhere convenient.
+     */
+    const tools = files.find((f) => f.rel === "lib/voice/bazman-tools.ts");
+    expect(tools).toBeDefined();
+    expect(tools!.source).not.toContain("OPENAI_API_KEY");
+    expect(tools!.source).not.toContain("ANTHROPIC_API_KEY");
   });
 
   it("keeps the pure schema importable from the browser", () => {

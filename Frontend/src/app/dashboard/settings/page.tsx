@@ -16,7 +16,6 @@ import {
 import { headers } from "next/headers";
 
 import { SettingsForm } from "@/components/dashboard/settings-form";
-import { SiriIntegration } from "@/components/dashboard/siri-integration";
 import { configuredAppUrl, originFromHeaders, pickAppUrl } from "@/lib/app-url";
 import { btnAccent } from "@/components/dashboard/ui";
 import {
@@ -32,7 +31,6 @@ import {
   type HeroMediaType,
 } from "@/lib/branding";
 import { requireBusiness } from "@/lib/dashboard-session";
-import { formatFullDateTime } from "@/lib/format";
 import { entitlementsFor } from "@/lib/entitlements";
 import { cn } from "@/lib/utils";
 
@@ -188,30 +186,6 @@ export default async function SettingsPage() {
           />
         </div>
 
-        <div className="mt-8">
-          <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            אינטגרציות
-          </h2>
-          <p className="mt-0.5 mb-4 text-sm text-zinc-500">
-            חיבור היומן לכלים חיצוניים
-          </p>
-
-          {/* Outside `SettingsDirtyProvider`'s save bar on purpose: this panel
-              writes the moment a button is pressed, where every form above it
-              batches into one Save. A key that appears only after a separate
-              Save is a key an owner copies before it exists. */}
-          <SiriIntegration
-            initialToken={business.siriApiToken}
-            createdAt={
-              business.siriTokenCreatedAt
-                ? formatFullDateTime(
-                    business.siriTokenCreatedAt.toISOString(),
-                    business.timezone,
-                  ).date
-                : null
-            }
-          />
-        </div>
       </div>
 
       <SettingsSaveBar />

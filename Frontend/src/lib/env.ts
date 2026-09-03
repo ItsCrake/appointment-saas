@@ -175,6 +175,28 @@ export const ENV_VARS: EnvVar[] = [
         : 'does not look like an Anthropic key — they start with "sk-ant-"',
   },
   /*
+   * Bazman Voice — the in-dashboard assistant. `optional` on the same terms as
+   * Libi above: with no key the microphone is not rendered, and every other way
+   * of reading the calendar is unaffected.
+   *
+   * A **second** model provider, which is worth seeing in this list rather than
+   * discovering in a bill. Whisper and TTS have no Anthropic equivalent, so
+   * speech in and speech out have to come from OpenAI; the intent step in the
+   * middle is the one part that could run on the key directly above it.
+   */
+  {
+    name: "OPENAI_API_KEY",
+    requirement: "optional",
+    group: "Voice assistant",
+    description:
+      "OpenAI key for Bazman Voice — Whisper transcription, intent, and speech. Without it the dashboard microphone is hidden.",
+    howTo: "platform.openai.com → API keys.",
+    validate: (value) =>
+      value.startsWith("sk-")
+        ? null
+        : 'does not look like an OpenAI key — they start with "sk-"',
+  },
+  /*
    * Web push. `optional` rather than `production` because the failure is
    * visible and self-limiting: with no keys the settings card says push is not
    * configured, and every other alert channel still fires. Nothing is silently

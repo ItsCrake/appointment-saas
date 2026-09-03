@@ -5,11 +5,13 @@ import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { FrozenBanner } from "@/components/dashboard/frozen-banner";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { ToastProvider } from "@/components/ui/toast";
+import { VoiceAssistant } from "@/components/dashboard/voice-assistant";
 import { getBusinessById } from "@/db/queries";
 import { businessForOwner } from "@/lib/dashboard-session";
 import { readImpersonatedBusinessId } from "@/lib/impersonation";
 import { currentSuperAdmin } from "@/lib/master-session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { isVoiceConfigured } from "@/lib/voice/bazman-config";
 import { getCurrentUser } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -88,6 +90,8 @@ export default async function DashboardLayout({
     frozenState(),
   ]);
 
+  const voiceReady = isVoiceConfigured();
+
   return (
     <ToastProvider>
       {supportingBusiness ? (
@@ -104,6 +108,16 @@ export default async function DashboardLayout({
           <div className="mx-auto w-full max-w-4xl">{children}</div>
         </main>
       </div>
+
+      {/* In the layout rather than on a page, because the ring is a property of
+          the whole viewport and the microphone should not disappear when the
+          owner navigates mid-thought.
+
+          Resolved on the server: `isVoiceConfigured` reads a key with no
+          `NEXT_PUBLIC_` prefix, so asking in the browser would always answer
+          no. Absent rather than disabled when unconfigured — the same rule
+          Libi follows. */}
+      {voiceReady ? <VoiceAssistant /> : null}
     </ToastProvider>
   );
 }

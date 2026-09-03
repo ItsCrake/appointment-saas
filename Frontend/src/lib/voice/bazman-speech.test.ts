@@ -8,10 +8,10 @@ import {
   spokenTime,
   spokenToday,
   type SpokenAppointment,
-} from "./speech";
+} from "./bazman-speech";
 
 /**
- * What Siri says, and the three ways it can be wrong without anything failing.
+ * What the assistant says, and the three ways it can be wrong without anything failing.
  *
  * ---------------------------------------------------------------------------
  * A spoken answer has no status code. Every failure here is a sentence that is

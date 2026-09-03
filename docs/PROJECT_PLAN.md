@@ -1194,10 +1194,12 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1367 tests across 94 files**; Playwright
-**11/11** across 3 specs (not run every session). All **31 migrations
-(0000–0030)** are applied to production — 0030 was applied on 2026-09-03 and
-verified before the push that shipped it. Fifteen tables, RLS on every one, zero
+**Green:** `npm run verify` at **1353 tests across 93 files**; Playwright
+**11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
+safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
+drop is the one direction where code may ship first: Drizzle names an explicit
+column list, so a column the database has and the schema does not is simply
+never selected. Fifteen tables, RLS on every one, zero
 reachable by `anon`. **No migration pending.**
 
 > ⚠️ **The ordering rule 0025 established, for every migration after it.**
@@ -1372,36 +1374,44 @@ optional. What follows from that:
   `border-2` would reflow every card in the list the moment somebody is
   deactivated. Colour is not carrying it alone: the name is struck through and
   the card's own button reads "הפעלה" instead of "השבתה".
-- **Siri, over a bearer token** (0030) — `/api/siri/v1?action=next|today|search`
-  answers an owner's own calendar as one Hebrew sentence for an Apple Shortcut
-  to speak. `siri_api_token` on `businesses` is the **only** thing that decides
-  whose calendar is read: no session, no cookie, no business id in the request,
-  which is what lets the question be asked mid-haircut.
-  **It reads and can never write.** No confirm, no cancel, no reschedule — a
-  token in a note or a sold phone leaks a view of a calendar, which is bad, and
-  cannot cancel a client's appointment, which would be worse. Adding a write
-  verb is not a small change to that file; it is a different threat model and
-  wants a different credential.
-  Plaintext in the column like `cancel_token`, because the owner has to read it
-  again to paste it into a Shortcut on another device; `observability.ts`
-  already redacts every key matching /token/i. The header is preferred and the
-  query string is supported anyway — Shortcuts builds a URL in one action and
-  needs another step to attach a header, and a feature an owner cannot set up
-  is not safer, only unused.
-  **There is no `.shortcut` file and the UI does not pretend there is.** An
-  Apple Shortcut is a signed archive; an unsigned one will not import without
-  the owner first allowing untrusted shortcuts, so a "download" button would
-  land on a system warning or on nothing. The button copies the finished URL
-  with the key in it, and four steps say what to do with it.
-  `SHORTCUT_GALLERY_URL` in `siri-integration.tsx` is the seam: publish a real
-  shortcut from a device, drop its iCloud link there, and it becomes one tap.
-  **On latency, measured rather than claimed.** The brief asked for sub-100ms.
-  One round trip to the production database is **286ms** from a developer
-  machine — it is in `ap-northeast-2` — so the target is a statement about
-  co-locating the app with the database, not about this code. What the code
-  controls is the number of *sequential* phases, and it is at the floor of two:
-  resolve the token, then fetch, with the `today` action's count and next-up
-  running as one parallel pair.
+- **Bazman Voice** — a microphone in the dashboard layout, `/api/voice/process`,
+  and a gradient ring around the viewport while it listens. Replaces the Apple
+  Shortcuts endpoint, which is gone along with `siri_api_token`; **0031 drops
+  those columns and can be applied at any time** — see the note in its own file,
+  because a *drop* inverts the ordering rule that governs every other migration
+  here.
+  **Authenticated by the owner's own session**, not a token: the caller is the
+  dashboard they are already signed into, so `requireBusiness()` resolves the
+  tenant exactly as every other route does and there is no new credential to
+  mint, leak or revoke.
+  **Reads run; writes are proposed.** `propose_cancel_appointment` returns the
+  appointment it *would* cancel and the owner confirms on the card, through the
+  same action the dashboard's own buttons use. The input is Hebrew speech
+  transcribed by a model in a room with clippers running, and `בטל` and `בדוק`
+  differ by one consonant — `bazman-tools.test.ts` asserts the row is still live
+  after a proposal, and that an ambiguous name refuses rather than guessing.
+  Create and reschedule are deliberately absent: both need the availability
+  engine and the overlap refusal surfaced as something a person can answer, and
+  a voice turn is the wrong place for that conversation.
+  **The model does not write the sentence.** It picks a tool; the tool's own
+  Hebrew comes from `bazman-speech.ts`, which is pure and has 42 tests. That is
+  what stops a summary drifting from the data it is summarising.
+  **Two things a browser found that no unit test could.** The app's own
+  `Permissions-Policy` header said `microphone=()` — closed to this origin too —
+  so `getUserMedia` was refused by our own header and reported as a console
+  violation rather than a prompt; it is now `microphone=(self)`, camera and
+  geolocation still shut. And the ring's mask needs `mask-composite: exclude`
+  with the `-webkit-` pair written *first*: the other order let Chromium apply
+  an invalid `xor`, drop the composite, and paint the gradient across the entire
+  viewport.
+  No Framer Motion and no OpenAI SDK: the ring is a conic gradient swept by an
+  `@property` angle, and the three model calls are `fetch` with the runtime's
+  own `FormData`. A 50KB animation library on a dashboard that ships 19KB, to
+  animate a border the compositor animates for free, is not a trade worth making.
+  **`OPENAI_API_KEY` is not set anywhere yet**, so the microphone does not
+  render — the same rule Libi follows. Whisper and TTS have no Anthropic
+  equivalent; the intent step is the one part that could run on the key this
+  product already has.
 - **The week grid has three densities** — `lib/calendar-density.ts`, chosen from
   a three-icon switcher beside the day/week toggle and remembered in
   `localStorage`. The problem is arithmetic: `gridMinWidthPx` reserves 144px a

@@ -10,8 +10,24 @@ const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    /**
+     * **`microphone=(self)`, and only microphone.**
+     *
+     * This read `microphone=()` — closed to everyone including this origin —
+     * until Bazman Voice needed it. That is not a theoretical conflict: the
+     * assistant's `getUserMedia` call was refused by our own header, and the
+     * browser reported it as `Permissions policy violation` in the console
+     * rather than as a permission prompt, so the feature failed in a way no
+     * unit test could see. Libi never hit it because the Web Speech API is not
+     * gated by this policy; `MediaRecorder` is.
+     *
+     * `(self)` rather than `*`: this origin may ask, an embedded third party
+     * still may not. Camera and geolocation stay shut, because nothing here
+     * has ever wanted them and an open policy is only ever noticed after it
+     * is abused.
+     */
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+    value: "camera=(), microphone=(self), geolocation=(), interest-cohort=()",
   },
   {
     key: "Strict-Transport-Security",

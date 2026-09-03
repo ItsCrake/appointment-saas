@@ -995,6 +995,107 @@ body {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   BAZMAN VOICE — the glow around the viewport while it is listening.
+
+   A gradient *border*, drawn the only way CSS draws one: paint the gradient
+   over the whole box, then mask out everything but the rim. Two layers, because
+   they do different jobs — a sharp ring that reads as an edge, and a blurred
+   copy behind it that reads as light coming off it.
+
+   `@property` is what makes the angle animatable at all: a plain custom
+   property is a string to the interpolator and would jump between keyframes
+   rather than sweep. Where it is unsupported the gradient simply holds still,
+   which is a static ring rather than a broken one.
+
+   Fixed, `pointer-events: none`, and painted above the app but below any
+   dialog — it is an ambient state, and it must never intercept the tap that
+   stops the recording.
+
+   Transform and opacity only on the blurred layer, so the sweep composites on
+   the GPU instead of repainting a full-viewport element sixty times a second —
+   the same rule the booking page's ambient blobs follow, and for the same
+   five-year-old phone.
+--------------------------------------------------------------------------- */
+@property --voice-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes voice-sweep {
+  to {
+    --voice-angle: 360deg;
+  }
+}
+
+@keyframes voice-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.voice-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  border-radius: 1.25rem;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--voice-angle),
+    oklch(62% 0.23 292),
+    oklch(70% 0.19 233),
+    oklch(72% 0.2 165),
+    oklch(75% 0.2 85),
+    oklch(66% 0.24 12),
+    oklch(62% 0.23 292)
+  );
+  /* Cuts the middle out, leaving only the padding box: two identical masks,
+     one clipped to the content box, combined so that what they share is
+     removed. What is left is the 3px rim.
+
+     **The two spellings are not interchangeable and the order matters.** The
+     standard property takes `exclude`; the WebKit one takes `xor`. Written the
+     other way round — webkit last — Chromium applied the `-webkit-` pair,
+     found `xor` invalid for it, dropped the composite, and painted the gradient
+     across the entire viewport. It looked like a rainbow screensaver, and no
+     unit test could have seen it. Standard last, so it wins where both are
+     understood. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: voice-sweep 4s linear infinite;
+}
+
+/* The light, not the edge. Blurred and behind, and never masked — a blurred
+   ring with a hole in it looks like a hole. */
+.voice-glow::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: inherit;
+  filter: blur(18px);
+  opacity: 0.55;
+  animation: voice-breathe 2.4s ease-in-out infinite;
+}
+
+/* Processing reads as a slower, cooler sweep: the difference between "I am
+   listening to you" and "I am thinking", without a second colour language. */
+.voice-glow[data-phase="processing"] {
+  animation-duration: 1.6s;
+}
+
 /* Motion is decoration here; the layout and content are identical without it. */
 @media (prefers-reduced-motion: reduce) {
   .animate-step,
@@ -1010,7 +1111,12 @@ body {
   .animate-pending,
   /* Parked at the leading edge rather than hidden: a still bar is a quieter
      signal than a moving one, but it is still the signal. */
-  .route-progress {
+  .route-progress,
+  /* The ring stays — it is the only thing on screen saying the microphone is
+     open, and removing it would remove the state rather than the motion. Only
+     the sweep and the breath stop. */
+  .voice-glow,
+  .voice-glow::before {
     animation: none;
   }
 }
