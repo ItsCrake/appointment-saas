@@ -77,6 +77,69 @@ export function ttsVoice(): TtsVoice {
     : DEFAULT_TTS_VOICE;
 }
 
+/* -------------------------------------------------------------------------- */
+/* ElevenLabs — speech out, when it is configured                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The two models worth pointing at Hebrew.
+ *
+ * `eleven_multilingual_v2` is the default and the better reader; `turbo_v2_5`
+ * trades some of that for latency, which is a real consideration on a turn the
+ * owner is standing still for. Configurable rather than chosen here because
+ * which side of that trade a shop wants is not a code decision.
+ */
+export const ELEVENLABS_MODELS = [
+  "eleven_multilingual_v2",
+  "eleven_turbo_v2_5",
+] as const;
+
+export type ElevenLabsModel = (typeof ELEVENLABS_MODELS)[number];
+
+export const DEFAULT_ELEVENLABS_MODEL: ElevenLabsModel =
+  "eleven_multilingual_v2";
+
+export function elevenLabsModel(): ElevenLabsModel {
+  const configured = process.env.ELEVENLABS_MODEL_ID?.trim();
+  return ELEVENLABS_MODELS.includes(configured as ElevenLabsModel)
+    ? (configured as ElevenLabsModel)
+    : DEFAULT_ELEVENLABS_MODEL;
+}
+
+export type ElevenLabsConfig = {
+  apiKey: string;
+  voiceId: string;
+  model: ElevenLabsModel;
+};
+
+/**
+ * ElevenLabs, or null.
+ *
+ * ---------------------------------------------------------------------------
+ * **Both halves or neither.** A key with no `ELEVENLABS_VOICE_ID` is not a
+ * half-working configuration — the voice id is a *path segment*, so a request
+ * without one is a 404 on every single turn. Treating that as "not configured"
+ * sends the deploy back to OpenAI, which is a working assistant with a
+ * different accent; treating it as configured would be a mute one.
+ *
+ * There is deliberately no default voice id. ElevenLabs publishes premade
+ * voices with stable ids and it would be easy to hardcode one, but that would
+ * mean a shop that set only the key silently speaks in a voice nobody here
+ * chose, billed to their account. Absent is a clearer state than arbitrary.
+ * ---------------------------------------------------------------------------
+ */
+export function elevenLabsConfig(): ElevenLabsConfig | null {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const voiceId = process.env.ELEVENLABS_VOICE_ID?.trim();
+  if (!apiKey || !voiceId) return null;
+
+  return { apiKey, voiceId, model: elevenLabsModel() };
+}
+
+export function isElevenLabsConfigured(): boolean {
+  return elevenLabsConfig() !== null;
+}
+
 /**
  * Whether the assistant can reach a model at all.
  *
@@ -87,6 +150,11 @@ export function ttsVoice(): TtsVoice {
  * would either invent an appointment or refuse every sentence.
  */
 export function isVoiceConfigured(): boolean {
+  /**
+   * Still the OpenAI key, and only that one. ElevenLabs replaces the *speech
+   * out* leg alone — Whisper still hears the question and `gpt-4o-mini` still
+   * decides what it means, so an ElevenLabs key on its own is not an assistant.
+   */
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 

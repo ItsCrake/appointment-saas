@@ -193,6 +193,41 @@ export const ENV_VARS: EnvVar[] = [
         : "not an OpenAI voice — nova will be used instead",
   },
   /*
+   * ElevenLabs — speech out only. `optional` because the assistant works
+   * without it: `speak()` falls back to OpenAI's `tts-1`, which reads Hebrew
+   * with an audible foreign accent but reads it. The pair is all-or-nothing —
+   * a key with no voice id is a 404 on every turn, so `elevenLabsConfig()`
+   * treats it as absent and stays on OpenAI rather than going mute.
+   */
+  {
+    name: "ELEVENLABS_API_KEY",
+    requirement: "optional",
+    group: "Voice assistant",
+    description:
+      "ElevenLabs key for ליבי's speech. Needs ELEVENLABS_VOICE_ID alongside it; without both, speech falls back to OpenAI tts-1.",
+    howTo: "elevenlabs.io → Profile → API Keys.",
+  },
+  {
+    name: "ELEVENLABS_VOICE_ID",
+    requirement: "optional",
+    group: "Voice assistant",
+    description:
+      "Which ElevenLabs voice ליבי speaks in. No default: an arbitrary premade voice billed to the shop's account is worse than falling back.",
+    howTo: "elevenlabs.io → Voices → the voice's ID.",
+  },
+  {
+    name: "ELEVENLABS_MODEL_ID",
+    requirement: "optional",
+    group: "Voice assistant",
+    description:
+      "eleven_multilingual_v2 (default, the better reader) or eleven_turbo_v2_5 (faster). Anything else falls back to the default.",
+    howTo: "Leave unset unless the turn feels slow.",
+    validate: (value) =>
+      ["eleven_multilingual_v2", "eleven_turbo_v2_5"].includes(value.trim())
+        ? null
+        : "not a model this pipeline uses — eleven_multilingual_v2 will be used",
+  },
+  /*
    * Web push. `optional` rather than `production` because the failure is
    * visible and self-limiting: with no keys the settings card says push is not
    * configured, and every other alert channel still fires. Nothing is silently

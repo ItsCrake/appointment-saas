@@ -1,5 +1,8 @@
+import { reportWarning } from "@/lib/observability";
+
 import {
   assertVoiceServer,
+  elevenLabsConfig,
   INTENT_MODEL,
   STT_MODEL,
   TTS_MODEL,
@@ -207,12 +210,86 @@ ${INSTRUCTIONS}`,
 /**
  * Step 3 — the sentence, spoken.
  *
- * Base64 rather than a streamed body, because the reply is one short sentence
- * and the client plays it as a whole: a stream would add a second request and
- * a partial-playback state for a two-second clip. MP3 because every browser
- * that can record can play it.
+ * ---------------------------------------------------------------------------
+ * **ElevenLabs when it is configured, OpenAI when it is not.** The reason for
+ * the switch is the accent: `tts-1` reads Hebrew as a foreign language and it
+ * is audible in every reply. ElevenLabs' multilingual model does not, which
+ * matters more here than anywhere else in the product — this is the one part of
+ * Bazman that a shop's clients might overhear.
+ *
+ * **The fallback is on failure, not only on absence.** The brief asks for a
+ * fallback when the key is missing, and that is the easy half. The half that
+ * actually keeps the assistant working is the other one: a quota, a revoked
+ * key, a deleted voice or an ElevenLabs outage all arrive as a failed request
+ * on a turn the owner is waiting through, and dropping to OpenAI costs them a
+ * foreign accent for one sentence instead of silence. Reported rather than
+ * swallowed, so a broken configuration is visible in a log rather than only
+ * audible to whoever is standing there.
+ *
+ * Both return base64 mp3, which is what the client already plays — the
+ * provider switch reaches nothing beyond this file.
+ * ---------------------------------------------------------------------------
  */
 export async function speak(text: string): Promise<string> {
+  const eleven = elevenLabsConfig();
+  if (!eleven) return speakWithOpenAI(text);
+
+  try {
+    return await speakWithElevenLabs(text, eleven);
+  } catch (error) {
+    reportWarning(
+      "voice.tts.elevenLabsFallback",
+      "ElevenLabs speech failed; falling back to OpenAI",
+      { message: error instanceof Error ? error.message : String(error) },
+    );
+    return speakWithOpenAI(text);
+  }
+}
+
+async function speakWithElevenLabs(
+  text: string,
+  { apiKey, voiceId, model }: NonNullable<ReturnType<typeof elevenLabsConfig>>,
+): Promise<string> {
+  assertVoiceServer();
+
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+    {
+      method: "POST",
+      signal: AbortSignal.timeout(STEP_TIMEOUT_MS),
+      headers: {
+        // ElevenLabs takes its key in its own header, not as a bearer token.
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+        // Default output is mp3 either way; asked for explicitly so a change to
+        // their default cannot silently hand the client something it cannot
+        // play through `data:audio/mpeg`.
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({ text, model_id: model }),
+    },
+  );
+
+  if (!response.ok) {
+    // Their message distinguishes "quota exhausted" from "no such voice", which
+    // is the whole value of surfacing it. It never contains the key.
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `elevenlabs ${response.status} ${detail.slice(0, 200)}`,
+    );
+  }
+
+  return Buffer.from(await response.arrayBuffer()).toString("base64");
+}
+
+/**
+ * The original path, kept as the floor rather than deleted.
+ *
+ * Base64 rather than a streamed body, because the reply is one short sentence
+ * and the client plays it whole; a stream would add a second request and a
+ * partial-playback state for a two-second clip.
+ */
+async function speakWithOpenAI(text: string): Promise<string> {
   const response = await openai("/audio/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

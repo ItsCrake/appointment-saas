@@ -1161,7 +1161,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1361 tests across 94 files**; Playwright
+**Green:** `npm run verify` at **1366 tests across 94 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1375,10 +1375,28 @@ optional. What follows from that:
   *"כמה תורים יש לי היום?"* → still routed to `get_today_summary`.
   The clock was the half that was simply absent — a model has no idea what day
   it is, so every "היום" and "מחר" was previously a guess.
-  **The voice is `OPENAI_TTS_VOICE`**, defaulting to `nova`. Validated against
-  the six OpenAI accepts and falling back rather than passing an unknown one
-  through: a typo would come back a 400 from the speech call and reach the owner
-  as ליבי having nothing to say, with the answer still on screen.
+  **Speech out is ElevenLabs, with OpenAI as the floor.** `tts-1` reads Hebrew
+  as a foreign language and it is audible in every reply — the one part of this
+  product a shop's clients might overhear. `ELEVENLABS_API_KEY` +
+  `ELEVENLABS_VOICE_ID` switch it; **both or neither**, because a voice id is a
+  path segment and a key without one is a 404 on every turn, so a half
+  configuration stays on OpenAI rather than going mute. There is deliberately no
+  default voice id: an arbitrary premade voice billed to the shop's account is
+  worse than falling back.
+  The fallback fires on **failure as well as absence** — a quota, a revoked key
+  or an outage costs a foreign accent for one sentence instead of silence, and
+  is reported so a broken configuration is visible in a log rather than only
+  audible to whoever is standing there. Verified both ways: the two providers
+  are distinguishable at the byte level (ElevenLabs emits an `ID3` header,
+  `tts-1` a raw MPEG frame), and a turn with the key removed came back with the
+  OpenAI shape and no lost answer.
+  **It is also faster**, which was not the reason for the switch. Measured warm,
+  three runs each: `eleven_multilingual_v2` **1353ms**, `eleven_turbo_v2_5`
+  **681ms**, `tts-1` **1950ms**. The first ElevenLabs call of a process is ~10s
+  of cold start and is not representative — do not tune on it.
+  `ELEVENLABS_MODEL_ID` picks between the two; the multilingual default is the
+  better reader and already beats what it replaced. `OPENAI_TTS_VOICE` still
+  governs the fallback's voice, defaulting to `nova`.
   **Two things a browser found that no unit test could.** The app's own
   `Permissions-Policy` header said `microphone=()` — closed to this origin too —
   so `getUserMedia` was refused by our own header and reported as a console

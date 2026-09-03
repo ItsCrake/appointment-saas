@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_ELEVENLABS_MODEL,
   DEFAULT_TTS_VOICE,
+  ELEVENLABS_MODELS,
+  elevenLabsConfig,
+  isElevenLabsConfigured,
+  isVoiceConfigured,
   TTS_VOICES,
   ttsVoice,
 } from "./libi-config";
@@ -152,5 +157,97 @@ describe("ttsVoice", () => {
       process.env.OPENAI_TTS_VOICE = junk;
       expect(ttsVoice()).toBe(DEFAULT_TTS_VOICE);
     }
+  });
+});
+
+describe("elevenLabsConfig", () => {
+  const saved = {
+    key: process.env.ELEVENLABS_API_KEY,
+    voice: process.env.ELEVENLABS_VOICE_ID,
+    model: process.env.ELEVENLABS_MODEL_ID,
+  };
+
+  const set = (name: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  };
+
+  afterEach(() => {
+    set("ELEVENLABS_API_KEY", saved.key);
+    set("ELEVENLABS_VOICE_ID", saved.voice);
+    set("ELEVENLABS_MODEL_ID", saved.model);
+  });
+
+  it("is configured only when both halves are present", () => {
+    /**
+     * The one that matters. A voice id is a **path segment**, so a key without
+     * one is a 404 on every single turn — a mute assistant. Treated as absent,
+     * the deploy stays on OpenAI, which is a working assistant with the wrong
+     * accent. That is strictly the better failure.
+     */
+    process.env.ELEVENLABS_API_KEY = "xi-test";
+    delete process.env.ELEVENLABS_VOICE_ID;
+    expect(elevenLabsConfig()).toBeNull();
+    expect(isElevenLabsConfigured()).toBe(false);
+
+    delete process.env.ELEVENLABS_API_KEY;
+    process.env.ELEVENLABS_VOICE_ID = "voice-123";
+    expect(elevenLabsConfig()).toBeNull();
+
+    process.env.ELEVENLABS_API_KEY = "xi-test";
+    expect(elevenLabsConfig()).toEqual({
+      apiKey: "xi-test",
+      voiceId: "voice-123",
+      model: DEFAULT_ELEVENLABS_MODEL,
+    });
+  });
+
+  it("treats blank as missing", () => {
+    // A variable set to an empty string in a deploy panel is the usual way a
+    // half-configuration happens, and it is not the same as unset to `Boolean`.
+    process.env.ELEVENLABS_API_KEY = "   ";
+    process.env.ELEVENLABS_VOICE_ID = "voice-123";
+    expect(elevenLabsConfig()).toBeNull();
+  });
+
+  it("trims what a pasted value brings along", () => {
+    process.env.ELEVENLABS_API_KEY = "  xi-test	";
+    process.env.ELEVENLABS_VOICE_ID = " voice-123 ";
+    expect(elevenLabsConfig()).toMatchObject({
+      apiKey: "xi-test",
+      voiceId: "voice-123",
+    });
+  });
+
+  it("defaults the model, and accepts only the two this pipeline uses", () => {
+    process.env.ELEVENLABS_API_KEY = "xi-test";
+    process.env.ELEVENLABS_VOICE_ID = "voice-123";
+
+    delete process.env.ELEVENLABS_MODEL_ID;
+    expect(elevenLabsConfig()?.model).toBe("eleven_multilingual_v2");
+
+    for (const model of ELEVENLABS_MODELS) {
+      process.env.ELEVENLABS_MODEL_ID = model;
+      expect(elevenLabsConfig()?.model).toBe(model);
+    }
+
+    // An unknown model would come back a 422 mid-turn, which reaches the owner
+    // as silence. Falling back keeps her talking.
+    for (const junk of ["", "eleven_v3", "turbo", "gpt-4o-mini"]) {
+      process.env.ELEVENLABS_MODEL_ID = junk;
+      expect(elevenLabsConfig()?.model).toBe(DEFAULT_ELEVENLABS_MODEL);
+    }
+  });
+
+  it("does not decide whether the assistant exists at all", () => {
+    /**
+     * ElevenLabs replaces the speech-out leg only. Whisper still hears the
+     * question and the intent model still decides what it means, so the
+     * microphone's presence stays keyed on the OpenAI key — an ElevenLabs key
+     * alone is a voice with nothing to say.
+     */
+    delete process.env.ELEVENLABS_API_KEY;
+    delete process.env.ELEVENLABS_VOICE_ID;
+    expect(isVoiceConfigured()).toBe(Boolean(process.env.OPENAI_API_KEY));
   });
 });
