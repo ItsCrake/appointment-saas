@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -37,6 +37,35 @@ describe("screenshot slots", () => {
       expect(shot.width).toBeGreaterThan(0);
       expect(shot.height).toBeGreaterThan(0);
     }
+  });
+
+  it("prefers the sharp capture, and still resolves a slot without one", () => {
+    /**
+     * **The regression this exists to catch is a silent downgrade.** Both tiers
+     * are real files with the same aspect ratio, so a resolver that quietly
+     * went back to picking `.jpg` would keep every other test in this file
+     * green and every image on the page soft — the exact failure the sharper
+     * captures were supplied to fix, invisible except to someone looking at
+     * Hebrew text on a phone.
+     */
+    for (const slot of SCREENSHOT_SLOTS) {
+      const hasSharp = existsSync(path.join(SHOTS, `${slot}.webp`));
+      const { src, width } = resolveScreenshot(slot);
+
+      expect(src, `${slot} should resolve to its .webp`).toBe(
+        `/screenshots/${slot}.${hasSharp ? "webp" : "jpg"}`,
+      );
+      // 736 is the originals' width; the captures are four times that. Asserted
+      // as a threshold rather than an equality so a future re-capture at a
+      // different device size is a pass, not a chore.
+      if (hasSharp) expect(width).toBeGreaterThan(736);
+    }
+
+    // And the fallback is load-bearing rather than theoretical: this slot is
+    // declared, has no sharp capture, and must not throw.
+    expect(resolveScreenshot("week-calendar-pending").src).toBe(
+      "/screenshots/week-calendar-pending.jpg",
+    );
   });
 
   it("reads real dimensions rather than assuming a constant", () => {

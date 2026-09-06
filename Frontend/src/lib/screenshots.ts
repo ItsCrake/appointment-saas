@@ -6,8 +6,10 @@ import path from "node:path";
  *
  * ---------------------------------------------------------------------------
  * Components name a **slot** rather than a path, and this resolves it to a file
- * plus that file's real pixel dimensions. Two things fall out of that, and
- * both are why it survived the removal of the HD experiment:
+ * plus that file's real pixel dimensions. Two things fall out of that, and both
+ * are why it survived the removal of the HD experiment — and why re-supplying
+ * sharper captures was a drop of files into a folder rather than an edit to
+ * every component that shows one:
  *
  * - A slot with no file **throws at build time**, naming the slot. A literal
  *   `src` that has drifted from the filesystem fails silently and renders a
@@ -18,6 +20,13 @@ import path from "node:path";
  *   `width`/`height` that disagrees with the image distorts it, and the sizes
  *   here are not something a component should be asserting from memory.
  *
+ * **The `.webp` captures are 2944×6400 — four times the originals in each
+ * axis — and that ratio is the point rather than the format.** The old files
+ * were 736px wide, and the optimizer never upscales: a frame rendering at 294
+ * CSS pixels on a 3× phone wants a 882px rung and could only ever be handed
+ * 736, so the sharpest screen in the shop still showed soft Hebrew text. The
+ * rungs above 736 now exist.
+ *
  * Server-only: it touches the filesystem, so callers are server components
  * that pass the resolved values down.
  * ---------------------------------------------------------------------------
@@ -25,6 +34,15 @@ import path from "node:path";
 
 const PUBLIC = path.resolve(process.cwd(), "public");
 const BASE_DIR = "screenshots";
+
+/**
+ * Extensions in preference order — the sharp capture first, the original after.
+ *
+ * A slot is allowed to have only the `.jpg`: `week-calendar-pending` still
+ * does, and falling back to it is better than throwing over a screen that is
+ * declared but not currently on the page.
+ */
+const EXTENSIONS = ["webp", "jpg"] as const;
 
 /** The eight captures the landing page can draw on, by slot name. */
 export const SCREENSHOT_SLOTS = [
@@ -108,12 +126,13 @@ function dimensionsOf(absolute: string): { width: number; height: number } {
  * build-time mistake and should stop the build rather than reach a visitor.
  */
 export function resolveScreenshot(slot: ScreenshotSlot): ResolvedScreenshot {
-  const relative = `${BASE_DIR}/${slot}.jpg`;
-  const absolute = path.join(PUBLIC, relative);
+  for (const extension of EXTENSIONS) {
+    const relative = `${BASE_DIR}/${slot}.${extension}`;
+    const absolute = path.join(PUBLIC, relative);
+    if (!existsSync(absolute)) continue;
 
-  if (!existsSync(absolute)) {
-    throw new Error(`screenshots: no file for slot "${slot}"`);
+    return { src: `/${relative}`, ...dimensionsOf(absolute) };
   }
 
-  return { src: `/${relative}`, ...dimensionsOf(absolute) };
+  throw new Error(`screenshots: no file for slot "${slot}"`);
 }

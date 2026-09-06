@@ -16,19 +16,21 @@ import { cn } from "@/lib/utils";
  * this page before the screenshots existed: still on-brand, still animated,
  * still says what the product does.
  *
- * That path is not theoretical. These files are 736×1600 JPEGs sitting in
- * `public/`, and the two ways they go missing — a deploy that skips the folder,
- * or a rename — are both silent.
+ * That path is not theoretical. These files sit in `public/`, and the two ways
+ * they go missing — a deploy that skips the folder, or a rename — are both
+ * silent.
  *
  * **The frame is drawn, not photographed.** A PNG of an iPhone would be another
  * 200KB, would carry a manufacturer's industrial design onto a page selling
  * something else, and would be fixed at one resolution. Three nested elements
  * and a border-radius scale with the layout and cost nothing.
  *
- * **The screenshots are Hebrew UI at 736px wide.** Below about 240px of render
- * width the row text stops being legible and the image becomes decoration
- * pretending to be evidence, which is why the callers size these generously and
- * show at most three at once rather than a wall of nine.
+ * **The screenshots are Hebrew UI, and the text in them is small.** Below about
+ * 240px of render width the row text stops being legible and the image becomes
+ * decoration pretending to be evidence, which is why the callers size these
+ * generously and show at most three at once rather than a wall of nine. The
+ * captures are 2944px wide as of the sharp re-shoot, so that legibility now
+ * survives a 3× phone instead of being capped by the source.
  * ---------------------------------------------------------------------------
  */
 export function PhoneFrame({
@@ -59,9 +61,10 @@ export function PhoneFrame({
   alt: string;
   /**
    * Intrinsic pixel size of the file, from `resolveScreenshot`. Passed rather
-   * than hardcoded because the HD replacements are a different shape from the
-   * 736×1600 originals, and a declared ratio that disagrees with the real one
-   * distorts the image.
+   * than hardcoded because the file behind a slot changes — the sharp captures
+   * are four times the 736×1600 originals — and a declared size that disagrees
+   * with the real one distorts the image. The current pair happen to share a
+   * ratio; nothing here relies on that continuing.
    */
   width: number;
   height: number;
@@ -127,12 +130,12 @@ export function PhoneFrame({
             /**
              * 90 rather than the default 75.
              *
-             * The sources arrived through WhatsApp at roughly 0.06 bytes per
-             * pixel — five to eight times more compressed than a quality-90
-             * JPEG — so re-encoding at 75 stacked a *second* lossy generation on
-             * an already-mushy image. This does not recover detail that is not
-             * in the file; it stops the pipeline removing more. The only real
-             * fix is a less-compressed source file.
+             * This was added when the sources were WhatsApp-grade JPEGs, to stop
+             * the pipeline stacking a *second* lossy generation on an already
+             * mushy image — and the comment here said the only real fix was a
+             * less-compressed source file. That fix has since landed: the
+             * captures are 2944px wide, so there is now genuine detail for the
+             * 90 to preserve rather than artefacts for it to protect.
              *
              * The cost is small in absolute terms because these render at 284
              * CSS pixels, so even the 3× rung is a modest file.

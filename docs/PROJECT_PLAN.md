@@ -1580,12 +1580,22 @@ optional. What follows from that:
   file is missing, so a deleted image fails the build rather than the page.
   The screenshots render at `quality={90}`, which needed `images.qualities` in
   `next.config.ts` before it did anything at all — see the traps above; measured,
-  the optimizer went from 48.6KB to 70.2KB for the same rung. That stops the
-  pipeline adding a second lossy generation; it cannot recover detail, and the
-  **sources remain the ceiling**: 736×1600 at ~0.06 bytes/px, five to eight times
-  more compressed than a quality-90 JPEG. At a 342px slot on a 3× phone the
-  browser asks for the 1080 rung and gets 736, so the hero is effectively ~2.15×
-  rather than 3×. The only real fix is re-capturing at a higher resolution.
+  the optimizer went from 48.6KB to 70.2KB for the same rung. That stopped the
+  pipeline adding a second lossy generation but could not recover detail, and
+  the sources were the ceiling: 736×1600, so at a 342px slot on a 3× phone the
+  browser asked for the 1080 rung and got 736 — effectively ~2.15× rather than
+  3×, with the fix named here as re-capturing at a higher resolution.
+  **That ceiling is gone.** The screens were re-shot at 2944×6400 — four times
+  each axis, same aspect ratio — and dropped in as `.webp` beside the originals.
+  Measured against the running optimizer at `w=1080`: the `.jpg` source returns
+  736px however large the request, the `.webp` returns a real 1080px. The cost
+  is 66KB → 127KB at that rung, paid only by the devices that asked for it.
+  `resolveScreenshot` prefers `.webp` and **falls back to `.jpg`**, which is
+  load-bearing rather than decorative: `week-calendar-pending` has no re-shoot
+  and would otherwise throw at build time over a slot that is declared but not
+  currently rendered. A test pins the preference, because a resolver that
+  quietly went back to `.jpg` would leave every other assertion in that file
+  green and every image on the page soft.
   The two demo buttons are a **tinted wash with a matching border** — the 500 at
   10% over a 1px border at 45%, in the accent each tenant actually renders —
   with the shop's colour surviving at full strength in an 8px dot. They were
