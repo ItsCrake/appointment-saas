@@ -10,12 +10,16 @@ import {
   voiceApiKey,
 } from "./libi-config";
 import {
+  READ_ONLY_TOOLS,
   VOICE_TOOLS,
+  executePending,
   runVoiceTool,
   upcomingRoster,
+  type PendingAction,
   type ToolContext,
   type ToolOutcome,
 } from "./libi-tools";
+import { classifyConfirmation } from "./libi-confirm";
 import { buildPromptContext } from "./libi-context";
 
 /**
@@ -112,8 +116,12 @@ const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן �
 - כשיש כלי שמתאים לשאלה — השתמשי בו. הכלים הם המקור המדויק.
 - לשאלות שאין להן כלי (למשל "מה יש לי ביום חמישי?" או "בשביל מה התור ב-15:00?") — עני מתוך היומן שקיבלת למעלה בלבד.
 - אל תמציאי שום פרט שאינו מופיע ברשימה. אם משהו לא שם, אמרי שאינך רואה אותו ביומן.
-- אם המשתמש מבקש לבטל תור, השתמשי ב-propose_cancel_appointment. את לא מבטלת בעצמך.
-- אם המשתמש מבקש לקבוע או להזיז תור, הסבירי בקצרה שצריך לעשות זאת ביומן עצמו.
+- אם המשתמש מבקש לבטל תור, השתמשי ב-propose_cancel_appointment. את לא מבטלת בעצמך — הכלי מחזיר שאלת אישור.
+- אם המשתמש מבקש להזיז, לדחות או להקדים תור, השתמשי ב-propose_reschedule_appointment. גם הוא רק שואל, ולא משנה כלום.
+- אם המשתמש מבקש לקבוע, לרשום או להוסיף תור, השתמשי ב-create_appointment.
+- ב-create_appointment: מספר טלפון אינו חובה. אם המשתמש לא הכתיב מספר — אל תבקשי אותו, אל תשאלי עליו, ואל תמציאי אותו. פשוט אל תשלחי את השדה.
+- תמיד תרגמי "מחר", "היום", "ביום חמישי" ו"בעוד שבוע" לתאריך YYYY-MM-DD לפי התאריך של היום שקיבלת למעלה. אל תשלחי מילים בשדה תאריך.
+- שעות נאמרות בעברית מדוברת: "בשלוש" בהקשר של יומן עסקי הוא 15:00, "בשמונה בבוקר" הוא 08:00. שלחי תמיד HH:MM.
 - אם לא הבנת, בקשי שיחזור — אל תנחשי.
 - עני במשפט אחד קצר בעברית, מתאים להקראה בקול.
 - אם שואלים מי את, עני: "היי, אני ליבי — העוזרת של בזמן."`;
@@ -141,7 +149,31 @@ type ChatMessage = {
 export async function decide(
   transcript: string,
   ctx: ToolContext,
+  pending?: PendingAction,
+  { writable = true }: { writable?: boolean } = {},
 ): Promise<ToolOutcome> {
+  /**
+   * **The answer to a pending question never reaches the model.**
+   *
+   * If something is awaiting confirmation, "כן" means one thing and it is
+   * decided by a word list — see `libi-confirm`. Routing it through the model
+   * instead would make the gate in front of every cancellation a generated
+   * sentence, and a bare "כן" with no tools that fit is exactly the input a
+   * model is most likely to be creative about.
+   *
+   * `"unclear"` deliberately falls through to a normal turn rather than
+   * re-asking: the owner has moved on, and the pending action is dropped by
+   * simply not being returned again.
+   */
+  if (pending) {
+    const answer = classifyConfirmation(transcript);
+
+    if (answer === "confirm") return executePending(pending, ctx);
+    if (answer === "deny") {
+      return { spoken: "בסדר, לא שיניתי כלום.", actionTaken: "declined" };
+    }
+  }
+
   /**
    * Fetched before the model call rather than offered as another tool.
    *
@@ -168,7 +200,13 @@ ${INSTRUCTIONS}`,
     body: JSON.stringify({
       model: INTENT_MODEL,
       messages,
-      tools: VOICE_TOOLS,
+      /**
+       * A frozen tenant is offered the reading tools only. Withholding them is
+       * better than letting the model pick one and having the tool refuse: the
+       * model then explains the situation in its own words instead of ליבי
+       * announcing a booking that did not happen.
+       */
+      tools: writable ? VOICE_TOOLS : READ_ONLY_TOOLS,
       tool_choice: "auto",
       // Zero, and it matters more now that the model can read the diary: this
       // is the difference between reading a row back and paraphrasing it.

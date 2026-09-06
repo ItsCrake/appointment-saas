@@ -636,6 +636,22 @@ export const appointments = pgTable(
     status: appointmentStatus("status").notNull().default("confirmed"),
     clientName: text("client_name").notNull(),
     clientPhone: text("client_phone").notNull(),
+    /**
+     * A slot ליבי booked from speech, with no number dictated (0032).
+     *
+     * The row is an ordinary appointment in every way that matters — it is
+     * non-terminal, so the exclusion constraint stops an online client booking
+     * over it, which is the whole point of creating one. What it is missing is
+     * a way to reach the person, so `client_phone` is `""` and this says that
+     * is deliberate rather than a broken write.
+     *
+     * **Read by `listClients`, which groups by `client_phone`.** Without the
+     * flag every placeholder in the shop would fold into one phantom client
+     * whose booking count grew each time the owner spoke.
+     */
+    isVoicePlaceholder: boolean("is_voice_placeholder")
+      .notNull()
+      .default(false),
     clientEmail: text("client_email"),
     notes: text("notes"),
     /** Snapshots — history must survive later edits to the service. */

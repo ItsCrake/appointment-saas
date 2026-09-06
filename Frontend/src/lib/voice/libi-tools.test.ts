@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 
+import { BLOCKING_STATUSES } from "@/db/queries/appointments";
+import { appointments } from "@/db/schema";
 import type { Database } from "@/db/types";
 import {
   createAppointment,
@@ -9,6 +12,9 @@ import {
 import { createTestDb } from "@/test/pglite";
 
 import {
+  executePending,
+  PLACEHOLDER_NAME,
+  READ_ONLY_TOOLS,
   runVoiceTool,
   upcomingRoster,
   ROSTER_LIMIT,
@@ -75,17 +81,22 @@ async function book(
 }
 
 describe("the tool surface", () => {
-  it("offers no tool that writes", () => {
+  it("offers no tool that destroys without asking", () => {
     /**
      * Stated as a test rather than as a comment, because the next tool somebody
-     * adds is the one that will not be reviewed with this in mind. A name
-     * containing `cancel`, `create`, `update` or `delete` without `propose_` in
-     * front of it is a voice channel that can change a client's day on a
-     * mis-hearing.
+     * adds is the one that will not be reviewed with this in mind.
+     *
+     * **The line moved once, and it moved deliberately.** This used to forbid
+     * *any* writing tool. `create_appointment` writes, and is allowed to: it
+     * takes an empty slot, tells nobody, and is undone with one tap on the
+     * calendar the owner is already holding. What is still forbidden is a tool
+     * that can cancel or move an existing booking on one mis-heard sentence —
+     * an arrangement a client is relying on, undone without them, by a channel
+     * that cannot tell `בטל` from `בדוק`.
      */
     for (const tool of VOICE_TOOLS) {
       const name = tool.function.name;
-      if (/cancel|create|update|delete|reschedule|book/.test(name)) {
+      if (/cancel|delete|remove|update|reschedule|move/.test(name)) {
         expect(name, `${name} must be a proposal`).toMatch(/^propose_/);
       }
     }
@@ -182,9 +193,9 @@ describe("find_client_appointments", () => {
 describe("propose_cancel_appointment", () => {
   it("proposes, and changes nothing", async () => {
     /**
-     * The assertion this whole file exists for. The tool returns a proposal
-     * naming the client and the time; the appointment is still live afterwards,
-     * and only the owner's tap on the card can end it.
+     * The assertion this whole file exists for. The tool returns a pending
+     * action naming the client and the time; the appointment is still live
+     * afterwards, and only an answer to the question she just asked ends it.
      */
     const s = await shop();
     await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
@@ -196,10 +207,10 @@ describe("propose_cancel_appointment", () => {
     );
 
     expect(out.actionTaken).toBe("propose_cancel_appointment");
-    expect(out.proposal?.kind).toBe("cancel");
-    expect(out.proposal?.clientName).toBe("דנה כהן");
-    expect(out.proposal?.when).toBe("10:00");
-    expect(out.spoken).toContain("לאשר");
+    expect(out.pending?.kind).toBe("cancel");
+    expect(out.pending?.clientName).toBe("דנה כהן");
+    expect(out.pending?.when).toBe("10:00");
+    expect(out.spoken).toContain("לבטל אותו?");
 
     // Still there, still bookable — nothing was written.
     const after = await runVoiceTool("get_next_appointment", {}, s.ctx);
@@ -222,7 +233,7 @@ describe("propose_cancel_appointment", () => {
       s.ctx,
     );
 
-    expect(out.proposal).toBeUndefined();
+    expect(out.pending).toBeUndefined();
     expect(out.actionTaken).toBe("none");
     expect(out.spoken).toContain("2 תורים");
   });
@@ -234,8 +245,357 @@ describe("propose_cancel_appointment", () => {
       { name: "מישהו" },
       s.ctx,
     );
-    expect(out.proposal).toBeUndefined();
+    expect(out.pending).toBeUndefined();
     expect(out.spoken).toContain("לא מצאתי");
+  });
+});
+
+describe("create_appointment", () => {
+  it("books without a phone number, and marks the row as a placeholder", async () => {
+    /**
+     * **The point of the feature.** Nobody dictates a phone number to a phone
+     * they are holding in a busy shop, so the tool has to produce a row anyway
+     * — one that holds the slot against an online client, and that says why it
+     * has no number rather than looking like a broken write.
+     */
+    const s = await shop();
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("create_appointment");
+    expect(out.spoken).toContain("תור קולי");
+    // The tip the brief asks for, said once and only for a placeholder.
+    expect(out.spoken).toContain("להוסיף את הטלפון");
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+
+    expect(row.clientName).toBe("דני");
+    expect(row.clientPhone).toBe("");
+    expect(row.isVoicePlaceholder).toBe(true);
+    // Non-terminal, which is what actually blocks the slot.
+    expect(BLOCKING_STATUSES).toContain(row.status);
+  });
+
+  it("is an ordinary booking when a number was dictated", async () => {
+    // The flag is about the *absence* of a number, not about who booked it. A
+    // voice booking with a phone can be reminded like any other, so marking it
+    // would hide it from the clients list for no reason.
+    const s = await shop();
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "רותי", time: "16:00", phone: "052-123-4567" },
+      s.ctx,
+    );
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+
+    expect(row.isVoicePlaceholder).toBe(false);
+    expect(row.clientPhone).not.toBe("");
+    expect(out.spoken).not.toContain("תור קולי");
+  });
+
+  it("falls back to a name when none was heard", async () => {
+    // "תקבעי משהו לשלוש" is a real sentence. The slot still has to be held, and
+    // an empty name on a calendar is worse than a labelled one.
+    const s = await shop();
+    await runVoiceTool("create_appointment", { time: "17:00" }, s.ctx);
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+
+    expect(row.clientName).toBe(PLACEHOLDER_NAME);
+  });
+
+  it("defaults to today in the shop's zone, not the server's", async () => {
+    /**
+     * `NOW` is 09:00Z, which is 12:00 in Jerusalem on the 3rd. A booking for
+     * "15:00" with no date must land on the 3rd at 12:00Z — a server resolving
+     * the day in its own zone is how a booking ends up a day out.
+     */
+    const s = await shop();
+    await runVoiceTool("create_appointment", { time: "15:00" }, s.ctx);
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+
+    expect(row.startsAt.toISOString()).toBe("2026-09-03T12:00:00.000Z");
+  });
+
+  it("refuses the slot rather than double-booking it", async () => {
+    // The exclusion constraint is the guarantee; this asserts it arrives as a
+    // sentence instead of an unhandled error in the middle of a turn.
+    const s = await shop();
+    await book(s, "2026-09-04T12:00:00Z", "כבר תפוס");
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("כבר תור");
+  });
+
+  it("asks again rather than guessing at a time it did not hear", async () => {
+    const s = await shop();
+    for (const args of [{}, { time: "מחר" }, { time: "99:00" }]) {
+      const out = await runVoiceTool("create_appointment", args, s.ctx);
+      expect(out.actionTaken, JSON.stringify(args)).toBe("none");
+    }
+
+    const rows = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe("propose_reschedule_appointment", () => {
+  it("describes the move and changes nothing", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-04", time: "17:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("propose_reschedule_appointment");
+    expect(out.pending?.kind).toBe("reschedule");
+    expect(out.spoken).toContain("דנה כהן");
+    expect(out.spoken).toContain("10:00");
+    expect(out.spoken).toContain("17:00");
+
+    // Still where it was.
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(row.startsAt.toISOString()).toBe("2026-09-04T07:00:00.000Z");
+  });
+
+  it("keeps the appointment's own day when only a time was said", async () => {
+    /**
+     * "תזיזי את דנה לחמש" about tomorrow's booking means tomorrow at five.
+     * Defaulting to today would propose a move into this morning, which the
+     * next guard would then reject as being in the past — so the owner would
+     * see a refusal for a sentence that was perfectly clear.
+     */
+    const s = await shop();
+    await book(s, "2026-09-05T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", time: "17:00" },
+      s.ctx,
+    );
+
+    expect(out.pending?.kind).toBe("reschedule");
+    if (out.pending?.kind === "reschedule") {
+      expect(out.pending.targetDate).toBe("2026-09-05");
+    }
+  });
+
+  it("refuses a move into the past", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-01", time: "10:00" },
+      s.ctx,
+    );
+
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("עבר");
+  });
+
+  it("reads the times back when the name is ambiguous", async () => {
+    // Two דניאלs is the collision the confirmation step exists for, and the
+    // useful answer names the times rather than counting them.
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דניאל כהן");
+    await book(s, "2026-09-04T11:00:00Z", "דניאל לוי");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דניאל", time: "17:00" },
+      s.ctx,
+    );
+
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("10:00");
+    expect(out.spoken).toContain("14:00");
+  });
+});
+
+describe("executePending", () => {
+  it("cancels only after the answer, and only what it described", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const proposed = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+    expect(proposed.pending).toBeDefined();
+
+    const done = await executePending(proposed.pending!, s.ctx);
+    expect(done.actionTaken).toBe("confirmed");
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(row.status).toBe("cancelled");
+  });
+
+  it("moves the appointment, carrying its duration with it", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const proposed = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-04", time: "17:00" },
+      s.ctx,
+    );
+
+    const done = await executePending(proposed.pending!, s.ctx);
+    expect(done.actionTaken).toBe("confirmed");
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+
+    expect(row.startsAt.toISOString()).toBe("2026-09-04T14:00:00.000Z");
+    // 30 minutes, the same length it had before the move.
+    expect(row.endsAt.getTime() - row.startsAt.getTime()).toBe(30 * 60_000);
+  });
+
+  it("refuses when the appointment moved between the question and the answer", async () => {
+    /**
+     * **The collision this whole step exists to prevent.** The owner has
+     * another tab, the client has a cancel link, and a few seconds pass while
+     * ליבי asks. Applying the confirmed change to whatever is there *now* would
+     * be answering a question nobody asked.
+     */
+    const s = await shop();
+    const booked = await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const proposed = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+
+    // Somebody moves it while she is waiting for an answer.
+    await db
+      .update(appointments)
+      .set({
+        startsAt: new Date("2026-09-04T09:00:00Z"),
+        endsAt: new Date("2026-09-04T09:30:00Z"),
+      })
+      .where(eq(appointments.id, booked.id));
+
+    const out = await executePending(proposed.pending!, s.ctx);
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("השתנה");
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, booked.id));
+    expect(row.status).not.toBe("cancelled");
+  });
+
+  it("cannot reach another tenant's appointment", async () => {
+    /**
+     * The pending action arrives from the browser and can say anything. The id
+     * is resolved under *this* request's business, so one belonging to another
+     * shop resolves to nothing at all rather than to somebody else's client.
+     */
+    const mine = await shop();
+    const theirs = await shop();
+    const booked = await book(
+      theirs,
+      "2026-09-04T07:00:00Z",
+      "לקוח של מישהו אחר",
+    );
+
+    const out = await executePending(
+      {
+        kind: "cancel",
+        appointmentId: booked.id,
+        clientName: "לקוח של מישהו אחר",
+        when: "10:00",
+        startsAtIso: "2026-09-04T07:00:00.000Z",
+      },
+      mine.ctx,
+    );
+
+    expect(out.actionTaken).toBe("none");
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, booked.id));
+    expect(row.status).not.toBe("cancelled");
+  });
+
+  it("leaves the appointment alone when the target is taken", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(s, "2026-09-04T14:00:00Z", "מישהו אחר");
+
+    const proposed = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-04", time: "17:00" },
+      s.ctx,
+    );
+
+    const out = await executePending(proposed.pending!, s.ctx);
+    expect(out.actionTaken).toBe("none");
+
+    const rows = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    const dana = rows.find((r) => r.clientName === "דנה כהן")!;
+    expect(dana.startsAt.toISOString()).toBe("2026-09-04T07:00:00.000Z");
+  });
+});
+
+describe("the frozen-tenant tool set", () => {
+  it("offers reads only, and is derived rather than duplicated", () => {
+    // A tool added to VOICE_TOOLS is write-by-default: it has to be named in
+    // the write list to be withheld, so forgetting fails closed.
+    const names = READ_ONLY_TOOLS.map((t) => t.function.name);
+
+    expect(names).toContain("get_today_summary");
+    expect(names).not.toContain("create_appointment");
+    expect(names).not.toContain("propose_cancel_appointment");
+    expect(names).not.toContain("propose_reschedule_appointment");
+    expect(READ_ONLY_TOOLS.length).toBeLessThan(VOICE_TOOLS.length);
   });
 });
 

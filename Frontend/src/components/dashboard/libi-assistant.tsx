@@ -11,7 +11,10 @@ import {
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Loader2, Mic, Square, X } from "lucide-react";
 
-import { setAppointmentStatusAction } from "@/app/dashboard/actions";
+import {
+  rescheduleAppointmentAction,
+  setAppointmentStatusAction,
+} from "@/app/dashboard/actions";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -37,27 +40,57 @@ import {
  * is kept for anyone who cannot hold — a hand full of scissors, or a motor
  * impairment — and both end at the same `stop()`.
  *
- * **Nothing is cancelled by voice.** A destructive intent comes back as a
- * proposal and lands on this card as a button with the client's name and time
- * on it. Speech in a barbershop is not a good enough signal to end somebody
- * else's appointment on — see `libi-tools.ts`.
+ * **Nothing destructive happens on one sentence.** A move or a cancellation
+ * comes back described but unapplied: ליבי reads back the client and the time
+ * she found, this card shows the same thing on a button, and the change lands
+ * only once the owner has answered — spoken, or tapped. Speech in a barbershop
+ * is not a good enough signal on its own to end somebody else's appointment.
+ *
+ * **The pending change round-trips through here**, because the endpoint holds
+ * no session state. It rides along with the next recording so that "כן" has
+ * something to be a yes *to*, and the server re-reads the appointment before
+ * writing — see `PendingAction` in `libi-tools.ts`.
+ *
+ * Booking is the exception and runs on the first sentence: it takes an empty
+ * slot rather than undoing an arrangement somebody is relying on.
  * ---------------------------------------------------------------------------
  */
 type Phase = "idle" | "recording" | "processing" | "speaking";
 
-type Proposal = {
-  kind: "cancel";
-  appointmentId: string;
-  clientName: string;
-  when: string;
-};
+/**
+ * A change ליבי has described and is waiting to be told to make.
+ *
+ * Held here between turns because the endpoint is stateless: the recording that
+ * answers "כן" is a separate request, and this rides along with it. The server
+ * re-reads the appointment before touching anything, so what is stored here is
+ * a description rather than permission — see `PendingAction` in `libi-tools`.
+ */
+type Pending =
+  | {
+      kind: "cancel";
+      appointmentId: string;
+      clientName: string;
+      when: string;
+      startsAtIso: string;
+    }
+  | {
+      kind: "reschedule";
+      appointmentId: string;
+      clientName: string;
+      when: string;
+      toWhen: string;
+      startsAtIso: string;
+      targetStartsAtIso: string;
+      targetDate: string;
+      targetTime: string;
+    };
 
 type Result = {
   transcribedText: string;
   textResult: string;
   audioBase64: string | null;
   actionTaken: string;
-  proposal?: Proposal;
+  pending?: Pending;
   error?: string;
 };
 
@@ -92,6 +125,30 @@ export function LibiAssistant() {
   /** Kept across turns: closing it would need another gesture to unlock. */
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<{ stop: () => void } | null>(null);
+  /**
+   * The change awaiting an answer, mirrored out of state.
+   *
+   * `send` is memoised for the life of the recorder, so it cannot read
+   * `result` — that closure is built before the question is even asked. A ref
+   * is the value as it is *now*, which is the only version an answer can be an
+   * answer to.
+   */
+  const pendingRef = useRef<Pending | null>(null);
+
+  /**
+   * The only way the card changes, so the ref cannot drift from what is on
+   * screen.
+   *
+   * Two copies of one fact is a bug waiting to be written — dismissing the card
+   * while still sending its pending action back would let a stray "כן" confirm
+   * something the owner had already waved away. Funnelled through here so
+   * there is one place to get it right, and `useCallback` with no dependencies
+   * so it stays stable for the memoised recorder callbacks.
+   */
+  const showResult = useCallback((next: Result | null) => {
+    pendingRef.current = next?.pending ?? null;
+    setResult(next);
+  }, []);
 
   /**
    * Whether this browser can record at all.
@@ -242,6 +299,17 @@ export function LibiAssistant() {
       // dispatches on the filename, and the container differs by browser.
       form.append("audio", audio, "speech");
 
+      /**
+       * What the previous turn asked about, so this one can be an answer to it.
+       *
+       * Read from the ref rather than from `result`, because `send` is a
+       * `useCallback` the recorder holds across the whole turn: closing over
+       * the state would send whatever was pending when the callback was built,
+       * which is one turn stale exactly when it matters.
+       */
+      const carried = pendingRef.current;
+      if (carried) form.append("pending", JSON.stringify(carried));
+
       try {
         const response = await fetch("/api/voice/process", {
           method: "POST",
@@ -258,7 +326,7 @@ export function LibiAssistant() {
           ?.includes("ndjson");
 
         if (!isStream || !response.body) {
-          setResult((await response.json()) as Result);
+          showResult((await response.json()) as Result);
           setPhase("idle");
           return;
         }
@@ -287,7 +355,7 @@ export function LibiAssistant() {
 
             if (message.type === "text") {
               // The card, about two seconds before she can say it.
-              setResult({ ...message, audioBase64: null });
+              showResult({ ...message, audioBase64: null });
             } else if (message.audioBase64) {
               spokeAloud = true;
               await play(message.audioBase64).catch(() => setPhase("idle"));
@@ -299,7 +367,7 @@ export function LibiAssistant() {
         // and there is nothing left to wait for.
         if (!spokeAloud) setPhase("idle");
       } catch {
-        setResult({
+        showResult({
           transcribedText: "",
           textResult: "לא הצלחתי להגיע לשרת. כדאי לנסות שוב.",
           audioBase64: null,
@@ -309,7 +377,7 @@ export function LibiAssistant() {
         setPhase("idle");
       }
     },
-    [play],
+    [play, showResult],
   );
 
   const stop = useCallback(() => {
@@ -358,7 +426,7 @@ export function LibiAssistant() {
       };
 
       recorder.start();
-      setResult(null);
+      showResult(null);
       setPhase("recording");
 
       /**
@@ -376,20 +444,67 @@ export function LibiAssistant() {
       toast("אין גישה למיקרופון. אפשר לאשר בהגדרות הדפדפן.", "error");
       setPhase("idle");
     }
-  }, [phase, listenForSilence, releaseStream, send, stop, toast, unlockAudio]);
+  }, [
+    phase,
+    listenForSilence,
+    releaseStream,
+    send,
+    showResult,
+    stop,
+    toast,
+    unlockAudio,
+  ]);
 
-  function confirmCancel(proposal: Proposal) {
+  /**
+   * The tap half of the confirmation, kept alongside the spoken one.
+   *
+   * ליבי asks out loud and "כן" answers her — but the owner is holding the
+   * phone, the shop is loud, and a button that says what it will do is the
+   * version that works when speaking twice has not. Both routes end at the same
+   * two writes; this one goes through the dashboard's own server actions, which
+   * carry `requireWritable`, rather than through the voice endpoint.
+   */
+  function confirmPending(pending: Pending) {
     startConfirm(async () => {
-      const outcome = await setAppointmentStatusAction(
-        proposal.appointmentId,
-        "cancelled",
-      );
+      const outcome =
+        pending.kind === "cancel"
+          ? await setAppointmentStatusAction(pending.appointmentId, "cancelled")
+          : await rescheduleAppointmentAction({
+              appointmentId: pending.appointmentId,
+              date: pending.targetDate,
+              time: pending.targetTime,
+              /**
+               * **The button is the confirmation, so it does not ask again.**
+               *
+               * `force` waives posted hours, breaks and notice periods — the
+               * shop's own policy, which an owner squeezing somebody in is
+               * entitled to overrule, and which `createManualBookingAction`
+               * already skips outright. Sending `false` here would put an amber
+               * modal behind a button the owner pressed *because* it named the
+               * move, which is the double-ask that type's own comment calls
+               * worse than a plain no.
+               *
+               * It waives nothing that matters: a same-provider clash is a
+               * database constraint, comes back as an ordinary error, and is
+               * surfaced in the toast below. The spoken path reaches the same
+               * place through `executePending`, so the two agree.
+               */
+              force: true,
+            });
+
       if (outcome.ok) {
-        toast(`${proposal.clientName}: התור בוטל`);
-        setResult(null);
+        toast(
+          pending.kind === "cancel"
+            ? `${pending.clientName}: התור בוטל`
+            : `${pending.clientName}: התור הוזז ל-${pending.toWhen}`,
+        );
+        showResult(null);
         router.refresh();
       } else {
-        toast(outcome.error, "error");
+        // `force: true` means the confirm branch cannot come back, but the
+        // union still carries it — read the message either way rather than
+        // asserting a shape the action is free to change.
+        toast("error" in outcome ? outcome.error : outcome.message, "error");
       }
     });
   }
@@ -439,7 +554,7 @@ export function LibiAssistant() {
             </div>
             <button
               type="button"
-              onClick={() => setResult(null)}
+              onClick={() => showResult(null)}
               aria-label="סגירה"
               className="-me-1 shrink-0 rounded-lg p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
             >
@@ -447,31 +562,44 @@ export function LibiAssistant() {
             </button>
           </div>
 
-          {/* The write, and the only place one happens. The name and the time
-              are on the button, so the thing being confirmed is the thing
-              being read. */}
-          {result.proposal ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={confirming}
-                onClick={() => confirmCancel(result.proposal!)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
-              >
-                {confirming ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Check className="size-3.5" aria-hidden />
-                )}
-                ביטול התור של {result.proposal.clientName} ב-{result.proposal.when}
-              </button>
-              <button
-                type="button"
-                onClick={() => setResult(null)}
-                className="h-9 rounded-lg px-3 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-              >
-                לא עכשיו
-              </button>
+          {/* The destructive write, and the only place one is confirmed by
+              tapping. The name and both times are on the button, so the thing
+              being confirmed is the thing being read — and the hint says the
+              same answer can simply be spoken, since she has just asked. */}
+          {result.pending ? (
+            <div className="mt-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={confirming}
+                  onClick={() => confirmPending(result.pending!)}
+                  className={cn(
+                    "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white transition-colors disabled:opacity-60",
+                    result.pending.kind === "cancel"
+                      ? "bg-red-600 hover:bg-red-700"
+                      : "bg-violet-600 hover:bg-violet-700",
+                  )}
+                >
+                  {confirming ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Check className="size-3.5" aria-hidden />
+                  )}
+                  {result.pending.kind === "cancel"
+                    ? `ביטול התור של ${result.pending.clientName} ב-${result.pending.when}`
+                    : `הזזת ${result.pending.clientName} מ-${result.pending.when} ל-${result.pending.toWhen}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => showResult(null)}
+                  className="h-9 rounded-lg px-3 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                >
+                  לא עכשיו
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                אפשר גם פשוט לענות לה &quot;כן&quot;.
+              </p>
             </div>
           ) : null}
 

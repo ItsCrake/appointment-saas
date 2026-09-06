@@ -448,6 +448,12 @@ export type ClientSummary = {
  * `bookings` deliberately still counts everything. It is labelled "תורים" and
  * answers a different question — how much this person has ever booked, which
  * includes the times they cancelled.
+ *
+ * **Voice placeholders are excluded entirely (0032).** They carry no phone
+ * number, so every one of them would group under the same empty key and appear
+ * here as a single client — named after whichever slot ליבי booked last, with
+ * a visit count that climbed every time the owner spoke to her. A row nobody
+ * can be contacted through is not a client record.
  */
 export async function listClients(
   db: Database,
@@ -468,7 +474,12 @@ export async function listClients(
       lastVisit: sql<Date | null>`max(${appointments.startsAt}) FILTER (WHERE ${visited})`,
     })
     .from(appointments)
-    .where(eq(appointments.businessId, businessId))
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.isVoicePlaceholder, false),
+      ),
+    )
     .groupBy(appointments.clientPhone)
     // NULLS LAST explicitly: Postgres sorts nulls *first* under DESC, which
     // would put every client who has never been in at the top of the list.

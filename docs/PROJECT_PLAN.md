@@ -1019,7 +1019,8 @@ replaced it, so the app no longer has two assistants doing overlapping work.
   in `dashboard/layout.tsx`. The move into the layout briefly dropped the
   entitlement half and handed a Pro feature to every Starter tenant; restoring
   it is why `libiEntitled()` exists there.
-- **Reads run; writes are proposed.** See the bullet under *Shipped* below.
+- **Reads run; destructive writes are asked about first, and booking is the
+  exception.** See the bullet under *Shipped* below.
 
 ### Manual tier changes from `/master` ✅
 
@@ -1343,23 +1344,66 @@ optional. What follows from that:
   the card's own button reads "הפעלה" instead of "השבתה".
 - **ליבי** — a microphone in the dashboard layout, `/api/voice/process`,
   and a gradient ring around the viewport while it listens. Replaces the Apple
-  Shortcuts endpoint, which is gone along with `siri_api_token`; **0031 drops
-  those columns and can be applied at any time** — see the note in its own file,
-  because a *drop* inverts the ordering rule that governs every other migration
-  here.
+  Shortcuts endpoint, which is gone along with `siri_api_token`; 0031 dropped
+  those columns, applied alongside 0032 and verified against production.
   **Authenticated by the owner's own session**, not a token: the caller is the
   dashboard they are already signed into, so `requireBusiness()` resolves the
   tenant exactly as every other route does and there is no new credential to
   mint, leak or revoke.
-  **Reads run; writes are proposed.** `propose_cancel_appointment` returns the
-  appointment it *would* cancel and the owner confirms on the card, through the
-  same action the dashboard's own buttons use. The input is Hebrew speech
-  transcribed by a model in a room with clippers running, and `בטל` and `בדוק`
-  differ by one consonant — `bazman-tools.test.ts` asserts the row is still live
-  after a proposal, and that an ambiguous name refuses rather than guessing.
-  Create and reschedule are deliberately absent: both need the availability
-  engine and the overlap refusal surfaced as something a person can answer, and
-  a voice turn is the wrong place for that conversation.
+  **Reads run; destructive writes are asked about out loud, then applied.**
+  `propose_cancel_appointment` and `propose_reschedule_appointment` find the
+  appointment, read the client and the time back — *"מצאתי תור של דניאל כהן מחר
+  ב-14:00. להזיז אותו למחר ב-17:00?"* — and return a **pending action** that
+  changes nothing. The next turn's answer decides. The input is Hebrew speech
+  transcribed by a model in a room with clippers running, `בטל` and `בדוק`
+  differ by one consonant, and two clients called דניאל is an ordinary shop.
+  An ambiguous name refuses and reads the times back rather than guessing.
+  **The yes/no is a word list, not a prompt.** `libi-confirm.ts` is pure and
+  tested, because putting the gate in front of every cancellation behind a
+  generated sentence is exactly the thing that drifts with a model version.
+  Three outcomes, not a boolean: anything that is not clearly a yes or a no
+  abandons the pending action and is treated as a fresh turn, which costs one
+  repeated sentence where guessing costs a client turning up to a shop that is
+  not expecting them. Refusal beats agreement wherever both appear — "לא, אל
+  תאשרי" contains a confirm word by accident. A yes over six words is not an
+  answer but a new instruction. **The cancel verbs are deliberately not in the
+  deny list**, and a test pins why: the pending action is usually *a
+  cancellation*, so "כן, תבטלי" — the most natural way there is to agree to one
+  — came back as a refusal while they were.
+  **Nothing about the pending action is trusted.** The endpoint holds no session
+  state, so it round-trips through the browser with the next recording, and
+  `executePending` re-reads the row under the signed-in tenant before writing —
+  an id from another shop resolves to nothing. It also re-checks the
+  appointment's **start time**: a slot that moved between the question and the
+  answer refuses rather than applying a confirmed change to whatever is there
+  now, which is the collision the whole step exists for.
+  **Creating runs on the first sentence, and the asymmetry is the point.** A
+  booking takes an empty slot, tells nobody, and is undone with one tap on the
+  calendar the owner is already holding; a move or a cancellation undoes an
+  arrangement a *client* is relying on. So `create_appointment` writes and the
+  `propose_*` pair ask. The tool-surface test enforces exactly that line.
+  **A booking with no phone number is the normal case (0032).** Nobody dictates
+  one, so the row is created with `""` and `is_voice_placeholder`, which does
+  the job the owner wanted — it is non-terminal, so
+  `appointments_no_overlap_staff` keeps an online client from booking over it —
+  and is excluded from `listClients`, where every placeholder in the shop would
+  otherwise fold into one phantom client whose visit count climbed each time the
+  owner spoke. Service and provider fall back to the shop's own first-by-sort
+  entries. Availability is **not** consulted, matching
+  `createManualBookingAction`: squeezing somebody in outside posted hours is
+  most of what a shop's day is, and the guard that matters is the database
+  constraint, surfaced as a sentence rather than a stack trace.
+  **A frozen tenant is offered the reading tools only** — withheld rather than
+  refused, so the model explains the situation instead of announcing a booking
+  that did not happen. The route carries that check itself rather than calling
+  `requireWritable`, which *redirects*: a login page arriving where a JSON line
+  was expected.
+  Verified live end to end against the built server: *"תקבעי תור לדני מחר בשעה
+  שלוש"* booked a placeholder at 15:00 and said the tip; *"תזיזי את התור של דני
+  מחר לחמש"* described the move and changed nothing; *"כן"* applied it. A fourth
+  turn is worth recording because it failed in the right direction — Whisper
+  heard "תבטלי" as "תיבט לי", so the model chose `find_client_appointments` and
+  a mis-heard cancellation came back as a **read**.
   **The tools stay authoritative; the diary fills the gaps.** The prompt now
   carries the shop's date and time and a bounded roster — today plus seven days,
   capped at 25 rows, **never a phone number**, cancelled and no-shows filtered

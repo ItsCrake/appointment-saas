@@ -8,6 +8,7 @@ import {
   isVoiceConfigured,
   MAX_AUDIO_BYTES,
 } from "@/lib/voice/libi-config";
+import type { PendingAction } from "@/lib/voice/libi-tools";
 import { decide, speak, transcribe } from "@/lib/voice/libi-voice";
 
 /**
@@ -21,10 +22,17 @@ import { decide, speak, transcribe } from "@/lib/voice/libi-voice";
  * route does. There is no new credential to mint, leak, or revoke, and a
  * request from anywhere else is simply not signed in.
  *
- * `requireBusiness` rather than `requireWritable`: nothing on this path writes.
- * Cancelling is *proposed* and the confirmation goes through the dashboard's
- * own action, which does gate on writability — so a frozen tenant can ask
- * questions and cannot change anything, which is exactly what the freeze means.
+ * **This path writes now, so it carries its own freeze gate.** It used to be
+ * purely advisory — cancelling was proposed and applied by a dashboard action
+ * that gated on writability — and `requireBusiness` was enough. Booking a slot
+ * and applying a confirmed move happen here, so the check happens here too,
+ * inline rather than through `requireWritable`: that helper *redirects*, which
+ * on a `fetch` for NDJSON means a login page arriving where a JSON line was
+ * expected. A frozen tenant gets a spoken refusal and can still ask questions,
+ * which is exactly what the freeze means.
+ *
+ * Note the gate is on the *turn*, not on the tool: a read-only question from a
+ * frozen tenant is answered normally, and only the writing tools are withheld.
  *
  * **The transcript is returned even when a later step fails.** "It thought I
  * said Dana" is something an owner can act on; "it did not work" is not.
@@ -53,14 +61,49 @@ export type VoiceProcessResponse = {
   textResult: string;
   audioBase64: string | null;
   actionTaken: string;
-  proposal?: {
-    kind: "cancel";
-    appointmentId: string;
-    clientName: string;
-    when: string;
-  };
+  /**
+   * A change described and awaiting a spoken answer. The client holds it and
+   * sends it back with the next recording — see `PendingAction`, which explains
+   * why nothing in it is trusted on the way in.
+   */
+  pending?: PendingAction;
   error?: string;
 };
+
+/**
+ * The pending action the previous turn returned, as the client sent it back.
+ *
+ * Shape-checked rather than trusted: this is a form field, so it can be
+ * anything. The check here is only enough to hand `decide` something of the
+ * right type — the *authority* check is `executePending` re-reading the row
+ * under this request's own tenant.
+ */
+function parsePending(raw: unknown): PendingAction | undefined {
+  if (typeof raw !== "string" || !raw) return undefined;
+
+  let value: Record<string, unknown>;
+  try {
+    value = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+
+  const str = (key: string) => typeof value[key] === "string";
+  const shared =
+    str("appointmentId") &&
+    str("clientName") &&
+    str("when") &&
+    str("startsAtIso");
+
+  if (!shared) return undefined;
+  if (value.kind === "cancel") return value as unknown as PendingAction;
+
+  return value.kind === "reschedule" &&
+    str("toWhen") &&
+    str("targetStartsAtIso")
+    ? (value as unknown as PendingAction)
+    : undefined;
+}
 
 /**
  * A refusal is one JSON object, not a stream.
@@ -94,7 +137,7 @@ export async function POST(request: Request) {
   }
 
   // Redirects when there is no session, exactly like every dashboard route.
-  const { business } = await requireBusiness();
+  const { business, access } = await requireBusiness();
 
   let transcribedText = "";
 
@@ -134,12 +177,27 @@ export async function POST(request: Request) {
       });
     }
 
-    const outcome = await decide(transcribedText, {
-      db,
-      businessId: business.id,
-      timezone: business.timezone,
-      now: new Date(),
-    });
+    const pending = parsePending(form.get("pending"));
+
+    /**
+     * A frozen tenant may ask but not change, so the pending action is dropped
+     * before it can be confirmed and the writing tools are withheld from the
+     * model entirely — a refusal it can phrase is better than a tool that
+     * exists and then declines.
+     */
+    const writable = access === "full";
+
+    const outcome = await decide(
+      transcribedText,
+      {
+        db,
+        businessId: business.id,
+        timezone: business.timezone,
+        now: new Date(),
+      },
+      writable ? pending : undefined,
+      { writable },
+    );
 
     const spoken = outcome.spoken;
     const encoder = new TextEncoder();
@@ -156,7 +214,7 @@ export async function POST(request: Request) {
               transcribedText,
               textResult: spoken,
               actionTaken: outcome.actionTaken,
-              ...(outcome.proposal ? { proposal: outcome.proposal } : {}),
+              ...(outcome.pending ? { pending: outcome.pending } : {}),
             }) + NEWLINE,
           ),
         );
