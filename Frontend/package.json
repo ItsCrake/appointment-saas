@@ -23,7 +23,8 @@
     "verify": "npm run check:env && npm run lint && npm run typecheck && npm run test && npm run build",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "push:keys": "tsx src/db/generate-vapid-keys.ts"
+    "push:keys": "tsx src/db/generate-vapid-keys.ts",
+    "db:seed:appointments": "tsx src/db/seed-demo-appointments.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

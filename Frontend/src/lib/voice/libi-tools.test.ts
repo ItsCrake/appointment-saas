@@ -447,6 +447,144 @@ describe("propose_reschedule_appointment", () => {
   });
 });
 
+describe("collisions and after-hours", () => {
+  it("names who is in the way rather than just refusing", async () => {
+    /**
+     * The constraint can only say no. An owner who is told "that did not work"
+     * has to go and look; one who is told "עומר is in it" already knows what to
+     * do — and the range is what is checked, not the start, so a long service
+     * that *runs into* the next booking is caught too.
+     */
+    const s = await shop();
+    await book(s, "2026-09-04T12:00:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("עומר לוי");
+    expect(out.spoken).toContain("תרצה לבחור שעה אחרת");
+
+    // And nothing was written on the way to saying so.
+    const rows = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("catches a booking that starts free and runs into the next one", async () => {
+    // 14:30 is empty; a 30-minute service from there ends at 15:00, which is
+    // where עומר starts. Checking only the start time would have allowed it and
+    // left the constraint to reject the insert with no name to offer.
+    const s = await shop();
+    await book(s, "2026-09-04T11:45:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "14:30" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("עומר לוי");
+  });
+
+  it("allows a booking outside posted hours", async () => {
+    /**
+     * **The owner has authority the availability engine does not.** Squeezing
+     * somebody in at seven in the morning or ten at night is most of what a
+     * shop's day actually is, and this path deliberately never consults posted
+     * hours — matching `createManualBookingAction`, which skips them for the
+     * same reason.
+     */
+    const s = await shop();
+
+    for (const time of ["06:30", "23:30"]) {
+      const out = await runVoiceTool(
+        "create_appointment",
+        { name: `לקוח ${time}`, date: "2026-09-04", time },
+        s.ctx,
+      );
+      expect(out.actionTaken, time).toBe("create_appointment");
+    }
+
+    const rows = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(rows).toHaveLength(2);
+  });
+
+  it("finds the clash when she asks, not after the owner has agreed", async () => {
+    /**
+     * **A confirmation spent on a move that was never possible is the failure
+     * here.** Checking only on execution would mean asking "להזיז אותו לחמש?",
+     * hearing "כן", and only then admitting the slot is taken.
+     */
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(s, "2026-09-04T14:00:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-04", time: "17:00" },
+      s.ctx,
+    );
+
+    expect(out.pending).toBeUndefined();
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("עומר לוי");
+  });
+
+  it("does not treat an appointment as blocking itself", async () => {
+    /**
+     * A fifteen-minute nudge overlaps the row's own former range. An exclusion
+     * constraint never compares a row against itself, so a check that did would
+     * refuse moves the database is perfectly happy with — and small nudges are
+     * most of what rescheduling is.
+     */
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-04", time: "10:15" },
+      s.ctx,
+    );
+
+    expect(out.pending?.kind).toBe("reschedule");
+
+    const done = await executePending(out.pending!, s.ctx);
+    expect(done.actionTaken).toBe("confirmed");
+
+    const [row] = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(row.startsAt.toISOString()).toBe("2026-09-04T07:15:00.000Z");
+  });
+
+  it("moves outside posted hours when asked to", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-04", time: "22:00" },
+      s.ctx,
+    );
+
+    expect(out.pending?.kind).toBe("reschedule");
+    expect((await executePending(out.pending!, s.ctx)).actionTaken).toBe(
+      "confirmed",
+    );
+  });
+});
+
 describe("executePending", () => {
   it("cancels only after the answer, and only what it described", async () => {
     const s = await shop();
@@ -562,19 +700,29 @@ describe("executePending", () => {
     expect(row.status).not.toBe("cancelled");
   });
 
-  it("leaves the appointment alone when the target is taken", async () => {
+  it("leaves the appointment alone when the slot is taken while she asks", async () => {
+    /**
+     * **The race the propose-time check cannot close.** A clash that exists
+     * when she asks is caught there and no confirmation is ever spent on it —
+     * that is the test above. This is the other one: the slot was free when she
+     * asked, and somebody took it in the seconds before the owner said yes.
+     */
     const s = await shop();
     await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
-    await book(s, "2026-09-04T14:00:00Z", "מישהו אחר");
 
     const proposed = await runVoiceTool(
       "propose_reschedule_appointment",
       { name: "דנה", date: "2026-09-04", time: "17:00" },
       s.ctx,
     );
+    expect(proposed.pending?.kind).toBe("reschedule");
+
+    // 17:00 local is 14:00Z. Booked after the question, before the answer.
+    await book(s, "2026-09-04T14:00:00Z", "מישהו אחר");
 
     const out = await executePending(proposed.pending!, s.ctx);
     expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("מישהו אחר");
 
     const rows = await db
       .select()

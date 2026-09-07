@@ -1205,6 +1205,18 @@ below before running it.
 > deleting a service or a provider is *refused* while appointments reference
 > it. They were cleared deliberately at some point and never re-seeded.
 > `npm run db:seed` restores them; run `-- --dry-run` first, as always.
+>
+> **`npm run db:seed:appointments` is the other one, and it is not that one.**
+> `db:seed` *rebuilds* a demo tenant — it deletes every appointment, waitlist
+> entry, client note and outbox row before it writes. That is right when the
+> demos have drifted and wrong when the ask is "put some bookings in so I can
+> talk to ליבי", because the reset takes the rest of the shop's state with it.
+> The appointments seed only **inserts**: 6–8 believable bookings per demo
+> spread over today plus five days, distributed across the open days rather
+> than drawn at random (today is guaranteed — "כמה תורים יש לי היום" is the
+> first thing anybody asks her, and an empty answer tests nothing), placed
+> around whatever is already in the diary and around each other, inside posted
+> hours, one client per person. It takes `--dry-run` too.
 
 `demo-nails` having a **team** is the correction that changes behaviour, not
 just a count: two providers put it in grid-mode availability and give the public
@@ -1398,6 +1410,38 @@ optional. What follows from that:
   that did not happen. The route carries that check itself rather than calling
   `requireWritable`, which *redirects*: a login page arriving where a JSON line
   was expected.
+  **A clash is found by a read, and named.** The exclusion constraint can
+  only say no; `conflictFor` says *who* — "יש כבר תור בטווח הזמנים הזה
+  לרועי אביטן. תרצה לבחור שעה אחרת?" — which is the difference between an
+  owner going to look and an owner knowing. The whole **range** is checked,
+  not the start: a 45-minute cut booked at 14:30 runs into a 15:00 booking
+  even though nothing starts at 14:30. The read is in *front* of the
+  constraint and never instead of it — two requests can both pass it and only
+  one insert survives, so `SlotTakenError` is still caught and still spoken.
+  For a move the clash is found **when she asks**, not after the owner has
+  agreed: checking only on execution would spend a confirmation on a move
+  that was never possible. The row being moved is excluded from its own
+  check, because a fifteen-minute nudge overlaps its own former range and an
+  exclusion constraint never compares a row against itself.
+  **Opening hours do not bind her, and the prompt had to say so out loud.**
+  This path never consulted availability — matching `createManualBookingAction`
+  — but the live check found the *model* refusing anyway: asked to book at ten
+  at night it answered "אין תורים זמינים", a sentence from no tool and no
+  string in this repository, and called nothing. It was reasoning about the
+  client-facing availability engine. The prompt now states that the hours do
+  not limit her and that only the tool decides a refusal; re-checked live, the
+  same utterance books 22:00.
+  **The prompt was cut to what changes an answer.** 3787 → 3055 characters of
+  instructions plus tool schema, the instructions themselves 1206 → 758. The
+  trigger verbs moved into the tool descriptions, which is what
+  function-calling actually matches on — carrying them in both places paid for
+  the same tokens twice and gave the model two places to disagree with itself.
+  `parallel_tool_calls: false` (only `tool_calls[0]` is ever run) and
+  `max_tokens` 200 → 120. Worth being honest about the size of this: a turn is
+  dominated by Whisper, the intent model and ElevenLabs v3 at ~3.0s on its
+  own, so trimming the prompt is a real saving on tokens and a small one on
+  the clock. The structural win already existed — a confirmation turn returns
+  from `libi-confirm` before either the roster query or the model call.
   Verified live end to end against the built server: *"תקבעי תור לדני מחר בשעה
   שלוש"* booked a placeholder at 15:00 and said the tip; *"תזיזי את התור של דני
   מחר לחמש"* described the move and changed nothing; *"כן"* applied it. A fourth

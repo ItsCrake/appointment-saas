@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, count, eq, gt, gte, ilike, inArray, lt } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  lt,
+  ne,
+} from "drizzle-orm";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 import { appointments } from "@/db/schema";
@@ -74,7 +85,7 @@ export const VOICE_TOOLS = [
     function: {
       name: "get_next_appointment",
       description:
-        "מחזיר את התור הקרוב ביותר של בעל העסק, מעכשיו והלאה. משמש כשהמשתמש שואל מה התור הבא שלו.",
+        "התור הקרוב הבא, מעכשיו והלאה. טריגרים: מה התור הבא, מי הבא בתור, מתי התור הבא שלי.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -83,7 +94,7 @@ export const VOICE_TOOLS = [
     function: {
       name: "get_today_summary",
       description:
-        "מחזיר כמה תורים יש היום ומה התור הקרוב שנותר. משמש לשאלות על סיכום היום.",
+        "כמה תורים יש היום ומה נותר. טריגרים: כמה תורים יש לי היום, איך נראה היום, סיכום יומי.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -92,13 +103,13 @@ export const VOICE_TOOLS = [
     function: {
       name: "find_client_appointments",
       description:
-        "מחפש תורים עתידיים לפי שם לקוח. משמש כשהמשתמש שואל מתי מגיע לקוח מסוים.",
+        "תורים עתידיים של לקוח מסוים. טריגרים: מתי מגיע X, יש לי תור ל-X, מתי X אצלי.",
       parameters: {
         type: "object",
         properties: {
           name: {
             type: "string",
-            description: "שם הלקוח או חלק ממנו, כפי שנאמר",
+            description: "שם הלקוח או חלק ממנו",
           },
         },
         required: ["name"],
@@ -110,13 +121,13 @@ export const VOICE_TOOLS = [
     function: {
       name: "propose_cancel_appointment",
       description:
-        "מכין ביטול של תור. אינו מבטל בפועל — מוצא את התור ומחזיר שאלת אישור שבעל העסק עונה עליה בקול. משמש כשהמשתמש מבקש לבטל תור.",
+        "מכין ביטול תור ומחזיר שאלת אישור. אינו מבטל בפועל. טריגרים: תבטלי, בטלי, מחקי, הסירי, לא מגיע, ביטל.",
       parameters: {
         type: "object",
         properties: {
           name: {
             type: "string",
-            description: "שם הלקוח שאת התור שלו מבקשים לבטל",
+            description: "שם הלקוח שאת התור שלו מבטלים",
           },
         },
         required: ["name"],
@@ -128,22 +139,22 @@ export const VOICE_TOOLS = [
     function: {
       name: "propose_reschedule_appointment",
       description:
-        "מכין הזזה של תור קיים למועד אחר. אינו מזיז בפועל — מוצא את התור ומחזיר שאלת אישור שבעל העסק עונה עליה בקול. משמש כשהמשתמש מבקש להזיז או לדחות תור.",
+        "מכין הזזה של תור קיים למועד אחר ומחזיר שאלת אישור. אינו מזיז בפועל. טריגרים: תזיזי, הזיזי, תדחי, תקדימי, תעבירי, שני את השעה.",
       parameters: {
         type: "object",
         properties: {
           name: {
             type: "string",
-            description: "שם הלקוח שאת התור שלו מבקשים להזיז",
+            description: "שם הלקוח שאת התור שלו מזיזים",
           },
           date: {
             type: "string",
             description:
-              "התאריך החדש בפורמט YYYY-MM-DD. חשבי אותו מהתאריך של היום שקיבלת למעלה. אם לא נאמר תאריך, השתמשי בתאריך של התור הקיים.",
+              "YYYY-MM-DD, מחושב מהתאריך שלמעלה. לא נאמר תאריך — השאירי ריק ותישמר היום של התור הקיים.",
           },
           time: {
             type: "string",
-            description: "השעה החדשה בפורמט HH:MM בשעון המקומי של העסק",
+            description: "HH:MM בשעון העסק",
           },
         },
         required: ["name", "time"],
@@ -155,33 +166,33 @@ export const VOICE_TOOLS = [
     function: {
       name: "create_appointment",
       description:
-        "קובע תור חדש ביומן ותופס את המשבצת. משמש כשהמשתמש מבקש לקבוע, לרשום או להוסיף תור. מספר טלפון אינו נדרש — אם לא נאמר, אל תבקשי אותו ואל תמציאי אותו.",
+        "קובע תור חדש ותופס את המשבצת. טריגרים: תקבעי, קבעי, תרשמי, רשמי, תוסיפי, שרייני, תכניסי. מותר גם מחוץ לשעות הפעילות. טלפון אינו נדרש.",
       parameters: {
         type: "object",
         properties: {
           name: {
             type: "string",
             description:
-              "שם הלקוח כפי שנאמר. אם לא נאמר שם, אל תשלחי את השדה הזה.",
+              "שם הלקוח כפי שנאמר. לא נאמר שם — אל תשלחי את השדה.",
           },
           date: {
             type: "string",
             description:
-              "התאריך בפורמט YYYY-MM-DD. חשבי אותו מהתאריך של היום שקיבלת למעלה. אם לא נאמר תאריך, השתמשי בתאריך של היום.",
+              "YYYY-MM-DD, מחושב מהתאריך שלמעלה. לא נאמר תאריך — היום.",
           },
           time: {
             type: "string",
-            description: "השעה בפורמט HH:MM בשעון המקומי של העסק",
+            description: "HH:MM בשעון העסק",
           },
           phone: {
             type: "string",
             description:
-              "מספר הטלפון של הלקוח, רק אם המשתמש הכתיב אותו במפורש. אחרת אל תשלחי את השדה הזה.",
+              "רק אם הוכתב במפורש. אחרת אל תשלחי את השדה.",
           },
           service: {
             type: "string",
             description:
-              "שם השירות אם נאמר. אם לא נאמר, אל תשלחי את השדה — ייבחר שירות ברירת המחדל של העסק.",
+              "שם השירות אם נאמר. אחרת אל תשלחי את השדה.",
           },
         },
         required: ["time"],
@@ -580,6 +591,32 @@ async function proposeReschedule(
     };
   }
 
+  /**
+   * **The clash is found here, not after the owner has agreed.**
+   *
+   * Checking only on execution would mean asking "להזיז אותו לחמש?", hearing
+   * "כן", and *then* saying the slot is taken — a confirmation spent on a move
+   * that was never possible. Asked and answered in one turn instead.
+   *
+   * The row being moved is excluded: a fifteen-minute nudge overlaps its own
+   * former range, which the database correctly does not count as a clash.
+   */
+  const full = await getAppointment(ctx.db, ctx.businessId, row.id);
+  const targetEnd = new Date(
+    target.getTime() +
+      (full ? full.endsAt.getTime() - full.startsAt.getTime() : 0),
+  );
+  const clash = await conflictFor(
+    ctx,
+    full?.staffId ?? "",
+    target,
+    targetEnd,
+    row.id,
+  );
+  if (clash) {
+    return { spoken: takenSentence(clash.clientName), actionTaken: "none" };
+  }
+
   const when = spokenTime(row.startsAt, ctx.timezone);
   const fromDay = spokenDay(row.startsAt, ctx.now, ctx.timezone);
   const toWhen = spokenTime(target, ctx.timezone);
@@ -604,6 +641,61 @@ async function proposeReschedule(
     },
   };
 }
+
+/**
+ * The appointment already sitting across a range, if there is one.
+ *
+ * ---------------------------------------------------------------------------
+ * **A check in front of the constraint, not instead of it.**
+ * `appointments_no_overlap_staff` is what actually guarantees this product
+ * cannot double-book, and it stays the backstop — two requests can both pass
+ * this read and only one insert survives. What the read buys is the *sentence*:
+ * the constraint can only say no, while this can say who is in the way, which
+ * is the difference between "that did not work" and "עומר is in that slot".
+ *
+ * **Scoped to the provider**, because that is what the constraint excludes on.
+ * A two-chair shop can take two people at once and refusing that would be
+ * inventing a rule the rest of the product does not have.
+ *
+ * `exclude` is the appointment being moved. A row is never compared against
+ * itself by an exclusion constraint, so nudging a booking fifteen minutes —
+ * a move that overlaps its own former range — is correctly not a clash, and
+ * this has to agree or it would refuse moves the database would accept.
+ * ---------------------------------------------------------------------------
+ */
+async function conflictFor(
+  ctx: ToolContext,
+  staffId: string,
+  startsAt: Date,
+  endsAt: Date,
+  exclude?: string,
+): Promise<{ clientName: string; startsAt: Date } | null> {
+  const [row] = await ctx.db
+    .select({
+      clientName: appointments.clientName,
+      startsAt: appointments.startsAt,
+    })
+    .from(appointments)
+    .where(
+      and(
+        live(ctx.businessId),
+        eq(appointments.staffId, staffId),
+        // Half-open, matching the constraint: a booking that ends exactly when
+        // the next begins is back-to-back, not a clash.
+        lt(appointments.startsAt, endsAt),
+        gt(appointments.endsAt, startsAt),
+        ...(exclude ? [ne(appointments.id, exclude)] : []),
+      ),
+    )
+    .orderBy(asc(appointments.startsAt))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/** The one sentence a clash produces, wherever it is found. */
+const takenSentence = (clientName: string) =>
+  `יש כבר תור בטווח הזמנים הזה ל${clientName}. תרצה לבחור שעה אחרת?`;
 
 /**
  * Wall-clock in the shop's zone to an instant, or null if it is not a date.
@@ -711,6 +803,19 @@ async function createVoiceAppointment(
   const clientName = input.name?.trim() || PLACEHOLDER_NAME;
   const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
 
+  /**
+   * Checked before the insert so the refusal can name who is in the way.
+   *
+   * The whole range is checked, not the start: a 45-minute cut booked at 14:30
+   * runs into a 15:00 appointment even though nothing starts at 14:30, and an
+   * owner told "that time is free" who then finds it is not has been told
+   * something worse than nothing.
+   */
+  const clash = await conflictFor(ctx, staff.id, startsAt, endsAt);
+  if (clash) {
+    return { spoken: takenSentence(clash.clientName), actionTaken: "none" };
+  }
+
   try {
     await createAppointment(ctx.db, {
       businessId: ctx.businessId,
@@ -728,9 +833,13 @@ async function createVoiceAppointment(
     });
   } catch (error) {
     if (error instanceof SlotTakenError) {
-      // The exclusion constraint, surfaced as the sentence a person would say.
+      /**
+       * The constraint, having caught what the read above could not: somebody
+       * booked the slot in the milliseconds between them. Rare, and the reason
+       * the read is not allowed to be the only check.
+       */
       return {
-        spoken: "יש כבר תור בשעה הזאת. לאיזו שעה אחרת לקבוע?",
+        spoken: "יש כבר תור בטווח הזמנים הזה. תרצה לבחור שעה אחרת?",
         actionTaken: "none",
       };
     }
@@ -815,6 +924,22 @@ export async function executePending(
   // re-pricing, and the service's duration may have been edited since.
   const duration = row.endsAt.getTime() - row.startsAt.getTime();
 
+  /**
+   * Checked again on the way in, because the propose-time check is a second or
+   * two old and somebody may have taken the slot while ליבי was asking. Named
+   * here too — "עומר is in it now" is what an owner can act on.
+   */
+  const clash = await conflictFor(
+    ctx,
+    row.staffId,
+    target,
+    new Date(target.getTime() + duration),
+    pending.appointmentId,
+  );
+  if (clash) {
+    return { spoken: takenSentence(clash.clientName), actionTaken: "none" };
+  }
+
   try {
     await rescheduleAppointment(ctx.db, ctx.businessId, pending.appointmentId, {
       startsAt: target,
@@ -822,8 +947,10 @@ export async function executePending(
     });
   } catch (error) {
     if (error instanceof SlotTakenError) {
+      // The constraint, catching a slot taken between the check above and this
+      // write. No name to give — it was not there a moment ago.
       return {
-        spoken: `יש כבר תור ב-${pending.toWhen}, אז השארתי את זה של ${pending.clientName} במקום.`,
+        spoken: `יש כבר תור בטווח הזמנים הזה, אז השארתי את זה של ${pending.clientName} במקום.`,
         actionTaken: "none",
       };
     }

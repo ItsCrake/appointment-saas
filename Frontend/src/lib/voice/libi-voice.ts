@@ -102,29 +102,50 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
  * The instructions half of the prompt. The data half is built per request by
  * `buildPromptContext` and prepended to this.
  *
- * **The tools stay authoritative and the prompt says so.** With the roster in
- * front of it, a model will happily answer "מה התור הבא שלי?" from the list —
- * and its sentence would be plausible, ungrounded prose where the tool's is
- * exact, tested Hebrew with the shop's own counting and time formatting. So the
- * ordering is stated: use a tool when one fits, and read from the diary only
- * for the questions no tool covers.
+ * ---------------------------------------------------------------------------
+ * **Written to be acted on, not read.** Every line here is either a rule that
+ * changes an answer or a format the tools require. The prose that used to
+ * explain *why* a tool is authoritative is gone — the model does not need the
+ * argument, only the instruction, and each sentence it does not need is
+ * latency on a turn somebody is standing still for.
+ *
+ * **The tools stay authoritative and the prompt still says so.** With the
+ * roster in front of it a model will happily answer "מה התור הבא שלי?" from
+ * the list, and its sentence would be plausible, ungrounded prose where the
+ * tool's is exact, tested Hebrew with the shop's own counting and time
+ * formatting. So the ordering is stated first and stated shortly.
+ *
+ * **Which tool to reach for lives in the tool descriptions, not here.**
+ * Function-calling matches on those, so trigger verbs belong there; repeating
+ * them in the system prompt paid for the same tokens twice and gave the model
+ * two places to disagree with itself.
+ *
+ * **The opening-hours rule is there because the model invented a refusal.**
+ * Asked to book at ten at night it answered "אין תורים זמינים" — a sentence
+ * from no tool and no string in this repository — and called nothing. The
+ * model was reasoning about the *client-facing* availability engine, which
+ * this path deliberately does not consult: an owner squeezing somebody in
+ * after closing is exercising authority the software has no business
+ * refusing. So the prompt now says the hours do not bind her, and says which
+ * refusal *is* hers to make: a clash, decided by the tool.
+ *
+ * **No preamble.** "בטח, אני בודקת עכשיו…" is a sentence the owner waits
+ * three seconds for ElevenLabs to speak before hearing the answer, so it is
+ * forbidden rather than discouraged.
+ * ---------------------------------------------------------------------------
  */
-const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן — מערכת ניהול תורים לעסקים בישראל.
-בעל העסק מדבר אלייך בעברית ושואל על היומן שלו.
+const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. בעל העסק מדבר אלייך בעברית על היומן שלו.
 
 כללים:
-- כשיש כלי שמתאים לשאלה — השתמשי בו. הכלים הם המקור המדויק.
-- לשאלות שאין להן כלי (למשל "מה יש לי ביום חמישי?" או "בשביל מה התור ב-15:00?") — עני מתוך היומן שקיבלת למעלה בלבד.
-- אל תמציאי שום פרט שאינו מופיע ברשימה. אם משהו לא שם, אמרי שאינך רואה אותו ביומן.
-- אם המשתמש מבקש לבטל תור, השתמשי ב-propose_cancel_appointment. את לא מבטלת בעצמך — הכלי מחזיר שאלת אישור.
-- אם המשתמש מבקש להזיז, לדחות או להקדים תור, השתמשי ב-propose_reschedule_appointment. גם הוא רק שואל, ולא משנה כלום.
-- אם המשתמש מבקש לקבוע, לרשום או להוסיף תור, השתמשי ב-create_appointment.
-- ב-create_appointment: מספר טלפון אינו חובה. אם המשתמש לא הכתיב מספר — אל תבקשי אותו, אל תשאלי עליו, ואל תמציאי אותו. פשוט אל תשלחי את השדה.
-- תמיד תרגמי "מחר", "היום", "ביום חמישי" ו"בעוד שבוע" לתאריך YYYY-MM-DD לפי התאריך של היום שקיבלת למעלה. אל תשלחי מילים בשדה תאריך.
-- שעות נאמרות בעברית מדוברת: "בשלוש" בהקשר של יומן עסקי הוא 15:00, "בשמונה בבוקר" הוא 08:00. שלחי תמיד HH:MM.
-- אם לא הבנת, בקשי שיחזור — אל תנחשי.
-- עני במשפט אחד קצר בעברית, מתאים להקראה בקול.
-- אם שואלים מי את, עני: "היי, אני ליבי — העוזרת של בזמן."`;
+- יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
+- אין כלי מתאים? עני מהיומן שלמעלה בלבד. אל תמציאי דבר; מה שאינו שם — אמרי שאינך רואה אותו.
+- תאריכים תמיד YYYY-MM-DD, שעות תמיד HH:MM. תרגמי "היום", "מחר", "ביום חמישי" לתאריך לפי התאריך שלמעלה. לעולם אל תשלחי מילים בשדות האלה.
+- שעה בעברית מדוברת היא שעת עסק: "בשלוש" = 15:00, "בשמונה בבוקר" = 08:00.
+- שעות הפעילות אינן מגבילות אותך. בעל העסק רשאי לקבוע ולהזיז תורים בכל שעה — שש בבוקר, עשר בלילה, יום סגור. לעולם אל תסרבי בגלל שעה, אל תגידי "אין תורים זמינים" ואל תשאלי אם הוא בטוח. קראי לכלי. רק הכלי מחליט אם יש התנגשות.
+- טלפון ב-create_appointment אינו חובה. לא הוכתב מספר — אל תבקשי, אל תשאלי, אל תמציאי, פשוט אל תשלחי את השדה.
+- בלי הקדמות ובלי אישורי ביניים. לא "רגע", לא "אני בודקת" — תשובה אחת קצרה בעברית, מתאימה להקראה.
+- לא הבנת? בקשי שיחזור. אל תנחשי.
+- שואלים מי את: "היי, אני ליבי — העוזרת של בזמן."`;
 
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -208,10 +229,24 @@ ${INSTRUCTIONS}`,
        */
       tools: writable ? VOICE_TOOLS : READ_ONLY_TOOLS,
       tool_choice: "auto",
+      /**
+       * One tool per turn, stated rather than hoped for.
+       *
+       * Only `tool_calls[0]` is ever run, so a model that emitted three would
+       * be billed for two it could not act on — and, worse, would look like it
+       * had done three things when the owner heard the first one's sentence.
+       */
+      parallel_tool_calls: false,
       // Zero, and it matters more now that the model can read the diary: this
       // is the difference between reading a row back and paraphrasing it.
       temperature: 0,
-      max_tokens: 200,
+      /**
+       * Enough for one spoken sentence or one tool call, and not enough for a
+       * paragraph. A tool call is a few dozen tokens; the only free-text path
+       * is "I did not understand", which is six words. 200 was headroom for a
+       * model that is never asked to write at length.
+       */
+      max_tokens: 120,
     }),
   });
 
