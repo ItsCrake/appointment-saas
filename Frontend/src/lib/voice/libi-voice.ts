@@ -20,6 +20,7 @@ import {
   type ToolOutcome,
 } from "./libi-tools";
 import { classifyConfirmation } from "./libi-confirm";
+import { normalizeForSpeech } from "./libi-hebrew";
 import { historyMessages, type Turn } from "./libi-history";
 import { buildPromptContext } from "./libi-context";
 
@@ -136,9 +137,21 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
  * an appointment id travelling through a prompt, and the ambiguity guard that
  * refuses two clients called דניאל still runs on whatever the model decided.
  *
- * **No preamble.** "בטח, אני בודקת עכשיו…" is a sentence the owner waits
- * three seconds for ElevenLabs to speak before hearing the answer, so it is
- * forbidden rather than discouraged.
+ * **Short, and the number is in the prompt because "be concise" is not a
+ * length.** Fifteen to twenty words. Every word she says is a word the owner
+ * stands still through twice — once while ElevenLabs encodes it and once while
+ * it plays — so politeness costs about a second a turn and buys nothing that a
+ * person waiting to hear a time wants.
+ *
+ * **No preamble and no farewell.** "בטח, אני בודקת עכשיו…" is a sentence the
+ * owner waits three seconds to hear before the answer; "במה אוכל לעזור עוד?"
+ * is one they wait three seconds to hear after it, into a microphone that has
+ * already re-opened. Both are forbidden rather than discouraged.
+ *
+ * **The vocabulary is bounded to the diary.** She is not a general assistant
+ * with calendar access; she is the calendar, spoken. Naming the words she has
+ * — תור, פנוי, מוזמן, מבוטל, הוזז — is what stops the model editorialising
+ * about a day that looks busy.
  * ---------------------------------------------------------------------------
  */
 const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. בעל העסק מדבר אלייך בעברית על היומן שלו.
@@ -146,12 +159,17 @@ const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. 
 כללים:
 - יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
 - אין כלי מתאים? עני מהיומן שלמעלה בלבד. אל תמציאי דבר; מה שאינו שם — אמרי שאינך רואה אותו.
-- לעולם אל תקריאי רשימה. את נשמעת בקול, לא נקראת: בלי מקפים, בלי נקודות, בלי "confirmed", בלי שורות. כמה תורים? אמרי כמה יש ומתי הראשון והאחרון, במשפט אחד. שואלים על תור מסוים? שם, שעה, שירות — וזהו.
+- **לעולם אל תקריאי רשימה, וזה כולל שלושה תורים.** את נשמעת בקול: בלי מקפים, בלי נקודתיים, בלי "confirmed", בלי שורות.
+- יותר משני תורים? אמרי רק כמה יש ומתי הראשון והאחרון. אל תפרטי שמות ושירותים של כולם — אם ירצה, הוא ישאל.
+- תור אחד או שניים? שם, שעה, שירות. וזהו.
 - תאריכים תמיד YYYY-MM-DD, שעות תמיד HH:MM. תרגמי "היום", "מחר", "ביום חמישי" לתאריך לפי התאריך שלמעלה. לעולם אל תשלחי מילים בשדות האלה.
 - שעה בעברית מדוברת היא שעת עסק: "בשלוש" = 15:00, "בשמונה בבוקר" = 08:00.
 - שעות הפעילות אינן מגבילות אותך. בעל העסק רשאי לקבוע ולהזיז תורים בכל שעה — שש בבוקר, עשר בלילה, יום סגור. לעולם אל תסרבי בגלל שעה, אל תגידי "אין תורים זמינים" ואל תשאלי אם הוא בטוח. קראי לכלי. רק הכלי מחליט אם יש התנגשות.
 - טלפון ב-create_appointment אינו חובה. לא הוכתב מספר — אל תבקשי, אל תשאלי, אל תמציאי, פשוט אל תשלחי את השדה.
-- בלי הקדמות ובלי אישורי ביניים. לא "רגע", לא "אני בודקת" — תשובה אחת קצרה בעברית, מתאימה להקראה.
+- **קצר. מקסימום 15–20 מילים בתשובה.** משפט אחד. אם צריך שניים — הראשון קצר.
+- בלי הקדמות ובלי אישורי ביניים: לא "רגע", לא "אני בודקת", לא "בטח".
+- בלי סיומות נימוס: לא "במה אוכל לעזור עוד?", לא "שמחתי לעזור", לא "בכיף", לא "אני כאן אם תצטרך". סיימת את המשפט — עצרי.
+- אוצר המילים שלך הוא יומן ומספרה בלבד: תור, פנוי, מוזמן, מבוטל, הוזז, נקבע, לקוח, שירות, שעה, יום. אל תפרשי, אל תייעצי ואל תעירי הערות על היומן.
 - יש שיחה קודמת למעלה? "אותו", "אותה", "זה", "התור הזה", "ואז" ו"גם" מתייחסים לתור שדיברתן עליו בתור הקודם. פתרי את ההתייחסות בעצמך והעבירי לכלי את שם הלקוח שנאמר שם — אל תשאלי "לאיזה תור התכוונת" אם זה ברור מהשיחה.
 - המשך של בקשה קודמת הוא בקשה מלאה. "תזיזי אותו שעה קדימה" = הזזה לשעה שהיא שעה אחרי השעה שנאמרה למעלה; חשבי אותה בעצמך ושלחי HH:MM.
 - לא הבנת? בקשי שיחזור. אל תנחשי.
@@ -327,18 +345,29 @@ ${INSTRUCTIONS}`,
  * ---------------------------------------------------------------------------
  */
 export async function speak(text: string): Promise<string> {
+  /**
+   * **The card and the voice get different text, and this is where they part.**
+   *
+   * "17:30" is exactly right to read and wrong to hear — a TTS engine handed
+   * digits and a colon reads digits and a colon. The sentence on screen keeps
+   * its numerals, which are precise and scannable; the sentence in the air gets
+   * words. Applied here rather than in either provider, because it is a fact
+   * about speech and not about ElevenLabs.
+   */
+  const spoken = normalizeForSpeech(text);
+
   const eleven = elevenLabsConfig();
-  if (!eleven) return speakWithOpenAI(text);
+  if (!eleven) return speakWithOpenAI(spoken);
 
   try {
-    return await speakWithElevenLabs(text, eleven);
+    return await speakWithElevenLabs(spoken, eleven);
   } catch (error) {
     reportWarning(
       "voice.tts.elevenLabsFallback",
       "ElevenLabs speech failed; falling back to OpenAI",
       { message: error instanceof Error ? error.message : String(error) },
     );
-    return speakWithOpenAI(text);
+    return speakWithOpenAI(spoken);
   }
 }
 

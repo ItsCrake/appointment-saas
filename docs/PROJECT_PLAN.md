@@ -1476,6 +1476,58 @@ optional. What follows from that:
   `decideIdle` closes the conversation instead, at seven seconds, and is armed
   **only** on a continued turn. סגור ends it by hand, and closing either
   control forgets the history with it.
+  **The auto-listen window is 4.5 seconds, and it is a window rather than a
+  pause.** Long enough to draw breath and start a follow-up, short enough
+  that a conversation nobody continued closes while the owner is still
+  looking at the screen — so the microphone shutting is something they see
+  rather than something they discover. Anyone who needs longer presses the
+  button, which has no idle timeout at all.
+  **Memory is four turns or 45 seconds of silence, and the second one is
+  measured on the gap.** A rule that dropped turns *older* than 45 seconds
+  would dismantle a conversation from underneath itself: a turn costs nine to
+  twelve seconds, so by the fourth exchange the first would have aged out and
+  "אותו" would point at nothing, mid-flow, for no reason the owner could see.
+  What expires is the gap — while the exchange keeps moving the whole of it
+  stays, and the moment it stops the context goes whole rather than eroding.
+  `boundHistory` sorts before applying either rule, since "the newest turn"
+  and "the last four" both assume an order a crafted request need not have.
+  **The card and the voice now get different text.** "17:30" is exactly right
+  to read — precise, scannable, the format the calendar uses — and wrong to
+  hear: a TTS engine handed digits and a colon reads digits and a colon.
+  `libi-hebrew.ts` runs on the way to the speaker and nowhere else.
+  **Number gender is the load-bearing part.** Hours agree with שעה, which is
+  feminine — "שלוש", never "שלושה" — while days of the month take the
+  masculine, "שבעה בספטמבר". The two are adjacent in the same sentence and
+  disagree by design. Two takes the construct form in front of a noun ("שני
+  תורים", never "שניים תורים"), and one is left alone because Hebrew puts it
+  *after* the noun. Getting any of this backwards does not garble the
+  sentence; it produces fluent Hebrew that sounds like a foreigner reading a
+  form, which is what the ElevenLabs switch existed to fix.
+  **Conservative on purpose:** only a clock time, a date, and a count
+  standing in front of a noun this product uses. A bare number is left as
+  digits, because "45" could be a price, a duration, a house number or a
+  year, and a confident wrong guess said out loud is worse than a digit read
+  plainly. One trap worth recording — **`\b` cannot express a Hebrew word
+  boundary**: JavaScript defines it against `[A-Za-z0-9_]`, so `\b` after a
+  Hebrew letter asks for a transition a following space cannot provide and
+  the pattern silently never matches. Written out as "not another Hebrew
+  letter" instead, with a test that fails the obvious version.
+  **The prompt now carries a number rather than an adjective.** "Be concise"
+  is not a length; 15–20 words is. Every word she says is a word the owner
+  stands still through twice — once while ElevenLabs encodes it, once while
+  it plays — so politeness costs about a second a turn. Farewells are
+  forbidden alongside preambles: "במה אוכל לעזור עוד?" is a sentence they
+  wait to hear *after* the answer, into a microphone that has already
+  re-opened. The vocabulary is bounded to the diary — תור, פנוי, מוזמן,
+  מבוטל, הוזז — because she is not a general assistant with calendar access;
+  she is the calendar, spoken.
+  **The word cap needed the list rule to be concrete before it held.** Asked
+  what was on tomorrow she answered in 27 words, enumerating all three
+  bookings, while a prompt that said both "be brief" and "do not read lists"
+  sat above her. Naming the threshold — more than two, say how many and the
+  first and last only — took the same question to 11 words. Measured live
+  across four turns: 10, 11, 9 and 7 words, with every time, date and count
+  spoken rather than spelled.
   Verified live as a conversation: *"מה התור הבא שלי"* → 16:30 עם עומר לוי;
   *"תזיזי אותו בשעה קדימה"* → resolved the pronoun **and** the arithmetic,
   proposing 17:30; *"כן"* → applied, on the fast path that skips both the

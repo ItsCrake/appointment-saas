@@ -79,12 +79,15 @@ export const INITIAL_SILENCE_STATE: SilenceState = {
  * then send twenty seconds of shop noise to Whisper — a bill, a wasted model
  * call, and "לא שמעתי כלום" said to a room.
  *
- * Seven seconds: long enough to think of a follow-up while looking at the
- * calendar, short enough that a conversation nobody continued closes while the
- * owner is still in front of the screen to see it close.
+ * **4.5 seconds.** Long enough to draw breath and start a follow-up, short
+ * enough that a conversation nobody continued closes while the owner is still
+ * looking at the screen — so the microphone shutting is something they *see*
+ * rather than something they discover. It is a window to keep talking through,
+ * not a pause to think in: anyone who needs longer presses the button, which
+ * has no idle timeout at all.
  * ---------------------------------------------------------------------------
  */
-export const IDLE_MS = 7000;
+export const IDLE_MS = 4500;
 
 /**
  * Whether a turn should be abandoned because nobody has spoken into it.

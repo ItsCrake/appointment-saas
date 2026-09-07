@@ -122,11 +122,13 @@ const MAX_RECORDING_MS = 20_000;
 /**
  * How many exchanges the client bothers to keep.
  *
- * The server bounds this again on the way in and its number is the one that
- * matters; this only stops an afternoon's conversation growing in a tab that
- * is never reloaded.
+ * Matched to what the server will actually use, so the difference is not
+ * uploaded on every turn to be discarded on arrival. The server bounds it
+ * again regardless — its number is the one that matters, and it also applies
+ * the inactivity window, which is what makes a stale conversation safe even
+ * when this tab has been open since lunch.
  */
-const MAX_CLIENT_TURNS = 8;
+const MAX_CLIENT_TURNS = 4;
 
 
 

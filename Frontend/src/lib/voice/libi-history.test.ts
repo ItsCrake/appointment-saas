@@ -4,7 +4,7 @@ import {
   boundHistory,
   historyMessages,
   MAX_TURNS,
-  MAX_TURN_AGE_MS,
+  MAX_IDLE_MS,
   parseHistory,
   type Turn,
 } from "./libi-history";
@@ -45,24 +45,62 @@ describe("boundHistory", () => {
     expect(bounded[bounded.length - 1].said).toBe(`שאלה ${MAX_TURNS + 3}`);
   });
 
-  it("drops anything older than the window", () => {
+  it("expires the whole conversation once the gap runs out", () => {
     /**
      * **The rule that stops the wrong appointment being cancelled.** A tab left
-     * open over lunch and picked up again is a new conversation, and "תבטל
-     * אותו" resolved against a sentence from two hours ago is worse than not
+     * open and picked up again is a new conversation, and "תבטל אותו" resolved
+     * against a sentence from before the interruption is worse than not
      * resolved at all.
      */
-    const bounded = boundHistory(
-      [turn(1, MAX_TURN_AGE_MS + 1000), turn(2, 5_000)],
+    const stale = boundHistory(
+      [turn(1, MAX_IDLE_MS + 20_000), turn(2, MAX_IDLE_MS + 1_000)],
+      NOW,
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("keeps an old turn while the conversation is still moving", () => {
+    /**
+     * **Inactivity, not age, and this is the assertion that says so.** A turn
+     * costs nine to twelve seconds, so a rule that dropped anything older than
+     * 45 seconds would dismantle a conversation from underneath itself — by the
+     * fourth exchange the first would be gone and "אותו" would point at
+     * nothing, mid-flow, for no reason the owner could see.
+     *
+     * The first turn here is well past the window on its own. The conversation
+     * is still alive, so it stays.
+     */
+    const live = boundHistory(
+      [turn(1, MAX_IDLE_MS + 20_000), turn(2, 30_000), turn(3, 2_000)],
       NOW,
     );
 
-    expect(bounded).toHaveLength(1);
-    expect(bounded[0].said).toBe("שאלה 2");
+    expect(live).toHaveLength(3);
+    expect(live[0].said).toBe("שאלה 1");
   });
 
-  it("keeps a turn that is exactly at the edge of the window", () => {
-    expect(boundHistory([turn(1, MAX_TURN_AGE_MS)], NOW)).toHaveLength(1);
+  it("keeps a conversation whose last turn is exactly at the edge", () => {
+    expect(boundHistory([turn(1, MAX_IDLE_MS)], NOW)).toHaveLength(1);
+    expect(boundHistory([turn(1, MAX_IDLE_MS + 1)], NOW)).toEqual([]);
+  });
+
+  it("sorts before applying either rule", () => {
+    /**
+     * "The newest turn" and "the last four" both assume an order the client is
+     * trusted to have got right — and a crafted request is not. Shuffled here
+     * on purpose: the newest is what decides expiry, wherever it sits in the
+     * array.
+     */
+    const shuffled = boundHistory(
+      [turn(3, 1_000), turn(1, 20_000), turn(2, 10_000)],
+      NOW,
+    );
+
+    expect(shuffled.map((t) => t.said)).toEqual([
+      "שאלה 1",
+      "שאלה 2",
+      "שאלה 3",
+    ]);
   });
 
   it("drops a turn from the future", () => {
@@ -129,9 +167,12 @@ describe("parseHistory", () => {
     expect(parseHistory(raw, NOW).length).toBe(MAX_TURNS);
   });
 
-  it("applies the age window on the way in", () => {
-    const raw = JSON.stringify([turn(1, MAX_TURN_AGE_MS * 4), turn(2)]);
-    expect(parseHistory(raw, NOW)).toHaveLength(1);
+  it("applies the inactivity window on the way in", () => {
+    const live = JSON.stringify([turn(1, 20_000), turn(2, 1_000)]);
+    expect(parseHistory(live, NOW)).toHaveLength(2);
+
+    const abandoned = JSON.stringify([turn(1, MAX_IDLE_MS * 4)]);
+    expect(parseHistory(abandoned, NOW)).toEqual([]);
   });
 });
 

@@ -169,10 +169,15 @@ describe("decideIdle", () => {
     expect(decideIdle(INITIAL_SILENCE_STATE, 10_000, 10_000)).toBe(true);
   });
 
-  it("gives a person time to think of a follow-up", () => {
-    // Short enough that a dead conversation closes while the owner is still
-    // looking at the screen; long enough to glance at the calendar first.
-    expect(IDLE_MS).toBeGreaterThanOrEqual(5_000);
-    expect(IDLE_MS).toBeLessThanOrEqual(10_000);
+  it("is a window to keep talking through, not a pause to think in", () => {
+    /**
+     * The distinction is the whole choice of number. Somebody who needs time
+     * presses the button, which has no idle timeout at all; this one only has
+     * to survive the gap between her finishing and a follow-up starting. Long
+     * enough and a dead conversation sits with the microphone open behind the
+     * owner's back.
+     */
+    expect(IDLE_MS).toBeGreaterThanOrEqual(3_000);
+    expect(IDLE_MS).toBeLessThanOrEqual(6_000);
   });
 });

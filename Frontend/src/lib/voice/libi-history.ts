@@ -40,22 +40,33 @@ export type Turn = {
 /**
  * How many exchanges travel with a request.
  *
- * Six is two or three complete thoughts — "what's next", "move it", "no, the
- * other one" — which is the span over which a pronoun still refers to
+ * Four is one complete thought — "what's next", "move it", "yes", and the
+ * question after — which is the span over which a pronoun still refers to
  * something. Past that it is prompt weight on every turn for context nobody is
  * still holding, and this is a request somebody is standing still through.
  */
-export const MAX_TURNS = 6;
+export const MAX_TURNS = 4;
 
 /**
- * How old an exchange may be and still be context.
+ * How long a conversation survives without being added to.
  *
- * A tab left open over lunch and picked up again is a new conversation, and
- * "תבטל אותו" resolved against a sentence from two hours ago is worse than not
- * resolved at all. Fifteen minutes is far longer than any real exchange and far
- * shorter than "later".
+ * ---------------------------------------------------------------------------
+ * **Inactivity, not age**, and the difference is what makes it correct. A rule
+ * that dropped turns older than 45 seconds would dismantle a conversation from
+ * underneath itself: a turn costs nine to twelve seconds, so by the fourth one
+ * the first would have aged out and "אותו" would point at nothing — mid-flow,
+ * for no reason the owner could see.
+ *
+ * What expires is the *gap*. As long as the exchange keeps moving the whole of
+ * it stays; the moment it stops, the clock runs, and 45 seconds later the
+ * context is gone whole rather than eroding turn by turn.
+ *
+ * Deliberately shorter than it could be. The cost of forgetting is a repeated
+ * sentence; the cost of remembering too long is "תבטל אותו" resolving against
+ * a conversation the owner finished before answering the phone.
+ * ---------------------------------------------------------------------------
  */
-export const MAX_TURN_AGE_MS = 15 * 60 * 1000;
+export const MAX_IDLE_MS = 45 * 1000;
 
 /**
  * A hard ceiling on what one turn can carry, whatever the counts say.
@@ -67,20 +78,35 @@ export const MAX_TURN_AGE_MS = 15 * 60 * 1000;
 const MAX_CHARS = 300;
 
 /**
- * The history a request may use: recent, bounded, and trimmed.
+ * The history a request may use: live, bounded, and trimmed.
  *
- * Oldest are dropped rather than newest — a pronoun points backwards a little,
- * not a lot, so the last thing said is the part worth keeping.
+ * **Expiry is all-or-nothing.** Either the conversation is still going, in
+ * which case all of it is context, or the gap has run out and none of it is —
+ * see {@link MAX_IDLE_MS}. Half a conversation is the shape that resolves a
+ * pronoun to the wrong thing.
+ *
+ * Within a live conversation the *oldest* turns are dropped rather than the
+ * newest: a pronoun points backwards a little, not a lot.
+ *
+ * Sorted before either rule is applied, because "the newest turn" and "the last
+ * four" both assume an order the client is trusted to have got right and a
+ * crafted request is not.
  */
 export function boundHistory(turns: readonly Turn[], now: number): Turn[] {
-  return turns
-    .filter((turn) => now - turn.at <= MAX_TURN_AGE_MS && now - turn.at >= 0)
-    .slice(-MAX_TURNS)
-    .map((turn) => ({
-      said: turn.said.slice(0, MAX_CHARS),
-      replied: turn.replied.slice(0, MAX_CHARS),
-      at: turn.at,
-    }));
+  // Nothing from the future: a clock that disagrees, or a crafted request that
+  // would otherwise never be able to age out.
+  const real = [...turns]
+    .filter((turn) => now - turn.at >= 0)
+    .sort((a, b) => a.at - b.at);
+
+  const newest = real[real.length - 1];
+  if (!newest || now - newest.at > MAX_IDLE_MS) return [];
+
+  return real.slice(-MAX_TURNS).map((turn) => ({
+    said: turn.said.slice(0, MAX_CHARS),
+    replied: turn.replied.slice(0, MAX_CHARS),
+    at: turn.at,
+  }));
 }
 
 /**
