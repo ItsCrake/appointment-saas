@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type PageProps = {
-  searchParams: Promise<{ week?: string; view?: string }>;
+  searchParams: Promise<{ week?: string; view?: string; focus?: string }>;
 };
 
 /**
@@ -47,7 +47,7 @@ type PageProps = {
  */
 export default async function FullCalendarPage({ searchParams }: PageProps) {
   const { business } = await requireBusiness();
-  const { week, view: rawView } = await searchParams;
+  const { week, view: rawView, focus } = await searchParams;
 
   const today = todayInTimezone(business.timezone);
   const anchor = week && DATE_PATTERN.test(week) ? week : today;
@@ -240,6 +240,16 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
       <WeekCalendar
         initialView={view}
         initialDate={anchor}
+        /**
+         * From ליבי: "תראי לי את התור של דנה ביום רביעי" lands here with the
+         * booking's own week and id, so the owner arrives looking at the
+         * appointment rather than at a week containing it. Shape-checked
+         * rather than trusted — it goes into an element id and a comparison,
+         * and an id that matches nothing simply rings nothing.
+         */
+        focusAppointmentId={
+          focus && /^[0-9a-f-]{36}$/i.test(focus) ? focus : undefined
+        }
         days={calendarDays}
         entries={entries}
         weekStart={days[0]}

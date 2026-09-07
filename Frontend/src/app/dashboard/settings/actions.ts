@@ -8,6 +8,7 @@ import { isSlugTaken, updateBusiness } from "@/db/queries";
 import { requireWritable } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
 import { isManageTokenShape } from "@/lib/public-slug";
+import { ADDRESS_GENDERS } from "@/lib/voice/libi-address";
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
 
@@ -119,5 +120,33 @@ export async function saveSettingsAction(
   revalidatePath("/dashboard/settings");
   revalidatePath(`/${previousSlug}`);
   revalidatePath(`/${data.slug}`);
+  return { ok: true };
+}
+
+/**
+ * Which Hebrew forms ליבי uses when she addresses the owner (0033).
+ *
+ * `requireWritable`, like every mutating action here — the coverage test in
+ * `dashboard-session.coverage.test.ts` fails the build otherwise, and a frozen
+ * tenant changing settings is exactly what the freeze is for.
+ *
+ * The value is coerced on the way in *and* again in `libi-config` before it
+ * reaches a prompt. Twice, deliberately: this one keeps the column clean, and
+ * that one means a column written past the app — by a migration, by hand —
+ * still cannot instruct the model in a gender that does not exist.
+ */
+export async function setLibiAddressGenderAction(
+  input: unknown,
+): Promise<SettingsResult> {
+  const parsed = z.enum(ADDRESS_GENDERS).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "ערך לא תקין" };
+
+  const { business } = await requireWritable();
+
+  await updateBusiness(db, business.id, {
+    libiAddressGender: parsed.data,
+  });
+
+  revalidatePath("/dashboard/settings");
   return { ok: true };
 }

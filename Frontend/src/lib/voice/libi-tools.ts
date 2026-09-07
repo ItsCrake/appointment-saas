@@ -199,6 +199,34 @@ export const VOICE_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "show_appointment_in_calendar",
+      description:
+        "פותח את היומן על תור מסוים ומסמן אותו. טריגרים: תראי לי, תפתחי, תציגי, איפה, קפצי ל. משמש כשהמשתמש רוצה לראות תור ביומן ולא רק לשמוע עליו.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description:
+              "YYYY-MM-DD, מחושב מהתאריך שלמעלה. לא נאמר תאריך — היום.",
+          },
+          time: {
+            type: "string",
+            description:
+              "HH:MM בשעון העסק, רק אם נאמרה שעה. לא נאמרה — אל תשלחי את השדה.",
+          },
+          name: {
+            type: "string",
+            description: "שם הלקוח אם נאמר. אחרת אל תשלחי את השדה.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ] as const;
 
 export type VoiceToolName = (typeof VOICE_TOOLS)[number]["function"]["name"];
@@ -285,10 +313,22 @@ export type PendingAction =
  * destructive change has been described and is waiting on an answer; the client
  * never receives a tool that has already changed something without saying so.
  */
+/**
+ * Somewhere the dashboard should be, because ליבי was asked to show rather
+ * than to tell.
+ *
+ * A path rather than an appointment, so the client pushes it and nothing on
+ * this side has to know how the calendar addresses a week. Always same-origin
+ * and always built here from ids the tenant owns — never assembled from
+ * anything the model wrote.
+ */
+export type VoiceNavigation = { href: string };
+
 export type ToolOutcome = {
   spoken: string;
   actionTaken: VoiceToolName | "none" | "confirmed" | "declined";
   pending?: PendingAction;
+  navigate?: VoiceNavigation;
 };
 
 /** Only what a sentence needs. The rest of the row is not the assistant's business. */
@@ -343,6 +383,15 @@ export async function runVoiceTool(
         String(args.name ?? ""),
         optionalString(args.date),
         optionalString(args.time),
+        ctx,
+      );
+    case "show_appointment_in_calendar":
+      return showInCalendar(
+        {
+          date: optionalString(args.date),
+          time: optionalString(args.time),
+          name: optionalString(args.name),
+        },
         ctx,
       );
     case "create_appointment":
@@ -866,6 +915,111 @@ async function createVoiceAppointment(
   return {
     spoken: `קבעתי תור ל${clientName} ${at}.`,
     actionTaken: "create_appointment",
+  };
+}
+
+/**
+ * Opens the calendar on one booking and says which.
+ *
+ * ---------------------------------------------------------------------------
+ * **A read that also moves the screen.** Nothing is written, so it runs on the
+ * first sentence like every other read — the cost of getting it wrong is the
+ * owner looking at the wrong Wednesday, which they can see and fix.
+ *
+ * **The time is a hint, not a filter.** "תראי לי את התור ביום רביעי בארבע"
+ * should land on the four o'clock booking, but a diary is full of times
+ * nothing starts exactly at — a 16:00 that is really a 15:45 running long, a
+ * mis-heard quarter hour. So a stated time picks the *nearest* booking that
+ * day rather than an exact match, and the sentence names the time it actually
+ * found so a wrong guess is audible rather than silent.
+ *
+ * **With no time it takes the day's first and says so**, which is the brief's
+ * own answer to the ambiguous case and a better one than asking: the owner is
+ * looking at the calendar a second later and can see the rest of the day
+ * around it.
+ * ---------------------------------------------------------------------------
+ */
+async function showInCalendar(
+  input: { date?: string; time?: string; name?: string },
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const day = input.date ?? todayInTimezone(ctx.timezone, ctx.now);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return {
+      spoken: "לא הבנתי איזה יום להראות. אפשר לחזור על זה?",
+      actionTaken: "none",
+    };
+  }
+
+  const from = fromZonedTime(`${day}T00:00:00`, ctx.timezone);
+  const to = new Date(from.getTime() + 86_400_000);
+
+  const rows = await ctx.db
+    .select(SPOKEN_COLUMNS)
+    .from(appointments)
+    .where(
+      and(
+        live(ctx.businessId),
+        gte(appointments.startsAt, from),
+        lt(appointments.startsAt, to),
+        ...(input.name && input.name.trim().length >= 2
+          ? [ilike(appointments.clientName, `%${escapeLike(input.name.trim())}%`)]
+          : []),
+      ),
+    )
+    .orderBy(asc(appointments.startsAt));
+
+  if (rows.length === 0) {
+    const who = input.name ? ` על השם ${input.name}` : "";
+    return {
+      spoken: `לא מצאתי תור${who} ביום הזה.`,
+      actionTaken: "none",
+    };
+  }
+
+  /**
+   * The nearest booking to the stated time, or the day's first.
+   *
+   * Nearest rather than exact: a diary is full of times nothing starts
+   * precisely at, and refusing to show anything because 16:00 is really
+   * 15:45 would be a correct answer to a question nobody asked.
+   */
+  const wanted = input.time
+    ? toInstant(day, input.time, ctx.timezone)
+    : null;
+
+  const target = wanted
+    ? rows.reduce((best, row) =>
+        Math.abs(row.startsAt.getTime() - wanted.getTime()) <
+        Math.abs(best.startsAt.getTime() - wanted.getTime())
+          ? row
+          : best,
+      )
+    : rows[0];
+
+  const when = spokenTime(target.startsAt, ctx.timezone);
+  const on = spokenDay(target.startsAt, ctx.now, ctx.timezone);
+  const at = on ? `${on} ב-${when}` : `היום ב-${when}`;
+
+  /**
+   * Built here from the row's own date and id — never from anything the
+   * model wrote. `week` anchors the grid, which is what puts the day view on
+   * the right day and the week view on the right week.
+   */
+  const href = `/dashboard/agenda/full?week=${day}&focus=${target.id}`;
+
+  /**
+   * The count is said only when it is the reason the answer might surprise:
+   * a day with four bookings, asked about with no time, lands on the first
+   * one and the owner should know the others are there.
+   */
+  const others =
+    !input.time && rows.length > 1 ? ` יש עוד ${rows.length - 1} באותו יום.` : "";
+
+  return {
+    spoken: `הנה התור של ${target.clientName} ${at}.${others}`,
+    actionTaken: "show_appointment_in_calendar",
+    navigate: { href },
   };
 }
 

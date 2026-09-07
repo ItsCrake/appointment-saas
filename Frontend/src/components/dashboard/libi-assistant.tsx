@@ -113,6 +113,8 @@ type Result = {
   audioBase64: string | null;
   actionTaken: string;
   pending?: Pending;
+  /** A same-origin path she was asked to open — see `VoiceNavigation`. */
+  navigate?: { href: string };
   error?: string;
 };
 
@@ -146,7 +148,7 @@ export function LibiAssistant() {
   const { toast } = useToast();
   const router = useRouter();
 
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [phase, setPhaseState] = useState<Phase>("idle");
   const [result, setResult] = useState<Result | null>(null);
   const [confirming, startConfirm] = useTransition();
   /**
@@ -157,6 +159,25 @@ export function LibiAssistant() {
    * the only writer of either.
    */
   const [conversing, setConversingState] = useState(false);
+
+  /**
+   * The phase as it is *now*, not as it was when a callback was built.
+   *
+   * ---------------------------------------------------------------------
+   * **This ref is the fix for a microphone that never reopened.** `play`'s
+   * `onended` sets the phase to idle and then immediately asks `start` to
+   * take the next turn — but `setPhase` is queued and the call is not, so
+   * `start` ran inside a closure captured while the phase was still
+   * `"speaking"`, hit its own `if (phase !== "idle") return`, and did
+   * nothing. Every conversation stopped dead after ליבי's first answer,
+   * silently, with the card still on screen saying she was listening.
+   *
+   * A ref updates synchronously, so the guard now reads the value the
+   * line above it just wrote. It also takes `phase` out of `start`'s
+   * dependencies, which is what made the closure stale to begin with.
+   * ---------------------------------------------------------------------
+   */
+  const phaseRef = useRef<Phase>("idle");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -214,6 +235,12 @@ export function LibiAssistant() {
   const showResult = useCallback((next: Result | null) => {
     pendingRef.current = next?.pending ?? null;
     setResult(next);
+  }, []);
+
+  /** The one writer of both copies of the phase. */
+  const setPhase = useCallback((next: Phase) => {
+    phaseRef.current = next;
+    setPhaseState(next);
   }, []);
 
   /** The one writer of both copies of "is a conversation open". */
@@ -319,7 +346,7 @@ export function LibiAssistant() {
     };
     setPhase("speaking");
     source.start();
-  }, []);
+  }, [setPhase]);
 
   /**
    * Stops the recording once the speaking stops.
@@ -489,6 +516,17 @@ export function LibiAssistant() {
                * Whisper heard "דנאי" then "אותו" has to resolve against
                * "דנאי", and storing the truth would leave the two out of step.
                */
+              /**
+               * "תראי לי" means move the screen, and it moves *now* rather than
+               * when she finishes speaking: the owner asked to look at
+               * something, and three seconds of narration in front of it is
+               * three seconds of not looking at it. The card and the audio
+               * follow onto the calendar page, which is where they belong.
+               */
+              if (message.navigate?.href?.startsWith("/")) {
+                router.push(message.navigate.href);
+              }
+
               if (message.transcribedText && message.textResult) {
                 historyRef.current = [
                   ...historyRef.current,
@@ -520,7 +558,7 @@ export function LibiAssistant() {
         setPhase("idle");
       }
     },
-    [play, showResult],
+    [play, router, setPhase, showResult],
   );
 
   const stop = useCallback(() => {
@@ -558,7 +596,9 @@ export function LibiAssistant() {
    * is not started again.
    */
   const start = useCallback(async (continued = false) => {
-    if (phase !== "idle") return;
+    // `phaseRef`, never `phase` — see the ref's own note. Reading state
+    // here is what stopped every conversation after one turn.
+    if (phaseRef.current !== "idle") return;
 
     /**
      * **Before anything async.** `resume()` only counts as user-activated while
@@ -642,21 +682,29 @@ export function LibiAssistant() {
       setPhase("idle");
     }
   }, [
-    phase,
     closeQuietly,
     endConversation,
     listenForSilence,
     releaseStream,
     send,
     setConversing,
+    setPhase,
     showResult,
     stop,
     toast,
     unlockAudio,
   ]);
 
-  // Published for `play`'s `onended`, which cannot close over `start` itself.
-  startRef.current = start;
+  /**
+   * Published for `play`'s `onended`, which cannot close over `start` itself.
+   *
+   * In an effect rather than during render: assigning a ref while rendering is
+   * a side effect in a place React is allowed to run twice. Nothing can call
+   * through this ref before the first playback, which is long after mount.
+   */
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
 
   /**
    * The tap half of the confirmation, kept alongside the spoken one.

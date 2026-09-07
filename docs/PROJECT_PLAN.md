@@ -1476,6 +1476,62 @@ optional. What follows from that:
   `decideIdle` closes the conversation instead, at seven seconds, and is armed
   **only** on a continued turn. סגור ends it by hand, and closing either
   control forgets the history with it.
+  **The microphone never actually reopened, and the reason is worth keeping.**
+  `play`'s `onended` set the phase to idle and then asked `start` to take the
+  next turn — but `setPhase` is queued and the call is not, so `start` ran
+  inside a closure captured while the phase was still `"speaking"`, hit its
+  own `if (phase !== "idle") return`, and did nothing. Every conversation
+  stopped dead after her first answer, silently, with the card still on screen
+  saying she was listening. Nothing threw, nothing logged, the typechecker was
+  happy, and it shipped behind an honest note that the loop had not been
+  driven with a real microphone. `phaseRef` is the fix: a ref updates
+  synchronously, so the guard reads what the line above it just wrote, and
+  `phase` leaves `start`'s dependencies — which is what made the closure stale
+  to begin with. `libi-loop.test.ts` reads the component source and pins it,
+  in the idiom `calendar-density.test.ts` already uses: there is no jsdom here,
+  and standing up a `MediaRecorder`, an `AudioContext` and an animation frame
+  to assert one `if` would be a lot of machinery guarding a little code.
+  **ליבי addresses the owner in their own forms (0033).** Hebrew conjugates
+  the second person by gender, so there is no neutral way to say "would you
+  like me to update it" — it is either תרצה or תרצי, and a product that picks
+  one unasked is wrong for about half the shops it runs in, every turn, out
+  loud. `libi_address_gender` on `businesses`, a two-button control in
+  settings that saves on click, and a prompt line that lists the actual
+  conjugations rather than naming the gender — "address the owner as female"
+  is an instruction a model can agree with and then drop three words later.
+  The vocabulary lives in `libi-address.ts` rather than `libi-config.ts`
+  **because nothing about it is a secret**: that module reads the API key and
+  `voice-isolation.test.ts` forbids a client component from importing it, a
+  rule worth keeping literal even though a type-only import is erased at
+  build time.
+  **Worth being straight about its reach.** Almost everything ליבי says comes
+  from fixed tool strings that do not address the owner at all — "מצאתי תור
+  של דניאל כהן מחר ב-09:30. לבטל אותו?" has no second person in it — and the
+  concision rules from the previous pass made her model-authored sentences
+  short enough to avoid one too. Probed live in `female` mode across four
+  utterances and not one produced a gendered verb. The setting is wired,
+  coerced twice and pinned by `libi-address.test.ts`; what it currently
+  changes is small, and making it matter would mean gendering the tool
+  strings, which is a larger change than the brief asked for.
+  **"תראי לי את התור" moves the screen.** `show_appointment_in_calendar` is a
+  read that also navigates: it resolves a day, an optional time and an
+  optional name to one booking, and returns a path the client pushes.
+  A stated time picks the **nearest** booking that day rather than an exact
+  match — a diary is full of times nothing starts precisely at, and refusing
+  to show anything because 16:00 is really 15:45 is a correct answer to a
+  question nobody asked. With no time it takes the day's first and says how
+  many more there are, which is the brief's own answer to the ambiguous case
+  and better than asking: the owner is looking at the day a second later
+  anyway. The href is assembled from the row's own date and id, never from
+  anything the model wrote. `?focus=` rings the card and scrolls it into
+  view; matched on `appointmentId` rather than `id`, since a booking crossing
+  midnight is two cards sharing one row. Verified end to end: the card is
+  present, ringed and in the viewport after following her.
+  **The brand is pointed before it is spoken.** Unpointed בזמן is two words
+  and the wrong one is the common one — בִּזְמַן is "in time" and the reading a
+  TTS model reaches for first, so the shop's assistant mispronounced the
+  shop's software in the one sentence a client might overhear. Fixed with
+  niqqud rather than a respelling, so the letters stay the brand.
   **The auto-listen window is 4.5 seconds, and it is a window rather than a
   pause.** Long enough to draw breath and start a follow-up, short enough
   that a conversation nobody continued closes while the owner is still

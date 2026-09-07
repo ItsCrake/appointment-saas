@@ -106,6 +106,16 @@ describe("ליבי key isolation", () => {
     expect(callers).toEqual([
       "app/api/voice/process/route.ts",
       "app/dashboard/layout.tsx",
+      /**
+       * A **server** component, asking only `isVoiceConfigured()` — whether the
+       * feature exists at all — so it knows whether to render her settings. It
+       * spends nothing and reads no key; it reads whether one is set.
+       *
+       * The address-gender vocabulary it also needs lives in `libi-address`
+       * precisely so the client form beside it can import that without
+       * appearing on this list.
+       */
+      "app/dashboard/settings/page.tsx",
       "lib/voice/libi-voice.ts",
     ]);
   });

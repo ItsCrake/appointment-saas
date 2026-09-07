@@ -8,6 +8,7 @@ import {
   LogoForm,
   SocialLinksForm,
 } from "@/components/dashboard/profile-extras-form";
+import { LibiSettings } from "@/components/dashboard/libi-settings";
 import { PushSettings } from "@/components/dashboard/push-settings";
 import {
   SettingsDirtyProvider,
@@ -32,6 +33,8 @@ import {
 } from "@/lib/branding";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { entitlementsFor } from "@/lib/entitlements";
+import { addressGender } from "@/lib/voice/libi-address";
+import { isVoiceConfigured } from "@/lib/voice/libi-config";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "הגדרות" };
@@ -145,6 +148,25 @@ export default async function SettingsPage() {
               would leave notifications off for anyone who forgets. */}
           <PushSettings enabled={business.pushEnabled} />
         </div>
+
+        {/* **Rendered only where ליבי is.** She is Pro-gated and needs a key on
+            the server, so the same two conditions the dashboard layout uses to
+            show the microphone decide whether this setting exists — a control
+            for a feature the tenant does not have is worse than no control. */}
+        {entitlementsFor(business).canAccessLibi && isVoiceConfigured() ? (
+          <div className="mt-8">
+            <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              ליבי — העוזרת הקולית
+            </h2>
+            <p className="mt-0.5 mb-4 text-sm text-zinc-500">
+              איך היא מדברת אליכם
+            </p>
+
+            {/* Coerced rather than passed raw, like the appearance fields: the
+                form must open on a legal value, not on whatever is in the row. */}
+            <LibiSettings initial={addressGender(business.libiAddressGender)} />
+          </div>
+        ) : null}
 
         <div className="mt-8">
           <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">

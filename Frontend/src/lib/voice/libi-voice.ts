@@ -9,6 +9,7 @@ import {
   ttsVoice,
   voiceApiKey,
 } from "./libi-config";
+import { addressGender, type AddressGender } from "./libi-address";
 import {
   READ_ONLY_TOOLS,
   VOICE_TOOLS,
@@ -154,7 +155,7 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
  * about a day that looks busy.
  * ---------------------------------------------------------------------------
  */
-const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. בעל העסק מדבר אלייך בעברית על היומן שלו.
+const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. בעל העסק מדבר אלייך בעברית על היומן שלו.
 
 כללים:
 - יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
@@ -165,6 +166,7 @@ const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. 
 - תאריכים תמיד YYYY-MM-DD, שעות תמיד HH:MM. תרגמי "היום", "מחר", "ביום חמישי" לתאריך לפי התאריך שלמעלה. לעולם אל תשלחי מילים בשדות האלה.
 - שעה בעברית מדוברת היא שעת עסק: "בשלוש" = 15:00, "בשמונה בבוקר" = 08:00.
 - שעות הפעילות אינן מגבילות אותך. בעל העסק רשאי לקבוע ולהזיז תורים בכל שעה — שש בבוקר, עשר בלילה, יום סגור. לעולם אל תסרבי בגלל שעה, אל תגידי "אין תורים זמינים" ואל תשאלי אם הוא בטוח. קראי לכלי. רק הכלי מחליט אם יש התנגשות.
+- מבקשים לראות תור ביומן ("תראי לי", "תפתחי", "איפה") — show_appointment_in_calendar. הוא פותח את היומן על התור. נאמרה שעה? שלחי אותה. לא נאמרה? אל תשאלי — הכלי לוקח את הראשון באותו יום ואומר מתי.
 - טלפון ב-create_appointment אינו חובה. לא הוכתב מספר — אל תבקשי, אל תשאלי, אל תמציאי, פשוט אל תשלחי את השדה.
 - **קצר. מקסימום 15–20 מילים בתשובה.** משפט אחד. אם צריך שניים — הראשון קצר.
 - בלי הקדמות ובלי אישורי ביניים: לא "רגע", לא "אני בודקת", לא "בטח".
@@ -174,6 +176,33 @@ const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. 
 - המשך של בקשה קודמת הוא בקשה מלאה. "תזיזי אותו שעה קדימה" = הזזה לשעה שהיא שעה אחרי השעה שנאמרה למעלה; חשבי אותה בעצמך ושלחי HH:MM.
 - לא הבנת? בקשי שיחזור. אל תנחשי.
 - שואלים מי את: "היי, אני ליבי — העוזרת של בזמן."`;
+
+/**
+ * The gender half, appended per request.
+ *
+ * Stated as forms rather than as a label. "Address the owner as female" is an
+ * instruction a model can agree with and then ignore three words into a
+ * sentence; a list of the actual conjugations is one it can copy. The examples
+ * are the verbs she reaches for most — asking, offering, confirming.
+ */
+const ADDRESS_RULES: Record<AddressGender, string> = {
+  male:
+    "- פני לבעל העסק בלשון זכר, תמיד. תרצה, תוכל, אמרת, שלך, רוצה, בטוח, קיבלת. לעולם לא תרצי/תוכלי/אמרת בנקבה.",
+  female:
+    "- פני לבעלת העסק בלשון נקבה, תמיד. תרצי, תוכלי, אמרת, שלך, רוצה, בטוחה, קיבלת. לעולם לא תרצה/תוכל/רוצה בזכר.",
+};
+
+/**
+ * The full prompt for one request.
+ *
+ * Exported for its test: the gender half is the only part of this prompt that
+ * differs between two tenants, so it is the only part where a wiring mistake
+ * would be invisible in every check that does not compare the two.
+ */
+export function instructionsFor(gender: AddressGender): string {
+  return `${BASE_INSTRUCTIONS}
+${ADDRESS_RULES[gender]}`;
+}
 
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -202,7 +231,13 @@ export async function decide(
   {
     writable = true,
     history = [],
-  }: { writable?: boolean; history?: readonly Turn[] } = {},
+    gender,
+  }: {
+    writable?: boolean;
+    history?: readonly Turn[];
+    /** The owner's setting, coerced here so a stray value cannot reach a prompt. */
+    gender?: string | null;
+  } = {},
 ): Promise<ToolOutcome> {
   /**
    * **The answer to a pending question never reaches the model.**
@@ -241,7 +276,7 @@ export async function decide(
       role: "system",
       content: `${buildPromptContext(ctx.now, ctx.timezone, roster)}
 
-${INSTRUCTIONS}`,
+${instructionsFor(addressGender(gender))}`,
     },
     /**
      * The exchange so far, oldest first, between the instructions and what was

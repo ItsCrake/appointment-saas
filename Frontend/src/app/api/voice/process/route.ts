@@ -9,7 +9,10 @@ import {
   MAX_AUDIO_BYTES,
 } from "@/lib/voice/libi-config";
 import { parseHistory } from "@/lib/voice/libi-history";
-import type { PendingAction } from "@/lib/voice/libi-tools";
+import type {
+  PendingAction,
+  VoiceNavigation,
+} from "@/lib/voice/libi-tools";
 import { decide, speak, transcribe } from "@/lib/voice/libi-voice";
 
 /**
@@ -68,6 +71,12 @@ export type VoiceProcessResponse = {
    * why nothing in it is trusted on the way in.
    */
   pending?: PendingAction;
+  /**
+   * Somewhere the dashboard should go, when she was asked to *show* rather
+   * than to tell. Built server-side from ids this tenant owns — see
+   * `VoiceNavigation`.
+   */
+  navigate?: VoiceNavigation;
   error?: string;
 };
 
@@ -205,7 +214,7 @@ export async function POST(request: Request) {
         now: new Date(),
       },
       writable ? pending : undefined,
-      { writable, history },
+      { writable, history, gender: business.libiAddressGender },
     );
 
     const spoken = outcome.spoken;
@@ -224,6 +233,7 @@ export async function POST(request: Request) {
               textResult: spoken,
               actionTaken: outcome.actionTaken,
               ...(outcome.pending ? { pending: outcome.pending } : {}),
+              ...(outcome.navigate ? { navigate: outcome.navigate } : {}),
             }) + NEWLINE,
           ),
         );

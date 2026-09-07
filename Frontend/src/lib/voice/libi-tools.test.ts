@@ -733,6 +733,121 @@ describe("executePending", () => {
   });
 });
 
+describe("show_appointment_in_calendar", () => {
+  it("points at the booking at the time asked for", async () => {
+    const shop_ = await shop();
+    await book(shop_, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(shop_, "2026-09-04T13:00:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04", time: "16:00" },
+      shop_.ctx,
+    );
+
+    expect(out.actionTaken).toBe("show_appointment_in_calendar");
+    expect(out.spoken).toContain("עומר לוי");
+    expect(out.navigate?.href).toContain("week=2026-09-04");
+    expect(out.navigate?.href).toContain("focus=");
+  });
+
+  it("takes the nearest booking rather than an exact match", async () => {
+    /**
+     * **A diary is full of times nothing starts precisely at.** A 16:00 that is
+     * really a 15:45 running long, or a mis-heard quarter hour, would make an
+     * exact match a correct answer to a question nobody asked.
+     */
+    const shop_ = await shop();
+    await book(shop_, "2026-09-04T12:45:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04", time: "16:00" },
+      shop_.ctx,
+    );
+
+    expect(out.spoken).toContain("עומר לוי");
+    expect(out.navigate).toBeDefined();
+  });
+
+  it("takes the day's first when no time was said, and says how many more", async () => {
+    // The brief's own answer to the ambiguous case, and a better one than
+    // asking: the owner is looking at the day a second later anyway.
+    const shop_ = await shop();
+    await book(shop_, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(shop_, "2026-09-04T13:00:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04" },
+      shop_.ctx,
+    );
+
+    expect(out.spoken).toContain("דנה כהן");
+    expect(out.spoken).toContain("10:00");
+    expect(out.spoken).toContain("עוד 1");
+  });
+
+  it("narrows by name when one was said", async () => {
+    const shop_ = await shop();
+    await book(shop_, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(shop_, "2026-09-04T13:00:00Z", "עומר לוי");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04", name: "עומר" },
+      shop_.ctx,
+    );
+
+    expect(out.spoken).toContain("עומר לוי");
+    expect(out.spoken).not.toContain("דנה");
+  });
+
+  it("says so rather than navigating to an empty day", async () => {
+    const shop_ = await shop();
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04" },
+      shop_.ctx,
+    );
+
+    expect(out.navigate).toBeUndefined();
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("לא מצאתי");
+  });
+
+  it("builds the path itself and stays inside the app", async () => {
+    /**
+     * The href is assembled from the row's own date and id, never from
+     * anything the model wrote — so a hallucinated argument cannot become a
+     * link the dashboard follows.
+     */
+    const shop_ = await shop();
+    await book(shop_, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04", name: "דנה" },
+      shop_.ctx,
+    );
+
+    expect(out.navigate?.href.startsWith("/dashboard/agenda/full?")).toBe(true);
+  });
+
+  it("stays inside the tenant", async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    await book(theirs, "2026-09-04T07:00:00Z", "לקוח של מישהו אחר");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04" },
+      mine.ctx,
+    );
+
+    expect(out.navigate).toBeUndefined();
+  });
+});
 describe("the frozen-tenant tool set", () => {
   it("offers reads only, and is derived rather than duplicated", () => {
     // A tool added to VOICE_TOOLS is write-by-default: it has to be named in
@@ -740,6 +855,9 @@ describe("the frozen-tenant tool set", () => {
     const names = READ_ONLY_TOOLS.map((t) => t.function.name);
 
     expect(names).toContain("get_today_summary");
+    // Showing is a read. A frozen tenant may look at their own week — the
+    // calendar page itself uses `requireBusiness`, not `requireWritable`.
+    expect(names).toContain("show_appointment_in_calendar");
     expect(names).not.toContain("create_appointment");
     expect(names).not.toContain("propose_cancel_appointment");
     expect(names).not.toContain("propose_reschedule_appointment");

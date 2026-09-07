@@ -170,6 +170,23 @@ describe("normalizeForSpeech", () => {
     );
   });
 
+  it("points the brand so it is not read as \"in time\"", () => {
+    /**
+     * **Unpointed בזמן is two words and the wrong one is the common one.**
+     * בִּזְמַן is "in time" and the reading any Hebrew speaker — or TTS model —
+     * reaches for first; בַּזְמַן is the product. The result is the shop's own
+     * assistant mispronouncing the shop's own software, in the one sentence a
+     * client might overhear.
+     */
+    const out = normalizeForSpeech("היי, אני ליבי — העוזרת של בזמן.");
+    expect(out).toContain("בַּזְמַן");
+    expect(out).not.toMatch(/בזמן(?![֐-׿])/);
+  });
+
+  it("does not point a longer word that merely starts that way", () => {
+    // The boundary has to hold in the direction `` cannot express.
+    expect(normalizeForSpeech("בזמנים")).toBe("בזמנים");
+  });
   it("leaves a sentence with nothing to normalise exactly as it was", () => {
     const plain = "לא מצאתי תורים על השם דנה.";
     expect(normalizeForSpeech(plain)).toBe(plain);

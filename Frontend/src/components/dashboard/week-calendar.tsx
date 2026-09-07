@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -220,6 +221,7 @@ export function WeekCalendar({
   staff,
   timezone,
   requiresApproval,
+  focusAppointmentId,
 }: {
   initialView: CalendarView;
   /** The focused day, "YYYY-MM-DD". Only meaningful in the day view. */
@@ -243,6 +245,16 @@ export function WeekCalendar({
    * teaches them to ignore the colour.
    */
   requiresApproval: boolean;
+  /**
+   * An appointment to scroll to and ring, from `?focus=` (0033).
+   *
+   * ליבי puts it there: "תראי לי את התור של דנה ביום רביעי" navigates
+   * here and the owner arrives looking at a week, which is not the same
+   * as arriving looking at the booking they asked about. Matched on
+   * `appointmentId` rather than `id`, since a booking crossing midnight
+   * is two cards sharing one row.
+   */
+  focusAppointmentId?: string;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
   // One at a time, held at the root so the card can be positioned `fixed` and
@@ -250,6 +262,23 @@ export function WeekCalendar({
   const [hovered, setHovered] = useState<HoveredEntry | null>(null);
   /** The appointment whose dialog is open, if any. */
   const [opened, setOpened] = useState<CalendarEntry | null>(null);
+  /**
+   * Scrolls the focused booking into view once, on arrival.
+   *
+   * By id on the element rather than through a ref map: the card is
+   * rendered inside a scroll container this component does not own, and
+   * `scrollIntoView` finds whichever ancestor actually scrolls without
+   * anything here having to know which one that is.
+   *
+   * Deliberately not re-run when the grid re-renders — it fires for the
+   * id in the URL, and the owner scrolling away afterwards is a decision
+   * rather than something to correct.
+   */
+  useEffect(() => {
+    if (!focusAppointmentId) return;
+    const card = document.getElementById(`entry-${focusAppointmentId}`);
+    card?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusAppointmentId]);
   const router = useRouter();
 
   /**
@@ -745,6 +774,7 @@ export function WeekCalendar({
                     <EntryCard
                       key={entry.id}
                       entry={entry}
+                      focused={entry.appointmentId === focusAppointmentId}
                       dayView={dayView}
                       variant={
                         entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
@@ -895,6 +925,7 @@ function EntryCard({
   card,
   requiresApproval,
   minHeightPx,
+  focused,
   onHoverChange,
   onOpen,
 }: {
@@ -920,6 +951,8 @@ function EntryCard({
    * that would otherwise be too short to read.
    */
   minHeightPx: number;
+  /** Arrived here from ליבי pointing at this one. */
+  focused: boolean;
   onHoverChange: (hover: HoveredEntry | null) => void;
   onOpen: (entry: CalendarEntry) => void;
 }) {
@@ -1026,6 +1059,17 @@ function EntryCard({
           awaitingApproval && "cal-pending",
           cancelled && "opacity-55",
         ),
+    /**
+     * **The one ליבי was asked to point at.**
+     *
+     * A ring and a lift rather than a colour: every hue on this grid already
+     * means something — the provider, a pending request, a cancellation — and
+     * spending one on "you arrived here looking for this" would collide with
+     * all three. The ring sits outside the card, so it reads over the glass
+     * whatever is mixed into it.
+     */
+    focused &&
+      "z-20 ring-2 ring-violet-500 ring-offset-1 ring-offset-white shadow-lg dark:ring-violet-400 dark:ring-offset-zinc-950",
   );
 
   const body = (
@@ -1174,6 +1218,7 @@ function EntryCard({
       <div
         style={boxStyle}
         tabIndex={0}
+        id={`entry-${entry.appointmentId}`}
         title={description}
         onMouseEnter={show}
         onFocus={show}
@@ -1190,6 +1235,7 @@ function EntryCard({
     <button
       type="button"
       style={boxStyle}
+      id={`entry-${entry.appointmentId}`}
       aria-haspopup="dialog"
       /**
        * **A summary block has no text, so it has no accessible name.**

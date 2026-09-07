@@ -201,8 +201,29 @@ const COUNTED: { word: string; gender: "f" | "m" }[] = [
  * date rules and be read as the eighth of September in a string that already
  * said so.
  */
+/**
+ * The brand, pointed at its own vowels.
+ *
+ * ---------------------------------------------------------------------------
+ * **Unpointed "בזמן" is two words, and the wrong one is the common one.**
+ * בִּזְמַן is "in time" and the reading any Hebrew speaker reaches for first;
+ * בַּזְמַן is the product. A TTS model has the same instinct and says "bizman"
+ * — the shop's own assistant mispronouncing the shop's own software, in the one
+ * sentence a client might overhear.
+ *
+ * Fixed by pointing it rather than by respelling it: the niqqud tells the model
+ * the vowel without changing the letters, so a reader who somehow sees this
+ * still sees the brand. The patah under the ב is the whole edit.
+ *
+ * Bounded by "not another Hebrew letter" on the right, so words that merely
+ * begin with these letters are left alone.
+ * ---------------------------------------------------------------------------
+ */
+const BRAND = /(?<![֐-׿])בזמן(?![֐-׿])/g;
+const BRAND_POINTED = "בַּזְמַן";
+
 export function normalizeForSpeech(text: string): string {
-  let out = text;
+  let out = text.replace(BRAND, BRAND_POINTED);
 
   // 2026-09-08 → "שמונה בספטמבר". The year is dropped: she only ever names
   // dates inside a week, and saying it aloud is four syllables of nothing.

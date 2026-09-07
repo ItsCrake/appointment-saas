@@ -197,6 +197,16 @@ export const businesses = pgTable("businesses", {
    */
   retentionEnabled: boolean("retention_enabled").notNull().default(false),
   /**
+   * Which Hebrew forms ליבי uses when she speaks *to* the owner (0033).
+   *
+   * Hebrew conjugates the second person by gender, so there is no neutral way
+   * to say "would you like me to update it" — it is either תרצה or תרצי, and a
+   * product that picks one is wrong for about half the shops it runs in, every
+   * turn, out loud. `'male'` or `'female'`; coerced in `libi-config` before it
+   * reaches a prompt, so anything else reads as the default.
+   */
+  libiAddressGender: text("libi_address_gender").notNull().default("male"),
+  /**
    * Set on the onboarding finish screen. NULL means the owner still has steps
    * to complete; explicit state rather than inferring from service count,
    * which would drag an owner back into setup after deleting a service.
