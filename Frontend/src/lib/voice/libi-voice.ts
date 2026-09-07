@@ -20,6 +20,7 @@ import {
   type ToolOutcome,
 } from "./libi-tools";
 import { classifyConfirmation } from "./libi-confirm";
+import { historyMessages, type Turn } from "./libi-history";
 import { buildPromptContext } from "./libi-context";
 
 /**
@@ -129,6 +130,12 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
  * refusing. So the prompt now says the hours do not bind her, and says which
  * refusal *is* hers to make: a clash, decided by the tool.
  *
+ * **Reference resolution is the model's job, and the tool still checks it.**
+ * "תזיז אותו" is resolved from the previous assistant message into a client
+ * *name*, which the tool then looks up itself — so the pronoun never becomes
+ * an appointment id travelling through a prompt, and the ambiguity guard that
+ * refuses two clients called דניאל still runs on whatever the model decided.
+ *
  * **No preamble.** "בטח, אני בודקת עכשיו…" is a sentence the owner waits
  * three seconds for ElevenLabs to speak before hearing the answer, so it is
  * forbidden rather than discouraged.
@@ -139,11 +146,14 @@ const INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. 
 כללים:
 - יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
 - אין כלי מתאים? עני מהיומן שלמעלה בלבד. אל תמציאי דבר; מה שאינו שם — אמרי שאינך רואה אותו.
+- לעולם אל תקריאי רשימה. את נשמעת בקול, לא נקראת: בלי מקפים, בלי נקודות, בלי "confirmed", בלי שורות. כמה תורים? אמרי כמה יש ומתי הראשון והאחרון, במשפט אחד. שואלים על תור מסוים? שם, שעה, שירות — וזהו.
 - תאריכים תמיד YYYY-MM-DD, שעות תמיד HH:MM. תרגמי "היום", "מחר", "ביום חמישי" לתאריך לפי התאריך שלמעלה. לעולם אל תשלחי מילים בשדות האלה.
 - שעה בעברית מדוברת היא שעת עסק: "בשלוש" = 15:00, "בשמונה בבוקר" = 08:00.
 - שעות הפעילות אינן מגבילות אותך. בעל העסק רשאי לקבוע ולהזיז תורים בכל שעה — שש בבוקר, עשר בלילה, יום סגור. לעולם אל תסרבי בגלל שעה, אל תגידי "אין תורים זמינים" ואל תשאלי אם הוא בטוח. קראי לכלי. רק הכלי מחליט אם יש התנגשות.
 - טלפון ב-create_appointment אינו חובה. לא הוכתב מספר — אל תבקשי, אל תשאלי, אל תמציאי, פשוט אל תשלחי את השדה.
 - בלי הקדמות ובלי אישורי ביניים. לא "רגע", לא "אני בודקת" — תשובה אחת קצרה בעברית, מתאימה להקראה.
+- יש שיחה קודמת למעלה? "אותו", "אותה", "זה", "התור הזה", "ואז" ו"גם" מתייחסים לתור שדיברתן עליו בתור הקודם. פתרי את ההתייחסות בעצמך והעבירי לכלי את שם הלקוח שנאמר שם — אל תשאלי "לאיזה תור התכוונת" אם זה ברור מהשיחה.
+- המשך של בקשה קודמת הוא בקשה מלאה. "תזיזי אותו שעה קדימה" = הזזה לשעה שהיא שעה אחרי השעה שנאמרה למעלה; חשבי אותה בעצמך ושלחי HH:MM.
 - לא הבנת? בקשי שיחזור. אל תנחשי.
 - שואלים מי את: "היי, אני ליבי — העוזרת של בזמן."`;
 
@@ -171,7 +181,10 @@ export async function decide(
   transcript: string,
   ctx: ToolContext,
   pending?: PendingAction,
-  { writable = true }: { writable?: boolean } = {},
+  {
+    writable = true,
+    history = [],
+  }: { writable?: boolean; history?: readonly Turn[] } = {},
 ): Promise<ToolOutcome> {
   /**
    * **The answer to a pending question never reaches the model.**
@@ -212,6 +225,16 @@ export async function decide(
 
 ${INSTRUCTIONS}`,
     },
+    /**
+     * The exchange so far, oldest first, between the instructions and what was
+     * just said.
+     *
+     * As real turns rather than as a summary pasted into the system prompt:
+     * "אותו" resolves against the *previous assistant message*, which is where
+     * a chat model looks for it, and flattening the pair into prose is how that
+     * stops working. Already bounded by `parseHistory` before it gets here.
+     */
+    ...historyMessages(history),
     { role: "user", content: transcript },
   ];
 

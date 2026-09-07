@@ -65,6 +65,49 @@ export const INITIAL_SILENCE_STATE: SilenceState = {
 };
 
 /**
+ * How long a re-opened microphone waits for the owner to say anything at all.
+ *
+ * ---------------------------------------------------------------------------
+ * **This exists because {@link decideSilence}'s latch is a one-way door.**
+ * Nothing may auto-stop until somebody has spoken, which is exactly right when
+ * the owner pressed the button — they meant to talk, and cutting them off while
+ * they think is the worst thing this component can do.
+ *
+ * It is exactly wrong when the microphone re-opened *on its own* after ליבי
+ * finished answering. Nobody asked for that turn, so nobody may be about to use
+ * it, and the latch would hold the recording open to the twenty-second cap and
+ * then send twenty seconds of shop noise to Whisper — a bill, a wasted model
+ * call, and "לא שמעתי כלום" said to a room.
+ *
+ * Seven seconds: long enough to think of a follow-up while looking at the
+ * calendar, short enough that a conversation nobody continued closes while the
+ * owner is still in front of the screen to see it close.
+ * ---------------------------------------------------------------------------
+ */
+export const IDLE_MS = 7000;
+
+/**
+ * Whether a turn should be abandoned because nobody has spoken into it.
+ *
+ * Deliberately **not** folded into `decideSilence`: that answers "has this
+ * sentence finished", and its answer feeds a send. This answers "was there a
+ * sentence at all", and its answer feeds a discard. Two questions with two
+ * different consequences, kept apart so neither can be mistaken for the other.
+ *
+ * `elapsedMs` is measured from when the microphone opened, not from the start
+ * of the conversation.
+ */
+export function decideIdle(
+  state: SilenceState,
+  elapsedMs: number,
+  idleMs = IDLE_MS,
+): boolean {
+  // Once anybody has spoken this never fires again, and `decideSilence` owns
+  // the rest of the turn.
+  return !state.spoke && elapsedMs >= idleMs;
+}
+
+/**
  * One frame's worth of decision.
  *
  * **The latch is the whole point.** Nothing may stop the recording until the

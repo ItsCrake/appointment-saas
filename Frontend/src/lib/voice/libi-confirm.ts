@@ -62,6 +62,25 @@ const CONFIRM_WORDS = [
 ];
 
 /**
+ * What Whisper returns when somebody says "כן".
+ *
+ * ---------------------------------------------------------------------------
+ * **"כאן" is not a synonym for yes; it is a mishearing of one**, and a live run
+ * caught it on the first try: asked "להזיז אותו להיום ב-17:30?" the owner said
+ * "כן" and the transcript came back "כאן". They are near-homophones, this is a
+ * one-syllable word answered in a noisy room, and the failure is invisible —
+ * she simply asks the same question again, and the owner says the same word,
+ * and it happens again.
+ *
+ * **Matched only as a whole utterance**, which is what makes it safe. "כאן"
+ * means *here*, so it can legitimately appear inside a sentence — but a
+ * one-word "here" in answer to a yes/no question she just asked out loud is not
+ * somebody telling her a location. Inside anything longer it is left alone.
+ * ---------------------------------------------------------------------------
+ */
+const CONFIRM_ALONE = ["כאן", "קן", "כם"];
+
+/**
  * Refusals, and they are checked **first**.
  *
  * "לא, אל תאשרי" contains "אשר". "לא בסדר" contains "בסדר". Every one of these
@@ -154,6 +173,10 @@ export function classifyConfirmation(transcript: string): Confirmation {
   // Refusal wins over agreement wherever both appear. "לא, אל תבטלי" contains
   // a confirm word by accident and a denial on purpose.
   if (contains(words, joined, DENY)) return "deny";
+
+  // The mishearings, and only when they are the entire answer.
+  if (words.length === 1 && CONFIRM_ALONE.includes(words[0])) return "confirm";
+
   if (!contains(words, joined, CONFIRM)) return "unclear";
 
   /**

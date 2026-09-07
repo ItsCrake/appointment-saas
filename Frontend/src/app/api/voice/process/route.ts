@@ -8,6 +8,7 @@ import {
   isVoiceConfigured,
   MAX_AUDIO_BYTES,
 } from "@/lib/voice/libi-config";
+import { parseHistory } from "@/lib/voice/libi-history";
 import type { PendingAction } from "@/lib/voice/libi-tools";
 import { decide, speak, transcribe } from "@/lib/voice/libi-voice";
 
@@ -187,6 +188,14 @@ export async function POST(request: Request) {
      */
     const writable = access === "full";
 
+    /**
+     * The exchange so far, as the client has been keeping it.
+     *
+     * Bounded and shape-checked on the way in — see `libi-history`, which also
+     * explains why untrusted history is safe here and what it cannot reach.
+     */
+    const history = parseHistory(form.get("history"), Date.now());
+
     const outcome = await decide(
       transcribedText,
       {
@@ -196,7 +205,7 @@ export async function POST(request: Request) {
         now: new Date(),
       },
       writable ? pending : undefined,
-      { writable },
+      { writable, history },
     );
 
     const spoken = outcome.spoken;

@@ -1442,6 +1442,52 @@ optional. What follows from that:
   own, so trimming the prompt is a real saving on tokens and a small one on
   the clock. The structural win already existed — a confirmation turn returns
   from `libi-confirm` before either the roster query or the model call.
+  **She remembers the last few turns, and that is what makes "תזיז אותו"
+  mean something.** The endpoint still holds no session state: the
+  conversation rides with the recording, exactly as the pending action does,
+  because a server-side store for something that lives ninety seconds is a
+  second lifetime to manage and a second thing to get wrong on a deploy where
+  the next turn is a different instance. Bounded on the way in — six
+  exchanges, fifteen minutes, 300 characters a side — and the age rule is the
+  one that matters: a tab picked up after lunch is a new conversation, and a
+  pronoun reaching back across that gap is how the wrong appointment gets
+  cancelled. A malformed history is dropped **whole** rather than repaired,
+  since a gap in the conversation is precisely where a reference goes wrong.
+  **Untrusted, and safe to be.** It arrives from the browser and can say
+  anything; what stops that mattering is where authority actually lives —
+  every tool resolves under the signed-in tenant, `executePending` re-reads
+  the row, and the confirmation gate reads the *current* transcript through a
+  word list that never sees this. A forged history can make her say something
+  odd. It cannot reach another shop's diary, and it cannot confirm anything.
+  The roster is still read fresh every turn, so history is context for
+  *reference* and never for fact.
+  **The pronoun becomes a name, not an id.** The model resolves "אותו" from
+  the previous assistant message into a client name and the tool looks it up
+  itself — so the ambiguity guard that refuses two clients called דניאל still
+  runs on whatever the model decided.
+  **The microphone re-opens on `onended`, not on the answer.** The reply is on
+  screen about three seconds before it finishes being spoken; re-opening then
+  would have the analyser hear her own voice through the speaker, latch, and
+  cut the owner off before they had said a word.
+  **A turn nobody asked for gets a deadline.** `decideSilence`'s latch never
+  stops a recording before somebody has spoken — right for a pressed turn,
+  wrong for one that opened by itself, where it would hold the microphone to
+  the twenty-second cap and then send seven seconds of shop to Whisper.
+  `decideIdle` closes the conversation instead, at seven seconds, and is armed
+  **only** on a continued turn. סגור ends it by hand, and closing either
+  control forgets the history with it.
+  Verified live as a conversation: *"מה התור הבא שלי"* → 16:30 עם עומר לוי;
+  *"תזיזי אותו בשעה קדימה"* → resolved the pronoun **and** the arithmetic,
+  proposing 17:30; *"כן"* → applied, on the fast path that skips both the
+  roster query and the model.
+  **Two defects the live run found, both now fixed and pinned.** Whisper
+  returned **"כאן"** for "כן" — near-homophones, one syllable, noisy room —
+  so the confirmation fell through and she asked the same question again,
+  invisibly. It is now accepted, but *only as a whole utterance*: "כאן" means
+  *here*, and inside a sentence it is left alone. And asked what was on
+  tomorrow she read the prompt's own context format **aloud** — middots,
+  hyphens and the English word `confirmed`. The prompt now forbids reading a
+  list at all; the same question now answers in spoken Hebrew prose.
   Verified live end to end against the built server: *"תקבעי תור לדני מחר בשעה
   שלוש"* booked a placeholder at 15:00 and said the tip; *"תזיזי את התור של דני
   מחר לחמש"* described the move and changed nothing; *"כן"* applied it. A fourth

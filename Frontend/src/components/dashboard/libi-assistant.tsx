@@ -18,6 +18,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
+  decideIdle,
   decideSilence,
   frameLevel,
   INITIAL_SILENCE_STATE,
@@ -53,9 +54,30 @@ import {
  *
  * Booking is the exception and runs on the first sentence: it takes an empty
  * slot rather than undoing an arrangement somebody is relying on.
+ *
+ * **The microphone re-opens when she finishes speaking, not when she answers.**
+ * The reply is on screen about three seconds before it finishes being spoken,
+ * and re-opening then would have the analyser hear her own voice through the
+ * speaker, latch, and cut the owner's turn short before they had said a word.
+ * `onended` is the only moment the room is quiet again.
+ *
+ * **A turn nobody asked for gets a deadline.** `decideSilence`'s latch never
+ * stops a recording before somebody has spoken — right for a pressed turn,
+ * wrong for one that opened by itself, where it would hold the microphone to
+ * the twenty-second cap and then send the shop to Whisper. `decideIdle` closes
+ * the conversation instead, and only ever on a continued turn.
  * ---------------------------------------------------------------------------
  */
 type Phase = "idle" | "recording" | "processing" | "speaking";
+
+/**
+ * One exchange, kept so the next one can refer to it.
+ *
+ * The endpoint holds no session state, so "תזיז אותו" only has something to
+ * point at because this list travels with the recording. Bounded server-side
+ * on the way in rather than here — see `libi-history`.
+ */
+type Turn = { said: string; replied: string; at: number };
 
 /**
  * A change ליבי has described and is waiting to be told to make.
@@ -97,6 +119,15 @@ type Result = {
 /** Past this, stop on our own: a pocket recording is a bill, not a question. */
 const MAX_RECORDING_MS = 20_000;
 
+/**
+ * How many exchanges the client bothers to keep.
+ *
+ * The server bounds this again on the way in and its number is the one that
+ * matters; this only stops an afternoon's conversation growing in a tab that
+ * is never reloaded.
+ */
+const MAX_CLIENT_TURNS = 8;
+
 
 
 /** NDJSON's delimiter, named so no template has to escape it. */
@@ -116,6 +147,14 @@ export function LibiAssistant() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<Result | null>(null);
   const [confirming, startConfirm] = useTransition();
+  /**
+   * Mirrors `conversingRef` for the sake of the badge on the card.
+   *
+   * The ref is what the audio callback reads; this is what React renders. Two
+   * copies of one fact again, and kept in step by `setConversing` below being
+   * the only writer of either.
+   */
+  const [conversing, setConversingState] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -134,6 +173,31 @@ export function LibiAssistant() {
    * answer to.
    */
   const pendingRef = useRef<Pending | null>(null);
+  /**
+   * The conversation so far, for the same reason and by the same route as
+   * `pendingRef`: `send` is memoised for the life of the recorder and cannot
+   * read state that changed after it was built.
+   */
+  const historyRef = useRef<Turn[]>([]);
+  /**
+   * Whether the microphone should re-open when she stops speaking.
+   *
+   * A ref rather than state because `play`'s `onended` fires from an audio
+   * callback outside React's render cycle, and a stale `false` there is a
+   * conversation that silently stops after one turn.
+   */
+  const conversingRef = useRef(false);
+  /** Set when a turn is being abandoned, so `onstop` discards instead of sending. */
+  const discardRef = useRef(false);
+  /**
+   * `start`, late-bound.
+   *
+   * `play` and `start` are mutually recursive — an answer opens the next turn,
+   * and a turn produces the next answer — so one of them has to reach the other
+   * through a ref. `play` is the one that fires from outside React, so it is the
+   * one that indirects.
+   */
+  const startRef = useRef<((continued?: boolean) => Promise<void>) | null>(null);
 
   /**
    * The only way the card changes, so the ref cannot drift from what is on
@@ -149,6 +213,27 @@ export function LibiAssistant() {
     pendingRef.current = next?.pending ?? null;
     setResult(next);
   }, []);
+
+  /** The one writer of both copies of "is a conversation open". */
+  const setConversing = useCallback((open: boolean) => {
+    conversingRef.current = open;
+    setConversingState(open);
+  }, []);
+
+  /**
+   * Ends the conversation and forgets it.
+   *
+   * **The history goes with it, and that is the point rather than tidiness.**
+   * A closed session's sentences are exactly the ones a later "תבטל אותו" must
+   * not resolve against — the owner has moved on, possibly hours ago, and a
+   * pronoun that reaches back across that gap is how the wrong appointment gets
+   * cancelled. The server also expires them, at fifteen minutes; this is the
+   * near end of the same rule.
+   */
+  const endConversation = useCallback(() => {
+    setConversing(false);
+    historyRef.current = [];
+  }, [setConversing]);
 
   /**
    * Whether this browser can record at all.
@@ -214,7 +299,22 @@ export function LibiAssistant() {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
-    source.onended = () => setPhase("idle");
+    /**
+     * **The turn hands back to the microphone here, not at the answer.**
+     *
+     * Re-opening when the *text* arrives would have ליבי listening to herself:
+     * the reply is on screen about three seconds before it finishes being
+     * spoken, and the analyser would hear her own voice through the speaker,
+     * latch, and cut the owner's turn short before they had said anything.
+     * `onended` is the only moment the room is quiet again.
+     *
+     * `startRef` rather than `start` directly — the two callbacks are mutually
+     * recursive (a turn starts a turn) and one of them has to be late-bound.
+     */
+    source.onended = () => {
+      setPhase("idle");
+      if (conversingRef.current) void startRef.current?.(true);
+    };
     setPhase("speaking");
     source.start();
   }, []);
@@ -233,7 +333,16 @@ export function LibiAssistant() {
    * samples a second, which is far finer than the 1.8s it is measuring.
    */
   const listenForSilence = useCallback(
-    (ctx: AudioContext, stream: MediaStream, onSilent: () => void) => {
+    (
+      ctx: AudioContext,
+      stream: MediaStream,
+      onSilent: () => void,
+      /**
+       * Called when nobody spoke at all. Only supplied for a turn the
+       * microphone opened by itself — see {@link decideIdle}.
+       */
+      onIdle?: () => void,
+    ) => {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
       const source = ctx.createMediaStreamSource(stream);
@@ -242,21 +351,26 @@ export function LibiAssistant() {
       const samples = new Uint8Array(analyser.fftSize);
       let state = INITIAL_SILENCE_STATE;
       let frame = 0;
+      const openedAt = performance.now();
 
       const tick = () => {
         analyser.getByteTimeDomainData(samples);
+        const now = performance.now();
 
         // The maths and the latch live in `libi-vad`, which is tested; this
         // loop only supplies frames and a clock.
-        const outcome = decideSilence(
-          state,
-          frameLevel(samples),
-          performance.now(),
-        );
+        const outcome = decideSilence(state, frameLevel(samples), now);
         state = outcome.state;
 
         if (outcome.stop) {
           onSilent();
+          return;
+        }
+
+        // Nobody spoke into a turn nobody asked for. Ends the conversation
+        // rather than sending seven seconds of shop to Whisper.
+        if (onIdle && decideIdle(state, now - openedAt)) {
+          onIdle();
           return;
         }
 
@@ -286,6 +400,9 @@ export function LibiAssistant() {
     return () => {
       if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
       analyserRef.current?.stop();
+      // Navigating away ends the conversation; without this the ref would stay
+      // true and a remount would re-open the microphone unasked.
+      conversingRef.current = false;
       releaseStream();
     };
   }, [releaseStream]);
@@ -309,6 +426,11 @@ export function LibiAssistant() {
        */
       const carried = pendingRef.current;
       if (carried) form.append("pending", JSON.stringify(carried));
+
+      // The exchange so far, for the same reason and by the same route.
+      if (historyRef.current.length > 0) {
+        form.append("history", JSON.stringify(historyRef.current));
+      }
 
       try {
         const response = await fetch("/api/voice/process", {
@@ -356,6 +478,25 @@ export function LibiAssistant() {
             if (message.type === "text") {
               // The card, about two seconds before she can say it.
               showResult({ ...message, audioBase64: null });
+
+              /**
+               * Recorded as an exchange so the next turn can point at it.
+               *
+               * The *transcript* is stored rather than what was actually said
+               * into the microphone, because that is what the model saw — if
+               * Whisper heard "דנאי" then "אותו" has to resolve against
+               * "דנאי", and storing the truth would leave the two out of step.
+               */
+              if (message.transcribedText && message.textResult) {
+                historyRef.current = [
+                  ...historyRef.current,
+                  {
+                    said: message.transcribedText,
+                    replied: message.textResult,
+                    at: Date.now(),
+                  },
+                ].slice(-MAX_CLIENT_TURNS);
+              }
             } else if (message.audioBase64) {
               spokeAloud = true;
               await play(message.audioBase64).catch(() => setPhase("idle"));
@@ -392,7 +533,29 @@ export function LibiAssistant() {
     }
   }, []);
 
-  const start = useCallback(async () => {
+  /**
+   * Ends the conversation without sending what is in the buffer.
+   *
+   * Both ways out land here: the owner pressing סגור, and nobody speaking into
+   * a microphone that opened by itself. The discard flag is set *before* the
+   * recorder stops, because `onstop` is where the decision to send is made and
+   * it fires on the next tick.
+   */
+  const closeQuietly = useCallback(() => {
+    discardRef.current = true;
+    endConversation();
+    stop();
+  }, [endConversation, stop]);
+
+  /**
+   * Opens the microphone.
+   *
+   * `continued` is true when the conversation re-opened it rather than the
+   * owner. That changes three things and nothing else: the card is left alone,
+   * the idle timeout is armed, and a conversation is already in progress so it
+   * is not started again.
+   */
+  const start = useCallback(async (continued = false) => {
     if (phase !== "idle") return;
 
     /**
@@ -416,6 +579,15 @@ export function LibiAssistant() {
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
         releaseStream();
+
+        // Abandoned rather than finished: nobody spoke, or the owner closed
+        // the conversation mid-turn. Either way there is nothing to send.
+        if (discardRef.current) {
+          discardRef.current = false;
+          setPhase("idle");
+          return;
+        }
+
         // A tap that lands and lifts in the same instant produces a few bytes
         // of silence; sending it costs a model call to be told nothing.
         if (blob.size < 1024) {
@@ -426,7 +598,15 @@ export function LibiAssistant() {
       };
 
       recorder.start();
-      showResult(null);
+      /**
+       * The card is cleared on a *pressed* turn only.
+       *
+       * Mid-conversation her last answer is the thing the owner is reading
+       * while deciding what to say next — and, when it carries a pending
+       * change, the button they may be about to press instead of speaking.
+       * Wiping it the instant the microphone re-opens takes both away.
+       */
+      if (!continued) showResult(null);
       setPhase("recording");
 
       /**
@@ -436,24 +616,45 @@ export function LibiAssistant() {
        */
       stopTimerRef.current = setTimeout(stop, MAX_RECORDING_MS);
       if (audioCtx) {
-        analyserRef.current = listenForSilence(audioCtx, stream, stop);
+        analyserRef.current = listenForSilence(
+          audioCtx,
+          stream,
+          stop,
+          /**
+           * Armed only on a continued turn. A pressed one has no idle timeout
+           * at all — the owner meant to speak, and closing the microphone on
+           * somebody who is still thinking is the worst thing this can do.
+           */
+          continued ? closeQuietly : undefined,
+        );
       }
+
+      // A pressed turn is what opens a conversation; a continued one is
+      // already inside it.
+      if (!continued) setConversing(true);
     } catch {
       // Denied, or no device. Both are the owner's to fix and neither is worth
       // a thrown error in a dashboard.
       toast("אין גישה למיקרופון. אפשר לאשר בהגדרות הדפדפן.", "error");
+      endConversation();
       setPhase("idle");
     }
   }, [
     phase,
+    closeQuietly,
+    endConversation,
     listenForSilence,
     releaseStream,
     send,
+    setConversing,
     showResult,
     stop,
     toast,
     unlockAudio,
   ]);
+
+  // Published for `play`'s `onended`, which cannot close over `start` itself.
+  startRef.current = start;
 
   /**
    * The tap half of the confirmation, kept alongside the spoken one.
@@ -554,13 +755,56 @@ export function LibiAssistant() {
             </div>
             <button
               type="button"
-              onClick={() => showResult(null)}
+              onClick={() => {
+                closeQuietly();
+                showResult(null);
+              }}
               aria-label="סגירה"
               className="-me-1 shrink-0 rounded-lg p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
             >
               <X className="size-4" aria-hidden />
             </button>
           </div>
+
+          {/* **The conversation's own state, said plainly.**
+
+              A microphone that re-opened by itself is the one thing on this
+              card the owner did not do, so it says so — and it says which of
+              the two it is, because "she is listening" and "she is thinking"
+              feel identical from three feet away and only one of them is a
+              cue to start talking. `aria-live` because a blind user has no
+              ring to watch. */}
+          {conversing ? (
+            <div
+              className="mt-2.5 flex items-center justify-between gap-2"
+              aria-live="polite"
+            >
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full bg-current",
+                    phase === "recording" && "motion-safe:animate-pulse",
+                  )}
+                  aria-hidden
+                />
+                {phase === "recording"
+                  ? "מקשיבה — אפשר לדבר"
+                  : phase === "speaking"
+                    ? "מדברת…"
+                    : "רגע…"}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  closeQuietly();
+                  showResult(null);
+                }}
+                className="rounded-lg px-2 py-1 text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+              >
+                סגור
+              </button>
+            </div>
+          ) : null}
 
           {/* The destructive write, and the only place one is confirmed by
               tapping. The name and both times are on the button, so the thing
@@ -631,6 +875,8 @@ export function LibiAssistant() {
          */
         onPointerDown={() => {
           if (phase === "recording") {
+            // Stopping by hand sends what was said; it does not close the
+            // conversation, so her answer still hands back to the microphone.
             stop();
             return;
           }

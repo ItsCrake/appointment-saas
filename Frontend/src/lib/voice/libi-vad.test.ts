@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  decideIdle,
   decideSilence,
   frameLevel,
+  IDLE_MS,
   INITIAL_SILENCE_STATE,
   SILENCE_MS,
   SPEECH_RMS,
@@ -123,5 +125,54 @@ describe("decideSilence", () => {
     // A live run against a 1.54s utterance stopped the recording at 3.337s —
     // 1.800s after the speech ended. That number is this constant.
     expect(SILENCE_MS).toBe(1800);
+  });
+});
+
+describe("decideIdle", () => {
+  it("closes a turn nobody spoke into", () => {
+    /**
+     * **The turn the owner did not ask for.** `decideSilence`'s latch holds the
+     * microphone open until somebody speaks, which on a self-opened turn means
+     * running to the twenty-second cap and then sending the shop to Whisper —
+     * a bill, a wasted model call, and "לא שמעתי כלום" said to an empty room.
+     */
+    expect(decideIdle(INITIAL_SILENCE_STATE, IDLE_MS - 1)).toBe(false);
+    expect(decideIdle(INITIAL_SILENCE_STATE, IDLE_MS)).toBe(true);
+  });
+
+  it("never fires once anybody has spoken", () => {
+    /**
+     * The single assertion that keeps this from being a bug. After speech the
+     * turn belongs to `decideSilence`, and a second timer firing over the top
+     * of it would discard a question the owner had actually asked — mid-word,
+     * seven seconds in, with no way to tell why.
+     */
+    const spoke = decideSilence(INITIAL_SILENCE_STATE, 0.4, 0).state;
+
+    for (const elapsed of [0, IDLE_MS, IDLE_MS * 10, 600_000]) {
+      expect(decideIdle(spoke, elapsed), `${elapsed}ms`).toBe(false);
+    }
+  });
+
+  it("still fires after a noise too quiet to count as speech", () => {
+    // A fan, a till, the street. None of it latches, so none of it should keep
+    // a conversation open that nobody is having.
+    let state = INITIAL_SILENCE_STATE;
+    for (let t = 0; t < IDLE_MS; t += 16) {
+      state = decideSilence(state, SPEECH_RMS / 2, t).state;
+    }
+    expect(decideIdle(state, IDLE_MS)).toBe(true);
+  });
+
+  it("takes a threshold, so a caller can be more patient", () => {
+    expect(decideIdle(INITIAL_SILENCE_STATE, 3_000, 10_000)).toBe(false);
+    expect(decideIdle(INITIAL_SILENCE_STATE, 10_000, 10_000)).toBe(true);
+  });
+
+  it("gives a person time to think of a follow-up", () => {
+    // Short enough that a dead conversation closes while the owner is still
+    // looking at the screen; long enough to glance at the calendar first.
+    expect(IDLE_MS).toBeGreaterThanOrEqual(5_000);
+    expect(IDLE_MS).toBeLessThanOrEqual(10_000);
   });
 });

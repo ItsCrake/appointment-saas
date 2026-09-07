@@ -70,6 +70,26 @@ describe("classifyConfirmation", () => {
       expect(classifyConfirmation(said), said).toBe("confirm");
     }
   });
+  it("takes the mishearing of yes that a live run actually produced", () => {
+    /**
+     * **"כאן" is a mishearing, not a synonym.** Asked "להזיז אותו להיום
+     * ב-17:30?" the owner said "כן" and Whisper returned "כאן" — near
+     * homophones, one syllable, noisy room. The failure was invisible: she
+     * asked the same question again and the owner said the same word again.
+     */
+    expect(classifyConfirmation("כאן")).toBe("confirm");
+    expect(classifyConfirmation("קן")).toBe("confirm");
+  });
+
+  it("only takes that mishearing when it is the whole answer", () => {
+    /**
+     * "כאן" means *here*, so inside a sentence it is a word doing its job and
+     * not an answer. Alone, in reply to a yes/no question she has just asked
+     * out loud, nobody is telling her a location.
+     */
+    expect(classifyConfirmation("תקבעי אותו כאן")).not.toBe("confirm");
+    expect(classifyConfirmation("לא כאן")).toBe("deny");
+  });
   it("reads a refusal that contains a yes-word as a refusal", () => {
     /**
      * **The one that a naive scan gets backwards, and gets backwards in the
