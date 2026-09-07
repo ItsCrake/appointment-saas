@@ -22,6 +22,7 @@ import {
 } from "./libi-tools";
 import { classifyConfirmation } from "./libi-confirm";
 import { normalizeForSpeech } from "./libi-hebrew";
+import { splitForSpeech } from "./libi-chunks";
 import { historyMessages, type Turn } from "./libi-history";
 import { buildPromptContext } from "./libi-context";
 
@@ -48,6 +49,16 @@ import { buildPromptContext } from "./libi-context";
  * ---------------------------------------------------------------------------
  */
 const OPENAI = "https://api.openai.com/v1";
+
+/**
+ * How ElevenLabs should deliver the line.
+ *
+ * Named rather than inlined so the two numbers are one thing to change and
+ * one thing to find. Both were probed against the live endpoint before being
+ * set — the API accepts unknown keys silently, so a typo here would be a
+ * setting that simply never applied.
+ */
+const TTS_VOICE_SETTINGS = { stability: 0.4, speed: 1.1 } as const;
 
 /** Long enough for a slow model, short enough that a person will wait. */
 const STEP_TIMEOUT_MS = 15_000;
@@ -98,7 +109,16 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
   });
 
   const { text } = (await response.json()) as { text?: string };
-  return (text ?? "").trim();
+
+  /**
+   * **Bidi control characters, stripped.** Whisper prefixes a Hebrew
+   * transcript with U+202B often enough to matter — it came back as
+   * "‫ומה יש לי מחר?" on a live run — and those characters are invisible in
+   * every log and every diff. They reach the model as tokens, they reach a
+   * word list as a character that is not a letter, and nobody looking at the
+   * transcript can see why the turn behaved oddly.
+   */
+  return (text ?? "").replace(/[‎‏‪-‮⁦-⁩]/g, "").trim();
 }
 
 /**
@@ -159,6 +179,7 @@ const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בז�
 
 כללים:
 - יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
+- get_today_summary הוא **להיום בלבד**. נשאלת על מחר, על אתמול או על יום נקוב? אל תקראי לו — עני מהיומן שלמעלה. תשובה על היום לשאלה על מחר היא הטעות הגרועה ביותר שלך.
 - אין כלי מתאים? עני מהיומן שלמעלה בלבד. אל תמציאי דבר; מה שאינו שם — אמרי שאינך רואה אותו.
 - **לעולם אל תקריאי רשימה, וזה כולל שלושה תורים.** את נשמעת בקול: בלי מקפים, בלי נקודתיים, בלי "confirmed", בלי שורות.
 - יותר משני תורים? אמרי רק כמה יש ומתי הראשון והאחרון. אל תפרטי שמות ושירותים של כולם — אם ירצה, הוא ישאל.
@@ -380,29 +401,50 @@ ${instructionsFor(addressGender(gender))}`,
  * ---------------------------------------------------------------------------
  */
 export async function speak(text: string): Promise<string> {
-  /**
-   * **The card and the voice get different text, and this is where they part.**
-   *
-   * "17:30" is exactly right to read and wrong to hear — a TTS engine handed
-   * digits and a colon reads digits and a colon. The sentence on screen keeps
-   * its numerals, which are precise and scannable; the sentence in the air gets
-   * words. Applied here rather than in either provider, because it is a fact
-   * about speech and not about ElevenLabs.
-   */
-  const spoken = normalizeForSpeech(text);
+  const [only] = await Promise.all(speakChunks(text));
+  return only ?? "";
+}
 
+/**
+ * The reply as ordered pieces of audio, each already in flight.
+ *
+ * ---------------------------------------------------------------------------
+ * **Requested together, awaited in order.** Returning promises rather than
+ * audio is the whole design: every piece is asked for at once, so the second
+ * one is already being generated while the first is being played, and the
+ * caller can start streaming the moment the first resolves without knowing
+ * anything about the rest.
+ *
+ * Measured against the live endpoint on a two-sentence reply: **3721ms** to
+ * the first playable byte as one request, **1946ms** as two — and 3084ms to
+ * the last, so the split is faster end to end as well as sooner to start.
+ *
+ * **The card and the voice get different text, and this is where they part.**
+ * "17:30" is exactly right to read and wrong to hear, so the normalisation
+ * happens here and the sentence on screen keeps its numerals. It runs before
+ * the split, because pointing a word or spelling out a time changes where the
+ * sentence boundaries are.
+ * ---------------------------------------------------------------------------
+ */
+export function speakChunks(text: string): Promise<string>[] {
+  const spoken = normalizeForSpeech(text);
+  return splitForSpeech(spoken).map((chunk) => speakOne(chunk));
+}
+
+/** One piece, with the provider fallback that has always been here. */
+async function speakOne(text: string): Promise<string> {
   const eleven = elevenLabsConfig();
-  if (!eleven) return speakWithOpenAI(spoken);
+  if (!eleven) return speakWithOpenAI(text);
 
   try {
-    return await speakWithElevenLabs(spoken, eleven);
+    return await speakWithElevenLabs(text, eleven);
   } catch (error) {
     reportWarning(
       "voice.tts.elevenLabsFallback",
       "ElevenLabs speech failed; falling back to OpenAI",
       { message: error instanceof Error ? error.message : String(error) },
     );
-    return speakWithOpenAI(spoken);
+    return speakWithOpenAI(text);
   }
 }
 
@@ -412,8 +454,22 @@ async function speakWithElevenLabs(
 ): Promise<string> {
   assertVoiceServer();
 
+  /**
+   * **The streaming endpoint, even though the whole clip is still buffered.**
+   *
+   * It is not the same request with a different body — it is measurably a
+   * different one. Against `eleven_v3` on the same sentence: headers at
+   * 980ms and the last byte at 1562ms, against 2652ms and 2657ms for the
+   * plain endpoint. The generation starts returning while it is still being
+   * produced, and that shows up in the total even for a caller who waits.
+   *
+   * Buffered rather than forwarded because the browser plays these through
+   * `decodeAudioData`, which needs a complete file. The incremental half of
+   * the problem is solved a level up, by asking for the reply in pieces —
+   * see `speakChunks`.
+   */
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream`,
     {
       method: "POST",
       signal: AbortSignal.timeout(STEP_TIMEOUT_MS),
@@ -426,7 +482,21 @@ async function speakWithElevenLabs(
         // play through `data:audio/mpeg`.
         Accept: "audio/mpeg",
       },
-      body: JSON.stringify({ text, model_id: model }),
+      body: JSON.stringify({
+        text,
+        model_id: model,
+        /**
+         * **Quick without being hurried, and steady enough to be believed.**
+         *
+         * `speed: 1.1` is about a tenth off every reply — worth having when
+         * the owner is standing still through it, and far enough from the
+         * point where Hebrew starts to slur. `stability: 0.4` sits below
+         * the midpoint on purpose: the higher end flattens the question
+         * intonation that makes "?להזיז אותו" sound like a question rather
+         * than an announcement, and this assistant asks a lot of them.
+         */
+        voice_settings: TTS_VOICE_SETTINGS,
+      }),
     },
   );
 

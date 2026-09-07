@@ -194,14 +194,6 @@ const COUNTED: { word: string; gender: "f" | "m" }[] = [
 ];
 
 /**
- * The whole normalisation, applied in one pass per shape.
- *
- * Order matters: the ISO date is rewritten before the clock, because
- * `2026-09-08` contains no colon but `09-08` would otherwise survive into the
- * date rules and be read as the eighth of September in a string that already
- * said so.
- */
-/**
  * The brand, pointed at its own vowels.
  *
  * ---------------------------------------------------------------------------
@@ -211,17 +203,32 @@ const COUNTED: { word: string; gender: "f" | "m" }[] = [
  * — the shop's own assistant mispronouncing the shop's own software, in the one
  * sentence a client might overhear.
  *
- * Fixed by pointing it rather than by respelling it: the niqqud tells the model
- * the vowel without changing the letters, so a reader who somehow sees this
- * still sees the brand. The patah under the ב is the whole edit.
+ * **And the stress is on the last syllable: baz-MAN, as in "בול בזמן".** A
+ * patah under the final מ gives a short vowel that Hebrew tends to read as an
+ * unstressed syllable, so the name came out as BAZ-man — the right vowels with
+ * the wrong weight, which is how a brand ends up sounding like a word somebody
+ * misread. A qamatz there is the long vowel that carries the stress, and
+ * Hebrew's default is ultimate stress once the vowel supports it.
+ *
+ * Pointed rather than respelled: the niqqud fixes both the vowel and the weight
+ * without changing a letter, so a reader who somehow sees this still sees the
+ * brand.
  *
  * Bounded by "not another Hebrew letter" on the right, so words that merely
  * begin with these letters are left alone.
  * ---------------------------------------------------------------------------
  */
 const BRAND = /(?<![֐-׿])בזמן(?![֐-׿])/g;
-const BRAND_POINTED = "בַּזְמַן";
+const BRAND_POINTED = "בַּזְמָן";
 
+/**
+ * The whole normalisation, applied in one pass per shape.
+ *
+ * Order matters: the ISO date is rewritten before the clock, because
+ * `2026-09-08` contains no colon but `09-08` would otherwise survive into the
+ * date rules and be read as the eighth of September in a string that already
+ * said so.
+ */
 export function normalizeForSpeech(text: string): string {
   let out = text.replace(BRAND, BRAND_POINTED);
 

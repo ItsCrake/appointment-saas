@@ -1476,6 +1476,62 @@ optional. What follows from that:
   `decideIdle` closes the conversation instead, at seven seconds, and is armed
   **only** on a continued turn. סגור ends it by hand, and closing either
   control forgets the history with it.
+  **The reply is spoken in pieces, because the owner waits for the first word
+  and not the last one.** `eleven_v3` charges roughly linearly: measured warm
+  against the live endpoint, a two-sentence reply took **3721ms** before a
+  single byte could be played, and the same text requested as two sentences
+  put the first in the owner's ear at **1946ms** — finishing the lot at 3084ms,
+  so it is not even a trade. `libi-chunks.ts` decides where to cut and
+  `speakChunks` asks for all of them at once, so the second is being generated
+  while the first is in the air. One NDJSON audio line per piece, `last` on the
+  final one — which is also what now tells the client when the microphone may
+  reopen, a job that moved out of `play`'s `onended` when one clip became
+  three.
+  **The `/stream` endpoint is a different request, not the same one with a
+  flag.** Headers at 980ms and the last byte at 1562ms, against 2652ms and
+  2657ms for the plain endpoint on identical text. The body is still buffered,
+  because the browser plays these through `decodeAudioData`, which needs a
+  complete file — the incremental half of the problem is solved by asking for
+  the answer in pieces instead. `voice_settings` is `{ stability: 0.4, speed:
+  1.1 }`: a tenth off every reply is worth having when somebody is standing
+  still through it, and the lower stability keeps the question intonation that
+  makes "?להזיז אותו" a question rather than an announcement.
+  **The colon earned its place in the splitter by measurement.** The first cut
+  split only on `.!?`, and the concision rules had already made most replies a
+  single sentence introducing a list — "מחר יש לך שלושה תורים: הראשון ב-09:30"
+  — with no sentence end in them at all, so the chunking never fired on the
+  answers long enough to need it. Adding `:` took a 74-character reply from one
+  clip to two and its turn from 9.3s to 6.1s. Whitespace after the mark is
+  required, which is what keeps a clock time out of it.
+  **What was asked for and is not there: streaming the *model*.** The brief
+  asked for the LLM's first clause to be piped to TTS before the response
+  completes, and on this pipeline that does not compose. The spoken sentence
+  almost never comes from the model — it comes from a tool, which returns it
+  whole and at once, and `tool_choice: "auto"` means nothing can know whether
+  the model's own text will be used until the tool decision has arrived.
+  Speaking it early would mean speaking text that is then discarded. The
+  latency it was meant to buy is bought instead by splitting the finished
+  answer, which works identically on both paths.
+  **The card puts itself away.** Four seconds after a conversation ends —
+  roughly twice the time it takes to read a sentence that has just been spoken
+  aloud — with a `motion-safe` fade long enough to read as being put away
+  rather than as a glitch. Any new turn cancels a pending dismissal, and a card
+  carrying a **pending change is exempt entirely**: that one is a question with
+  a button on it, and a question that vanishes while somebody is deciding is
+  worse than one that lingers.
+  **The brand's stress moved to the last syllable.** `בַּזְמַן` had the right
+  vowels and the wrong weight — a patah under the final מ is a short vowel
+  Hebrew tends to read as unstressed, giving BAZ-man. `בַּזְמָן` is the qamatz
+  that carries the stress: baz-MAN, as in "בול בזמן".
+  **Two bugs found while measuring, both unrelated to the change.**
+  *"ומה יש לי מחר"* routed to `get_today_summary` and came back with **today's**
+  diary — wrong information about the calendar, which is the worst failure this
+  feature has. The tool description now says what it is *not* for and the
+  prompt names the trap; re-checked live, the same question answers about
+  tomorrow. And Whisper prefixes Hebrew transcripts with U+202B often enough to
+  matter — it arrived as `\u202bומה יש לי מחר?` — so bidi controls are stripped
+  in `transcribe`. They are invisible in every log and every diff, which is
+  exactly what makes them worth removing rather than reasoning about.
   **The microphone never actually reopened, and the reason is worth keeping.**
   `play`'s `onended` set the phase to idle and then asked `start` to take the
   next turn — but `setPhase` is queued and the call is not, so `start` ran

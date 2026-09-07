@@ -179,7 +179,19 @@ describe("normalizeForSpeech", () => {
      * client might overhear.
      */
     const out = normalizeForSpeech("היי, אני ליבי — העוזרת של בזמן.");
-    expect(out).toContain("בַּזְמַן");
+    expect(out).toContain("בַּזְמָן");
+
+    /**
+     * **And the stress is on the last syllable — baz-MAN, as in "בול בזמן".**
+     * A patah under the final מ is a short vowel Hebrew tends to read as
+     * unstressed, which gave BAZ-man: the right vowels with the wrong weight,
+     * which is how a brand ends up sounding like a word somebody misread. The
+     * qamatz is the long vowel that carries it.
+     */
+    expect(out).toContain("ָ");
+    expect(out, "a patah on the final syllable reads as unstressed").not.toContain(
+      "מ" + "ַ" + "ן",
+    );
     expect(out).not.toMatch(/בזמן(?![֐-׿])/);
   });
 

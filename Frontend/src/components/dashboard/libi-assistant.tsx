@@ -118,6 +118,19 @@ type Result = {
   error?: string;
 };
 
+/**
+ * How long her last answer stays on screen after the conversation ends.
+ *
+ * Long enough to finish reading a sentence that has just been spoken aloud —
+ * four seconds is roughly twice the time it takes to read one — and short
+ * enough that the card is gone before it becomes furniture. It is a receipt
+ * for something the owner already heard, not a panel they have to dismiss.
+ *
+ * A pending change is exempt: that card is a *question*, and a question that
+ * disappears while somebody is deciding is worse than one that lingers.
+ */
+const DISMISS_AFTER_MS = 4000;
+
 /** Past this, stop on our own: a pocket recording is a bill, not a question. */
 const MAX_RECORDING_MS = 20_000;
 
@@ -159,6 +172,8 @@ export function LibiAssistant() {
    * the only writer of either.
    */
   const [conversing, setConversingState] = useState(false);
+  /** Drives the fade; the card is removed when the timer lands. */
+  const [dismissing, setDismissing] = useState(false);
 
   /**
    * The phase as it is *now*, not as it was when a callback was built.
@@ -212,6 +227,8 @@ export function LibiAssistant() {
   const conversingRef = useRef(false);
   /** Set when a turn is being abandoned, so `onstop` discards instead of sending. */
   const discardRef = useRef(false);
+  /** The pending fade-out of the card, so a new turn can cancel it. */
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * `start`, late-bound.
    *
@@ -232,10 +249,28 @@ export function LibiAssistant() {
    * there is one place to get it right, and `useCallback` with no dependencies
    * so it stays stable for the memoised recorder callbacks.
    */
+  /**
+   * Cancels a scheduled dismissal.
+   *
+   * Called wherever a card is written or a turn begins, because the one way
+   * this feature goes wrong is a timer from the *previous* conversation
+   * firing over the top of the current one and clearing an answer that is
+   * two seconds old.
+   */
+  const cancelDismiss = useCallback(() => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+    setDismissing(false);
+  }, []);
+
   const showResult = useCallback((next: Result | null) => {
     pendingRef.current = next?.pending ?? null;
+    // A card being written now is not a card being taken away.
+    cancelDismiss();
     setResult(next);
-  }, []);
+  }, [cancelDismiss]);
 
   /** The one writer of both copies of the phase. */
   const setPhase = useCallback((next: Phase) => {
@@ -262,7 +297,30 @@ export function LibiAssistant() {
   const endConversation = useCallback(() => {
     setConversing(false);
     historyRef.current = [];
-  }, [setConversing]);
+
+    /**
+     * **The card goes on its own once the conversation is over.**
+     *
+     * It is a receipt for something the owner has already heard, and leaving
+     * it up turns it into furniture — a panel over the calendar that has to
+     * be dismissed before the calendar can be used.
+     *
+     * **A pending change is exempt.** That card is a *question* with a button
+     * on it, and a question that vanishes while somebody is deciding is worse
+     * than one that lingers. Read from the ref rather than from `result`,
+     * which this callback cannot see.
+     */
+    if (pendingRef.current) return;
+
+    cancelDismiss();
+    setDismissing(true);
+    dismissTimerRef.current = setTimeout(() => {
+      dismissTimerRef.current = null;
+      setDismissing(false);
+      setResult(null);
+      pendingRef.current = null;
+    }, DISMISS_AFTER_MS);
+  }, [cancelDismiss, setConversing]);
 
   /**
    * Whether this browser can record at all.
@@ -314,39 +372,44 @@ export function LibiAssistant() {
     return audioCtxRef.current;
   }, []);
 
-  /** Plays one base64 mp3 through the unlocked context. */
-  const play = useCallback(async (base64: string) => {
-    const ctx = audioCtxRef.current;
-    if (!ctx) return;
+  /**
+   * Plays one piece of the reply, and resolves when it has finished.
+   *
+   * -------------------------------------------------------------------------
+   * **Resolving on `onended` is what makes a queue possible.** A reply now
+   * arrives as one to three clips — see `libi-chunks` — and they have to be
+   * played in order, which means the caller needs to know when one is over.
+   * This used to resolve at `source.start()`, so awaiting it meant nothing and
+   * two clips would have played over each other.
+   *
+   * **What it deliberately no longer does is reopen the microphone.** That
+   * belongs to the *last* clip, not to every clip, and only the loop reading
+   * the stream knows which one that is.
+   * -------------------------------------------------------------------------
+   */
+  const play = useCallback(
+    async (base64: string) => {
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
 
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-    // `decodeAudioData` wants its own ArrayBuffer and detaches what it is given.
-    const buffer = await ctx.decodeAudioData(bytes.buffer);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    /**
-     * **The turn hands back to the microphone here, not at the answer.**
-     *
-     * Re-opening when the *text* arrives would have ליבי listening to herself:
-     * the reply is on screen about three seconds before it finishes being
-     * spoken, and the analyser would hear her own voice through the speaker,
-     * latch, and cut the owner's turn short before they had said anything.
-     * `onended` is the only moment the room is quiet again.
-     *
-     * `startRef` rather than `start` directly — the two callbacks are mutually
-     * recursive (a turn starts a turn) and one of them has to be late-bound.
-     */
-    source.onended = () => {
-      setPhase("idle");
-      if (conversingRef.current) void startRef.current?.(true);
-    };
-    setPhase("speaking");
-    source.start();
-  }, [setPhase]);
+      // `decodeAudioData` wants its own ArrayBuffer and detaches what it is given.
+      const buffer = await ctx.decodeAudioData(bytes.buffer);
+
+      await new Promise<void>((resolve) => {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.onended = () => resolve();
+        setPhase("speaking");
+        source.start();
+      });
+    },
+    [setPhase],
+  );
 
   /**
    * Stops the recording once the speaking stops.
@@ -428,6 +491,7 @@ export function LibiAssistant() {
   useEffect(() => {
     return () => {
       if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
       analyserRef.current?.stop();
       // Navigating away ends the conversation; without this the ref would stay
       // true and a remount would re-open the microphone unasked.
@@ -502,7 +566,7 @@ export function LibiAssistant() {
 
             const message = JSON.parse(line) as
               | (Result & { type: "text" })
-              | { type: "audio"; audioBase64: string | null };
+              | { type: "audio"; audioBase64: string | null; last?: boolean };
 
             if (message.type === "text") {
               // The card, about two seconds before she can say it.
@@ -537,9 +601,33 @@ export function LibiAssistant() {
                   },
                 ].slice(-MAX_CLIENT_TURNS);
               }
-            } else if (message.audioBase64) {
-              spokeAloud = true;
-              await play(message.audioBase64).catch(() => setPhase("idle"));
+            } else {
+              /**
+               * One clip of the reply. They arrive in order and are played in
+               * order — the next is already being generated while this one is
+               * in the air, which is the whole point of asking for the answer
+               * in pieces.
+               */
+              if (message.audioBase64) {
+                spokeAloud = true;
+                await play(message.audioBase64).catch(() => {});
+              }
+
+              /**
+               * **The turn hands back to the microphone here**, on the last
+               * clip and nowhere earlier. Reopening when the *text* arrived
+               * would have ליבי listening to herself: the reply is on screen
+               * seconds before it finishes being spoken, and the analyser
+               * would hear her through the speaker, latch, and cut the owner
+               * off before they had said anything.
+               *
+               * `startRef` rather than `start` — a turn starts a turn, so one
+               * side of the recursion has to be late-bound.
+               */
+              if (message.last) {
+                setPhase("idle");
+                if (conversingRef.current) void startRef.current?.(true);
+              }
             }
           }
         }
@@ -639,6 +727,8 @@ export function LibiAssistant() {
         void send(blob);
       };
 
+      // Whatever was fading is not fading any more: there is a turn now.
+      cancelDismiss();
       recorder.start();
       /**
        * The card is cleared on a *pressed* turn only.
@@ -682,6 +772,7 @@ export function LibiAssistant() {
       setPhase("idle");
     }
   }, [
+    cancelDismiss,
     closeQuietly,
     endConversation,
     listenForSilence,
@@ -787,6 +878,18 @@ export function LibiAssistant() {
           className={cn(
             "animate-sheet fixed inset-x-3 z-50 mx-auto max-w-lg rounded-2xl border p-4 shadow-lg backdrop-blur",
             "border-zinc-200 bg-white/95 dark:border-zinc-800 dark:bg-zinc-900/95",
+            /**
+             * The fade out, once the conversation has ended and nothing is
+             * waiting on an answer.
+             *
+             * Long, and deliberately so: a card that vanishes in 150ms reads as
+             * a glitch, while one that takes most of a second reads as being
+             * put away. `motion-safe` because a fade is decoration, and
+             * somebody who has asked for less motion should simply get the card
+             * until the timer removes it.
+             */
+            "motion-safe:transition-opacity motion-safe:duration-700",
+            dismissing && "motion-safe:opacity-0",
             // Clears the mobile bottom bar and the microphone above it.
             "bottom-[calc(9rem_+_env(safe-area-inset-bottom))] md:bottom-24",
           )}

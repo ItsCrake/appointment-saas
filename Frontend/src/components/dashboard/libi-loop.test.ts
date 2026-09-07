@@ -52,22 +52,36 @@ describe("the auto-listen loop", () => {
     expect(SOURCE).toContain("setPhaseState(next);");
   });
 
-  it("re-opens the microphone from `onended` and nowhere earlier", () => {
+  it("re-opens the microphone on the last clip and nowhere earlier", () => {
     /**
-     * The reply reaches the card about three seconds before it finishes being
-     * spoken. Re-opening on the *text* would have the analyser hear her own
-     * voice through the speaker, latch, and cut the owner off before they had
-     * said anything — a bug that looks exactly like a broken microphone.
+     * The reply reaches the card seconds before it finishes being spoken, so
+     * re-opening on the *text* would have the analyser hear her own voice
+     * through the speaker, latch, and cut the owner off before they had said
+     * anything — a bug that looks exactly like a broken microphone.
+     *
+     * **The trigger moved when the reply became several clips.** It used to sit
+     * in `play`'s `onended`, which was right while there was exactly one; with
+     * a queue that would reopen the microphone after the *first* sentence, with
+     * two more still to play into it. Only the loop reading the stream knows
+     * which clip is the last, so the guard moved there with it.
      */
-    const onended = SOURCE.slice(
-      SOURCE.indexOf("source.onended"),
-      SOURCE.indexOf("source.start()"),
-    );
-    expect(onended).toContain("startRef.current?.(true)");
+    expect(SOURCE).toContain("if (message.last) {");
+
+    const guarded = SOURCE.slice(SOURCE.indexOf("if (message.last) {"));
+    expect(guarded.slice(0, 400)).toContain("startRef.current?.(true)");
 
     // And it is the only place a turn is continued.
     const continued = SOURCE.match(/startRef\.current\?\.\(true\)/g) ?? [];
     expect(continued).toHaveLength(1);
+  });
+
+  it("waits for each clip to finish before starting the next", () => {
+    /**
+     * `play` used to resolve at `source.start()`, so awaiting it meant nothing.
+     * With a queue that is two sentences talking over each other.
+     */
+    const body = SOURCE.slice(SOURCE.indexOf("const play = useCallback"));
+    expect(body.slice(0, 1200)).toContain("source.onended = () => resolve()");
   });
 
   it("passes `true` so the continued turn is armed differently", () => {
