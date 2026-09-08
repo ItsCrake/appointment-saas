@@ -1206,56 +1206,52 @@ below before running it.
 > it. They were cleared deliberately at some point and never re-seeded.
 > `npm run db:seed` restores them; run `-- --dry-run` first, as always.
 >
-> **`npm run db:seed:full-week` is the volume test, and it refuses to run where
-> messages could go out.** It packs every open day for a week back to back,
-> per provider, across the shop's *own* posted hours — around 112 rows over the
-> two demos — and queues the same notification rows a real booking does, which
-> is the half that actually puts the outbox under load.
+> **`npm run db:seed:full-week` fills a week by *booking* it**, through the same
+> two actions a client uses — `fetchSlotsAction` for what is free and
+> `createBookingAction` to take it. It computes no start times of its own, which
+> is the entire point: a seeder that worked them out would agree with itself and
+> could never catch a buffer that is not applied, a slot offered inside a break,
+> or a duration that runs past closing. A week that fills is evidence about the
+> availability engine; a week that stops early is a finding.
 >
-> That is also why it checks first. Every row carries a phone number, and a
-> hundred fabricated bookings dispatched for real is spam to people who never
-> booked anything, from an account that does not get a second warning. So
-> `suppressionFrom` reads the master console toggle and
-> `DISABLE_WHATSAPP_DISPATCH` — OR, matching the dispatcher — and the script
-> throws unless one of them is on. Pure and in its own module so the refusal
-> can be tested: proving that branch against the real database would mean
-> turning dispatch on for a moment, on production, which is the thing the guard
-> exists to prevent.
+> **The loop lives in `/api/dev/seed-week` because it cannot live in a script.**
+> Both actions call `getClientIp()`, which calls `headers()`, which throws
+> outside a request scope — `tsx` gets "`headers` was called outside a request
+> scope" and nothing else. The route runs the loop inside a real request; the
+> npm script is a thin client that drives it a day at a time.
 >
-> Numbers use `056`, which is a valid `05`+8 shape that `isValidPhone` accepts
-> and not an allocated Israeli mobile block; addresses use `example.com`, which
-> RFC 2606 reserves so test data cannot deliver. Defence in depth behind the
-> dispatch check, not a substitute for it — the numbering plan is somebody
-> else's document and can change.
+> **One request per day, learned the hard way.** Filling the whole week in one
+> request held the response open for the entire run and died at undici's
+> five-minute header timeout with 23 rows written and no report. Per-day
+> requests finish, report as they go, and lose a day rather than everything.
 >
-> **Cancellations are overlays, not gaps.** A cancelled row does not hold its
-> slot, so writing one *instead of* a booking would leave a hole in a week whose
-> whole point is having none. It goes underneath a live booking instead: the
-> slot was taken, cancelled, and rebooked, which is what a real full week looks
-> like and is also the case the calendar has to render without stacking two
-> cards. `--days=N` and `--only=<slug>` narrow it; `--dry-run` prints the counts.
-> **The packer fills up to the next obstacle, and the first cut did not.** It
-> advanced by the *rejected candidate's* duration — a number with no relation to
-> whatever was in the way — which left ten- and fifteen-minute fragments across
-> the week and sometimes stepped over free time. Measured at 86% on a script
-> whose entire purpose is 100%. It now finds the next blocking row, fits the
-> largest service that will go before it, and jumps to the end of anything
-> covering the cursor.
+> **A service that runs out for a day cannot come back**, because availability
+> only shrinks as a day fills. Remembering that turned the loop from asking all
+> five services on every iteration into one query per booking — the difference
+> between a day finishing and a day timing out.
 >
-> **Run live over both demos: 121 appointments, 201 outbox rows, 0 sent.**
-> 98% and 97% of remaining bookable time, **zero gaps at or above the shortest
-> service** (15m and 45m), zero overlapping blocking pairs in the whole
-> database. The residual few percent is fragments shorter than any service the
-> shop offers — unbookable by a real client too, which is why they are stepped
-> over rather than filled with something fictional. The outbox split 98
-> confirmations, 92 reminders and 11 `booking_pending`, the last matching the 11
-> `pending` appointments exactly.
+> **Three guards, and the first is that it does not exist.** No
+> `SEED_ROUTE_ENABLED=true` and the route is a 404, not a 403: an endpoint that
+> writes a hundred bookings should not announce itself to somebody probing for
+> it. Then the same WhatsApp suppression check the old seeder used, then the
+> demo-slug allowlist. The rate limiter is *cleared as it goes* rather than
+> weakened — ten bookings an hour from one IP is correct for the public internet
+> and fatal to a volume test, so the route deletes counters keyed to its own
+> caller and leaves the rules alone.
 >
-> Smoke-tested at one day: 2 appointments produced 3 outbox rows — two
-> confirmations and a reminder — queued to `whatsapp` and left `pending` for the
-> cron to mark `skipped`.
+> **`elapsedMs` is load-bearing.** Below `MIN_HUMAN_FILL_MS` the honeypot
+> classifies the submission as a bot and returns a *fabricated* confirmation — a
+> success with no row behind it. A seeder that sent `0` would report a full week
+> and write nothing.
 >
-> Undo is `delete from appointments where client_phone like '056%'`, which is
+> **What it measured is worth more than the data it wrote.** Median from this
+> machine against the Seoul database: **3.6s for a slot lookup and 9.5s for a
+> booking** — the two calls a client's browser actually waits on. The absolute
+> numbers include this machine's distance from the database and a deployed
+> server's would differ with its region, but the round-trip *count* is the same
+> wherever it runs, which is what makes the booking flow latency-bound on
+> database proximity.
+>> Undo is `delete from appointments where client_phone like '056%'`, which is
 > exactly the set this script creates and nothing else.
 >> **`npm run db:seed:appointments` is the other one, and it is not that one.**
 > `db:seed` *rebuilds* a demo tenant — it deletes every appointment, waitlist
