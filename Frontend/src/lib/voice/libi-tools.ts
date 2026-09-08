@@ -879,6 +879,10 @@ async function createVoiceAppointment(
       serviceName: service.name,
       priceCents: service.priceCents,
       cancelToken: randomUUID(),
+      // The card shows a microphone for these (0034). Distinct from the
+      // placeholder flag above: a voice booking *with* a number is an ordinary
+      // contactable client that still came from a spoken sentence.
+      createdVia: "voice",
     });
   } catch (error) {
     if (error instanceof SlotTakenError) {

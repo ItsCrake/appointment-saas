@@ -13,13 +13,16 @@ import {
   lineBudget,
   MAX_CARD_LINES,
   gridMinWidthPx,
+  MIN_CARD_PERCENT,
   MIN_CARD_PX,
   MIN_LANE_PX,
   minutesToLabel,
   RAIL_PX,
+  SOLO_LANE_PX,
   placeItem,
   slotHeightPx,
   type CalendarItem,
+  type GridBounds,
 } from "@/lib/calendar-layout";
 
 const item = (
@@ -405,9 +408,33 @@ describe("lineBudget", () => {
 });
 
 describe("gridMinWidthPx", () => {
-  it("gives every lane room on a quiet week", () => {
-    // Seven days, nothing overlapping: one lane each.
-    expect(gridMinWidthPx([1, 1, 1, 1, 1, 1, 1])).toBe(RAIL_PX + 7 * MIN_LANE_PX);
+  it("narrows a week whose columns are never shared", () => {
+    /**
+     * **A lane that never shares its column does not need a sharing width.**
+     * `MIN_LANE_PX` is sized so two or three cards can sit side by side and
+     * still be read, which is right for a shop with several chairs busy at once
+     * and too much for the common case — a single-staff week is one lane every
+     * day, and at the sharing width seven columns overflow a laptop and the
+     * owner scrolls sideways through their own week.
+     */
+    expect(gridMinWidthPx([1, 1, 1, 1, 1, 1, 1])).toBe(RAIL_PX + 7 * SOLO_LANE_PX);
+    expect(SOLO_LANE_PX).toBeLessThan(MIN_LANE_PX);
+  });
+
+  it("keeps the sharing width the moment any day shares", () => {
+    // One busy Tuesday and the narrowing is off for the whole week, because
+    // columns share a width and that Tuesday is the day being looked at.
+    expect(gridMinWidthPx([1, 1, 2, 1, 1])).toBe(RAIL_PX + 5 * 2 * MIN_LANE_PX);
+  });
+
+  it("never widens a density that already chose to be narrow", () => {
+    /**
+     * Applied as a cap rather than a floor. `compact` and `summary` drew their
+     * lane widths for exactly this problem and do not need help; a rule that
+     * pushed them *up* to 112px would undo the mode.
+     */
+    expect(gridMinWidthPx([1, 1, 1], 42)).toBe(RAIL_PX + 3 * 42);
+    expect(gridMinWidthPx([1, 1, 1], 20)).toBe(RAIL_PX + 3 * 20);
   });
 
   it("is driven by the worst day, because columns share a width", () => {
@@ -424,8 +451,9 @@ describe("gridMinWidthPx", () => {
   });
 
   it("never asks for less than one lane a column", () => {
-    // An empty day reports no lanes; it still needs a column somebody can read.
-    expect(gridMinWidthPx([0, 0])).toBe(RAIL_PX + 2 * MIN_LANE_PX);
+    // An empty day reports no lanes; it still needs a column somebody can read
+    // — and an empty week shares nothing, so it gets the solo width.
+    expect(gridMinWidthPx([0, 0])).toBe(RAIL_PX + 2 * SOLO_LANE_PX);
   });
 
   it("asks for nothing when there is nothing on screen", () => {
@@ -436,5 +464,96 @@ describe("gridMinWidthPx", () => {
     // The height floor and this are the same fix on two axes: a card given room
     // to stack three lines and then squashed to 40px wide is still an ellipsis.
     expect(MIN_LANE_PX).toBeGreaterThanOrEqual(120);
+  });
+});
+
+describe("cards never overlap the booking after them", () => {
+  /**
+   * ---------------------------------------------------------------------------
+   * **The floor was applied unconditionally and the cap is the whole fix.** A
+   * 15-minute booking on a twelve-hour grid is 2.08%, which is a hairline with
+   * no room for the time inside it, so it gets lifted to 2.5%. Back to back,
+   * that extra 0.42% is three minutes of card drawn over the next one's start —
+   * invisible in a sparse week and unmistakable in a full one, which is exactly
+   * when somebody is looking at a packed calendar and needs to trust it.
+   * ---------------------------------------------------------------------------
+   */
+  const TWELVE: GridBounds = { startHour: 8, endHour: 20 };
+
+  /** Back-to-back items in one lane, at `minutes` each. */
+  const backToBack = (minutes: number, count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `a${i}`,
+      dayIndex: 0,
+      startMinutes: 9 * 60 + i * minutes,
+      endMinutes: 9 * 60 + (i + 1) * minutes,
+      lane: 0,
+      lanes: 1,
+    }));
+
+  it("draws a short back-to-back run flush, never overlapping", () => {
+    const items = backToBack(15, 4);
+    const gaps = gapsToNext(items);
+
+    const boxes = items.map((item) =>
+      placeItem(item, TWELVE, undefined, gaps.get(item.id) ?? null),
+    );
+
+    for (let i = 0; i < boxes.length - 1; i++) {
+      const bottom = boxes[i].top + boxes[i].height;
+      // Flush is correct — the lane gutter and `top` do the separating. What is
+      // forbidden is spilling past where the next card begins.
+      expect(bottom, `card ${i} spills into card ${i + 1}`).toBeLessThanOrEqual(
+        boxes[i + 1].top + 0.001,
+      );
+    }
+  });
+
+  it("still lifts a short booking that has room after it", () => {
+    // The floor is not being removed — a lone 15-minute booking on a wide grid
+    // is still unreadable at its true height, and nothing follows it to hurt.
+    const [only] = backToBack(15, 1);
+    const box = placeItem(only, TWELVE, undefined, null);
+
+    expect(box.height).toBe(MIN_CARD_PERCENT);
+    expect(box.height).toBeGreaterThan((15 / 720) * 100);
+  });
+
+  it("never shrinks a card below its real duration", () => {
+    /**
+     * The cap may only take back what the *floor* added. A booking longer than
+     * the gap to the next one is a genuine overlap in the data — two bookings
+     * on one provider — and the card has to keep its real height so the clash
+     * is visible rather than tidied away.
+     */
+    const item = {
+      id: "long",
+      dayIndex: 0,
+      startMinutes: 9 * 60,
+      endMinutes: 11 * 60,
+      lane: 0,
+      lanes: 1,
+    };
+
+    const box = placeItem(item, TWELVE, undefined, 30);
+    expect(box.height).toBeCloseTo((120 / 720) * 100, 5);
+  });
+
+  it("is unchanged where the floor never applied", () => {
+    // A long booking with room after it must place exactly as before, or this
+    // fix has quietly moved every card on the grid.
+    const item = {
+      id: "hour",
+      dayIndex: 0,
+      startMinutes: 10 * 60,
+      endMinutes: 11 * 60,
+      lane: 0,
+      lanes: 1,
+    };
+
+    expect(placeItem(item, TWELVE, undefined, null).height).toBeCloseTo(
+      (60 / 720) * 100,
+      5,
+    );
   });
 });

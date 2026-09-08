@@ -19,6 +19,7 @@ import {
   Grid2x2,
   Hourglass,
   MessageCircle,
+  Mic,
   Phone,
   Rows3,
   Trash2,
@@ -36,6 +37,7 @@ import { AppointmentDialog } from "./appointment-dialog";
 import {
   assignLanes,
   cardHeightPx,
+  slotHeightPx,
   gapsToNext,
   gridBounds,
   gridMinWidthPx,
@@ -47,6 +49,7 @@ import {
   type CalendarItem,
 } from "@/lib/calendar-layout";
 import {
+  FOCUS_RING_MS,
   CALENDAR_DENSITIES,
   chooseDensity,
   densityServerSnapshot,
@@ -63,6 +66,10 @@ import {
   staffVariantClass,
   staffVariants,
 } from "@/lib/staff-variants";
+import {
+  marksTheCard,
+  type AppointmentOrigin,
+} from "@/lib/appointment-origin";
 import { cn } from "@/lib/utils";
 import { whatsappHref } from "@/lib/whatsapp-link";
 
@@ -116,6 +123,14 @@ export type CalendarEntry = CalendarItem & {
    * would make a standing preference look like something they just asked for.
    */
   clientProfileNotes: string | null;
+  /**
+   * Which route wrote this booking (0034).
+   *
+   * Only `voice` marks the card. A badge on every card is wallpaper — the
+   * eye stops reading it by the second row — and the question an owner
+   * has is "did ליבי put that there", not "which of three routes".
+   */
+  origin: AppointmentOrigin;
   status: string | null;
   priceCents: number | null;
   /** Who holds it, for seeding the dialog's provider picker. */
@@ -263,21 +278,66 @@ export function WeekCalendar({
   /** The appointment whose dialog is open, if any. */
   const [opened, setOpened] = useState<CalendarEntry | null>(null);
   /**
-   * Scrolls the focused booking into view once, on arrival.
+   * The ring ליבי put on a booking, and how it goes away.
    *
-   * By id on the element rather than through a ref map: the card is
-   * rendered inside a scroll container this component does not own, and
-   * `scrollIntoView` finds whichever ancestor actually scrolls without
-   * anything here having to know which one that is.
+   * -------------------------------------------------------------------------
+   * **It used to have no timeout at all.** The id lives in `?focus=`, so the
+   * highlight stayed until the owner navigated — long after the sentence that
+   * caused it, on a calendar they had moved on to using for something else. A
+   * marker that outlives its conversation stops meaning "this one" and starts
+   * meaning nothing.
    *
-   * Deliberately not re-run when the grid re-renders — it fires for the
-   * id in the URL, and the owner scrolling away afterwards is a decision
-   * rather than something to correct.
+   * Two ways out, whichever comes first: eight seconds, or the next thing the
+   * owner does. The interaction one is the important half — somebody who has
+   * started clicking has already found it, and the ring is then just paint on
+   * a calendar they are reading.
+   *
+   * The URL is cleaned up with it, so a refresh does not bring back a
+   * highlight the owner has already dismissed. `replace`, not `push`: this is
+   * not a place in history anybody wants to go back to.
+   * -------------------------------------------------------------------------
    */
+  /**
+   * Which id has been dismissed, rather than which is showing.
+   *
+   * Stored as the *dismissed* id so the ring is derived rather than mirrored:
+   * a new `?focus=` un-dismisses itself by simply not matching, and nothing
+   * has to write state from inside an effect to keep the two in step. The
+   * repository forbids that pattern for the usual reason — a render whose only
+   * job is correcting the one before it.
+   */
+  const [dismissedFocus, setDismissedFocus] = useState<string | undefined>();
+  const focused =
+    focusAppointmentId && focusAppointmentId !== dismissedFocus
+      ? focusAppointmentId
+      : undefined;
+
   useEffect(() => {
     if (!focusAppointmentId) return;
-    const card = document.getElementById(`entry-${focusAppointmentId}`);
-    card?.scrollIntoView({ block: "center", behavior: "smooth" });
+
+    document
+      .getElementById(`entry-${focusAppointmentId}`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+
+    const clear = () => {
+      setDismissedFocus(focusAppointmentId);
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("focus")) {
+        url.searchParams.delete("focus");
+        window.history.replaceState(null, "", url.toString());
+      }
+    };
+
+    const timer = setTimeout(clear, FOCUS_RING_MS);
+    // `once`, so the listeners take themselves off with the first interaction.
+    window.addEventListener("pointerdown", clear, { once: true });
+    window.addEventListener("keydown", clear, { once: true });
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointerdown", clear);
+      window.removeEventListener("keydown", clear);
+    };
   }, [focusAppointmentId]);
   const router = useRouter();
 
@@ -769,12 +829,15 @@ export function WeekCalendar({
                 })}
 
                 {placedByDay[dayIndex].map((entry) => {
-                  const box = placeItem(entry, bounds);
+                  const toNext = gapsByDay[dayIndex].get(entry.id) ?? null;
+                  // The gap is what stops the minimum height drawing this card
+                  // over the one after it — see `placeItem`.
+                  const box = placeItem(entry, bounds, undefined, toNext);
                   return (
                     <EntryCard
                       key={entry.id}
                       entry={entry}
-                      focused={entry.appointmentId === focusAppointmentId}
+                      focused={entry.appointmentId === focused}
                       dayView={dayView}
                       variant={
                         entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
@@ -791,11 +854,26 @@ export function WeekCalendar({
                        */
                       minHeightPx={
                         !dayView && spec.minCardPx !== null
-                          ? spec.minCardPx
+                          ? /**
+                             * Capped by the room to the next booking, like
+                             * every other floor here. `summary` sets a fixed
+                             * 8px because the line-budget one is arithmetic on
+                             * a 96px hour — but fixed is not the same as
+                             * unconditional, and uncapped it drew short
+                             * bookings over their neighbours in the densest
+                             * view, which is where it is least visible and
+                             * hurts most.
+                             */
+                            Math.min(
+                              spec.minCardPx,
+                              toNext === null
+                                ? Number.POSITIVE_INFINITY
+                                : slotHeightPx(toNext, "week"),
+                            )
                           : cardHeightPx(
                               entry.endMinutes - entry.startMinutes,
                               dayView ? "day" : "week",
-                              gapsByDay[dayIndex].get(entry.id) ?? null,
+                              toNext,
                             )
                       }
                       onHoverChange={setHovered}
@@ -1155,6 +1233,24 @@ function EntryCard({
             ) : null}
             {card === "full" && hasClientNote ? (
               <NoteMark kind="client" />
+            ) : null}
+
+            {/**
+              * **ליבי's mark, and it survives `compact` where the notes do not.**
+              *
+              * The note marks are footnotes — there is more to read, one tap
+              * away — and a narrow column spends its width better on the name.
+              * This one answers a different question: *did that spoken sentence
+              * actually become a booking*. It is the newest way into this
+              * calendar and the one an owner is still learning to trust, so it
+              * is worth the 12px wherever the card draws text at all. `block`
+              * never reaches here — it returns above with no content to mark.
+              */}
+            {marksTheCard(entry.origin) ? (
+              <Mic
+                className="size-3 shrink-0 text-violet-600 dark:text-violet-400"
+                aria-label="נקבע על ידי ליבי"
+              />
             ) : null}
           </div>
 

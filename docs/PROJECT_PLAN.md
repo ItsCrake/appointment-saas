@@ -1612,6 +1612,62 @@ optional. What follows from that:
   matter — it arrived as `\u202bומה יש לי מחר?` — so bidi controls are stripped
   in `transcribe`. They are invisible in every log and every diff, which is
   exactly what makes them worth removing rather than reasoning about.
+  **A mis-heard word is fixed in the decoder or not at all.** By the time the
+  intent model sees "כהלי" the audio is gone — no instruction downstream
+  recovers which word was said, it can only guess, and a guess is how a
+  booking lands under a name nobody has. Whisper takes a `prompt` that biases
+  decoding, and `libi-vocabulary` builds one per turn from the domain terms
+  **and this shop's own service and staff names**. That second half is the
+  valuable one: a general model knows "תור" and has never had reason to learn
+  "מילוי באקריליק". The names go *last*, because Whisper reads roughly the
+  final 224 tokens and the half most likely to be truncated has to be the half
+  that matters least. A small correction map runs after, whole words only —
+  and written out rather than with `\b`, which JavaScript defines against
+  `[A-Za-z0-9_]` and which therefore does nothing beside Hebrew.
+  **The buffer rule went in the prompt because the code already allowed it.**
+  `create_appointment` never consulted availability — it checks for a genuine
+  overlap and lets the exclusion constraint settle the rest — so a fifteen
+  minute gap between 15:05 and 15:20 was always bookable. What refused it was
+  the *model*, reasoning about padding that belongs to the client-facing
+  engine and not to the owner, exactly as it once invented "אין תורים זמינים"
+  for a booking after closing. The minute forms went in beside it: "שלוש
+  וחמישה" is 15:05, and a model that renders it 15:00 books over somebody
+  while one that gives up says there is no room — neither looks like a parsing
+  problem from the owner's side.
+  **The overlapping cards were a floor with no ceiling.** `placeItem` lifted
+  every card to `MIN_CARD_PERCENT` so a 15-minute booking on a twelve-hour
+  grid was not a hairline — unconditionally, so back to back that extra 0.42%
+  was three minutes of card drawn over the next one's start. `cardHeightPx`
+  had always capped its pixel floor at the gap to the next booking; the
+  percentage twin simply never learned to, and `summary`'s fixed 8px floor
+  never had either. Both now cap. Verified in a browser on the seeded week: 45
+  cards, **zero pairs spilling into the one below**.
+  **ליבי's ring had no timeout at all.** The id lives in `?focus=`, so a
+  highlight stayed until the owner navigated — long after the sentence that
+  caused it. Eight seconds or the next click, whichever comes first, and the
+  URL is cleaned up with it so a refresh does not bring back a marker already
+  dismissed. Stored as the *dismissed* id rather than the shown one, so the
+  ring is derived and nothing writes state from inside an effect.
+  **A lane that never shares its column does not need a sharing width.**
+  `MIN_LANE_PX` is sized for two or three cards side by side; a single-staff
+  week is one lane every day, and at that width seven columns overflow a
+  laptop and the owner scrolls sideways through their own week. `SOLO_LANE_PX`
+  applies only where every day is single-lane, and as a **cap** — `compact`
+  and `summary` drew their widths for this problem and keep them. Measured in
+  a browser at both widths: **nothing horizontally clipped at either**, so the
+  narrowing bought the seventh column without trading a scrollbar for an
+  ellipsis. The "·" endings on short cards are `lineBudget` dropping the
+  service on a *vertically* short card, which is height-driven and unchanged.
+  **Where a booking came from is now a column (0034).** `created_via` is
+  `online`, `manual` or `voice`, stamped by the three write paths, coerced by
+  `appointment-origin` before anything renders it. `text` rather than a
+  boolean because `created_by_livi` would answer one question and close the
+  door on the next. Only `voice` marks the card, and it survives `compact`
+  where the note marks do not: those are footnotes, while this answers *did
+  that spoken sentence actually become a booking* — the newest route in and
+  the one an owner is still learning to trust. Distinct from
+  `is_voice_placeholder` (0032), which means only that no phone number was
+  dictated.
   **The microphone never actually reopened, and the reason is worth keeping.**
   `play`'s `onended` set the phase to idle and then asked `start` to take the
   next turn — but `setPhase` is queued and the call is not, so `start` ran

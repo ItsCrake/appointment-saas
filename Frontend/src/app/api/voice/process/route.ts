@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
+import { listServices } from "@/db/queries/services";
+import { listActiveStaff } from "@/db/queries/staff";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import {
@@ -179,7 +181,28 @@ export async function POST(request: Request) {
      * than fixed.
      */
     const extension = audio.type.split(";")[0].split("/")[1] ?? "webm";
-    transcribedText = await transcribe(audio, `speech.${extension}`);
+
+    /**
+     * **The shop's own nouns, handed to the transcriber before it guesses.**
+     *
+     * A general model knows "תור" and has never had reason to learn "מילוי
+     * באקריליק" or the name of the person holding the scissors. These are the
+     * words it gets wrong, and the decoder is the only place left where a
+     * wrong one can still be reconsidered — see `libi-vocabulary`.
+     *
+     * Read on every turn rather than cached: a service renamed this morning
+     * should be heard correctly this afternoon, and the two queries cost less
+     * than the transcription they precede.
+     */
+    const [shopServices, shopStaff] = await Promise.all([
+      listServices(db, business.id),
+      listActiveStaff(db, business.id),
+    ]);
+
+    transcribedText = await transcribe(audio, `speech.${extension}`, [
+      ...shopServices.map((row) => row.name),
+      ...shopStaff.map((row) => row.name),
+    ]);
 
     if (!transcribedText) {
       return fail(200, "לא שמעתי כלום. אפשר לנסות שוב?", {

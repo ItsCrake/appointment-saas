@@ -22,6 +22,10 @@ import {
 } from "./libi-tools";
 import { classifyConfirmation } from "./libi-confirm";
 import { normalizeForSpeech } from "./libi-hebrew";
+import {
+  correctHearing,
+  transcriptionPrompt,
+} from "./libi-vocabulary";
 import { splitForSpeech } from "./libi-chunks";
 import { historyMessages, type Turn } from "./libi-history";
 import { buildPromptContext } from "./libi-context";
@@ -88,7 +92,18 @@ async function openai(
 }
 
 /** Step 1 — speech to Hebrew text. */
-export async function transcribe(audio: Blob, filename: string): Promise<string> {
+export async function transcribe(
+  audio: Blob,
+  filename: string,
+  /**
+   * This shop's service and staff names, biasing the decoder toward them.
+   *
+   * Optional so a caller without them still works, but the route always has
+   * them — and they are the half that matters. A general model knows "תור";
+   * it has never had reason to learn "מילוי באקריליק" or "ניר בלאק".
+   */
+  names: readonly string[] = [],
+): Promise<string> {
   const form = new FormData();
   form.append("file", audio, filename);
   form.append("model", STT_MODEL);
@@ -101,6 +116,13 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
    * language is known, so it is not a guess worth making.
    */
   form.append("language", "he");
+  /**
+   * **The only place in this pipeline where a mis-heard word can still be**
+   * **fixed.** By the time the intent model sees "כהלי" the audio is gone, and
+   * no instruction downstream recovers which word was said — it can only guess,
+   * which is how a booking lands under a name nobody has. See `libi-vocabulary`.
+   */
+  form.append("prompt", transcriptionPrompt(names));
   form.append("response_format", "json");
 
   const response = await openai("/audio/transcriptions", {
@@ -118,7 +140,13 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
    * word list as a character that is not a letter, and nobody looking at the
    * transcript can see why the turn behaved oddly.
    */
-  return (text ?? "").replace(/[‎‏‪-‮⁦-⁩]/g, "").trim();
+  const clean = (text ?? "")
+    .replace(/[‎‏‪-‮⁦-⁩]/g, "")
+    .trim();
+
+  // The net under the bias: a short list of mangles this product has actually
+  // seen, corrected as whole words only.
+  return correctHearing(clean);
 }
 
 /**
@@ -164,6 +192,20 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
  * it plays — so politeness costs about a second a turn and buys nothing that a
  * person waiting to hear a time wants.
  *
+ * **The buffer rule is in the prompt because the code already allows it.**
+ * `create_appointment` never consults the availability engine — it checks for a
+ * genuine overlap and lets the exclusion constraint settle the rest — so a
+ * fifteen-minute gap between 15:05 and 15:20 has always been bookable. What
+ * refused it was the *model*, reasoning about padding that does not apply to
+ * the owner, in the same way it once invented "אין תורים זמינים" for a booking
+ * after closing. Both are the same failure: a model declining on a rule that is
+ * the client-facing engine's and not hers.
+ *
+ * **The minute forms are there because a mis-parsed time reads as a refusal.**
+ * "שלוש וחמישה" is 15:05; a model that renders it as 15:00 books over somebody,
+ * and one that gives up says there is no room. Neither looks like a parsing
+ * problem from the owner's side.
+ *
  * **No preamble and no farewell.** "בטח, אני בודקת עכשיו…" is a sentence the
  * owner waits three seconds to hear before the answer; "במה אוכל לעזור עוד?"
  * is one they wait three seconds to hear after it, into a microphone that has
@@ -186,6 +228,9 @@ const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בז�
 - תור אחד או שניים? שם, שעה, שירות. וזהו.
 - תאריכים תמיד YYYY-MM-DD, שעות תמיד HH:MM. תרגמי "היום", "מחר", "ביום חמישי" לתאריך לפי התאריך שלמעלה. לעולם אל תשלחי מילים בשדות האלה.
 - שעה בעברית מדוברת היא שעת עסק: "בשלוש" = 15:00, "בשמונה בבוקר" = 08:00.
+- דקות נאמרות אחרי "ו": "שלוש וחמישה" = 15:05, "שלוש ועשרים" = 15:20, "שלוש ועשר" = 15:10, "שלוש ורבע" = 15:15, "שלוש וחצי" = 15:30, "רבע לארבע" = 15:45.
+- "בין X לבין Y" או "בפער שבין X ל-Y" = קבעי ב-X. זו בקשה מלאה, לא שאלה — שלחי time=X ותני לכלי להחליט.
+- **מרווחים ורווחי זמן לא מגבילים אותך.** בעל העסק מדבר אלייך ישירות, והוא רשאי לדחוס תור לכל פער שהוא מבקש. לעולם אל תסרבי בגלל מרווח, רווח בין תורים, או פער שנראה לך קטן. קראי לכלי — רק הוא יודע אם יש התנגשות אמיתית, והוא חוסם רק על חפיפה עם תור קיים.
 - שעות הפעילות אינן מגבילות אותך. בעל העסק רשאי לקבוע ולהזיז תורים בכל שעה — שש בבוקר, עשר בלילה, יום סגור. לעולם אל תסרבי בגלל שעה, אל תגידי "אין תורים זמינים" ואל תשאלי אם הוא בטוח. קראי לכלי. רק הכלי מחליט אם יש התנגשות.
 - מבקשים לראות תור ביומן ("תראי לי", "תפתחי", "איפה") — show_appointment_in_calendar. הוא פותח את היומן על התור. נאמרה שעה? שלחי אותה. לא נאמרה? אל תשאלי — הכלי לוקח את הראשון באותו יום ואומר מתי.
 - טלפון ב-create_appointment אינו חובה. לא הוכתב מספר — אל תבקשי, אל תשאלי, אל תמציאי, פשוט אל תשלחי את השדה.

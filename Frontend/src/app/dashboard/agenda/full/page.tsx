@@ -18,6 +18,7 @@ import {
 import { listActiveStaff } from "@/db/queries/staff";
 import { toThemeColor } from "@/lib/branding";
 import { shiftDays, toDaySpans, weekOf } from "@/lib/calendar-week";
+import { appointmentOrigin } from "@/lib/appointment-origin";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { todayInTimezone } from "@/lib/format";
 
@@ -128,6 +129,8 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         clientPhone: appointment.clientPhone,
         notes: appointment.notes,
         clientProfileNotes: clientNotes.get(appointment.clientPhone) ?? null,
+        // Coerced here, so a card never has to render an unknown value.
+        origin: appointmentOrigin(appointment.createdVia),
         status: appointment.status,
         priceCents: appointment.priceCents,
         staffId: appointment.staffId,
@@ -174,6 +177,8 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
         clientPhone: null,
         notes: null,
         clientProfileNotes: null,
+        // A block is not a booking and has no origin to speak of.
+        origin: "online" as const,
         status: null,
         priceCents: null,
         staffId: block.staffId,

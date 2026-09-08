@@ -16,7 +16,12 @@ import {
   toDensity,
   type CalendarDensity,
 } from "./calendar-density";
-import { gridMinWidthPx, MIN_LANE_PX, RAIL_PX } from "./calendar-layout";
+import {
+  gridMinWidthPx,
+  MIN_LANE_PX,
+  RAIL_PX,
+  SOLO_LANE_PX,
+} from "./calendar-layout";
 
 /**
  * The density switcher, and the one arithmetic claim it makes.
@@ -73,13 +78,18 @@ describe("the density specs", () => {
 
 describe("what actually fits on a 390px phone", () => {
   it("standard does not, which is why the other two exist", () => {
-    // Stated rather than implied: `standard` is 912px for a quiet week, and
-    // that is the problem being solved, not a fault in it.
+    // Stated rather than implied: `standard` is far past a phone for a quiet
+    // week, and that is the problem being solved, not a fault in it.
+    //
+    // A single-provider week takes the solo lane width — see `gridMinWidthPx`
+    // — which narrows `standard` without coming close to rescuing it here.
+    // That is the point: the narrowing buys a laptop its seventh column, and
+    // a phone still needs a different mode.
     const width = gridMinWidthPx(
       laneCounts(WORKING_WEEK, 1),
       DENSITY.standard.lanePx,
     );
-    expect(width).toBe(RAIL_PX + WORKING_WEEK * MIN_LANE_PX);
+    expect(width).toBe(RAIL_PX + WORKING_WEEK * SOLO_LANE_PX);
     expect(width).toBeGreaterThan(PHONE_CONTENT_PX);
   });
 

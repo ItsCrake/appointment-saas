@@ -662,6 +662,18 @@ export const appointments = pgTable(
     isVoicePlaceholder: boolean("is_voice_placeholder")
       .notNull()
       .default(false),
+    /**
+     * Which route wrote this booking (0034): `online`, `manual` or `voice`.
+     *
+     * Distinct from `isVoicePlaceholder` above, which answers a narrower
+     * question — that one means *no phone number was dictated*, while a voice
+     * booking with a number is an ordinary contactable client that still
+     * deserves the microphone on its card.
+     *
+     * `text` rather than an enum so a new route is a code change; coerced by
+     * `appointmentOrigin` before anything renders it.
+     */
+    createdVia: text("created_via").notNull().default("online"),
     clientEmail: text("client_email"),
     notes: text("notes"),
     /** Snapshots — history must survive later edits to the service. */

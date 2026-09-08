@@ -114,6 +114,8 @@ export async function createManualBookingAction(
       serviceName: service.name,
       priceCents: service.priceCents,
       cancelToken: randomUUID(),
+      // The owner typed this one in (0034).
+      createdVia: "manual",
     });
 
     // A walk-in booked over the phone usually has a number and no email, and

@@ -1,4 +1,12 @@
 /**
+ * How long ליבי's ring stays on a booking she was asked to show.
+ *
+ * Long enough to find it after the page has scrolled and settled, short enough
+ * that it is gone before the owner has moved on to using the calendar for
+ * something else. Whichever comes first — this, or their next click.
+ */
+export const FOCUS_RING_MS = 8000;
+/**
  * How much of the week the grid tries to show at once.
  *
  * ---------------------------------------------------------------------------

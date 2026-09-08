@@ -165,6 +165,12 @@ export function placeItem(
   bounds: GridBounds,
   /** Fraction of the lane width left as a gap between neighbours. */
   gutter = 0.04,
+  /**
+   * Minutes from this item's start to the next in its lane, or null when
+   * nothing follows. See the height note below — without it the floor draws
+   * short bookings over their neighbours.
+   */
+  minutesToNext: number | null = null,
 ): Placement {
   const gridStart = bounds.startHour * 60;
   const gridSpan = Math.max(1, (bounds.endHour - bounds.startHour) * 60);
@@ -177,11 +183,28 @@ export function placeItem(
 
   const laneWidth = 100 / item.lanes;
 
+  const own = ((end - start) / gridSpan) * 100;
+
+  /**
+   * **The floor, capped by the room before the next booking.**
+   *
+   * A 15-minute booking on a twelve-hour grid is 2.08% — a hairline with no
+   * room for the time inside it — so it gets lifted to 2.5%. Unconditionally,
+   * until now: back to back, that extra 0.42% is three minutes of card drawn
+   * over the neighbour's start, which is the overlap seen in the packed views.
+   * `cardHeightPx` has always capped its pixel floor this way; the percentage
+   * one simply never learned to.
+   *
+   * The cap is the gap itself, not the gap minus a margin: cards are separated
+   * by the lane gutter and by `top`, so flush is correct and anything less
+   * leaves a hairline of grid showing through a solid day.
+   */
+  const ceiling =
+    minutesToNext === null ? Infinity : (minutesToNext / gridSpan) * 100;
+
   return {
     top: ((start - gridStart) / gridSpan) * 100,
-    // A floor, or a 15-minute booking on a twelve-hour grid is a hairline with
-    // no room for the time inside it.
-    height: Math.max(2.5, ((end - start) / gridSpan) * 100),
+    height: Math.max(own, Math.min(MIN_CARD_PERCENT, ceiling)),
     inlineStart: item.lane * laneWidth,
     width: laneWidth * (1 - gutter),
   };
@@ -237,6 +260,32 @@ export const MAX_CARD_LINES = 3;
 export const MIN_CARD_PX = { week: 46, day: 58 } as const;
 
 /**
+ * The shortest a card may be drawn as a share of the grid.
+ *
+ * The percentage twin of {@link MIN_CARD_PX}, and capped the same way — see
+ * `placeItem`. 2.5% of a twelve-hour grid is eighteen minutes, which is longer
+ * than the shortest service this product sells, so applying it without a
+ * ceiling drew every back-to-back short booking over its neighbour.
+ */
+export const MIN_CARD_PERCENT = 2.5;
+
+/**
+ * The narrowest a lane may be when it is the only one in its column.
+ *
+ * Measured against what one card has to hold rather than against a screen: a
+ * 6px accent bar, 16px of padding, and enough left for "09:30–10:15" at 10px
+ * plus a Hebrew name on the line above. 112px clears that with room, and takes
+ * a seven-day week from about 1150px of grid to about 930 — the difference
+ * between a laptop scrolling sideways through its own week and not.
+ *
+ * Applied as a *cap*, never a floor: a density that has already chosen
+ * something narrower — `compact` at 42px, `summary` at 20 — keeps its own
+ * number, because those modes drew their widths for exactly this reason and do
+ * not need help.
+ */
+export const SOLO_LANE_PX = 112;
+
+/**
  * The narrowest a single lane may be drawn.
  *
  * ---------------------------------------------------------------------------
@@ -286,7 +335,24 @@ export function gridMinWidthPx(
 ): number {
   if (lanesPerDay.length === 0) return 0;
   const widest = Math.max(1, ...lanesPerDay);
-  return RAIL_PX + lanesPerDay.length * widest * lanePx;
+
+  /**
+   * **A lane that never shares its column does not need a sharing width.**
+   *
+   * `lanePx` is sized so two or three cards can sit *side by side* and still be
+   * read — which is the right number for a shop with several chairs busy at
+   * once, and too much for the common case. A single-staff week is one lane
+   * every day, and at 144px the seven columns overflow a laptop and the owner
+   * scrolls sideways through their own week.
+   *
+   * The floor here is what one card needs on its own: an accent bar, the
+   * padding, "HH:MM–HH:MM" and a Hebrew name on the line above it. Narrower
+   * than that and the fix would be trading a scrollbar for an ellipsis, which
+   * is not a trade — a truncated name is the field the owner is scanning for.
+   */
+  const perLane = widest === 1 ? Math.min(lanePx, SOLO_LANE_PX) : lanePx;
+
+  return RAIL_PX + lanesPerDay.length * widest * perLane;
 }
 
 export type CalendarView = "week" | "day";
