@@ -265,16 +265,6 @@ async function planFor(slug: string, now: Date) {
   const take = () => people[nextPerson++ % people.length];
 
   const planned: Planned[] = [];
-  const busy = (staffId: string, start: Date, end: Date) =>
-    existing.some(
-      (row) =>
-        row.staffId === staffId && start < row.endsAt && row.startsAt < end,
-    ) ||
-    planned.some(
-      (row) =>
-        row.staffId === staffId && start < row.endsAt && row.startsAt < end,
-    );
-
   for (let day = 0; day < DAYS; day++) {
     const at = new Date(now.getTime() + day * 86_400_000);
     const localDay = formatInTimeZone(at, timezone, "yyyy-MM-dd");
@@ -294,37 +284,83 @@ async function planFor(slug: string, now: Date) {
      * chair. Filling only the first provider's day would leave the others
      * completely empty and the week would not be full at all.
      */
+    /**
+     * **Packed per provider**, because that is what the constraint excludes on
+     * and therefore what "no free slot" means in a shop with more than one
+     * chair. Filling only the first provider's day would leave the others
+     * completely empty and the week would not be full at all.
+     */
     for (const provider of activeStaff) {
       for (const window of windows) {
-        let cursor = window.from;
+        const dayStart = fromZonedTime(`${localDay}T00:00:00`, timezone);
+        const at = (minute: number) =>
+          new Date(dayStart.getTime() + minute * 60_000);
+        const minuteOf = (instant: Date) =>
+          Math.round((instant.getTime() - dayStart.getTime()) / 60_000);
+
+        /** Everything already holding time for this provider, in order. */
+        const obstacles = [
+          ...existing.filter((row) => row.staffId === provider.id),
+          ...planned
+            .filter((row) => row.staffId === provider.id)
+            .map((row) => ({ startsAt: row.startsAt, endsAt: row.endsAt })),
+        ].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+
+        // Nothing is booked into the past, so today starts from now.
+        let cursor = Math.max(window.from, minuteOf(now) + 1);
 
         while (cursor < window.to) {
+          const cursorAt = at(cursor);
+
           /**
-           * A different service each time, so the day is a believable mix of
-           * lengths rather than a grid. Only ones that still fit before the
-           * window closes are eligible — the last slot of a morning is a short
-           * service, exactly as it is in a real diary.
+           * **Step to the end of whatever is in the way, not by the length of
+           * the service that did not fit.**
+           *
+           * The first cut advanced by the rejected candidate's duration, which
+           * is an arbitrary number with no relationship to the obstacle — it
+           * left ten- and fifteen-minute fragments all over the week and
+           * sometimes jumped clean over free time. Measured at 86% capacity on
+           * a script whose entire purpose is 100%.
            */
-          const fits = activeServices.filter(
-            (service) => cursor + service.durationMin <= window.to,
+          const covering = obstacles.find(
+            (row) => row.startsAt <= cursorAt && cursorAt < row.endsAt,
           );
-          if (fits.length === 0) break;
-
-          const service = fits[Math.floor(random() * fits.length)];
-          const hh = String(Math.floor(cursor / 60)).padStart(2, "0");
-          const mm = String(cursor % 60).padStart(2, "0");
-          const startsAt = fromZonedTime(
-            `${localDay}T${hh}:${mm}:00`,
-            timezone,
-          );
-          const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
-
-          // Past slots and anything already taken are stepped over rather than
-          // fought with; the point is a full week ahead, not a rewritten one.
-          if (startsAt.getTime() <= now.getTime() || busy(provider.id, startsAt, endsAt)) {
-            cursor += service.durationMin;
+          if (covering) {
+            cursor = Math.max(cursor + 1, minuteOf(covering.endsAt));
             continue;
           }
+
+          /**
+           * How much room there is before the next thing starts. A service is
+           * only eligible if it fits inside it — which is what fills the week
+           * right up to each obstacle instead of around it.
+           */
+          const next = obstacles.find((row) => row.startsAt > cursorAt);
+          const limit = Math.min(
+            window.to,
+            next ? minuteOf(next.startsAt) : window.to,
+          );
+
+          const fits = activeServices.filter(
+            (service) => cursor + service.durationMin <= limit,
+          );
+
+          /**
+           * Nothing fits the remaining hole. That is the one gap this script
+           * cannot close: a twelve-minute space in a shop whose shortest
+           * service is fifteen is not bookable by any real booking either, so
+           * it is stepped over rather than filled with something fictional.
+           */
+          if (fits.length === 0) {
+            cursor = limit;
+            continue;
+          }
+
+          const service = fits[Math.floor(random() * fits.length)];
+          const startsAt = at(cursor);
+          const endsAt = new Date(
+            startsAt.getTime() + service.durationMin * 60_000,
+          );
 
           const row: Planned = {
             startsAt,
@@ -337,7 +373,7 @@ async function planFor(slug: string, now: Date) {
             status:
               Math.floor(random() * PENDING_IN) === 0 ? "pending" : "confirmed",
             localDay,
-            localTime: `${hh}:${mm}`,
+            localTime: formatInTimeZone(startsAt, timezone, "HH:mm"),
           };
 
           /**
@@ -361,12 +397,13 @@ async function planFor(slug: string, now: Date) {
           }
 
           planned.push(row);
+          obstacles.push({ startsAt, endsAt });
+          obstacles.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
           cursor += service.durationMin;
         }
       }
     }
   }
-
   planned.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
   return { slug, business, planned };
 }

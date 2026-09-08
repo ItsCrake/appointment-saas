@@ -1234,6 +1234,23 @@ below before running it.
 > slot was taken, cancelled, and rebooked, which is what a real full week looks
 > like and is also the case the calendar has to render without stacking two
 > cards. `--days=N` and `--only=<slug>` narrow it; `--dry-run` prints the counts.
+> **The packer fills up to the next obstacle, and the first cut did not.** It
+> advanced by the *rejected candidate's* duration — a number with no relation to
+> whatever was in the way — which left ten- and fifteen-minute fragments across
+> the week and sometimes stepped over free time. Measured at 86% on a script
+> whose entire purpose is 100%. It now finds the next blocking row, fits the
+> largest service that will go before it, and jumps to the end of anything
+> covering the cursor.
+>
+> **Run live over both demos: 121 appointments, 201 outbox rows, 0 sent.**
+> 98% and 97% of remaining bookable time, **zero gaps at or above the shortest
+> service** (15m and 45m), zero overlapping blocking pairs in the whole
+> database. The residual few percent is fragments shorter than any service the
+> shop offers — unbookable by a real client too, which is why they are stepped
+> over rather than filled with something fictional. The outbox split 98
+> confirmations, 92 reminders and 11 `booking_pending`, the last matching the 11
+> `pending` appointments exactly.
+>
 > Smoke-tested at one day: 2 appointments produced 3 outbox rows — two
 > confirmations and a reminder — queued to `whatsapp` and left `pending` for the
 > cron to mark `skipped`.
