@@ -5,8 +5,10 @@ import {
   getActiveBusinessBySlug,
   listAppointmentsForClient,
 } from "@/db/queries";
+import { translate } from "@/lib/booking-copy";
 import { getCancellationState } from "@/lib/cancellation";
 import { formatFullDateTime } from "@/lib/format";
+import { resolveSlug } from "@/lib/showcase";
 import { reportError } from "@/lib/observability";
 import { LOOKUP_RULES, rateLimitMessage } from "@/lib/rate-limit";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
@@ -70,10 +72,18 @@ export async function lookupMyAppointmentsAction(
     return { ok: false, error: "בקשה לא תקינה" };
   }
 
+  // Everything this returns is rendered as-is, so it has to come back in the
+  // language of the address it was called from.
+  const { locale } = resolveSlug(slug);
+  const t = (key: string, fallback: string) => translate(locale, key, fallback);
+
   if (!isValidPhone(rawPhone)) {
     return {
       ok: false,
-      error: "מספר טלפון נייד לא תקין (לדוגמה: 050-1234567)",
+      error: t(
+        "error.badPhone",
+        "מספר טלפון נייד לא תקין (לדוגמה: 050-1234567)",
+      ),
     };
   }
 
@@ -88,7 +98,9 @@ export async function lookupMyAppointmentsAction(
   }
 
   const business = await getActiveBusinessBySlug(db, slug);
-  if (!business) return { ok: false, error: "העסק לא נמצא" };
+  if (!business) {
+    return { ok: false, error: t("error.noBusiness", "העסק לא נמצא") };
+  }
 
   try {
     const rows = await listAppointmentsForClient(db, business.id, phone);
@@ -114,6 +126,7 @@ export async function lookupMyAppointmentsAction(
         ...formatFullDateTime(
           appointment.startsAt.toISOString(),
           business.timezone,
+          locale,
         ),
         isPast: state.isPast,
         canCancel: state.canCancel,
@@ -131,6 +144,9 @@ export async function lookupMyAppointmentsAction(
     };
   } catch (error) {
     reportError("myAppointments.lookup", error, { slug });
-    return { ok: false, error: "אירעה שגיאה בטעינת התורים. נסו שוב." };
+    return {
+      ok: false,
+      error: t("error.lookup", "אירעה שגיאה בטעינת התורים. נסו שוב."),
+    };
   }
 }

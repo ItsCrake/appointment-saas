@@ -6,11 +6,18 @@ import { AlertCircle, Clock, Loader2, Tag } from "lucide-react";
 
 import { ConsentNote } from "@/components/ui/consent-note";
 import type { Slot } from "@/lib/availability";
-import { formatDuration, formatFullDateTime, formatPrice } from "@/lib/format";
+import {
+  formatDuration,
+  formatFullDateTime,
+  formatPrice,
+  INTL_LOCALES,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { clientDetailsSchema, type ClientDetails } from "@/lib/validation";
 
 import type { BookingService } from "./types";
+
+import { useCopy, useLocale, useShowcaseContent } from "./copy-context";
 
 /**
  * Module scope on purpose: the React compiler flags any impure call written
@@ -49,6 +56,9 @@ export function DetailsStep({
   askMarketingConsent,
   onSubmit,
 }: Props) {
+  const t = useCopy();
+  const locale = useLocale();
+  const content = useShowcaseContent();
   const {
     register,
     handleSubmit,
@@ -71,7 +81,7 @@ export function DetailsStep({
     onSubmit({ ...values, elapsedMs: elapsedSince(startedAt) });
   }
 
-  const when = formatFullDateTime(slot.startsAt, timezone);
+  const when = formatFullDateTime(slot.startsAt, timezone, locale);
 
   return (
     <section aria-labelledby="details-heading" className="px-5">
@@ -79,7 +89,7 @@ export function DetailsStep({
         id="details-heading"
         className="mb-5 text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
-        הפרטים שלכם
+        {t("details.title", "הפרטים שלכם")}
       </h2>
 
       {/* Summary of what is being booked, so nobody confirms blind. The time is
@@ -90,7 +100,7 @@ export function DetailsStep({
             booked — the most "theirs" thing on the page. */}
         <div className="flex items-center justify-between gap-3 bg-(--accent) px-4 py-3.5 text-(--accent-contrast)">
           <span className="min-w-0 truncate text-sm font-semibold">
-            {service.name}
+            {content(service.name)}
           </span>
           <span className="shrink-0 text-xl leading-none font-bold tracking-[-0.02em] tabular-nums">
             {when.time}
@@ -99,20 +109,20 @@ export function DetailsStep({
 
         <dl className="space-y-2 bg-zinc-50 px-4 py-3.5 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           <div className="flex items-center gap-2">
-            <dt className="sr-only">מועד</dt>
+            <dt className="sr-only">{t("details.when", "מועד")}</dt>
             <Clock className="size-4 shrink-0" aria-hidden />
             <dd>
-              יום {when.weekday}, {when.date}
+              {`${t("common.day", "יום")} ${when.weekday}, ${when.date}`.trim()}
             </dd>
           </div>
           <div className="flex items-center gap-2">
-            <dt className="sr-only">מחיר ומשך</dt>
+            <dt className="sr-only">{t("details.priceDuration", "מחיר ומשך")}</dt>
             <Tag className="size-4 shrink-0" aria-hidden />
             <dd>
               <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                {formatPrice(service.priceCents, service.currency)}
+                {formatPrice(service.priceCents, service.currency, INTL_LOCALES[locale])}
               </span>{" "}
-              · {formatDuration(service.durationMin)}
+              · {formatDuration(service.durationMin, locale)}
             </dd>
           </div>
         </dl>
@@ -124,7 +134,7 @@ export function DetailsStep({
         className="relative space-y-5"
       >
         <Field
-          label="שם מלא"
+          label={t("details.name", "שם מלא")}
           error={errors.clientName?.message}
           htmlFor="clientName"
         >
@@ -133,7 +143,7 @@ export function DetailsStep({
             type="text"
             autoComplete="name"
             enterKeyHint="next"
-            placeholder="ישראל ישראלי"
+            placeholder={t("details.namePlaceholder", "ישראל ישראלי")}
             aria-invalid={Boolean(errors.clientName)}
             aria-describedby={
               errors.clientName ? "clientName-error" : undefined
@@ -144,7 +154,7 @@ export function DetailsStep({
         </Field>
 
         <Field
-          label="טלפון נייד"
+          label={t("details.phone", "טלפון נייד")}
           error={errors.clientPhone?.message}
           htmlFor="clientPhone"
         >
@@ -170,7 +180,7 @@ export function DetailsStep({
         </Field>
 
         <Field
-          label="אימייל (לקבלת אישור ותזכורת)"
+          label={t("details.email", "אימייל (לקבלת אישור ותזכורת)")}
           htmlFor="clientEmail"
           error={errors.clientEmail?.message}
         >
@@ -194,14 +204,14 @@ export function DetailsStep({
         </Field>
 
         <Field
-          label="הערות (לא חובה)"
+          label={t("details.notes", "הערות (לא חובה)")}
           htmlFor="notes"
           error={errors.notes?.message}
         >
           <textarea
             id="notes"
             rows={2}
-            placeholder="משהו שכדאי שנדע?"
+            placeholder={t("details.notesPlaceholder", "משהו שכדאי שנדע?")}
             className={cn(inputClass(false), "h-auto resize-none py-3")}
             {...register("notes")}
           />
@@ -218,7 +228,9 @@ export function DetailsStep({
           aria-hidden
           className="pointer-events-none absolute -left-[9999px] h-0 w-0 overflow-hidden"
         >
-          <label htmlFor="contact_reference">אל תמלאו שדה זה</label>
+          <label htmlFor="contact_reference">
+            {t("details.honeypot", "אל תמלאו שדה זה")}
+          </label>
           <input
             id="contact_reference"
             type="text"
@@ -246,10 +258,10 @@ export function DetailsStep({
           {submitting ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              קובע תור…
+              {t("details.submitting", "קובע תור…")}
             </>
           ) : (
-            "אישור וקביעת התור"
+            t("details.submit", "אישור וקביעת התור")
           )}
         </button>
 
@@ -267,7 +279,10 @@ export function DetailsStep({
               {...register("consentMarketing")}
             />
             <span className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-              אשמח לקבל עדכונים והצעות מהעסק בוואטסאפ. אפשר להסיר בכל רגע.
+              {t(
+                "details.marketing",
+                "אשמח לקבל עדכונים והצעות מהעסק בוואטסאפ. אפשר להסיר בכל רגע.",
+              )}
             </span>
           </label>
         ) : null}
@@ -276,9 +291,12 @@ export function DetailsStep({
           {/* zinc-500, not zinc-400: this is consent copy and it has to be
               legible. zinc-400 on white measures 2.6:1. */}
           <p className="text-xs text-zinc-500">
-            בקביעת התור אתם מאשרים קבלת הודעות בנוגע לתור זה.
+            {t(
+              "details.consent",
+              "בקביעת התור אתם מאשרים קבלת הודעות בנוגע לתור זה.",
+            )}
           </p>
-          <ConsentNote action="קביעת תור" />
+          <ConsentNote action={t("details.consentAction", "קביעת תור")} />
         </div>
       </form>
     </section>

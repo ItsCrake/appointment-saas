@@ -4,10 +4,17 @@ import { useEffect, useRef } from "react";
 import { AlertCircle } from "lucide-react";
 
 import type { SlotWithStaff } from "@/lib/availability";
-import { dayOfMonth, monthLabel, weekdayLabel } from "@/lib/format";
+import {
+  dayOfMonth,
+  INTL_LOCALES,
+  monthLabel,
+  weekdayLabel,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { SlotPicker } from "./slot-picker";
+
+import { useCopy, useLocale } from "./copy-context";
 
 type Props = {
   dates: string[];
@@ -38,6 +45,8 @@ export function DateTimeStep({
   onSelectSlot,
   onJoinWaitlist,
 }: Props & { onJoinWaitlist?: () => void }) {
+  const t = useCopy();
+  const locale = useLocale();
   const selectedRef = useRef<HTMLButtonElement>(null);
 
   // Keep the active day visible when the strip re-renders on a date change.
@@ -56,10 +65,10 @@ export function DateTimeStep({
           id="datetime-heading"
           className="text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
         >
-          בחרו מועד
+          {t("datetime.title", "בחרו מועד")}
         </h2>
         <p className="text-xs font-medium text-zinc-500">
-          {monthLabel(selectedDate)}
+          {monthLabel(selectedDate, INTL_LOCALES[locale])}
         </p>
       </div>
 
@@ -71,12 +80,12 @@ export function DateTimeStep({
         // a shadow, and an overflow container clips both without it.
         className="-mx-5 mb-6 flex snap-x [scrollbar-width:none] gap-2 overflow-x-auto px-5 pt-2 pb-3 [&::-webkit-scrollbar]:hidden"
         role="radiogroup"
-        aria-label="בחירת יום"
+        aria-label={t("datetime.pickDay", "בחירת יום")}
       >
         {dates.map((date, index) => {
           const active = date === selectedDate;
           const relative =
-            date === today ? "היום" : index === 1 ? "מחר" : weekdayLabel(date);
+            date === today ? t("datetime.today", "היום") : index === 1 ? t("datetime.tomorrow", "מחר") : weekdayLabel(date, locale);
 
           return (
             <button

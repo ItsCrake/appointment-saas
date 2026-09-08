@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
+import { translate } from "@/lib/booking-copy";
+import { directionFor, resolveSlug } from "@/lib/showcase";
 import { useIsClient } from "@/lib/use-is-client";
 
 const STORAGE_KEY = "bazman.cookie-consent";
@@ -37,6 +40,13 @@ function hasConsented(): boolean {
  * nothing off would be theatre.
  */
 export function CookieBanner() {
+  // The banner lives in the root layout, above every route and outside the
+  // booking page's copy provider, so it reads the address directly rather than
+  // from context. `resolveSlug` answers `he` for everything that is not a
+  // showcase alias, which is every real page on the site.
+  const { locale } = resolveSlug(usePathname().split("/")[1] ?? "");
+  const t = (key: string, fallback: string) => translate(locale, key, fallback);
+
   const isClient = useIsClient();
   const [dismissed, setDismissed] = useState(false);
 
@@ -58,25 +68,31 @@ export function CookieBanner() {
   return (
     <div
       role="region"
-      aria-label="הודעת עוגיות"
+      // The banner is mounted by the root layout, which is `rtl` for the whole
+      // product. On a showcase address the page underneath it is `ltr`, and a
+      // Spanish sentence laid out right-to-left puts its full stop at the front.
+      dir={directionFor(locale)}
+      aria-label={t("cookies.aria", "הודעת עוגיות")}
       className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-2xl rounded-2xl border border-zinc-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:inset-x-6 dark:border-zinc-800 dark:bg-zinc-900/95"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-          אנחנו משתמשים בעוגיות כדי לשפר את החוויה שלכם. בלחיצה על ״מאשר״ אתם
-          מסכימים ל
+          {t(
+            "cookies.body",
+            "אנחנו משתמשים בעוגיות כדי לשפר את החוויה שלכם. בלחיצה על ״מאשר״ אתם מסכימים ל",
+          )}
           <Link
             href="/legal/privacy"
             className="underline hover:text-zinc-950 dark:hover:text-zinc-50"
           >
-            מדיניות הפרטיות
+            {t("cookies.privacy", "מדיניות הפרטיות")}
           </Link>{" "}
-          ול
+          {t("cookies.and", "ול")}
           <Link
             href="/legal/terms"
             className="underline hover:text-zinc-950 dark:hover:text-zinc-50"
           >
-            תנאי השימוש
+            {t("cookies.terms", "תנאי השימוש")}
           </Link>
           .
         </p>
@@ -85,7 +101,7 @@ export function CookieBanner() {
           onClick={accept}
           className="h-10 shrink-0 rounded-full bg-zinc-950 px-6 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 focus-visible:outline-none dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          מאשר
+          {t("cookies.accept", "מאשר")}
         </button>
       </div>
     </div>

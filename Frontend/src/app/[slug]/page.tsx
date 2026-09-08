@@ -31,6 +31,9 @@ import { isDemoBusiness } from "@/lib/demo";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { PreviewBar } from "@/components/booking/preview-bar";
 import { todayInTimezone } from "@/lib/format";
+import { showcaseContent, translate } from "@/lib/booking-copy";
+import { DEFAULT_LOCALE, directionFor, resolveSlug } from "@/lib/showcase";
+import { BookingCopyProvider } from "@/components/booking/copy-context";
 
 // Availability changes by the minute — never serve this from a static cache.
 export const dynamic = "force-dynamic";
@@ -50,25 +53,40 @@ export async function generateMetadata({
     return { title: "העסק לא נמצא", robots: { index: false, follow: false } };
   }
 
+  const { locale } = resolveSlug(slug);
+  const t = (key: string, fallback: string) => translate(locale, key, fallback);
+  const name = showcaseContent(locale, business.name);
+
   // Absolute title: a business page should not carry the platform's suffix.
-  const title = `${business.name} — קביעת תור אונליין`;
+  const title = `${name} — ${t("page.metaTitle", "קביעת תור אונליין")}`;
   const description =
-    business.description ??
-    `קביעת תור אונליין אצל ${business.name}. בחרו שירות, יום ושעה — בלי טלפונים ובלי הרשמה.`;
+    (business.description
+      ? showcaseContent(locale, business.description)
+      : null) ??
+    t(
+      "page.metaDescription",
+      `קביעת תור אונליין אצל {name}. בחרו שירות, יום ושעה — בלי טלפונים ובלי הרשמה.`,
+    ).replace("{name}", name);
   const url = `/${slug}`;
 
   return {
     title: { absolute: title },
     description,
     alternates: { canonical: url },
-    keywords: [business.name, "קביעת תור", "תורים אונליין", "יומן תורים"],
+    // A showcase alias is the same shop at a second address. Letting a search
+    // engine index both would put two pages for one barbershop in the results,
+    // and the one it picked would be the demo.
+    ...(locale === DEFAULT_LOCALE
+      ? {}
+      : { robots: { index: false, follow: false } }),
+    keywords: [name, "קביעת תור", "תורים אונליין", "יומן תורים"],
     openGraph: {
       title,
       description,
       url,
       type: "website",
-      locale: "he_IL",
-      siteName: business.name,
+      locale: locale === DEFAULT_LOCALE ? "he_IL" : "es_ES",
+      siteName: name,
     },
     twitter: { card: "summary", title, description },
     // Follow, so the landing page's demo links are not treated as dead ends,
@@ -140,6 +158,13 @@ export default async function BusinessPage({
   searchParams,
 }: PageProps) {
   const { slug } = await params;
+
+  /**
+   * A showcase address resolves to the shop it mirrors, and decides the
+   * language. Display only — see `lib/showcase`; the row, the diary and the
+   * services are the same ones the Hebrew address serves.
+   */
+  const { locale } = resolveSlug(slug);
 
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) notFound();
@@ -213,175 +238,202 @@ export default async function BusinessPage({
   );
 
   return (
-    // data-accent resolves the --accent custom properties for everything below
-    // it. Tailwind cannot build a class from a runtime value, so the owner's
-    // colour arrives as an attribute and the components stay static.
-    <div
-      data-accent={toThemeColor(business.themeColor)}
-      // The three dressing choices resolve their custom properties for
-      // everything below, exactly as `data-accent` does — and they have to sit
-      // on the same element, because the glass tokens are built from
-      // `--accent` and would otherwise read the root fallback.
-      data-card={appearance.cardStyle}
-      data-corner={appearance.cornerStyle}
-      style={
-        {
-          // 0–90 from the owner becomes the 0–1 alpha the scrim multiplies.
-          "--hero-overlay": appearance.heroOverlay / 100,
-        } as CSSProperties
-      }
-      className="mx-auto flex w-full max-w-lg flex-1 flex-col"
-    >
-      {/* Behind everything, viewport-wide rather than column-wide: the page is
-          a 512px column, and a wash that stopped at its edge would read as a
-          panel rather than as the room the page is standing in. It replaces
-          the static `.booking-wash` that used to sit on this element — one
-          mechanism for the ground, not two stacked. */}
-      <AmbientBackground />
+    // Every client component below asks this for its strings, and every ask
+    // carries the Hebrew literal as its fallback — so a Hebrew page renders
+    // exactly what it rendered before this existed. See `copy-context`.
+    <BookingCopyProvider locale={locale}>
+      {/* data-accent resolves the --accent custom properties for everything
+          below it. Tailwind cannot build a class from a runtime value, so the
+          owner's colour arrives as an attribute and the components stay
+          static. */}
+      <div
+        data-accent={toThemeColor(business.themeColor)}
+        // The three dressing choices resolve their custom properties for
+        // everything below, exactly as `data-accent` does — and they have to sit
+        // on the same element, because the glass tokens are built from
+        // `--accent` and would otherwise read the root fallback.
+        data-card={appearance.cardStyle}
+        data-corner={appearance.cornerStyle}
+        style={
+          {
+            // 0–90 from the owner becomes the 0–1 alpha the scrim multiplies.
+            "--hero-overlay": appearance.heroOverlay / 100,
+          } as CSSProperties
+        }
+        /**
+         * **The whole page flips for a language that is not Hebrew.** The root
+         * layout is `rtl` because the product is, and a Spanish page rendered
+         * right-to-left is not a translation — it is a mistake with translated
+         * words in it. Set here rather than in the layout so the dashboard and
+         * every Hebrew page are untouched.
+         */
+        dir={directionFor(locale)}
+        lang={locale}
+        className="mx-auto flex w-full max-w-lg flex-1 flex-col"
+      >
+        {/* Behind everything, viewport-wide rather than column-wide: the page is
+            a 512px column, and a wash that stopped at its edge would read as a
+            panel rather than as the room the page is standing in. It replaces
+            the static `.booking-wash` that used to sit on this element — one
+            mechanism for the ground, not two stacked. */}
+        <AmbientBackground />
 
-      {previewFor ? <PreviewBar businessName={previewFor} /> : null}
-      {structuredData ? (
-        <script
-          type="application/ld+json"
-          /**
-           * `serialiseJsonLd`, never a bare `JSON.stringify`.
-           *
-           * The old comment here said "from our own database, not
-           * user-controlled markup" — and the database is exactly where the
-           * tenant's own free text lives. `JSON.stringify` does not escape
-           * `<`, so a business name containing `</script>` ended this element
-           * early and everything after it was parsed as markup, on a public
-           * page that needs no login.
-           */
-          dangerouslySetInnerHTML={{ __html: serialiseJsonLd(structuredData) }}
-        />
-      ) : null}
-      <BusinessHeader
-        name={business.name}
-        description={business.description}
-        logoUrl={business.logoUrl}
-        address={business.address}
-        phone={business.phone}
-        hours={hours.map((h) => ({
-          weekday: h.weekday,
-          startTime: h.startTime,
-          endTime: h.endTime,
-          isClosed: h.isClosed,
-        }))}
-        // Resolved server-side in the business timezone, so "today" matches the
-        // shop's day rather than the visitor's device.
-        todayWeekday={new Date(
-          `${todayInTimezone(business.timezone)}T00:00:00Z`,
-        ).getUTCDay()}
-        heroMediaUrl={business.heroMediaUrl}
-        heroMediaType={heroMediaType}
-        // Validated on read like every other owner-supplied column: a value
-        // written past the app by a seed or psql must not produce a broken
-        // link, so anything that does not parse simply yields no icon.
-        socialLinks={buildSocialLinks({
-          instagram: business.socialInstagram,
-          facebook: business.socialFacebook,
-          tiktok: business.socialTiktok,
-          whatsapp: business.socialWhatsapp,
-          website: business.websiteUrl,
-        })}
-      />
-
-      {/* Directly under the header, above the flow.
-
-          It used to sit below the booking steps, where a first-time visitor
-          reached it only after they had already decided. The work is what
-          convinces somebody to book at all, so it belongs where they are still
-          deciding — and it costs a returning client one short rail to scroll
-          past on their way to the services. */}
-      <BusinessGallery images={gallery} />
-
-      {services.length === 0 ? (
-        <p className="px-5 py-16 text-center text-sm text-zinc-500">
-          העסק עדיין לא הגדיר שירותים לקביעת תור.
-        </p>
-      ) : (
-        <BookingFlow
-          slug={slug}
-          serviceLayout={serviceLayout}
-          business={{
-            id: business.id,
-            name: business.name,
-            timezone: business.timezone,
-            maxAdvanceDays: business.maxAdvanceDays,
-            hasMultipleStaff: business.hasMultipleStaff,
-            retentionEnabled: business.retentionEnabled,
-          }}
-          // The roster is only ever used to put names on ids the availability
-          // engine returned, so nothing here decides who is bookable.
-          staff={team.map((member) => ({
-            id: member.id,
-            name: member.name,
-            title: member.title,
-            // Checked here rather than in the picker, so the component never
-            // has to defend against a column written past the app.
-            imageUrl:
-              member.imageUrl && isSafeMediaUrl(member.imageUrl)
-                ? member.imageUrl
-                : null,
+        {previewFor ? <PreviewBar businessName={previewFor} /> : null}
+        {structuredData ? (
+          <script
+            type="application/ld+json"
+            /**
+             * `serialiseJsonLd`, never a bare `JSON.stringify`.
+             *
+             * The old comment here said "from our own database, not
+             * user-controlled markup" — and the database is exactly where the
+             * tenant's own free text lives. `JSON.stringify` does not escape
+             * `<`, so a business name containing `</script>` ended this element
+             * early and everything after it was parsed as markup, on a public
+             * page that needs no login.
+             */
+            dangerouslySetInnerHTML={{ __html: serialiseJsonLd(structuredData) }}
+          />
+        ) : null}
+        <BusinessHeader
+          name={showcaseContent(locale, business.name)}
+          description={
+            business.description
+              ? showcaseContent(locale, business.description)
+              : business.description
+          }
+          logoUrl={business.logoUrl}
+          address={
+            business.address
+              ? showcaseContent(locale, business.address)
+              : business.address
+          }
+          phone={business.phone}
+          hours={hours.map((h) => ({
+            weekday: h.weekday,
+            startTime: h.startTime,
+            endTime: h.endTime,
+            isClosed: h.isClosed,
           }))}
-          services={services.map((s) => ({
-            id: s.id,
-            name: s.name,
-            description: s.description,
-            durationMin: s.durationMin,
-            priceCents: s.priceCents,
-            currency: s.currency,
-            imageUrl: s.imageUrl,
-          }))}
+          // Resolved server-side in the business timezone, so "today" matches the
+          // shop's day rather than the visitor's device.
+          todayWeekday={new Date(
+            `${todayInTimezone(business.timezone)}T00:00:00Z`,
+          ).getUTCDay()}
+          heroMediaUrl={business.heroMediaUrl}
+          heroMediaType={heroMediaType}
+          // Validated on read like every other owner-supplied column: a value
+          // written past the app by a seed or psql must not produce a broken
+          // link, so anything that does not parse simply yields no icon.
+          socialLinks={buildSocialLinks({
+            instagram: business.socialInstagram,
+            facebook: business.socialFacebook,
+            tiktok: business.socialTiktok,
+            whatsapp: business.socialWhatsapp,
+            website: business.websiteUrl,
+          })}
         />
-      )}
 
-      <BusinessReviews reviews={reviews} />
+        {/* Directly under the header, above the flow.
 
-      {/* Below the booking flow, not above it. A returning client will look for
-          it; a first-time visitor should meet the thing this page is for
-          before an entrance that has nothing behind it for them. */}
-      <div className="px-5 pt-4 pb-6">
-        <Link
-          href={`/${slug}/my-appointments`}
-          className="flex h-13 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-zinc-700 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-zinc-800"
-        >
-          <CalendarClock className="size-4" aria-hidden />
-          צפייה בתורים שלי
-        </Link>
-      </div>
+            It used to sit below the booking steps, where a first-time visitor
+            reached it only after they had already decided. The work is what
+            convinces somebody to book at all, so it belongs where they are still
+            deciding — and it costs a returning client one short rail to scroll
+            past on their way to the services. */}
+        <BusinessGallery images={gallery} />
 
-      {/* The platform's only mark on the tenant's page.
+        {services.length === 0 ? (
+          <p className="px-5 py-16 text-center text-sm text-zinc-500">
+            {translate(
+              locale,
+              "service.none",
+              "העסק עדיין לא הגדיר שירותים לקביעת תור.",
+            )}
+          </p>
+        ) : (
+          <BookingFlow
+            slug={slug}
+            serviceLayout={serviceLayout}
+            business={{
+              id: business.id,
+              name: business.name,
+              timezone: business.timezone,
+              maxAdvanceDays: business.maxAdvanceDays,
+              hasMultipleStaff: business.hasMultipleStaff,
+              retentionEnabled: business.retentionEnabled,
+            }}
+            // The roster is only ever used to put names on ids the availability
+            // engine returned, so nothing here decides who is bookable.
+            staff={team.map((member) => ({
+              id: member.id,
+              name: member.name,
+              title: member.title,
+              // Checked here rather than in the picker, so the component never
+              // has to defend against a column written past the app.
+              imageUrl:
+                member.imageUrl && isSafeMediaUrl(member.imageUrl)
+                  ? member.imageUrl
+                  : null,
+            }))}
+            services={services.map((s) => ({
+              id: s.id,
+              name: s.name,
+              description: s.description,
+              durationMin: s.durationMin,
+              priceCents: s.priceCents,
+              currency: s.currency,
+              imageUrl: s.imageUrl,
+            }))}
+          />
+        )}
 
-          It used to be a panel with a call to action — "רוצה עמוד כזה לעסק
-          שלך?" — on the reasoning that `/[slug]` is dual-purpose, since shop
-          owners meet this product by receiving a competitor's booking link, and
-          that the pitch deserved real estate rather than a footer afterthought.
-          **That has been reversed again, deliberately.** The page now ends on a
-          credit rather than an advertisement: one line, no container, no
-          button.
+        <BusinessReviews reviews={reviews} locale={locale} />
 
-          Two rules survive the change and are the reason it stays honest. It is
-          still the last thing on the page, below the booking flow and below the
-          client's own entrance to their appointments. And it is still
-          monochrome — the tenant's accent never touches it, so the platform
-          cannot borrow the shop's colour to sell itself to the shop's clients.
-
-          The link is the wordmark alone. "מופעל על ידי" is a statement of fact
-          and not a target; only the name is clickable, which is what keeps this
-          a credit rather than a banner. */}
-      <footer className="mt-auto px-5 pt-2 pb-8">
-        <p className="text-center text-xs text-zinc-500">
-          מופעל על ידי{" "}
+        {/* Below the booking flow, not above it. A returning client will look for
+            it; a first-time visitor should meet the thing this page is for
+            before an entrance that has nothing behind it for them. */}
+        <div className="px-5 pt-4 pb-6">
           <Link
-            href="/"
-            className="rounded-sm font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-4 transition-colors duration-200 hover:text-zinc-900 hover:decoration-zinc-500 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-300 dark:decoration-zinc-600 dark:hover:text-zinc-100 dark:hover:decoration-zinc-400"
+            href={`/${slug}/my-appointments`}
+            className="flex h-13 w-full items-center justify-center gap-2 rounded-full text-sm font-semibold text-zinc-700 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-300 dark:ring-white/15 dark:hover:bg-zinc-800"
           >
-            {BRAND.nameHe}
+            <CalendarClock className="size-4" aria-hidden />
+            {translate(locale, "page.myAppointments", "צפייה בתורים שלי")}
           </Link>
-        </p>
-      </footer>
-    </div>
+        </div>
+
+        {/* The platform's only mark on the tenant's page.
+
+            It used to be a panel with a call to action — "רוצה עמוד כזה לעסק
+            שלך?" — on the reasoning that `/[slug]` is dual-purpose, since shop
+            owners meet this product by receiving a competitor's booking link, and
+            that the pitch deserved real estate rather than a footer afterthought.
+            **That has been reversed again, deliberately.** The page now ends on a
+            credit rather than an advertisement: one line, no container, no
+            button.
+
+            Two rules survive the change and are the reason it stays honest. It is
+            still the last thing on the page, below the booking flow and below the
+            client's own entrance to their appointments. And it is still
+            monochrome — the tenant's accent never touches it, so the platform
+            cannot borrow the shop's colour to sell itself to the shop's clients.
+
+            The link is the wordmark alone. "מופעל על ידי" is a statement of fact
+            and not a target; only the name is clickable, which is what keeps this
+            a credit rather than a banner. */}
+        <footer className="mt-auto px-5 pt-2 pb-8">
+          <p className="text-center text-xs text-zinc-500">
+            {translate(locale, "page.poweredBy", "מופעל על ידי")}{" "}
+            <Link
+              href="/"
+              className="rounded-sm font-semibold text-zinc-700 underline decoration-zinc-300 underline-offset-4 transition-colors duration-200 hover:text-zinc-900 hover:decoration-zinc-500 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-300 dark:decoration-zinc-600 dark:hover:text-zinc-100 dark:hover:decoration-zinc-400"
+            >
+              {locale === DEFAULT_LOCALE ? BRAND.nameHe : BRAND.name}
+            </Link>
+          </p>
+        </footer>
+      </div>
+    </BookingCopyProvider>
   );
 }

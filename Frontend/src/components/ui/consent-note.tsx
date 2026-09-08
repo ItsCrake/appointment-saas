@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { useCopy } from "@/components/booking/copy-context";
+
 /**
  * The implicit-consent line that sits under a primary action.
  *
@@ -21,23 +23,29 @@ export function ConsentNote({
   action: string;
   className?: string;
 }) {
+  // Outside a `BookingCopyProvider` — which is everywhere but the public
+  // booking page — this resolves to Hebrew and returns each fallback
+  // unchanged, so `/login` renders exactly the sentence it always has.
+  const t = useCopy();
+
   return (
     <p className={`text-[11px] leading-relaxed text-zinc-500 ${className}`}>
-      בלחיצה על {action}, הנך מסכים ל
+      {t("consent.before", "בלחיצה על")} {action}
+      {t("consent.middle", ", הנך מסכים ל")}
       <Link
         href="/legal/terms"
         target="_blank"
         className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
       >
-        תנאי השימוש
+        {t("consent.terms", "תנאי השימוש")}
       </Link>{" "}
-      ול
+      {t("consent.and", "ול")}
       <Link
         href="/legal/privacy"
         target="_blank"
         className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
       >
-        מדיניות הפרטיות
+        {t("consent.privacy", "מדיניות הפרטיות")}
       </Link>
       .
     </p>

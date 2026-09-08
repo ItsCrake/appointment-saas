@@ -1154,6 +1154,80 @@ the trial extension moved a clock nothing else read.
 
 ---
 
+### A Spanish showcase of the barbershop page ✅
+
+`/demo-barber-es` is the demo barbershop's client page, in Spanish, for showing
+the product to a Spanish-speaking prospect. Same business row, same calendar,
+same photographs, same accent — only the rendering differs.
+
+- **An alias, not a second business** (`lib/showcase.ts`). A second
+  `businesses` row was the obvious approach and it would have broken the
+  dashboard: `getBusinessByOwner` selects `.limit(1)` with **no ordering**, so a
+  second row under one account makes *which shop the owner sees* a question
+  Postgres answers differently on different days. `resolveSlug` maps the alias
+  onto the real slug, and **both** `getActiveBusinessBySlug` and
+  `activeBusinessSlugExists` call it — the proxy asks the cheap one before the
+  page renders, so an alias known to one and not the other is a 404 on a page
+  that would have worked.
+- **The map is closed, deliberately.** Treating any `-es` suffix as a showcase
+  would silently capture a real shop that registered that slug and serve their
+  clients a translation of somebody else's page. Adding an alias is an edit.
+- **Every lookup carries its own fallback**, and that is the whole safety
+  design (`lib/booking-copy.ts`). A component asks for
+  `t("service.title", "בחרו שירות")`, and the second argument — the literal that
+  was already on the page — is what renders for Hebrew, for a missing key, for a
+  typo, for a locale nobody added. **This cannot blank a string on the live
+  page.** It is a flat map rather than a typed schema for the same reason: a
+  schema would turn every missing key into a build failure, which is the wrong
+  trade for a file whose job is to degrade quietly.
+- **The shop's own words are a narrow, separate exception.** `showcaseContent`
+  rewrites the *demo* tenant's service names and descriptions for display only,
+  keyed on the exact Hebrew string, never touching the database. A service the
+  owner renames stops matching and shows through in Hebrew — visibly wrong on
+  the demo page, harmless everywhere else. Rewriting a real shop's words would
+  be the software putting language in their mouth.
+- **Context for the client tree, a prop for the server tree.** `useCopy()` /
+  `useLocale()` / `useShowcaseContent()` cover the booking flow, which is five
+  components deep with dialogs hanging off it. `BusinessReviews` and
+  `page.tsx` take a `locale` prop instead — a server component has no context to
+  read, and shipping a client bundle to translate two headings would undo the
+  reason they render on the server.
+- **The alias is `noindex`.** It is the same shop at a second address, and
+  letting a crawler index both puts two pages for one barbershop in the results.
+- **What is translated:** the booking page end to end (stepper, services, day
+  and time, details form, confirmation, hours drawer, gallery, reviews,
+  waitlist dialog), `/demo-barber-es/my-appointments` including its Server
+  Action's error strings, the cookie banner and the consent line. Verified in a
+  real browser at 430×940: **zero Hebrew text nodes** across landing, hours,
+  no-slots, waitlist, times, details; the Hebrew page is unchanged at 32–48.
+- **What is not:** `/b/[token]` (manage/cancel) and `/w/[token]` (waitlist
+  invite) are addressed by an opaque token with no slug, so nothing in the URL
+  says which language the visitor arrived in. Both stay Hebrew. They are
+  reachable only *after* a real booking, which this page is not for.
+  `[slug]/loading.tsx` renders "טוען…" for the moment before the page arrives;
+  App Router gives loading UI no params, so it has no locale to read.
+
+**Two formatting traps, both found by looking rather than reasoning:**
+
+- `Intl.NumberFormat("he-IL")` wraps an ILS price in **RIGHT-TO-LEFT MARKs** —
+  `‏70 ‏₪`. Correct and invisible inside the Hebrew page.
+  Inside the showcase's `ltr` column those marks flip the run they sit in, and
+  "₪70 · 30 min" rendered as **"30 · ₪70 min"** — the duration torn apart around
+  the price. `currencyDisplay: "narrowSymbol"` drops them and leaves the Hebrew
+  byte-identical, which `showcase.test.ts` pins.
+- **Hebrew glues its prefixes.** "מסכימים ל" + a link is one word with no gap,
+  so the markup puts no space before the link — and Spanish then rendered
+  "aceptas nuestra**Política de privacidad**". The space lives in the Spanish
+  string itself, because JSX strips whitespace from literal text children but
+  preserves it inside an expression's value. Any Spanish string that ends a
+  clause before a link has a **deliberate trailing space**.
+
+`showcase.test.ts` scans every `t("key", …)` call site in `src/` and fails if a
+key has no Spanish string, if a Spanish value still contains Hebrew, or if one
+is accidentally empty. That check exists because this feature was built by
+hunting leftover Hebrew in screenshots, which is not a method that survives the
+next change.
+
 ---
 
 ## 5. Where things stand
@@ -1162,7 +1236,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1366 tests across 94 files**; Playwright
+**Green:** `npm run verify` at **1515 tests across 103 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit

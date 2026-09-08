@@ -1,10 +1,25 @@
 import { Star } from "lucide-react";
 
 import { averageRating, type Review } from "@/lib/branding";
+import { translate } from "@/lib/booking-copy";
+import { DEFAULT_LOCALE, type Locale } from "@/lib/showcase";
 import { cn } from "@/lib/utils";
 
-/** Server component: testimonials are static content, so they ship no JS. */
-export function BusinessReviews({ reviews }: { reviews: Review[] }) {
+/**
+ * Server component: testimonials are static content, so they ship no JS.
+ *
+ * Which is why the language arrives as a prop rather than from `useCopy` — a
+ * server component has no context to read, and paying for a client bundle to
+ * translate two headings would undo the reason this one renders on the server.
+ */
+export function BusinessReviews({
+  reviews,
+  locale = DEFAULT_LOCALE,
+}: {
+  reviews: Review[];
+  locale?: Locale;
+}) {
+  const t = (key: string, fallback: string) => translate(locale, key, fallback);
   const average = averageRating(reviews);
   if (average === null) return null;
 
@@ -14,7 +29,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
         id="reviews-heading"
         className="mb-4 text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
-        מה הלקוחות אומרים
+        {t("reviews.title", "מה הלקוחות אומרים")}
       </h2>
 
       <div className="shadow-lift mb-4 flex items-center gap-3.5 rounded-2xl bg-(--accent-soft) px-4 py-3.5 ring-1 ring-(--accent-soft-border) ring-inset">
@@ -22,9 +37,9 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
           {average.toFixed(1)}
         </p>
         <div>
-          <Stars value={average} />
+          <Stars value={average} locale={locale} />
           <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-            {reviews.length} חוות דעת
+            {reviews.length} {t("reviews.count", "חוות דעת")}
           </p>
         </div>
       </div>
@@ -48,7 +63,7 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
             </div>
 
             <div className="mt-1">
-              <Stars value={review.rating} size="sm" />
+              <Stars value={review.rating} size="sm" locale={locale} />
             </div>
 
             {review.comment ? (
@@ -68,12 +83,20 @@ export function BusinessReviews({ reviews }: { reviews: Review[] }) {
  * rather than as five separate icons, which is what a screen reader would
  * otherwise read out.
  */
-function Stars({ value, size = "md" }: { value: number; size?: "sm" | "md" }) {
+function Stars({
+  value,
+  size = "md",
+  locale = DEFAULT_LOCALE,
+}: {
+  value: number;
+  size?: "sm" | "md";
+  locale?: Locale;
+}) {
   return (
     <span
       className="flex items-center gap-0.5"
       role="img"
-      aria-label={`דירוג ${value} מתוך 5`}
+      aria-label={`${translate(locale, "reviews.rating", "דירוג")} ${value} ${translate(locale, "common.of", "מתוך")} 5`}
     >
       {[1, 2, 3, 4, 5].map((star) => (
         <Star

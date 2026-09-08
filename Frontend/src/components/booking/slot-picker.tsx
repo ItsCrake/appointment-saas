@@ -7,14 +7,16 @@ import type { SlotWithStaff } from "@/lib/availability";
 import { groupSlotsByPeriod, type SlotPeriod } from "@/lib/slot-periods";
 import { cn } from "@/lib/utils";
 
-const PERIODS: Record<
-  SlotPeriod,
-  { label: string; Icon: typeof Sun; tint: string }
-> = {
-  morning: { label: "בוקר", Icon: Sunrise, tint: "text-amber-500" },
-  afternoon: { label: "צהריים", Icon: Sun, tint: "text-orange-500" },
-  evening: { label: "ערב", Icon: Moon, tint: "text-indigo-400" },
-};
+import { useCopy } from "./copy-context";
+
+/** Resolved per render — see the note in `hours-drawer`. */
+const periods = (
+  t: ReturnType<typeof useCopy>,
+): Record<SlotPeriod, { label: string; Icon: typeof Sun; tint: string }> => ({
+  morning: { label: t("slot.morning", "בוקר"), Icon: Sunrise, tint: "text-amber-500" },
+  afternoon: { label: t("slot.noon", "צהריים"), Icon: Sun, tint: "text-orange-500" },
+  evening: { label: t("slot.evening", "ערב"), Icon: Moon, tint: "text-indigo-400" },
+});
 
 type Props = {
   slots: SlotWithStaff[];
@@ -32,6 +34,7 @@ export function SlotPicker({
   onSelectSlot,
   onJoinWaitlist,
 }: Props & { onJoinWaitlist?: () => void }) {
+  const t = useCopy();
   // aria-busy rather than swapping the live region's identity, so a screen
   // reader announces the result instead of a container appearing.
   return (
@@ -49,9 +52,9 @@ export function SlotPicker({
         // the one stable hook for "the fetch finished with something to show" —
         // the per-period radiogroups are labelled by their own heading, whose
         // text carries a count, so none of them has a fixed name.
-        <div role="group" aria-label="בחירת שעה" className="space-y-5">
+        <div role="group" aria-label={t("slot.pickTime", "בחירת שעה")} className="space-y-5">
           {groupSlotsByPeriod(slots).map(({ period, slots: periodSlots }) => {
-            const { label, Icon, tint } = PERIODS[period];
+            const { label, Icon, tint } = periods(t)[period];
 
             return (
               <section key={period} aria-labelledby={`period-${period}`}>
@@ -136,6 +139,7 @@ export function SlotPicker({
  * content does not jump when the real slots arrive.
  */
 function SlotSkeleton() {
+  const t = useCopy();
   return (
     <div className="space-y-5">
       {[5, 8].map((count, group) => (
@@ -153,12 +157,14 @@ function SlotSkeleton() {
           </div>
         </div>
       ))}
-      <p className="sr-only">טוען מועדים פנויים…</p>
+      <p className="sr-only">{t("slot.loading", "טוען מועדים פנויים…")}</p>
     </div>
   );
 }
 
 function EmptyState({ onJoinWaitlist }: { onJoinWaitlist?: () => void }) {
+  const t = useCopy();
+
   return (
     <div className="flex flex-col items-center gap-2 rounded-3xl border border-dashed border-zinc-300 bg-zinc-50/50 px-4 py-12 text-center dark:border-zinc-700 dark:bg-zinc-900/40">
       <div
@@ -168,11 +174,13 @@ function EmptyState({ onJoinWaitlist }: { onJoinWaitlist?: () => void }) {
         <CalendarOff className="size-5 text-zinc-500" />
       </div>
       <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-        אין מועדים פנויים ביום זה
+        {t("slot.emptyTitle", "אין מועדים פנויים ביום זה")}
       </p>
       <p className="max-w-xs text-xs leading-relaxed text-zinc-500">
-        נסו לבחור יום אחר בסרגל התאריכים למעלה — בדרך כלל יש מקום תוך
-        יום-יומיים.
+        {t(
+          "slot.emptyBody",
+          "נסו לבחור יום אחר בסרגל התאריכים למעלה — בדרך כלל יש מקום תוך יום-יומיים.",
+        )}
       </p>
 
       {/* Offered exactly where the disappointment is, rather than parked in a
@@ -186,7 +194,7 @@ function EmptyState({ onJoinWaitlist }: { onJoinWaitlist?: () => void }) {
           className="mt-2 inline-flex h-10 items-center gap-2 rounded-full bg-(--accent) px-4 text-xs font-bold text-(--accent-contrast) transition-opacity hover:opacity-90"
         >
           <BellRing className="size-4" aria-hidden />
-          אין תור פנוי? הצטרפו לרשימת ההמתנה
+          {t("slot.waitlist", "אין תור פנוי? הצטרפו לרשימת ההמתנה")}
         </button>
       ) : null}
     </div>

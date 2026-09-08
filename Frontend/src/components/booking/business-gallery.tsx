@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
+import { useCopy } from "./copy-context";
+
 export function BusinessGallery({ images }: { images: string[] }) {
+  const t = useCopy();
   const [openAt, setOpenAt] = useState<number | null>(null);
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -51,7 +54,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
         id="gallery-heading"
         className="mb-4 text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
-        מהעבודות שלנו
+        {t("gallery.heading", "מהעבודות שלנו")}
       </h2>
 
       {/* A snapping horizontal rail rather than a 3-up grid.
@@ -72,7 +75,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
             <button
               type="button"
               onClick={() => setOpenAt(index)}
-              aria-label={`הגדלת תמונה ${index + 1} מתוך ${count}`}
+              aria-label={`${t("gallery.enlarge", "הגדלת תמונה")} ${index + 1} ${t("common.of", "מתוך")} ${count}`}
               className="group shadow-lift hover:shadow-float block h-40 w-36 overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-900/8 transition-[box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ring-inset focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-95 sm:h-48 sm:w-44 dark:bg-zinc-800 dark:ring-white/10"
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- per-tenant remote host, unknown at build time */}
@@ -102,7 +105,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
               ref={closeRef}
               type="button"
               onClick={() => setOpenAt(null)}
-              aria-label="סגירה"
+              aria-label={t("gallery.close", "סגירה")}
               className="-me-2 rounded-lg p-2 transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
             >
               <X className="size-6" aria-hidden />
@@ -115,7 +118,7 @@ export function BusinessGallery({ images }: { images: string[] }) {
           <button
             type="button"
             tabIndex={-1}
-            aria-label="סגירה"
+            aria-label={t("gallery.close", "סגירה")}
             onClick={() => setOpenAt(null)}
             className="flex flex-1 cursor-default items-center justify-center overflow-hidden p-4"
           >
@@ -129,10 +132,10 @@ export function BusinessGallery({ images }: { images: string[] }) {
 
           {count > 1 ? (
             <div className="flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-              <NavButton label="הקודם" onClick={() => step(-1)}>
+              <NavButton label={t("gallery.prev", "הקודם")} onClick={() => step(-1)}>
                 <ChevronRight className="size-6" aria-hidden />
               </NavButton>
-              <NavButton label="הבא" onClick={() => step(1)}>
+              <NavButton label={t("gallery.next", "הבא")} onClick={() => step(1)}>
                 <ChevronLeft className="size-6" aria-hidden />
               </NavButton>
             </div>

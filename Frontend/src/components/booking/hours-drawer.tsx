@@ -7,14 +7,21 @@ import { cn } from "@/lib/utils";
 
 import type { BookingHours } from "./types";
 
-const WEEKDAYS = [
-  "ראשון",
-  "שני",
-  "שלישי",
-  "רביעי",
-  "חמישי",
-  "שישי",
-  "שבת",
+import { useCopy } from "./copy-context";
+
+/**
+ * Resolved per render rather than frozen at module load: a `const` array is
+ * evaluated when the module is imported, long before anything knows which
+ * language the page is in.
+ */
+const weekdays = (t: ReturnType<typeof useCopy>) => [
+  t("day.sun", "ראשון"),
+  t("day.mon", "שני"),
+  t("day.tue", "שלישי"),
+  t("day.wed", "רביעי"),
+  t("day.thu", "חמישי"),
+  t("day.fri", "שישי"),
+  t("day.sat", "שבת"),
 ] as const;
 
 /** "09:00:00" → "09:00". The column is a `time`, so seconds always ride along. */
@@ -27,7 +34,9 @@ type DayHours = { weekday: number; shifts: string[] };
  * missing. Multiple rows on a weekday are a split shift and stay separate.
  */
 function toWeek(hours: BookingHours[]): DayHours[] {
-  return WEEKDAYS.map((_, weekday) => ({
+  // Seven, always. This never wanted the names — only how many there are —
+  // so it does not need the language and stays a plain helper.
+  return Array.from({ length: 7 }, (_, weekday) => ({
     weekday,
     shifts: hours
       .filter((h) => h.weekday === weekday && !h.isClosed)
@@ -42,6 +51,7 @@ export function HoursDrawer({
   hours: BookingHours[];
   todayWeekday: number;
 }) {
+  const t = useCopy();
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -78,14 +88,14 @@ export function HoursDrawer({
         className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100/80 px-3 py-1.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-900/5 transition-colors ring-inset hover:bg-zinc-200/80 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:bg-zinc-800/60 dark:ring-white/10 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-100"
       >
         <CalendarDays className="size-3.5 shrink-0" aria-hidden />
-        שעות פעילות
+        {t("hours.title", "שעות פעילות")}
       </button>
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <button
             type="button"
-            aria-label="סגירה"
+            aria-label={t("hours.close", "סגירה")}
             tabIndex={-1}
             onClick={() => setOpen(false)}
             className="animate-fade absolute inset-0 cursor-default bg-black/40"
@@ -107,13 +117,13 @@ export function HoursDrawer({
                 id={titleId}
                 className="text-base font-bold text-zinc-900 dark:text-zinc-100"
               >
-                שעות פעילות
+                {t("hours.title", "שעות פעילות")}
               </h2>
               <button
                 ref={closeRef}
                 type="button"
                 onClick={() => setOpen(false)}
-                aria-label="סגירה"
+                aria-label={t("hours.close", "סגירה")}
                 className="-me-2 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               >
                 <X className="size-5" aria-hidden />
@@ -140,10 +150,10 @@ export function HoursDrawer({
                           : "text-zinc-600 dark:text-zinc-400",
                       )}
                     >
-                      {WEEKDAYS[weekday]}
+                      {weekdays(t)[weekday]}
                       {isToday ? (
                         <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
-                          היום
+                          {t("hours.today", "היום")}
                         </span>
                       ) : null}
                     </dt>
@@ -157,7 +167,7 @@ export function HoursDrawer({
                       )}
                     >
                       {shifts.length === 0 ? (
-                        "סגור"
+                        t("hours.closed", "סגור")
                       ) : (
                         <span
                           dir="ltr"

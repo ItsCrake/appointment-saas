@@ -2,6 +2,7 @@ import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import { businesses, staff } from "../schema";
 import type { Database } from "../types";
+import { resolveSlug } from "@/lib/showcase";
 
 export async function getBusinessById(db: Database, businessId: string) {
   const [row] = await db
@@ -15,10 +16,14 @@ export async function getBusinessById(db: Database, businessId: string) {
 
 /** Resolves the public booking page at /[slug]. Inactive businesses 404. */
 export async function getActiveBusinessBySlug(db: Database, slug: string) {
+  // A showcase address resolves to the shop it mirrors; anything else passes
+  // straight through. See `lib/showcase` — display only, and one row either way.
+  const { slug: real } = resolveSlug(slug);
+
   const [row] = await db
     .select()
     .from(businesses)
-    .where(and(eq(businesses.slug, slug), eq(businesses.isActive, true)))
+    .where(and(eq(businesses.slug, real), eq(businesses.isActive, true)))
     .limit(1);
 
   return row ?? null;
@@ -34,10 +39,14 @@ export async function getActiveBusinessBySlug(db: Database, slug: string) {
  * deactivated tenants the guard was meant to cover.
  */
 export async function activeBusinessSlugExists(db: Database, slug: string) {
+  // Resolved the same way, for the reason stated above: an alias the page
+  // knows and this does not is a 404 on a page that would have rendered.
+  const { slug: real } = resolveSlug(slug);
+
   const [row] = await db
     .select({ id: businesses.id })
     .from(businesses)
-    .where(and(eq(businesses.slug, slug), eq(businesses.isActive, true)))
+    .where(and(eq(businesses.slug, real), eq(businesses.isActive, true)))
     .limit(1);
 
   return row !== undefined;

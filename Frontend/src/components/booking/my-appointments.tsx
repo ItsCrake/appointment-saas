@@ -19,43 +19,54 @@ import {
   type LookupResult,
   type MyAppointment,
 } from "@/app/[slug]/my-appointments/actions";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, INTL_LOCALES } from "@/lib/format";
+import { DEFAULT_LOCALE } from "@/lib/showcase";
 import { cn } from "@/lib/utils";
 
-const STATUS: Record<string, { label: string; className: string }> = {
+import { useCopy, useLocale, useShowcaseContent } from "./copy-context";
+
+/**
+ * Resolved per render, not at module load — see the note in `hours-drawer`.
+ *
+ * The keys are the database's own status values, so a state nobody has
+ * translated falls through to the Hebrew label rather than to nothing.
+ */
+const statuses = (
+  t: ReturnType<typeof useCopy>,
+): Record<string, { label: string; className: string }> => ({
   confirmed: {
-    label: "מאושר",
+    label: t("status.confirmed", "מאושר"),
     className:
       "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
   },
   pending: {
-    label: "ממתין לאישור",
+    label: t("status.pending", "ממתין לאישור"),
     className:
       "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   },
   cancelled: {
-    label: "בוטל",
+    label: t("status.cancelled", "בוטל"),
     className: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200",
   },
   completed: {
-    label: "הושלם",
+    label: t("status.completed", "הושלם"),
     className: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   },
   no_show: {
-    label: "לא הגיע",
+    label: t("status.no_show", "לא הגיע"),
     className: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
   },
   pending_deposit: {
-    label: "ממתין לתשלום",
+    label: t("status.pending_deposit", "ממתין לתשלום"),
     className:
       "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   },
   pending_approval: {
-    label: "ממתין לאישור",
+    label: t("status.pending", "ממתין לאישור"),
     className:
       "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   },
-};
+});
 
 /**
  * "התורים שלי" — a client's own history at one business, found by phone.
@@ -75,6 +86,10 @@ export function MyAppointments({
   slug: string;
   businessName: string;
 }) {
+  const t = useCopy();
+  const locale = useLocale();
+  const content = useShowcaseContent();
+  const shopName = content(businessName);
   const [phone, setPhone] = useState("");
   const [result, setResult] = useState<LookupResult>();
   const [pending, startTransition] = useTransition();
@@ -102,20 +117,30 @@ export function MyAppointments({
         href={`/${slug}`}
         className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
       >
-        <ArrowRight className="size-4" aria-hidden />
-        חזרה ל{businessName}
+        {/* The arrow points back, which is a different direction in each
+            language: leading edge to trailing edge, not left to right. */}
+        <ArrowRight
+          className={cn("size-4", locale !== DEFAULT_LOCALE && "rotate-180")}
+          aria-hidden
+        />
+        {t("my.back", "חזרה ל")}
+        {shopName}
       </Link>
 
       <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-        התורים שלי
+        {t("my.title", "התורים שלי")}
       </h1>
       <p className="mt-1 mb-6 text-sm leading-relaxed text-zinc-500">
-        הזינו את מספר הטלפון שאיתו קבעתם, ונציג את התורים שלכם ב{businessName}.
+        {t(
+          "my.intro",
+          "הזינו את מספר הטלפון שאיתו קבעתם, ונציג את התורים שלכם ב",
+        )}
+        {shopName}.
       </p>
 
       <form onSubmit={submit} noValidate className="flex gap-2">
         <label htmlFor="lookup-phone" className="sr-only">
-          מספר טלפון
+          {t("my.phone", "מספר טלפון")}
         </label>
         {/* No `name` attribute, deliberately. If the page has not hydrated yet
             — a slow phone, the first tap — the browser submits this form
@@ -144,7 +169,7 @@ export function MyAppointments({
           ) : (
             <Search className="size-4" aria-hidden />
           )}
-          חיפוש
+          {t("my.search", "חיפוש")}
         </button>
       </form>
 
@@ -165,16 +190,19 @@ export function MyAppointments({
             aria-hidden
           />
           <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-            לא מצאנו תורים למספר הזה
+            {t("my.emptyTitle", "לא מצאנו תורים למספר הזה")}
           </p>
           <p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-zinc-500">
-            ייתכן שקבעתם עם מספר אחר. אפשר לקבוע תור חדש בעמוד ההזמנות.
+            {t(
+              "my.emptyBody",
+              "ייתכן שקבעתם עם מספר אחר. אפשר לקבוע תור חדש בעמוד ההזמנות.",
+            )}
           </p>
           <Link
             href={`/${slug}`}
             className="mt-4 inline-flex h-11 items-center rounded-full bg-(--accent) px-5 text-sm font-semibold text-(--accent-contrast)"
           >
-            קביעת תור
+            {t("my.book", "קביעת תור")}
           </Link>
         </div>
       ) : null}
@@ -182,7 +210,7 @@ export function MyAppointments({
       {found && !empty ? (
         <div className="mt-6 space-y-8">
           {found.upcoming.length > 0 ? (
-            <Section title="תורים קרובים">
+            <Section title={t("my.upcoming", "תורים קרובים")}>
               {found.upcoming.map((appointment) => (
                 <Card
                   key={appointment.id}
@@ -195,7 +223,7 @@ export function MyAppointments({
           ) : null}
 
           {found.past.length > 0 ? (
-            <Section title="היסטוריה">
+            <Section title={t("my.past", "היסטוריה")}>
               {found.past.map((appointment) => (
                 <Card
                   key={appointment.id}
@@ -238,9 +266,13 @@ function Card({
   cancelWindowHours: number;
   onCancelled: () => void;
 }) {
+  const t = useCopy();
+  const locale = useLocale();
+  const content = useShowcaseContent();
   const [error, setError] = useState<string>();
   const [pending, startTransition] = useTransition();
 
+  const STATUS = statuses(t);
   const status = STATUS[appointment.status] ?? STATUS.confirmed;
   const dimmed =
     appointment.isPast ||
@@ -268,7 +300,7 @@ function Card({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
-            יום {appointment.weekday}, {appointment.date}
+            {`${t("common.day", "יום")} ${appointment.weekday}, ${appointment.date}`.trim()}
           </p>
           <p className="mt-0.5 flex items-center gap-1.5 text-lg font-bold text-zinc-900 tabular-nums dark:text-zinc-50">
             <Clock className="size-4 text-zinc-400" aria-hidden />
@@ -288,17 +320,18 @@ function Card({
 
       <dl className="mt-3 space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
         <div className="flex items-center gap-2">
-          <dt className="sr-only">שירות</dt>
+          <dt className="sr-only">{t("my.service", "שירות")}</dt>
           <Tag className="size-3.5 shrink-0 text-zinc-400" aria-hidden />
           <dd>
-            {appointment.serviceName} · {formatPrice(appointment.priceCents)}
+            {content(appointment.serviceName)} ·{" "}
+            {formatPrice(appointment.priceCents, "ILS", INTL_LOCALES[locale])}
           </dd>
         </div>
         {appointment.staffName ? (
           <div className="flex items-center gap-2">
-            <dt className="sr-only">נותן השירות</dt>
+            <dt className="sr-only">{t("my.staff", "נותן השירות")}</dt>
             <User className="size-3.5 shrink-0 text-zinc-400" aria-hidden />
-            <dd>{appointment.staffName}</dd>
+            <dd>{content(appointment.staffName)}</dd>
           </div>
         ) : null}
       </dl>
@@ -319,7 +352,7 @@ function Card({
           {pending ? (
             <Loader2 className="size-3.5 animate-spin" aria-hidden />
           ) : null}
-          ביטול התור
+          {t("my.cancel", "ביטול התור")}
         </button>
       ) : null}
 
@@ -330,8 +363,10 @@ function Card({
       !appointment.isPast &&
       appointment.status !== "cancelled" ? (
         <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-          לא ניתן לבטל פחות מ-{cancelWindowHours} שעות לפני התור. צרו קשר עם
-          העסק.
+          {t(
+            "my.cancelWindow",
+            "לא ניתן לבטל פחות מ-{hours} שעות לפני התור. צרו קשר עם העסק.",
+          ).replace("{hours}", String(cancelWindowHours))}
         </p>
       ) : null}
     </li>

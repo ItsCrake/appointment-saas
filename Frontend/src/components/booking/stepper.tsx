@@ -2,6 +2,8 @@ import { Calendar, CheckCircle2, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+import { useCopy } from "./copy-context";
+
 /**
  * The three moments of a booking, named as the client experiences them.
  *
@@ -9,12 +11,17 @@ import { cn } from "@/lib/utils";
  * client is actually on, and a bare noun makes the row read as a table of
  * contents for a page they cannot navigate. The other two stay nouns because
  * they are destinations rather than things to do yet.
+ *
+ * Built per render rather than frozen at module load. A `const` array is
+ * evaluated when the module is imported, which is long before anything on the
+ * page knows what language it is being read in.
  */
-const STEPS = [
-  { label: "בחרו טיפול", Icon: Sparkles },
-  { label: "מועד", Icon: Calendar },
-  { label: "סיכום ואישור", Icon: CheckCircle2 },
-] as const;
+const steps = (t: ReturnType<typeof useCopy>) =>
+  [
+    { label: t("step.service", "בחרו טיפול"), Icon: Sparkles },
+    { label: t("step.datetime", "מועד"), Icon: Calendar },
+    { label: t("step.confirm", "סיכום ואישור"), Icon: CheckCircle2 },
+  ] as const;
 
 /**
  * Where the client is, as three pills.
@@ -46,15 +53,19 @@ const STEPS = [
  * ---------------------------------------------------------------------------
  */
 export function Stepper({ current }: { current: 1 | 2 | 3 }) {
+  const t = useCopy();
+  const STEPS = steps(t);
+
   return (
     <div className="px-5 pb-6">
       <p className="mb-2.5 text-center text-[11px] font-medium tracking-wide text-zinc-500">
-        שלב {current} מתוך {STEPS.length}
+        {t("step.progress", "שלב")} {current} {t("common.of", "מתוך")}{" "}
+        {STEPS.length}
       </p>
 
       <ol
         className="flex items-center justify-center gap-1"
-        aria-label="שלבי קביעת התור"
+        aria-label={t("step.aria", "שלבי קביעת התור")}
       >
         {STEPS.map(({ label, Icon }, i) => {
           const step = i + 1;
@@ -86,7 +97,9 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
                 <span className={cn(!active && "hidden sm:inline")}>
                   {label}
                 </span>
-                {active ? <span className="sr-only">— השלב הנוכחי</span> : null}
+                {active ? <span className="sr-only">
+                    {t("step.current", "— השלב הנוכחי")}
+                  </span> : null}
               </span>
 
               {/* A connector, not a rail. Three pills already read as a

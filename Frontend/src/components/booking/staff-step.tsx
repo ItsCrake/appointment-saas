@@ -4,6 +4,7 @@ import { Check, User } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+import { useCopy, useShowcaseContent } from "./copy-context";
 import type { BookingStaff } from "./types";
 
 /**
@@ -42,13 +43,16 @@ export function StaffStep({
   selectedId: string | undefined;
   onSelect: (staffId: string) => void;
 }) {
+  const t = useCopy();
+  const content = useShowcaseContent();
+
   return (
     <section className="px-5">
       <h2 className="text-[17px] font-bold tracking-[-0.015em] text-zinc-900 dark:text-zinc-50">
-        עם מי בשעה {timeLabel}?
+        {t("staff.title", "עם מי בשעה")} {timeLabel}?
       </h2>
       <p className="mt-1 mb-5 text-sm text-zinc-500">
-        {staff.length} נותני שירות פנויים במועד הזה.
+        {staff.length} {t("staff.available", "נותני שירות פנויים במועד הזה.")}
       </p>
 
       <ul className="space-y-2">
@@ -59,8 +63,8 @@ export function StaffStep({
               onSelect={() => onSelect(member.id)}
               icon={<User className="size-4" aria-hidden />}
               imageUrl={member.imageUrl}
-              title={member.name}
-              subtitle={member.title}
+              title={content(member.name)}
+              subtitle={member.title ? content(member.title) : member.title}
             />
           </li>
         ))}

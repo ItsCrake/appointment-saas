@@ -2,6 +2,7 @@
 
 import { ArrowRight, CalendarSearch, User } from "lucide-react";
 
+import { useCopy, useShowcaseContent } from "./copy-context";
 import type { BookingStaff } from "./types";
 
 /**
@@ -31,6 +32,9 @@ export function OnlyStaffStep({
   onProceed: () => void;
   onChooseAnotherTime: () => void;
 }) {
+  const t = useCopy();
+  const content = useShowcaseContent();
+
   return (
     <section className="px-5">
       <div className="shadow-lift rounded-3xl bg-(--accent-soft) p-5 ring-1 ring-(--accent-soft-border) ring-inset">
@@ -52,7 +56,9 @@ export function OnlyStaffStep({
           )}
           <div className="min-w-0">
             <h2 className="text-[17px] font-bold tracking-[-0.015em] text-balance text-zinc-900 dark:text-zinc-50">
-              בשעה {timeLabel} פנוי/ה רק {staff.name}
+              {t("only.title", "בשעה {time} פנוי/ה רק {name}")
+                .replace("{time}", timeLabel)
+                .replace("{name}", content(staff.name))}
             </h2>
             {staff.title ? (
               <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
@@ -63,8 +69,10 @@ export function OnlyStaffStep({
         </div>
 
         <p className="mt-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-          אפשר להמשיך עם {staff.name}, או לבחור מועד אחר שבו ייתכן שיהיו פנויים
-          נותני שירות נוספים.
+          {t(
+            "only.body",
+            "אפשר להמשיך עם {name}, או לבחור מועד אחר שבו ייתכן שיהיו פנויים נותני שירות נוספים.",
+          ).replace("{name}", content(staff.name))}
         </p>
       </div>
 
@@ -74,7 +82,7 @@ export function OnlyStaffStep({
           onClick={onProceed}
           className="shadow-accent flex h-14 w-full items-center justify-center gap-2 rounded-full bg-(--accent) text-[15px] font-semibold text-(--accent-contrast) transition-[background-color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-(--accent-strong) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99]"
         >
-          להמשיך עם {staff.name}
+          {t("only.continue", "להמשיך עם")} {content(staff.name)}
           <ArrowRight className="size-4 rotate-180" aria-hidden />
         </button>
 
@@ -84,7 +92,7 @@ export function OnlyStaffStep({
           className="flex h-14 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold text-zinc-800 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:text-zinc-200 dark:ring-white/15 dark:hover:bg-zinc-800"
         >
           <CalendarSearch className="size-4" aria-hidden />
-          בחירת מועד אחר
+          {t("only.otherTime", "בחירת מועד אחר")}
         </button>
       </div>
     </section>

@@ -29,6 +29,8 @@ import { StaffStep } from "./staff-step";
 import { Stepper } from "./stepper";
 import type { BookingBusiness, BookingService, BookingStaff } from "./types";
 
+import { useCopy } from "./copy-context";
+
 /** How many days the picker offers at once, capped by the business horizon. */
 const VISIBLE_DAYS = 21;
 
@@ -53,6 +55,7 @@ export function BookingFlow({
   staff,
   serviceLayout = "compact",
 }: Props) {
+  const t = useCopy();
   const today = todayInTimezone(business.timezone);
   const dates = dateRange(
     today,
@@ -303,11 +306,11 @@ export function BookingFlow({
    * promising a calendar it is not returning to.
    */
   const BACK_LABELS: Record<Step, string> = {
-    1: "בחירת שירות",
-    2: "בחירת מועד",
-    staff: "בחירת נותן שירות",
-    only: "בחירת נותן שירות",
-    3: "פרטים",
+    1: t("flow.pickService", "בחירת שירות"),
+    2: t("flow.pickWhen", "בחירת מועד"),
+    staff: t("flow.pickStaff", "בחירת נותן שירות"),
+    only: t("flow.pickStaff", "בחירת נותן שירות"),
+    3: t("flow.details", "פרטים"),
   };
 
   const destination = stepBefore(step, {
@@ -333,7 +336,7 @@ export function BookingFlow({
           <button
             type="button"
             onClick={back}
-            aria-label={`חזרה ל${backLabel}`}
+            aria-label={`${t("flow.backTo", "חזרה ל")}${backLabel}`}
             className="inline-flex h-10 items-center gap-1 rounded-full bg-white ps-2 pe-3.5 text-sm font-medium text-zinc-600 ring-1 ring-zinc-900/8 transition-[background-color,box-shadow,color] duration-200 ring-inset hover:bg-zinc-50 hover:text-zinc-900 hover:ring-zinc-900/15 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:bg-zinc-900 dark:text-zinc-400 dark:ring-white/10 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           >
             <ChevronRight className="size-4 shrink-0" aria-hidden />
@@ -409,7 +412,7 @@ export function BookingFlow({
         onClick={() => setWaitlistOpen(true)}
         className="mx-auto mt-6 block text-sm font-semibold text-zinc-500 underline underline-offset-4 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
       >
-        אין תור פנוי? הצטרפו לרשימת ההמתנה
+        {t("slot.waitlist", "אין תור פנוי? הצטרפו לרשימת ההמתנה")}
       </button>
 
       {waitlistOpen ? (

@@ -7,6 +7,8 @@ import { joinWaitlistAction } from "@/app/[slug]/actions";
 import { TIME_WINDOW_LABELS, WEEKDAY_NAMES } from "@/lib/waitlist";
 import { cn } from "@/lib/utils";
 
+import { useCopy, useShowcaseContent } from "./copy-context";
+
 type ServiceOption = { id: string; name: string };
 type TimeWindow = "morning" | "afternoon" | "evening" | "any";
 
@@ -42,6 +44,8 @@ export function WaitlistDialog({
   businessName: string;
   onClose: () => void;
 }) {
+  const t = useCopy();
+  const content = useShowcaseContent();
   const [form, setForm] = useState({
     clientName: "",
     clientPhone: "",
@@ -100,7 +104,7 @@ export function WaitlistDialog({
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <button
         type="button"
-        aria-label="סגירה"
+        aria-label={t("waitlist.close", "סגירה")}
         tabIndex={-1}
         onClick={onClose}
         className="animate-fade absolute inset-0 cursor-default bg-zinc-950/50 backdrop-blur-sm"
@@ -129,18 +133,19 @@ export function WaitlistDialog({
               id="waitlist-title"
               className="text-lg font-bold text-zinc-900 dark:text-zinc-50"
             >
-              אתם ברשימה
+              {t("waitlist.doneTitle", "אתם ברשימה")}
             </h2>
             <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-              ברגע שיתפנה תור שמתאים למה שביקשתם, {businessName} ישלחו לכם
-              הודעה עם קישור לתפיסת המקום.
+              {t("waitlist.doneBodyBefore", "ברגע שיתפנה תור שמתאים למה שביקשתם,")}{" "}
+              {content(businessName)}{" "}
+              {t("waitlist.doneBodyAfter", "ישלחו לכם הודעה עם קישור לתפיסת המקום.")}
             </p>
             <button
               type="button"
               onClick={onClose}
               className="mt-5 h-11 w-full rounded-full bg-(--accent) text-sm font-bold text-(--accent-contrast) transition-opacity hover:opacity-90"
             >
-              סגירה
+              {t("waitlist.close", "סגירה")}
             </button>
           </div>
         ) : (
@@ -151,16 +156,16 @@ export function WaitlistDialog({
                   id="waitlist-title"
                   className="text-lg font-bold text-zinc-900 dark:text-zinc-50"
                 >
-                  רשימת המתנה
+                  {t("waitlist.title", "רשימת המתנה")}
                 </h2>
                 <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-                  נודיע לכם ברגע שיתפנה תור שמתאים לכם.
+                  {t("waitlist.body", "נודיע לכם ברגע שיתפנה תור שמתאים לכם.")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="סגירה"
+                aria-label={t("waitlist.close", "סגירה")}
                 className="-me-1 shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800"
               >
                 <X className="size-5" aria-hidden />
@@ -168,7 +173,7 @@ export function WaitlistDialog({
             </div>
 
             <form onSubmit={submit} noValidate className="space-y-3">
-              <Field label="שם מלא" htmlFor="wl-name">
+              <Field label={t("waitlist.name", "שם מלא")} htmlFor="wl-name">
                 <input
                   id="wl-name"
                   ref={firstFieldRef}
@@ -176,12 +181,12 @@ export function WaitlistDialog({
                   onChange={(e) =>
                     setForm({ ...form, clientName: e.target.value })
                   }
-                  placeholder="ישראל ישראלי"
+                  placeholder={t("details.namePlaceholder", "ישראל ישראלי")}
                   className={FIELD}
                 />
               </Field>
 
-              <Field label="טלפון" htmlFor="wl-phone">
+              <Field label={t("waitlist.phone", "טלפון")} htmlFor="wl-phone">
                 <input
                   id="wl-phone"
                   type="tel"
@@ -196,7 +201,7 @@ export function WaitlistDialog({
               </Field>
 
               {services.length > 1 ? (
-                <Field label="שירות" htmlFor="wl-service">
+                <Field label={t("waitlist.service", "שירות")} htmlFor="wl-service">
                   <select
                     id="wl-service"
                     value={form.serviceId}
@@ -206,10 +211,10 @@ export function WaitlistDialog({
                     className={FIELD}
                   >
                     {/* First, and the default: most people just want in. */}
-                    <option value="">כל שירות</option>
+                    <option value="">{t("waitlist.anyService", "כל שירות")}</option>
                     {services.map((service) => (
                       <option key={service.id} value={service.id}>
-                        {service.name}
+                        {content(service.name)}
                       </option>
                     ))}
                   </select>
@@ -218,9 +223,12 @@ export function WaitlistDialog({
 
               <fieldset>
                 <legend className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  ימים מועדפים{" "}
+                  {t("waitlist.days", "ימים מועדפים")}{" "}
                   <span className="font-normal text-zinc-400">
-                    (לא חובה — בלי בחירה נודיע על כל יום)
+                    {t(
+                      "waitlist.daysHint",
+                      "(לא חובה — בלי בחירה נודיע על כל יום)",
+                    )}
                   </span>
                 </legend>
                 <div className="flex flex-wrap gap-1.5">
@@ -239,7 +247,7 @@ export function WaitlistDialog({
                             : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300",
                         )}
                       >
-                        {name}
+                        {t(DAY_KEYS[day], name)}
                       </button>
                     );
                   })}
@@ -248,7 +256,7 @@ export function WaitlistDialog({
 
               <fieldset>
                 <legend className="mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  שעות מועדפות
+                  {t("waitlist.window", "שעות מועדפות")}
                 </legend>
                 <div className="grid grid-cols-4 gap-1.5">
                   {WINDOWS.map((value) => (
@@ -264,13 +272,13 @@ export function WaitlistDialog({
                           : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300",
                       )}
                     >
-                      {TIME_WINDOW_LABELS[value]}
+                      {t(`window.${value}`, TIME_WINDOW_LABELS[value])}
                     </button>
                   ))}
                 </div>
               </fieldset>
 
-              <Field label="הערה (לא חובה)" htmlFor="wl-notes">
+              <Field label={t("waitlist.notes", "הערה (לא חובה)")} htmlFor="wl-notes">
                 <input
                   id="wl-notes"
                   value={form.notes}
@@ -297,7 +305,7 @@ export function WaitlistDialog({
                 {pending ? (
                   <Loader2 className="size-5 animate-spin" aria-hidden />
                 ) : null}
-                הצטרפות לרשימה
+                {t("waitlist.submit", "הצטרפות לרשימה")}
               </button>
             </form>
           </>
@@ -306,6 +314,17 @@ export function WaitlistDialog({
     </div>
   );
 }
+
+/** `WEEKDAY_NAMES` is indexed Sunday-first, and so are these. */
+const DAY_KEYS = [
+  "day.sun",
+  "day.mon",
+  "day.tue",
+  "day.wed",
+  "day.thu",
+  "day.fri",
+  "day.sat",
+] as const;
 
 const FIELD =
   "h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus:border-transparent focus:ring-2 focus:ring-(--accent) focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100";

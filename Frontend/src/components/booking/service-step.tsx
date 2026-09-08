@@ -4,10 +4,12 @@ import type { CSSProperties } from "react";
 import { ChevronLeft, Clock } from "lucide-react";
 
 import type { ServiceLayout } from "@/lib/appearance";
-import { formatDuration, formatPrice } from "@/lib/format";
+import { formatDuration, formatPrice, INTL_LOCALES } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import type { BookingService } from "./types";
+
+import { useCopy, useLocale, useShowcaseContent } from "./copy-context";
 
 type Props = {
   services: BookingService[];
@@ -49,16 +51,17 @@ export function ServiceStep({
   onSelect,
   layout = "compact",
 }: Props) {
+  const t = useCopy();
   return (
     <section aria-labelledby="service-heading" className="px-5">
       <h2
         id="service-heading"
         className="text-[17px] font-semibold tracking-[-0.015em] text-zinc-900 dark:text-zinc-100"
       >
-        בחרו שירות
+        {t("service.title", "בחרו שירות")}
       </h2>
       <p className="mt-1 mb-5 text-xs text-zinc-500">
-        {services.length} שירותים זמינים להזמנה
+        {services.length} {t("service.available", "שירותים זמינים להזמנה")}
       </p>
 
       <ul
@@ -113,6 +116,8 @@ type CardProps = {
  * arrives mid-flight.
  */
 function CompactCard({ service, selected, onSelect }: CardProps) {
+  const content = useShowcaseContent();
+  const locale = useLocale();
   return (
     <button
       type="button"
@@ -139,14 +144,14 @@ function CompactCard({ service, selected, onSelect }: CardProps) {
 
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-100">
-          {service.name}
+          {content(service.name)}
         </span>
 
         {service.description ? (
           // Two lines rather than one: a service description is the only place
           // an owner explains what the client is buying.
           <span className="mt-1 line-clamp-2 block text-xs leading-relaxed text-zinc-500">
-            {service.description}
+            {content(service.description)}
           </span>
         ) : null}
 
@@ -155,10 +160,10 @@ function CompactCard({ service, selected, onSelect }: CardProps) {
               badge on every row would drown the selected state. */}
           <span className="inline-flex items-center gap-1 rounded-full bg-(--accent-soft) px-2.5 py-1 text-[11px] font-medium text-(--accent-on-soft)">
             <Clock className="size-3" aria-hidden />
-            {formatDuration(service.durationMin)}
+            {formatDuration(service.durationMin, locale)}
           </span>
           <span className="text-[15px] font-bold tracking-[-0.01em] text-zinc-900 tabular-nums dark:text-zinc-100">
-            {formatPrice(service.priceCents, service.currency)}
+            {formatPrice(service.priceCents, service.currency, INTL_LOCALES[locale])}
           </span>
         </span>
       </span>
@@ -187,6 +192,8 @@ function CompactCard({ service, selected, onSelect }: CardProps) {
  * rather than a grey rectangle — degrade to something, never to nothing.
  */
 function ShowcaseCard({ service, selected, onSelect }: CardProps) {
+  const content = useShowcaseContent();
+  const locale = useLocale();
   return (
     <button
       type="button"
@@ -222,24 +229,24 @@ function ShowcaseCard({ service, selected, onSelect }: CardProps) {
 
       <span className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-4">
         <span className="block text-[15px] leading-tight font-semibold tracking-[-0.01em] text-white">
-          {service.name}
+          {content(service.name)}
         </span>
 
         {service.description ? (
           <span className="line-clamp-2 block text-xs leading-relaxed text-white/75">
-            {service.description}
+            {content(service.description)}
           </span>
         ) : null}
 
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="text-[15px] font-bold tracking-[-0.01em] text-white tabular-nums">
-            {formatPrice(service.priceCents, service.currency)}
+            {formatPrice(service.priceCents, service.currency, INTL_LOCALES[locale])}
           </span>
           {/* The one blurred panel on the card. White-on-white-haze fails; a
               dark tinted pill over an unknown photograph does not. */}
           <span className="inline-flex items-center gap-1 rounded-full bg-zinc-950/45 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
             <Clock className="size-3" aria-hidden />
-            {formatDuration(service.durationMin)}
+            {formatDuration(service.durationMin, locale)}
           </span>
         </span>
       </span>

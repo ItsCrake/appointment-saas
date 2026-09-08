@@ -13,8 +13,10 @@ import {
 } from "lucide-react";
 
 import type { BookingConfirmation } from "@/app/[slug]/actions";
-import { formatFullDateTime, formatPrice } from "@/lib/format";
+import { formatFullDateTime, formatPrice, INTL_LOCALES } from "@/lib/format";
 import { buildIcs, downloadIcs } from "@/lib/ics";
+
+import { useCopy, useLocale, useShowcaseContent } from "./copy-context";
 
 type Props = {
   appointment: BookingConfirmation;
@@ -22,10 +24,16 @@ type Props = {
 };
 
 export function Confirmation({ appointment, onBookAnother }: Props) {
+  const t = useCopy();
+  const locale = useLocale();
+  const content = useShowcaseContent();
   const when = formatFullDateTime(
     appointment.startsAt,
     appointment.businessTimezone,
+    locale,
   );
+  const businessName = content(appointment.businessName);
+  const dayLine = `${t("common.day", "יום")} ${when.weekday}, ${when.date}`.trim();
 
   const awaiting = appointment.awaitingApproval;
 
@@ -66,18 +74,21 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
             id="confirm-heading"
             className="text-xl font-bold tracking-[-0.02em] text-balance text-amber-900 dark:text-amber-100"
           >
-            הבקשה נשלחה וממתינה לאישור
+            {t("confirm.pendingTitle", "הבקשה נשלחה וממתינה לאישור")}
           </h2>
           <p className="mt-1.5 text-sm leading-relaxed text-pretty text-amber-800/80 dark:text-amber-200/70">
-            {appointment.businessName} יאשרו את המועד ונעדכן אתכם. עד אז המועד
-            שמור עבורכם.
+            {businessName}{" "}
+            {t(
+              "confirm.pendingBody",
+              "יאשרו את המועד ונעדכן אתכם. עד אז המועד שמור עבורכם.",
+            )}
           </p>
 
           <p className="mt-5 text-4xl font-bold tracking-[-0.03em] text-zinc-900 tabular-nums dark:text-zinc-50">
             {when.time}
           </p>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            יום {when.weekday}, {when.date}
+            {dayLine}
           </p>
         </div>
       ) : (
@@ -93,10 +104,11 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
             id="confirm-heading"
             className="text-xl font-bold tracking-[-0.02em] text-balance text-emerald-900 dark:text-emerald-100"
           >
-            התור נקבע בהצלחה!
+            {t("confirm.doneTitle", "התור נקבע בהצלחה!")}
           </h2>
           <p className="mt-1.5 text-sm text-emerald-800/80 dark:text-emerald-200/70">
-            נתראה ב{appointment.businessName}
+            {t("confirm.doneBody", "נתראה ב")}
+            {businessName}
           </p>
 
           {/* The date and time, large. This is the one fact worth remembering,
@@ -106,7 +118,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
             {when.time}
           </p>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            יום {when.weekday}, {when.date}
+            {dayLine}
           </p>
         </div>
       )}
@@ -114,17 +126,21 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
       <dl className="shadow-lift mt-4 divide-y divide-zinc-200 rounded-2xl bg-white ring-1 ring-zinc-900/8 ring-inset dark:divide-zinc-800 dark:bg-zinc-900 dark:ring-white/10">
         <Row
           icon={<CalendarCheck className="size-4" aria-hidden />}
-          label="שירות"
+          label={t("confirm.service", "שירות")}
         >
-          {appointment.serviceName}
+          {content(appointment.serviceName)}
         </Row>
-        <Row icon={<Tag className="size-4" aria-hidden />} label="מחיר">
-          {formatPrice(appointment.priceCents, appointment.currency)}
+        <Row icon={<Tag className="size-4" aria-hidden />} label={t("confirm.price", "מחיר")}>
+          {formatPrice(
+            appointment.priceCents,
+            appointment.currency,
+            INTL_LOCALES[locale],
+          )}
         </Row>
-        <Row icon={<User className="size-4" aria-hidden />} label="שם">
+        <Row icon={<User className="size-4" aria-hidden />} label={t("confirm.name", "שם")}>
           {appointment.clientName}
         </Row>
-        <Row icon={<Phone className="size-4" aria-hidden />} label="טלפון">
+        <Row icon={<Phone className="size-4" aria-hidden />} label={t("confirm.phone", "טלפון")}>
           <span dir="ltr">{appointment.clientPhone}</span>
         </Row>
       </dl>
@@ -139,7 +155,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
           className="shadow-accent mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-full bg-(--accent) text-[15px] font-semibold text-(--accent-contrast) transition-[background-color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-(--accent-strong) focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.99]"
         >
           <CalendarPlus className="size-4" aria-hidden />
-          הוספה ליומן
+          {t("confirm.addToCalendar", "הוספה ליומן")}
         </button>
       )}
 
@@ -151,13 +167,21 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
         className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-full text-[15px] font-semibold text-zinc-800 ring-1 ring-zinc-900/12 transition-colors ring-inset hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none dark:text-zinc-200 dark:ring-white/15 dark:hover:bg-zinc-800"
       >
         <ShieldCheck className="size-4" aria-hidden />
-        {awaiting ? "צפייה או ביטול הבקשה" : "צפייה או ביטול התור"}
+        {awaiting
+          ? t("confirm.manageAwaiting", "צפייה או ביטול הבקשה")
+          : t("confirm.manage", "צפייה או ביטול התור")}
       </Link>
 
       <p className="mt-2.5 text-center text-xs leading-relaxed text-zinc-500">
         {awaiting
-          ? "שמרו את הקישור הזה — דרכו תוכלו לעקוב אחרי הבקשה או לבטל אותה."
-          : "שמרו את הקישור הזה — דרכו תוכלו לבטל את התור בעצמכם."}
+          ? t(
+              "confirm.noteAwaiting",
+              "שמרו את הקישור הזה — דרכו תוכלו לעקוב אחרי הבקשה או לבטל אותה.",
+            )
+          : t(
+              "confirm.note",
+              "שמרו את הקישור הזה — דרכו תוכלו לבטל את התור בעצמכם.",
+            )}
       </p>
 
       <button
@@ -165,7 +189,7 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
         onClick={onBookAnother}
         className="mt-4 h-12 w-full rounded-full text-sm font-semibold text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:outline-none dark:hover:text-zinc-100"
       >
-        קביעת תור נוסף
+        {t("confirm.another", "קביעת תור נוסף")}
       </button>
     </section>
   );
