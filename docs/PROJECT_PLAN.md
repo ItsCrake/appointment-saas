@@ -1206,7 +1206,41 @@ below before running it.
 > it. They were cleared deliberately at some point and never re-seeded.
 > `npm run db:seed` restores them; run `-- --dry-run` first, as always.
 >
-> **`npm run db:seed:appointments` is the other one, and it is not that one.**
+> **`npm run db:seed:full-week` is the volume test, and it refuses to run where
+> messages could go out.** It packs every open day for a week back to back,
+> per provider, across the shop's *own* posted hours — around 112 rows over the
+> two demos — and queues the same notification rows a real booking does, which
+> is the half that actually puts the outbox under load.
+>
+> That is also why it checks first. Every row carries a phone number, and a
+> hundred fabricated bookings dispatched for real is spam to people who never
+> booked anything, from an account that does not get a second warning. So
+> `suppressionFrom` reads the master console toggle and
+> `DISABLE_WHATSAPP_DISPATCH` — OR, matching the dispatcher — and the script
+> throws unless one of them is on. Pure and in its own module so the refusal
+> can be tested: proving that branch against the real database would mean
+> turning dispatch on for a moment, on production, which is the thing the guard
+> exists to prevent.
+>
+> Numbers use `056`, which is a valid `05`+8 shape that `isValidPhone` accepts
+> and not an allocated Israeli mobile block; addresses use `example.com`, which
+> RFC 2606 reserves so test data cannot deliver. Defence in depth behind the
+> dispatch check, not a substitute for it — the numbering plan is somebody
+> else's document and can change.
+>
+> **Cancellations are overlays, not gaps.** A cancelled row does not hold its
+> slot, so writing one *instead of* a booking would leave a hole in a week whose
+> whole point is having none. It goes underneath a live booking instead: the
+> slot was taken, cancelled, and rebooked, which is what a real full week looks
+> like and is also the case the calendar has to render without stacking two
+> cards. `--days=N` and `--only=<slug>` narrow it; `--dry-run` prints the counts.
+> Smoke-tested at one day: 2 appointments produced 3 outbox rows — two
+> confirmations and a reminder — queued to `whatsapp` and left `pending` for the
+> cron to mark `skipped`.
+>
+> Undo is `delete from appointments where client_phone like '056%'`, which is
+> exactly the set this script creates and nothing else.
+>> **`npm run db:seed:appointments` is the other one, and it is not that one.**
 > `db:seed` *rebuilds* a demo tenant — it deletes every appointment, waitlist
 > entry, client note and outbox row before it writes. That is right when the
 > demos have drifted and wrong when the ask is "put some bookings in so I can
