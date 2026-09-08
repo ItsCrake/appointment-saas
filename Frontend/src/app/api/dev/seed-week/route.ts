@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 import { NextResponse } from "next/server";
 import { like, or, sql } from "drizzle-orm";
 
@@ -86,8 +88,13 @@ const pick = <T,>(items: readonly T[]) =>
  * Deletes this caller's own booking counters.
  *
  * Scoped to the identifier the limiter actually keyed on, so a run cannot
- * clear anybody else's budget. The phone rules are left alone: every simulated
- * client gets its own number, so five-a-day is never approached.
+ * clear anybody else's budget.
+ *
+ * The phone rules are deliberately *not* cleared. Every simulated client gets
+ * a number from this request's own block, so five-a-day is never approached —
+ * and leaving that rule armed is what caught the harness when it stopped being
+ * true. A seeder that cleared every counter it might trip would have filled
+ * the week and told me nothing.
  */
 async function clearOwnRateLimits(ip: string) {
   await db
@@ -170,6 +177,24 @@ export async function POST(request: Request) {
   }
 
   const ip = await getClientIp();
+
+  /**
+   * **A block of numbers this request will not share with any other.**
+   *
+   * The counter used to start at zero and be handed out sequentially, which
+   * was fine while one request filled the whole week. Splitting to one request
+   * *per day* reset it every day, so `0561000001` was reused on all seven —
+   * fourteen times over both shops — and `BOOKING_RULES.phoneDaily` correctly
+   * refused everything past the fifth. Zero bookings for one shop, five a day
+   * for the other, and a rate limiter doing exactly its job against a harness
+   * that had quietly started looking like one person booking over and over.
+   *
+   * Random rather than a wider counter, because there is no shared state
+   * between requests to count with. Seven digits gives each run its own block
+   * with a collision chance small enough to ignore, and a repeat would only
+   * cost one refusal that the report names.
+   */
+  const numberBlock = randomInt(1_000_000, 9_000_000);
   const booked: Booked[] = [];
   const cancelled: string[] = [];
   const perDay: Record<string, number> = {};
@@ -242,8 +267,8 @@ export async function POST(request: Request) {
         serviceId: service.id,
         startsAt: slot.startsAt,
         clientName: `${pick(FIRST)} ${pick(LAST)}`,
-        clientPhone: `${UNROUTABLE_PREFIX}${String(1_000_000 + serial).slice(-7)}`,
-        clientEmail: `test.${serial}@example.com`,
+        clientPhone: `${UNROUTABLE_PREFIX}${String(numberBlock + serial).slice(-7)}`,
+        clientEmail: `test.${numberBlock + serial}@example.com`,
         /**
          * Above `MIN_HUMAN_FILL_MS`, and this is not cosmetic. Below it the
          * honeypot classifies the submission as a bot and returns a
