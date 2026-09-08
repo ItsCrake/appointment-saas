@@ -1244,6 +1244,39 @@ below before running it.
 > success with no row behind it. A seeder that sent `0` would report a full week
 > and write nothing.
 >
+> **Run over both demos: 99 bookings, 178 outbox rows, nothing sent.** 70
+> confirmed, 23 awaiting approval, 6 cancelled through the client's own link.
+> Zero overlapping blocking pairs.
+>
+> **The rate limiter caught the harness, which is the best thing that happened.**
+> The first full run booked *nothing* for one shop and exactly five a day for the
+> other, with 32 refusals reading "try again in about 11 hours". `serial` started
+> at zero inside the handler, so splitting to one request per day reset it every
+> day and `0561000001` was reused fourteen times — `BOOKING_RULES.phoneDaily`
+> refusing everything past the fifth. The per-phone rule is the one that
+> distinguishes a person from a script, and it fired against a plausible-looking
+> harness. Numbers now come from a random block per request; the phone rule is
+> still deliberately left armed.
+>
+> **Every remaining hole is a cancellation, except one — and that one is the
+> buffer.** A naive sweep called a 15-minute hole fillable because the shortest
+> service is 15 minutes; the engine refused it, because 5m of padding either
+> side makes the real requirement 25m. The measurement was wrong and the
+> availability engine was right, which is precisely what booking through the
+> real API exists to show. Occupancy reads 76% and 67% of remaining bookable
+> time in appointment minutes alone; add the mandatory 5m and 10m padding and it
+> is roughly 87% and 76%, with the rest being the six cancelled slots and
+> fragments too short for any service.
+>
+> **The dispatch guard is demonstrated rather than asserted.**
+> `createBookingAction` dispatches its own booking's messages immediately, so
+> the guard ran 99 times: 73 confirmations and 26 `booking_pending` came back
+> **`skipped`**, 70 future reminders and 6 `cancellation_confirmation` rows sit
+> `pending`, and `sent_at` is null on every notification in the database.
+>
+> **`demo-nails` books everything as awaiting approval** — all 26. Worth
+> confirming that is the intended setting for that tenant.
+>
 > **What it measured is worth more than the data it wrote.** Median from this
 > machine against the Seoul database: **3.6s for a slot lookup and 9.5s for a
 > booking** — the two calls a client's browser actually waits on. The absolute
