@@ -1207,6 +1207,48 @@ same photographs, same accent — only the rendering differs.
   `[slug]/loading.tsx` renders "טוען…" for the moment before the page arrives;
   App Router gives loading UI no params, so it has no locale to read.
 
+- **The prices are converted, not relabelled.** The showcase used to print the
+  shop's real ILS prices to a reader being sold the product in dollars.
+  Relabelling them would have been worse than leaving them: "$70" for a ₪70
+  haircut overstates it by roughly 3.7×, and this page has a working book button
+  under it. `showcasePrice` / `formatShowcasePrice` (`lib/booking-copy.ts`) map
+  the demo's five prices to USD — ₪70/60/30/90/140 → $19/16/8/24/38, converted
+  at ≈0.27 USD/ILS in September 2026 and then **rounded to a price a shop would
+  actually post**, because an exact conversion gives $18.90 and no barbershop
+  has ever charged that.
+  **A table rather than a stored rate**, because a rate is right on the day it
+  is written and quietly wrong forever after, with nothing on the page to say
+  so. **Keyed on the service name *and* the amount, and the amount is the
+  guard**: matching the name alone would keep printing $19 after the owner
+  reprices to ₪75 — a stale number nobody can see is stale. With the amount in
+  the key a reprice simply misses and the page falls back to ILS, which is
+  visibly odd on the demo and correct everywhere else. It also fails in step
+  with `showcaseContent`, since a renamed service drops out of both at once.
+  **Not keyed on the price alone**, which was the first idea: ₪70 is one of the
+  most common prices in Israel, and a future alias pointed at a real shop would
+  silently re-denominate their whole menu.
+  **Display only, like every other showcase rewrite** — the row still stores
+  `priceCents: 7000, currency: 'ILS'`, so the owner's dashboard and their
+  revenue figures are untouched by anyone reading the Spanish page.
+  **The fifth call site is the one worth recording.** Four of them formatted a
+  price the same way and a fifth, in `my-appointments.tsx`, passed a hard-coded
+  `"ILS"` — so the lookup and the formatting are now a single function, because
+  five call sites each free to render a price their own way is how the fifth one
+  got missed the first time.
+  Verified in a browser on the running server: the Spanish page carries **zero
+  ILS symbols** and the Hebrew page **zero dollar signs**, both counted in the
+  rendered HTML rather than eyeballed. The details step reads **"19 $ · 30 min"**
+  — the same line that the RTL-mark trap below once turned into "30 · ₪70 min".
+  `es-ES` prints USD as "19 $", symbol last, which is correct Spanish and is
+  what the rest of the page's formatting already assumes.
+  **Three of the five sites were seen, and two were not.** The service list and
+  the details step were driven in a browser; the **confirmation screen** and
+  **`/my-appointments`** both render a price only *after* a real booking
+  exists, and writing one puts a row in the live `demo-barber` diary. They are
+  covered by `showcase.test.ts` and are the same one-line call as the three
+  that were seen — which is an argument, not a screenshot. Worth doing on the
+  next run that writes a booking anyway.
+
 **Two formatting traps, both found by looking rather than reasoning:**
 
 - `Intl.NumberFormat("he-IL")` wraps an ILS price in **RIGHT-TO-LEFT MARKs** —
@@ -1236,7 +1278,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1515 tests across 103 files**; Playwright
+**Green:** `npm run verify` at **1521 tests across 103 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit

@@ -1,3 +1,4 @@
+import { formatPrice, INTL_LOCALES } from "@/lib/format";
 import { DEFAULT_LOCALE, type Locale } from "@/lib/showcase";
 
 /**
@@ -306,4 +307,91 @@ const SHOWCASE_CONTENT: Record<string, string> = {
 export function showcaseContent(locale: Locale, value: string): string {
   if (locale === DEFAULT_LOCALE) return value;
   return SHOWCASE_CONTENT[value.trim()] ?? value;
+}
+
+/**
+ * The demo shop's prices, in the currency the showcase is being read in.
+ *
+ * ---------------------------------------------------------------------------
+ * **This is a stricter exception than `showcaseContent`, because a price is not
+ * a word.** A service name that shows through in Hebrew is untranslated; a
+ * price that shows through in the wrong currency is *wrong*, and this page has
+ * a working book button under it. Rendering "$70" for a ₪70 haircut would
+ * overstate it by roughly 3.7×, so the amount has to be converted and not just
+ * relabelled.
+ *
+ * **A table rather than a rate, for two reasons.** A stored rate ages silently
+ * — it is right on the day it is written and quietly wrong forever after, with
+ * nothing on the page to say so. And an exact conversion lands on ₪70 → $18.90,
+ * which is not a number any barbershop has ever posted on a wall. These are the
+ * ILS prices converted at **≈0.27 USD/ILS (September 2026)** and then rounded
+ * to a price a shop would actually charge.
+ *
+ * **Keyed on the name *and* the amount, and the amount is the guard.** Matching
+ * the name alone would keep converting after the owner reprices — ₪75 rendered
+ * as the $19 that used to be ₪70, a stale number with no way to notice it. With
+ * the amount in the key a reprice simply misses, and the page falls back to
+ * showing ILS: loud, visible on the demo, and harmless on every real page.
+ * That also makes this fail in step with `showcaseContent`, since a renamed
+ * service drops out of both at once.
+ *
+ * **Why not price alone:** ₪70 is one of the most common prices in Israel, and
+ * a future alias pointed at a real shop would silently re-denominate their
+ * menu. The name narrows that to a shop with this exact service at this exact
+ * price — and adding an alias is already an edit to `ALIASES`, made by somebody
+ * who has to look at this file anyway.
+ * ---------------------------------------------------------------------------
+ */
+const SHOWCASE_PRICES: Record<string, { ils: number; usd: number }> = {
+  "תספורת גבר": { ils: 7000, usd: 1900 },
+  "תספורת ילד": { ils: 6000, usd: 1600 },
+  "עיצוב זקן": { ils: 3000, usd: 800 },
+  "תספורת + זקן": { ils: 9000, usd: 2400 },
+  צבע: { ils: 14000, usd: 3800 },
+};
+
+/**
+ * What a price should read as at a showcase address.
+ *
+ * Returns the amount unchanged for Hebrew, for a currency this does not
+ * convert, for a service it does not know, and for one whose price has moved.
+ * Like everything else in this file, it can change a rendering and cannot
+ * remove one.
+ */
+export function showcasePrice(
+  locale: Locale,
+  serviceName: string,
+  priceCents: number,
+  currency: string,
+): { priceCents: number; currency: string } {
+  const unchanged = { priceCents, currency };
+
+  if (locale === DEFAULT_LOCALE) return unchanged;
+  // Only the currency the demo is priced in. A tenant already charging in USD
+  // is showing a real price and must not be "converted" a second time.
+  if (currency !== "ILS") return unchanged;
+
+  const entry = SHOWCASE_PRICES[serviceName.trim()];
+  if (!entry || entry.ils !== priceCents) return unchanged;
+
+  return { priceCents: entry.usd, currency: "USD" };
+}
+
+/**
+ * A price as the booking page should print it, in whichever language it is
+ * being read.
+ *
+ * The lookup and the formatting are one call because there is exactly one
+ * correct way to render a price on this page, and five call sites that each
+ * had a chance to get it wrong separately — one of them was already passing a
+ * hard-coded `"ILS"`.
+ */
+export function formatShowcasePrice(
+  locale: Locale,
+  serviceName: string,
+  priceCents: number,
+  currency: string,
+): string {
+  const shown = showcasePrice(locale, serviceName, priceCents, currency);
+  return formatPrice(shown.priceCents, shown.currency, INTL_LOCALES[locale]);
 }

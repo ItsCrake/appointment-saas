@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 
 import type { BookingConfirmation } from "@/app/[slug]/actions";
-import { formatFullDateTime, formatPrice, INTL_LOCALES } from "@/lib/format";
+import { formatShowcasePrice } from "@/lib/booking-copy";
+import { formatFullDateTime } from "@/lib/format";
 import { buildIcs, downloadIcs } from "@/lib/ics";
 
 import { useCopy, useLocale, useShowcaseContent } from "./copy-context";
@@ -131,10 +132,11 @@ export function Confirmation({ appointment, onBookAnother }: Props) {
           {content(appointment.serviceName)}
         </Row>
         <Row icon={<Tag className="size-4" aria-hidden />} label={t("confirm.price", "מחיר")}>
-          {formatPrice(
+          {formatShowcasePrice(
+            locale,
+            appointment.serviceName,
             appointment.priceCents,
             appointment.currency,
-            INTL_LOCALES[locale],
           )}
         </Row>
         <Row icon={<User className="size-4" aria-hidden />} label={t("confirm.name", "שם")}>

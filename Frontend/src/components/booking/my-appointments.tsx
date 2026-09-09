@@ -19,7 +19,7 @@ import {
   type LookupResult,
   type MyAppointment,
 } from "@/app/[slug]/my-appointments/actions";
-import { formatPrice, INTL_LOCALES } from "@/lib/format";
+import { formatShowcasePrice } from "@/lib/booking-copy";
 import { DEFAULT_LOCALE } from "@/lib/showcase";
 import { cn } from "@/lib/utils";
 
@@ -324,7 +324,12 @@ function Card({
           <Tag className="size-3.5 shrink-0 text-zinc-400" aria-hidden />
           <dd>
             {content(appointment.serviceName)} ·{" "}
-            {formatPrice(appointment.priceCents, "ILS", INTL_LOCALES[locale])}
+            {formatShowcasePrice(
+              locale,
+              appointment.serviceName,
+              appointment.priceCents,
+              "ILS",
+            )}
           </dd>
         </div>
         {appointment.staffName ? (

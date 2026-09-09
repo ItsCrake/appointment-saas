@@ -4,7 +4,8 @@ import type { CSSProperties } from "react";
 import { ChevronLeft, Clock } from "lucide-react";
 
 import type { ServiceLayout } from "@/lib/appearance";
-import { formatDuration, formatPrice, INTL_LOCALES } from "@/lib/format";
+import { formatShowcasePrice } from "@/lib/booking-copy";
+import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import type { BookingService } from "./types";
@@ -163,7 +164,12 @@ function CompactCard({ service, selected, onSelect }: CardProps) {
             {formatDuration(service.durationMin, locale)}
           </span>
           <span className="text-[15px] font-bold tracking-[-0.01em] text-zinc-900 tabular-nums dark:text-zinc-100">
-            {formatPrice(service.priceCents, service.currency, INTL_LOCALES[locale])}
+            {formatShowcasePrice(
+              locale,
+              service.name,
+              service.priceCents,
+              service.currency,
+            )}
           </span>
         </span>
       </span>
@@ -240,7 +246,12 @@ function ShowcaseCard({ service, selected, onSelect }: CardProps) {
 
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="text-[15px] font-bold tracking-[-0.01em] text-white tabular-nums">
-            {formatPrice(service.priceCents, service.currency, INTL_LOCALES[locale])}
+            {formatShowcasePrice(
+              locale,
+              service.name,
+              service.priceCents,
+              service.currency,
+            )}
           </span>
           {/* The one blurred panel on the card. White-on-white-haze fails; a
               dark tinted pill over an unknown photograph does not. */}

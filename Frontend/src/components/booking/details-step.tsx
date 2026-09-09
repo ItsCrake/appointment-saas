@@ -6,12 +6,8 @@ import { AlertCircle, Clock, Loader2, Tag } from "lucide-react";
 
 import { ConsentNote } from "@/components/ui/consent-note";
 import type { Slot } from "@/lib/availability";
-import {
-  formatDuration,
-  formatFullDateTime,
-  formatPrice,
-  INTL_LOCALES,
-} from "@/lib/format";
+import { formatShowcasePrice } from "@/lib/booking-copy";
+import { formatDuration, formatFullDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { clientDetailsSchema, type ClientDetails } from "@/lib/validation";
 
@@ -120,7 +116,12 @@ export function DetailsStep({
             <Tag className="size-4 shrink-0" aria-hidden />
             <dd>
               <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                {formatPrice(service.priceCents, service.currency, INTL_LOCALES[locale])}
+                {formatShowcasePrice(
+                  locale,
+                  service.name,
+                  service.priceCents,
+                  service.currency,
+                )}
               </span>{" "}
               · {formatDuration(service.durationMin, locale)}
             </dd>
