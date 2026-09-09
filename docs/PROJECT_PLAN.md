@@ -1742,6 +1742,12 @@ optional. What follows from that:
   the one an owner is still learning to trust. Distinct from
   `is_voice_placeholder` (0032), which means only that no phone number was
   dictated.
+  **Two `demo-barber` bookings in production were flipped to `voice` by hand**
+  so the icon had something to render while it was being checked. Nothing
+  spoke them into existence. Undo is
+  `update appointments set created_via = 'online' where created_via = 'voice'`,
+  which is safe today because Libi has booked nothing real yet — check that is
+  still true before running it.
   **The microphone never actually reopened, and the reason is worth keeping.**
   `play`'s `onended` set the phase to idle and then asked `start` to take the
   next turn — but `setPhase` is queued and the call is not, so `start` ran
