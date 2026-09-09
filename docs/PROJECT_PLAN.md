@@ -1266,19 +1266,32 @@ the ranked residual risk.
 owned by `xitaybarkay@`). Both are owned by real accounts — read the seed traps
 below before running it.
 
-> ⚠️ **Both demo shops hold zero appointments** as of 2026-08-29, verified
-> against production. This block used to claim ~293 and ~124; it was stale, and
-> the numbers are the first thing a session trusts. Everything *else* is intact
-> — services, staff, logos, galleries, reviews, waitlist rows — so both booking
-> pages work and the E2E suite still books against `demo-barber`. What is gone
-> is the history behind them: the landing page's two demo buttons lead to shops
-> with an empty calendar, and the dashboard has nothing to screenshot.
+> ⚠️ **The demo shops hold 124 appointments** — `demo-barber` 82, `demo-nails`
+> 42 — counted against production on 2026-09-09. This block has now been stale
+> in *both* directions: it claimed ~293 and ~124, was corrected to **zero** on
+> 2026-08-29, and that zero then outlived the full-week seed run recorded
+> below, which put 99 rows back. The numbers are the first thing a session
+> trusts, so **count them rather than reading them** — a `select count(*)`
+> grouped by slug takes a minute, and this line has been wrong more often than
+> it has been right.
 >
-> Nothing cascaded them away, and that is worth knowing before hunting for a
-> bug — `appointments.service_id` and `staff_id` are `onDelete: restrict`, so
+> Of the 124, **99 carry a `056%` phone** and came from `db:seed:full-week`;
+> the remaining 25 are `db:seed:appointments` rows and ליבי's own placeholder
+> bookings from the live voice checks. By status: **114 confirmed, 1 pending, 9
+> cancelled**. Two `demo-barber` rows read `created_via = 'voice'`, flipped by
+> hand — see the `created_via` note further down.
+>
+> Everything else is intact — services, staff, logos, galleries, reviews,
+> waitlist rows — so both booking pages work and the E2E suite still books
+> against `demo-barber`. The landing page's two demo buttons lead to shops with
+> a full calendar, and the dashboard has something to screenshot.
+>
+> Worth keeping from when this said zero: nothing had cascaded those rows away,
+> and that is the thing to know before hunting for a bug —
+> `appointments.service_id` and `staff_id` are `onDelete: restrict`, so
 > deleting a service or a provider is *refused* while appointments reference
-> it. They were cleared deliberately at some point and never re-seeded.
-> `npm run db:seed` restores them; run `-- --dry-run` first, as always.
+> it. A demo calendar that empties was emptied deliberately. `npm run db:seed`
+> rebuilds one; run `-- --dry-run` first, as always.
 >
 > **`npm run db:seed:full-week` fills a week by *booking* it**, through the same
 > two actions a client uses — `fetchSlotsAction` for what is free and
@@ -1348,8 +1361,10 @@ below before running it.
 > **`skipped`**, 70 future reminders and 6 `cancellation_confirmation` rows sit
 > `pending`, and `sent_at` is null on every notification in the database.
 >
-> **`demo-nails` books everything as awaiting approval** — all 26. Worth
-> confirming that is the intended setting for that tenant.
+> **`demo-nails` books everything as awaiting approval** — all 26 at the time
+> of the run. Worth confirming that is the intended setting for that tenant.
+> Only **one** of them is still `pending` today, so they were approved by hand
+> afterwards; the run record above stands, the diary has simply moved on.
 >
 > **What it measured is worth more than the data it wrote.** Median from this
 > machine against the Seoul database: **3.6s for a slot lookup and 9.5s for a
@@ -2227,11 +2242,13 @@ cost time here:
   against a sticky element. Confirm a duplicate by counting in the DOM before
   believing a full-page image.
 
-**Still unverified, and blocked on data rather than on access:** the calendar
-carrying real appointments, and the appointment dialog as a bottom sheet. Both
-need something on the calendar to open, and both demo tenants hold zero
-appointments — see the demo-tenant warning at the top of §5. Re-seed first, then
-these are one script away.
+**No longer blocked on data.** The calendar carrying real appointments and the
+appointment dialog as a bottom sheet were parked here because both demo tenants
+were empty. They are not — **124 appointments**, counted against production and
+recorded at the top of §5 — so nothing external is in the way and these are one
+script away. The calendar half has since been seen loaded, in passing: the
+overlap fix was measured on the seeded week at 45 cards with zero spilling
+pairs. **The dialog as a bottom sheet on a phone is still genuinely unseen.**
 
 The **landing page** is no longer in this bucket either: it has been checked in
 the browser in both themes at 375px and desktop, with contrast measured in-page
