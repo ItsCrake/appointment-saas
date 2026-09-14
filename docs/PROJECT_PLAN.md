@@ -1278,7 +1278,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1521 tests across 103 files**; Playwright
+**Green:** `npm run verify` at **1531 tests across 103 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1487,6 +1487,7 @@ the served tier plus the reason.
 | **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. `screenshots.test.ts` compares the two files. | `next.config.ts`, `phone-frame.tsx` |
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
 | **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
+| **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
 
 ### The guarantee everything else leans on
@@ -1516,12 +1517,14 @@ optional. What follows from that:
   grid from the widest lane count, so overlaps scroll rather than collapse.
   **The week row is `h-24`** — 96px an hour, down from 128, a quarter of the
   grid's height given back to an owner who wants to scan rather than read. The
-  cost is exact and is pinned in `calendar-layout.test.ts`: two back-to-back
-  quarter-hour bookings now get one line of type instead of two, because two
-  lines need 32px which needs a 128px hour. Everything longer is unaffected —
-  a half hour clears all three lines on its own height at 48px, where before it
-  needed the floor. The day view keeps `h-40`; compressing both would have
-  removed the difference between them.
+  cost is exact and is pinned in `calendar-layout.test.ts`, and it is larger
+  than this bullet used to claim: three lines cost **52px** once the border is
+  counted and the lines are the 14px the browser actually draws, so a half hour
+  (46px drawn) shows two — time and service sharing a row — and needs the floor
+  for the third. A quarter hour back to back shows one whole name. The earlier
+  "clears all three at 48px" was arithmetic on 12px lines that never rendered;
+  see *Cards that looked stacked* below. The day view keeps `h-40`;
+  compressing both would have removed the difference between them.
   **The day/date row is pinned** while the hours scroll under it — an owner
   reading an 18:00 booking on a phone had nothing on screen telling them which
   day they were looking at. That needed the scroll wrapper's height bounded;
@@ -1773,6 +1776,62 @@ optional. What follows from that:
   percentage twin simply never learned to, and `summary`'s fixed 8px floor
   never had either. Both now cap. Verified in a browser on the seeded week: 45
   cards, **zero pairs spilling into the one below**.
+  **Cards that looked stacked, and three causes behind one symptom.** That
+  verification was right about what it measured and missed what the owner saw.
+  Re-measured on the same week: boxes still never intersected, but **16 of 40
+  vertically adjacent pairs touched at exactly 0px**, and every short card's
+  last line was sliced in half with the next card's border sitting on the cut —
+  which reads, precisely, as one card laid on top of another.
+  *The line budget promised lines the card did not have.* The card's classes
+  said `leading-tight`; `cn()` is `tailwind-merge`, which **deletes a
+  `leading-*` utility when a text size follows it**, because in Tailwind v4 the
+  size carries its own line-height. So lines rendered at the inherited 15px
+  while `CARD_METRICS` believed 12, and the 1px border top and bottom was never
+  counted. The surplus lines did not overflow — they are `truncate` flex items,
+  and `overflow: hidden` resets a flex item's `min-height` to zero — so each
+  one was *squeezed*, clipping its own glyphs. Invisible to `scrollHeight`,
+  which is why a browser check that looked for overflow found nothing.
+  *Flush was a decision, and it was the wrong one.* The caps stopped each floor
+  exactly at the next card's start, and a comment defended that. `CARD_GAP_PX`
+  (2px) now comes off the bottom of **every** card in `cardBox` — never the top,
+  which is where the eye reads *when* — so back-to-back and zero-buffer
+  bookings separate too, which no cap could ever do.
+  *And a real overlap the old check could not see.* `gapsToNext` grouped by
+  lane **number**, but lanes restart at zero in every overlapping group and a
+  group of one is full width: a short card in lane 1 found nothing below it,
+  went uncapped, and ran into the full-width card opening the next group.
+  Latent on a one-chair week; the fuzz below reproduces it at up to 47px in the
+  day view, on the shape a cancelled row beside its replacement makes. "Below"
+  now means *sharing horizontal space*. `summary`'s cap was also measured on the
+  week's 96px hour while it draws on a 48px one — every floor now lives in
+  `calendar-layout` beside the cap, measured on the grid the card is drawn on,
+  and `DENSITY.*.minCardPx` is gone.
+  **Heebo sets the line box, not taste:** measured in the browser, its ink at
+  10px needs a **14px** line box before `truncate` shaves accents off É and Ñ —
+  so the 12px the metrics assumed would have sliced glyphs even had
+  `leading-tight` survived. The line-height now rides inside the size class
+  (`text-[10px]/[14px]`, `text-xs/5 sm:text-sm/5`), where `tailwind-merge`
+  cannot split it off; every line is `shrink-0`; a one-line card uses tight
+  padding so a back-to-back quarter hour shows a whole name. Floors are derived
+  from the metrics: **52 / 74 / 34 / 8px** for week, day, compact, summary.
+  **Guarded by tests that were watched failing.** A seeded fuzz draws 3000 dense
+  days — parallel chains like two providers, 0/5/10-minute buffers, duplicate
+  slots — in all four frames and requires every card to clear every later card
+  sharing its space by 2px. Mutation-tested: grouping by lane number fails it,
+  and so does a zero gap, **after** the first version of the test passed a zero
+  gap because it measured clearance against `CARD_GAP_PX` itself; the
+  requirement is now a literal. A sweep proves `lineBudget` returns the most
+  lines that fit and never one that does not, the card's classes are
+  transcribed against the metrics, and a bare `leading-*` anywhere in
+  `EntryCard` fails the suite.
+  **Verified in a browser:** two seeded weeks × three densities + day view ×
+  1440px and 390px — **0 intersecting pairs, 0 pairs under 1.5px apart,
+  minimum clearance 2.0px, 0 squeezed lines**, down from 16 touching pairs and
+  a sliced line on every short card. What it costs is stated in the *Full
+  calendar* bullet above: short back-to-back bookings show fewer lines, whole.
+  `demo-nails` — where two providers make side lanes an everyday shape — could
+  not be signed into; the E2E credentials own `demo-barber` only, so the lane
+  fix is proven by the fuzz and by construction rather than on that screen.
   **ליבי's ring had no timeout at all.** The id lives in `?focus=`, so a
   highlight stayed until the owner navigated — long after the sentence that
   caused it. Eight seconds or the next click, whichever comes first, and the

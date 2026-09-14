@@ -17,9 +17,14 @@ import {
   type CalendarDensity,
 } from "./calendar-density";
 import {
+  CARD_GAP_PX,
+  cardHeightPx,
   gridMinWidthPx,
+  HOUR_ROW_PX,
+  MIN_BLOCK_PX,
   MIN_LANE_PX,
   RAIL_PX,
+  slotHeightPx,
   SOLO_LANE_PX,
 } from "./calendar-layout";
 
@@ -64,7 +69,6 @@ describe("the density specs", () => {
      */
     expect(DENSITY.standard.lanePx).toBe(MIN_LANE_PX);
     expect(DENSITY.standard.card).toBe("full");
-    expect(DENSITY.standard.minCardPx).toBeNull();
     expect(DEFAULT_DENSITY).toBe("standard");
   });
 
@@ -141,11 +145,20 @@ describe("only summary changes the vertical scale", () => {
      * The line-budget floor is arithmetic on a 96px hour. Over summary's 48px
      * row it would draw a quarter-hour booking at roughly twice its length —
      * a calendar overstating how full it is, in the one view whose whole job is
-     * answering that.
+     * answering that. So summary's floor is its own, and it is measured — and
+     * capped — on summary's own scale: `h-12` is the 48px `HOUR_ROW_PX` says.
      */
-    expect(DENSITY.summary.minCardPx).not.toBeNull();
-    expect(DENSITY.standard.minCardPx).toBeNull();
-    expect(DENSITY.compact.minCardPx).toBeNull();
+    expect(Number(SUMMARY_HOUR_ROW.replace("h-", "")) * 4).toBe(
+      HOUR_ROW_PX.summary,
+    );
+    expect(cardHeightPx(15, "week", null, "block")).toBe(
+      slotHeightPx(15, "summary") - CARD_GAP_PX,
+    );
+    expect(cardHeightPx(1, "week", null, "block")).toBe(MIN_BLOCK_PX);
+    // A floor never reaches past the next card, on the grid it is drawn on.
+    expect(cardHeightPx(1, "week", 3, "block")).toBe(
+      slotHeightPx(3, "summary") - CARD_GAP_PX,
+    );
   });
 
   it("keeps the summary row class in step with the component", () => {

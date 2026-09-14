@@ -36,8 +36,9 @@ import { useToast } from "@/components/ui/toast";
 import { AppointmentDialog } from "./appointment-dialog";
 import {
   assignLanes,
+  cardBox,
   cardHeightPx,
-  slotHeightPx,
+  cardPxForLines,
   gapsToNext,
   gridBounds,
   gridMinWidthPx,
@@ -193,6 +194,37 @@ const HOUR_ROW_WEEK = "h-24";
  * reads at full size.
  */
 const HOUR_ROW_DAY = "h-40";
+
+/**
+ * **The card's type, with its line-height inside the size class.**
+ *
+ * Never as a separate `leading-*`: `cn()` is `tailwind-merge`, and it deletes a
+ * `leading-*` that comes before a text-size utility, because in Tailwind v4 the
+ * size carries a line-height of its own. That is exactly how this card rendered
+ * 15px lines under a line budget that believed they were 12, and sliced the
+ * glyphs of every line it could not fit. Written as `size/line-height` the two
+ * are one class and cannot be separated.
+ *
+ * Transcribed into `CARD_LINE_PX` in `calendar-layout`, which the line budget is
+ * arithmetic on — `calendar-layout.test.ts` fails if they drift apart, and fails
+ * if a bare `leading-*` reappears in the card's classes.
+ */
+const CARD_TYPE_WEEK = "text-[10px]/[14px]";
+const CARD_TYPE_DAY = "text-xs/5 sm:text-sm/5";
+
+/** One line's box, for the row that sets a name beside its marks. */
+const CARD_ROW_WEEK = "h-3.5";
+const CARD_ROW_DAY = "h-5";
+
+/**
+ * Vertical padding of the text column — `CARD_PADDING_PX`. Tight when the card
+ * carries a single line, which is what lets a back-to-back quarter hour show a
+ * whole name.
+ */
+const CARD_PAD = {
+  week: { roomy: "py-1", tight: "py-0.5" },
+  day: { roomy: "py-1.5", tight: "py-1" },
+} as const;
 
 export type CalendarDay = {
   /** "YYYY-MM-DD" in the business timezone. */
@@ -845,37 +877,18 @@ export function WeekCalendar({
                       requiresApproval={requiresApproval}
                       card={dayView ? "full" : spec.card}
                       /**
-                       * `summary` supplies its own floor. The line-budget one
-                       * from `cardHeightPx` is arithmetic on a 96px hour, and
-                       * applying it over this mode's 48px row would draw every
-                       * short booking at roughly twice its real length — a
-                       * calendar that lies about how full it is, in the one
-                       * view whose whole job is answering that.
+                       * Every mode's floor, capped by the room to the next card
+                       * below and less the gap that keeps them apart — measured
+                       * on the grid this card is actually drawn on, which for
+                       * `summary` is a 48px hour. Capping it with the week's
+                       * 96px one let a summary card run into its neighbour.
                        */
-                      minHeightPx={
-                        !dayView && spec.minCardPx !== null
-                          ? /**
-                             * Capped by the room to the next booking, like
-                             * every other floor here. `summary` sets a fixed
-                             * 8px because the line-budget one is arithmetic on
-                             * a 96px hour — but fixed is not the same as
-                             * unconditional, and uncapped it drew short
-                             * bookings over their neighbours in the densest
-                             * view, which is where it is least visible and
-                             * hurts most.
-                             */
-                            Math.min(
-                              spec.minCardPx,
-                              toNext === null
-                                ? Number.POSITIVE_INFINITY
-                                : slotHeightPx(toNext, "week"),
-                            )
-                          : cardHeightPx(
-                              entry.endMinutes - entry.startMinutes,
-                              dayView ? "day" : "week",
-                              toNext,
-                            )
-                      }
+                      minHeightPx={cardHeightPx(
+                        entry.endMinutes - entry.startMinutes,
+                        dayView ? "day" : "week",
+                        toNext,
+                        dayView ? "full" : spec.card,
+                      )}
                       onHoverChange={setHovered}
                       onOpen={(target) => {
                         // The hover card is supplementary detail about what is
@@ -884,12 +897,7 @@ export function WeekCalendar({
                         setHovered(null);
                         setOpened(target);
                       }}
-                      style={{
-                        top: `${box.top}%`,
-                        height: `${box.height}%`,
-                        insetInlineStart: `${box.inlineStart}%`,
-                        width: `${box.width}%`,
-                      }}
+                      style={cardBox(box)}
                     />
                   );
                 })}
@@ -1038,7 +1046,6 @@ function EntryCard({
   const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
   /** What this card would say if it had room — the tooltip, and the label. */
   const description = `${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`;
-  const minutes = entry.endMinutes - entry.startMinutes;
   /** Percentages position the card; the floor is real pixels on top of them. */
   const boxStyle: React.CSSProperties = { ...style, minHeight: minHeightPx };
 
@@ -1060,7 +1067,11 @@ function EntryCard({
    * How many of name / time / service this booking has room for — see
    * `lineBudget`, which owns the arithmetic and is tested on its own.
    */
-  const lines = lineBudget(minHeightPx, dayView ? "day" : "week");
+  const lines = lineBudget(
+    minHeightPx,
+    dayView ? "day" : "week",
+    card === "chip" ? "chip" : "full",
+  );
 
   /**
    * The note's text on the card, rather than only a mark saying there is one.
@@ -1071,7 +1082,9 @@ function EntryCard({
    * *illusion* of having read it.
    */
   const showNoteText =
-    dayView && hasNote && lines === MAX_CARD_LINES && minutes >= 45;
+    dayView &&
+    hasNote &&
+    minHeightPx >= cardPxForLines(MAX_CARD_LINES + 1, "day");
 
   const show = (event: React.MouseEvent | React.FocusEvent) => {
     onHoverChange({
@@ -1081,14 +1094,15 @@ function EntryCard({
   };
 
   const className = cn(
-    "group absolute flex overflow-hidden rounded-lg text-start leading-tight",
+    "group absolute flex overflow-hidden rounded-lg text-start",
     "border backdrop-blur-sm transition-shadow",
     "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
     "hover:z-10 hover:shadow-lg",
     // Type scales with the room available. Seven columns cannot afford
     // more than 10px; one column can, and shrinking it there would be
-    // making the view smaller than the one it replaced.
-    dayView ? "text-xs sm:text-sm" : "text-[10px]",
+    // making the view smaller than the one it replaced. The line-height rides
+    // inside the size class — see `CARD_TYPE_WEEK` for why it has to.
+    dayView ? CARD_TYPE_DAY : CARD_TYPE_WEEK,
     entry.kind === "block"
       ? dayView
         ? "bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700"
@@ -1192,14 +1206,18 @@ function EntryCard({
         <div
           className={cn(
             "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
-            dayView
-              ? "px-3 py-1.5"
-              : card === "chip"
-                ? "px-1 py-0.5"
-                : "px-1.5 py-1",
+            dayView ? "px-3" : card === "chip" ? "px-1" : "px-1.5",
+            CARD_PAD[dayView ? "day" : "week"][
+              card === "chip" || lines <= 1 ? "tight" : "roomy"
+            ],
           )}
         >
-          <div className="flex items-center gap-1">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-1",
+              dayView ? CARD_ROW_DAY : CARD_ROW_WEEK,
+            )}
+          >
             <span
               className={cn(
                 "min-w-0 flex-1 truncate font-bold",
@@ -1214,7 +1232,10 @@ function EntryCard({
               <span
                 role="img"
                 aria-label="ממתין לאישור"
-                className="animate-pending flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white"
+                className={cn(
+                  "animate-pending flex shrink-0 items-center justify-center rounded-full bg-amber-500 text-white",
+                  dayView ? "size-4" : "size-3.5",
+                )}
               >
                 <Hourglass className="size-2.5" aria-hidden />
               </span>
@@ -1272,19 +1293,23 @@ function EntryCard({
            */}
           {card === "chip" ? (
             lines >= 2 ? (
-              <span className="truncate tabular-nums opacity-75">
+              <span className="shrink-0 truncate tabular-nums opacity-75">
                 {minutesToLabel(entry.startMinutes)}
               </span>
             ) : null
           ) : lines >= 3 ? (
             <>
-              <span className="truncate tabular-nums opacity-75">{span}</span>
+              <span className="shrink-0 truncate tabular-nums opacity-75">
+                {span}
+              </span>
               {entry.subtitle ? (
-                <span className="truncate opacity-75">{entry.subtitle}</span>
+                <span className="shrink-0 truncate opacity-75">
+                  {entry.subtitle}
+                </span>
               ) : null}
             </>
           ) : lines === 2 ? (
-            <span className="truncate opacity-75">
+            <span className="shrink-0 truncate opacity-75">
               <span className="tabular-nums">
                 {minutesToLabel(entry.startMinutes)}
               </span>
@@ -1297,7 +1322,7 @@ function EntryCard({
               out the three above. Everywhere else the mark says *look* and the
               dialog is where it is read. */}
           {showNoteText ? (
-            <span className="mt-0.5 truncate text-[11px] opacity-70">
+            <span className="shrink-0 truncate text-[11px]/5 opacity-70">
               {entry.notes}
             </span>
           ) : null}

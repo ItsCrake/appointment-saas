@@ -81,15 +81,6 @@ export type DensitySpec = {
    *   tap away, which is the entire point of the mode.
    */
   card: "full" | "chip" | "block";
-  /**
-   * A fixed floor in px, or `null` to use `cardHeightPx` — the line-budget
-   * floor sized to hold three lines.
-   *
-   * `summary` sets its own because the line-budget floor is arithmetic on a
-   * 96px hour, and applying it over a 48px one would draw every short booking
-   * at twice its length.
-   */
-  minCardPx: number | null;
   /** Hebrew label for the switcher. */
   label: string;
   /** What the mode is for, for the control's accessible name. */
@@ -106,7 +97,6 @@ export const DENSITY: Record<CalendarDensity, DensitySpec> = {
   standard: {
     lanePx: 144,
     card: "full",
-    minCardPx: null,
     label: "רגיל",
     hint: "תצוגה רגילה — כל הפרטים על הכרטיס",
   },
@@ -124,7 +114,6 @@ export const DENSITY: Record<CalendarDensity, DensitySpec> = {
   compact: {
     lanePx: 42,
     card: "chip",
-    minCardPx: null,
     label: "צפוף",
     hint: "תצוגה צפופה — כל השבוע במסך אחד",
   },
@@ -142,13 +131,13 @@ export const DENSITY: Record<CalendarDensity, DensitySpec> = {
    * `minmax(0, 1fr)` and stretch to fill whatever is left, so a quiet week in
    * this mode simply uses the whole screen.
    *
-   * 8px keeps the shortest booking visible as a mark. Below that a quarter hour
-   * on a 48px row is 12px of colour with no bottom edge to speak of.
+   * Its floor lives with every other floor, in `calendar-layout` as
+   * `MIN_BLOCK_PX`, where the cap that stops it reaching the next card is
+   * measured on this mode's own 48px hour.
    */
   summary: {
     lanePx: 20,
     card: "block",
-    minCardPx: 8,
     label: "סיכום",
     hint: "תצוגת סיכום — עומס השבוע בצבע, בלי טקסט",
   },
