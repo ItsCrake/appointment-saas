@@ -16,6 +16,7 @@ import { BRAND, BRAND_MARK } from "@/lib/brand";
 // FEATURES moved into `FeatureCards`, which owns both the copy and the
 // disclosure state — the two are one thing now.
 import { FAQS, HERO_FACTS, STEPS } from "@/lib/landing-content";
+import { trialEntitlements } from "@/lib/entitlements";
 import { TRIAL_DAYS } from "@/lib/plans";
 
 // No database access and no dynamic APIs, so this prerenders as static HTML
@@ -312,8 +313,11 @@ export default function LandingPage() {
           <div className="mx-auto w-full max-w-[1400px] px-5 py-20 sm:px-8 sm:py-28">
             <h2 className={sectionTitle}>מחירים פשוטים</h2>
             <p className="mt-3 max-w-md text-base text-zinc-600 dark:text-zinc-400">
-              {TRIAL_DAYS} ימי ניסיון בחינם בשני המסלולים. בלי כרטיס אשראי ובלי
-              התחייבות.
+              {TRIAL_DAYS} ימי ניסיון בחינם בשני המסלולים, עם כל התכונות
+              {trialEntitlements().canAccessLibi
+                ? " — כולל ליבי, העוזרת הקולית שמנהלת את היומן בדיבור"
+                : ""}
+              . בלי כרטיס אשראי ובלי התחייבות.
             </p>
             <div className="mt-10">
               <PricingTable />

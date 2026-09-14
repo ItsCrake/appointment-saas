@@ -24,14 +24,15 @@ export const LEGAL_ENTITY = {
   registrationNumber: "—",
   address: "—",
   email: "hello@bazman.app",
-  lastUpdated: "2026-08-07",
+  lastUpdated: "2026-09-14",
 } as const;
 
 export type LegalSection = { heading: string; paragraphs: string[] };
 
 const priceLine = PRICING_TIERS.map(
-  (tier) => `${tier.name}: ${tier.monthlyCents / 100} ש"ח לחודש`,
-).join(", ");
+  (tier) =>
+    `${tier.name}: ${tier.monthlyCents / 100} ש"ח לחודש, הכולל ${tier.whatsappIncluded} הודעות וואטסאפ בחודש; כל ${tier.whatsappOverage.per} הודעות נוספות, או חלק מהן, ${tier.whatsappOverage.cents / 100} ש"ח`,
+).join(". ");
 
 export const TERMS_SECTIONS: LegalSection[] = [
   {

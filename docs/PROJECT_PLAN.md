@@ -1270,6 +1270,68 @@ is accidentally empty. That check exists because this feature was built by
 hunting leftover Hebrew in screenshots, which is not a method that survives the
 next change.
 
+### Pricing: allowances, overage, and ליבי in the trial ✅
+
+**Basic ₪80 with 100 WhatsApp messages a month, ₪15 per 100 after; Pro ₪120
+with 350, ₪10 per 100 after, and ליבי.** Yearly stays ten months for twelve
+(₪800 / ₪1,200). The trial is still 14 days on `TRIAL_PLAN = "pro"`.
+
+- **Basic could not send the messages it advertised.** Its copy said "עד 50
+  הודעות וואטסאפ בחודש" while `starter.canSendWhatsapp` was `false` — a paying
+  Basic tenant was promised WhatsApp and sent none. It is `true` now, which
+  was checked against production before it shipped: the only tenants are the
+  two demos (`trialing`, already served Pro) and `lacut` (frozen, served
+  `free`), so **no tenant's messages changed on deploy**. A test now requires
+  every plan that can send to have an allowance, and vice versa.
+- **A cap became an allowance, and the name followed.** `whatsappMonthlyCap` →
+  `whatsappIncluded`, beside `whatsappOverage: { per, cents }`. Exceeding it
+  is priced, not blocked — the message past it is some client's confirmation,
+  and dropping it would punish the client for the shop's plan. The allowance
+  is **monitored, not enforced**, which is now a decision rather than a gap.
+- **Overage counts every started block** (`whatsappOverageCents`): 101 messages
+  on Basic is one ₪15 block. The spec said "for every additional 100" and did
+  not say which; per started block is the reading under which the quoted rate
+  is the price paid. **Nothing collects it** — no provider (8d) — so
+  `/master/businesses` shows each tenant's month as `used / included +₪accrued`,
+  amber once there is anything accrued, which makes the number checkable today.
+- **The trial's promise is derived, not typed.** "כולל ליבי" appears on the
+  pricing section, under both trial buttons, in onboarding, on the billing page
+  and in a new FAQ — each gated on `trialEntitlements().canAccessLibi`, so
+  moving `TRIAL_PLAN` to a tier without her removes the sentence instead of
+  leaving it lying. `entitlements.test.ts` pins that the trial includes her.
+- **Two FAQ answers had become false** and were rewritten from the tiers rather
+  than retyped: reminders went "Basic by email, Pro by SMS" (both now send
+  WhatsApp), and "a busy month won't cause an extra charge" (overage is exactly
+  that). Bookings are still unlimited and the answer says so first.
+- **ליבי is drawn apart on the Pro card** (`exclusiveFeature`, with the mic mark
+  her bookings carry on the calendar), and `headlineFeatures` puts her first
+  in onboarding's three-line picker, which would otherwise have shown a Pro
+  card without the reason to pick it.
+- **The pricing toggle now opens on monthly.** It opened on yearly, which made
+  a visitor's first sight of these prices ₪66.67 and ₪100 — arithmetic before a
+  reason to sign up. One line in `pricing-table.tsx` if that is reverted.
+- **The terms' price line** is derived from the tiers and now carries the
+  allowance and the overage; `lastUpdated` moved to 2026-09-14 because the
+  prices in it changed.
+
+**Worth knowing before these prices meet a real shop.** At the planning volume
+in [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §5 — 915 to 1,370 client
+messages a month for a 17.5-bookings-a-day shop — the monthly bill computed by
+`whatsappOverageCents` is **₪215–275 on Basic and ₪180–230 on Pro**, and **Pro
+costs less than Basic from 301 messages a month**. The headline price is what a
+very quiet shop pays. That is a pricing decision, not a code one, and nothing
+here changes it.
+
+**Three things left as they were, on purpose.** Pro still lists SMS, which
+still has no Twilio account (see *Blocked*). `plans.ts` says prices include VAT
+while the terms say they do not unless stated — a contradiction that predates
+this change and belongs to whoever reviews the legal text. And **the month
+`/master` counts is a UTC month**: `whatsappThisMonth` is `sent_at >=
+date_trunc('month', now())` and the database session is UTC (checked), so the
+counter turns over at 03:00 Israel time in summer and 02:00 in winter, and a
+message sent in those hours on the 1st counts toward the month before. Harmless
+for monitoring; fix it to the shop's timezone before anyone bills from it.
+
 ---
 
 ## 5. Where things stand
@@ -1278,7 +1340,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1531 tests across 103 files**; Playwright
+**Green:** `npm run verify` at **1540 tests across 103 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1438,8 +1500,9 @@ wrong.
 ### The three rules a new session most needs
 
 **1. What a tier buys.** `lib/entitlements.ts` is the only place that decides,
-and it is pure. Starter owns the whole design surface; Pro adds the things that
-cost *us* per tenant — `smsReminders`, `canSendWhatsapp`, `canAccessAnalytics`,
+and it is pure. Starter owns the whole design surface **and WhatsApp** — sold by
+allowance (`whatsappIncluded` in `lib/plans.ts`, 100 vs 350 a month) rather
+than by switch. Pro adds `smsReminders`, `canAccessAnalytics`,
 `clientRetention`, `canAccessLibi`, `prioritySupport`. `effectivePlan` resolves
 in order: **frozen → `free`**, trialing → Pro, active → the stored tier, else
 `free`. Frozen outranks a live subscription *and* a running trial. Never read

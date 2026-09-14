@@ -67,6 +67,13 @@ export function toSubscriptionStatus(value: unknown): SubscriptionStatus {
 export const BILLING_CYCLES = ["monthly", "yearly"] as const;
 export type BillingCycle = (typeof BILLING_CYCLES)[number];
 
+/**
+ * How long the trial runs. It hands over `TRIAL_PLAN` — the whole of Pro,
+ * **ליבי included** — whichever tier the owner picked, and the pricing page
+ * says so. That sentence is derived rather than typed: `trialEntitlements()`
+ * in `lib/entitlements.ts` is what decides whether the page may print it, and
+ * `entitlements.test.ts` fails if the trial ever stops including her.
+ */
 export const TRIAL_DAYS = 14;
 
 /**
@@ -92,39 +99,85 @@ export type PricingTier = {
   yearlyCents: number;
   features: string[];
   /**
-   * WhatsApp messages a tenant may send per calendar month.
-   *
-   * **Advertised and monitored, not enforced.** Nothing stops a tenant at the
-   * cap — see the note below. It lives here so the marketing copy and the
-   * `/master` usage counter read the same number instead of two hardcoded
-   * literals drifting apart.
+   * The one thing only this tier sells, drawn apart from the list rather than
+   * left as the fourth bullet somebody skims past. Pro's is ליבי — the feature
+   * whose cost scales with how much a tenant uses it, and the reason Pro costs
+   * more than a larger message allowance would explain.
    */
-  whatsappMonthlyCap: number;
+  exclusiveFeature?: string;
+  /**
+   * WhatsApp messages included in the monthly price, per calendar month.
+   *
+   * **An allowance, not a cap** — renamed from `whatsappMonthlyCap` when the
+   * messages past it became priced rather than merely counted. Nothing stops a
+   * tenant at it and nothing should: the message past the allowance is some
+   * client's confirmation. One number, read by the pricing page, the terms and
+   * the `/master` usage counter, so none of them can drift from the others.
+   */
+  whatsappIncluded: number;
+  /**
+   * What messages past the allowance cost: `cents` for every **started** block
+   * of `per` messages — see `whatsappOverageCents`.
+   *
+   * Advertised and computed, not collected: there is no payment provider yet
+   * (8d), so `/master` shows what a tenant has accrued and nothing charges it.
+   */
+  whatsappOverage: { per: number; cents: number };
   /** Exactly one tier should set this — it drives the "popular" treatment. */
   highlighted?: boolean;
 };
 
-/** The cap for a resolved plan, or null when the plan sends no WhatsApp. */
-export function whatsappCapFor(plan: PlanType): number | null {
+/** The messages a resolved plan includes, or null when it sends no WhatsApp. */
+export function whatsappIncludedFor(plan: PlanType): number | null {
   return (
-    PRICING_TIERS.find((tier) => tier.id === plan)?.whatsappMonthlyCap ?? null
+    PRICING_TIERS.find((tier) => tier.id === plan)?.whatsappIncluded ?? null
   );
 }
 
 /**
- * Two tiers, separated by features only — never by volume. Both include
- * unlimited bookings, so a busy month can never turn into a surprise bill or a
- * client turned away at the door.
+ * What a month of WhatsApp traffic has accrued past the allowance, in agorot.
  *
- * **The WhatsApp allowances below are advertised but NOT enforced.** There is
- * no counter in `lib/entitlements.ts` and nothing stops a tenant at message 51
- * or 151. That is a deliberate, temporary state — the alternative on the day
- * this shipped was either silently dropping a client's confirmation or blocking
- * a booking, and neither is acceptable. Prices include VAT.
+ * **Every started block counts whole.** 101 messages on a 100 allowance is one
+ * block of overage, not a hundredth of one — which is how a price quoted "for
+ * every additional 100" is read wherever it is sold, and the only reading in
+ * which the rate on the pricing page is the price somebody pays. Zero at or
+ * under the allowance, and zero for a plan that sends no WhatsApp.
+ */
+export function whatsappOverageCents(plan: PlanType, sent: number): number {
+  const tier = PRICING_TIERS.find((candidate) => candidate.id === plan);
+  if (!tier) return 0;
+
+  const extra = Math.max(0, Math.floor(sent) - tier.whatsappIncluded);
+  const blocks = Math.ceil(extra / tier.whatsappOverage.per);
+  return blocks * tier.whatsappOverage.cents;
+}
+
+/**
+ * A tier's features with its exclusive one leading — for the compact pickers,
+ * which show only the first few and must not show a Pro card without ליבי.
+ */
+export function headlineFeatures(tier: PricingTier): string[] {
+  return tier.exclusiveFeature
+    ? [tier.exclusiveFeature, ...tier.features]
+    : tier.features;
+}
+
+/**
+ * Two tiers. **Bookings are unlimited on both, always** — a busy month never
+ * turns a client away at the door. What scales with volume is WhatsApp, because
+ * that is what costs per message: each tier includes an allowance and prices
+ * the messages past it by the hundred. Pro is ₪40 more for 250 more messages
+ * and a cheaper hundred after them — and for ליבי, which nothing else buys.
  *
- * Whoever adds the counter owns both halves: the tally *and* what happens when
- * it runs out. Until then this repository is claiming something it does not
- * check, which is the one thing PRODUCT.md's first principle forbids.
+ * **The allowance is monitored, not enforced**, and that is a decision rather
+ * than an unfinished job. The message past the allowance is a client's
+ * confirmation or reminder; dropping it would punish the client for the shop's
+ * plan, and blocking the booking behind it would be worse. So the overage is a
+ * price, stated on the pricing page and in the terms exactly as the monthly
+ * price is — and, exactly like the monthly price, nothing collects it until a
+ * payment provider exists (8d). `/master` shows each tenant's month against the
+ * allowance, with what they have accrued, so the number is checkable today.
+ * Prices include VAT.
  *
  * Yearly is ten months for twelve, which is where the ~16% badge comes from.
  */
@@ -133,33 +186,36 @@ export const PRICING_TIERS: PricingTier[] = [
     id: "starter",
     name: "בסיסי",
     tagline: "לעסק שרק מתחיל לקבל תורים אונליין",
-    monthlyCents: 7900,
-    yearlyCents: 79000,
+    monthlyCents: 8000,
+    yearlyCents: 80000,
     features: [
       "עמוד הזמנות אישי",
       "תורים ללא הגבלה",
+      "100 הודעות וואטסאפ בחודש — אישורים ותזכורות",
       "צבע מותאם, גלריה וחוות דעת",
       "ניהול צוות ולוח שבועי מלא",
-      "תזכורות במייל וביטול עצמאי ללקוח",
-      "עד 50 הודעות וואטסאפ בחודש",
+      "ביטול עצמאי ללקוח ותזכורות במייל",
     ],
-    whatsappMonthlyCap: 50,
+    whatsappIncluded: 100,
+    whatsappOverage: { per: 100, cents: 1500 },
   },
   {
     id: "pro",
     name: "מקצועי",
     tagline: "לעסק פעיל שרוצה פחות חלונות ריקים",
-    monthlyCents: 11900,
-    yearlyCents: 119000,
+    monthlyCents: 12000,
+    yearlyCents: 120000,
+    exclusiveFeature: "ליבי — עוזרת קולית שמנהלת את היומן בדיבור",
     features: [
       "כל מה שבבסיסי",
+      "350 הודעות וואטסאפ בחודש",
       "דוחות וסטטיסטיקות מתקדמים",
-      "עד 150 הודעות וואטסאפ בחודש",
-      "תזכורות בוואטסאפ ו-SMS",
+      "תזכורות גם ב-SMS",
       "ליווי אישי בהקמה",
       "תמיכה בעדיפות",
     ],
-    whatsappMonthlyCap: 150,
+    whatsappIncluded: 350,
+    whatsappOverage: { per: 100, cents: 1000 },
     highlighted: true,
   },
 ];

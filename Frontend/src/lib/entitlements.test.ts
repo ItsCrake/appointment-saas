@@ -4,9 +4,15 @@ import {
   effectivePlan,
   entitlementsFor,
   isDowngraded,
+  trialEntitlements,
   type Entitlements,
 } from "@/lib/entitlements";
-import { PLAN_TYPES, SUBSCRIPTION_STATUSES, TRIAL_PLAN } from "@/lib/plans";
+import {
+  PLAN_TYPES,
+  SUBSCRIPTION_STATUSES,
+  TRIAL_PLAN,
+  whatsappIncludedFor,
+} from "@/lib/plans";
 
 const state = (planType: unknown, subscriptionStatus: unknown) => ({
   planType,
@@ -92,19 +98,44 @@ describe("entitlementsFor", () => {
     for (const key of design) expect(starter[key]).toBe(true);
   });
 
-  it("blocks starter from WhatsApp, analytics and Libi", () => {
-    // The three the spec names, plus the two that share their reasoning. All
-    // of them cost us something per tenant, which is the whole basis of the
-    // tier line — `canSendWhatsapp` covers every client WhatsApp message, not
-    // only the reminder.
+  it("gives starter WhatsApp, and blocks analytics and Libi", () => {
+    /**
+     * WhatsApp moved into Basic with the allowance pricing. Basic's own copy
+     * had advertised messages for months while this was false — a paying
+     * Basic tenant was promised WhatsApp and sent none. What separates the
+     * tiers now is the allowance and the price of the hundred after it.
+     */
     const entitlements = entitlementsFor(state("starter", "active"));
 
-    expect(entitlements.canSendWhatsapp).toBe(false);
+    expect(entitlements.canSendWhatsapp).toBe(true);
     expect(entitlements.canAccessAnalytics).toBe(false);
     expect(entitlements.canAccessLibi).toBe(false);
 
     expect(entitlements.smsReminders).toBe(false);
     expect(entitlements.prioritySupport).toBe(false);
+  });
+
+  it("never grants WhatsApp to a plan with no allowance to price it", () => {
+    // The channel and the allowance travel together: a plan that can send
+    // must say how many messages it includes, or /master has nothing to count
+    // against and the pricing page has nothing to state.
+    for (const plan of PLAN_TYPES) {
+      const sends = entitlementsFor(state(plan, "active")).canSendWhatsapp;
+      expect(whatsappIncludedFor(plan) !== null, plan).toBe(sends);
+    }
+  });
+
+  it("includes ליבי in the trial, which the pricing page promises", () => {
+    /**
+     * "ליבי כלולה בתקופת הניסיון" is printed on the landing page, in onboarding
+     * and on the billing page — derived from `trialEntitlements()`, so this is
+     * the one assertion that keeps all three honest. A trial moved to a tier
+     * without her must fail here before it ships a sentence nobody gets.
+     */
+    expect(trialEntitlements().canAccessLibi).toBe(true);
+    for (const picked of ["starter", "pro"] as const) {
+      expect(entitlementsFor(state(picked, "trialing")).canAccessLibi).toBe(true);
+    }
   });
 
   it("gives pro every feature there is", () => {

@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/toast";
 import { formatPrice } from "@/lib/format";
 import {
   BILLING_CYCLES,
+  headlineFeatures,
   PRICING_TIERS,
   yearlySavingsPercent,
   type BillingCycle,
@@ -123,7 +124,7 @@ export function PlanPicker({
               ) : null}
 
               <ul className="mt-4 flex-1 space-y-1.5">
-                {tier.features.map((feature) => (
+                {headlineFeatures(tier).map((feature) => (
                   <li
                     key={feature}
                     className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400"
@@ -136,6 +137,11 @@ export function PlanPicker({
                   </li>
                 ))}
               </ul>
+              <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+                מעבר ל-{tier.whatsappIncluded} הודעות בחודש:{" "}
+                {formatPrice(tier.whatsappOverage.cents)} לכל{" "}
+                {tier.whatsappOverage.per} נוספות.
+              </p>
 
               <button
                 type="button"

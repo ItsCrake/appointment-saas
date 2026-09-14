@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, Mic } from "lucide-react";
 
+import { trialEntitlements } from "@/lib/entitlements";
 import { formatPrice } from "@/lib/format";
 import {
   headlineSavingsPercent,
   PRICING_TIERS,
   priceForCycle,
+  TRIAL_DAYS,
   yearlySavingsPercent,
   type BillingCycle,
 } from "@/lib/plans";
@@ -24,8 +26,19 @@ import { cn } from "@/lib/utils";
  * without the card itself becoming a block of gradient.
  */
 export function PricingTable() {
-  const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  /**
+   * Monthly first. The tiers are priced by the month — ₪80 and ₪120 is the
+   * sentence the pricing was decided in — and a visitor who has to work out
+   * that ₪66.67 means ₪80 billed differently has been handed arithmetic before
+   * a reason to sign up. Yearly is one tap away, and its badge says why.
+   */
+  const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const savings = headlineSavingsPercent();
+  /**
+   * Read from the rule, not typed: the sentence under each button promises
+   * ליבי during the trial only while the trial actually grants her.
+   */
+  const trialHasLibi = trialEntitlements().canAccessLibi;
 
   return (
     <div>
@@ -160,7 +173,32 @@ export function PricingTable() {
                   : "ללא התחייבות, ביטול בכל עת"}
               </p>
 
-              <ul className="mt-7 flex-1 space-y-3">
+              {tier.exclusiveFeature ? (
+                /* The one thing only this tier sells, set apart from the list
+                   so it is not the fourth bullet somebody skims past. The mic
+                   is the mark ליבי's own bookings carry on the calendar. */
+                <p
+                  className={cn(
+                    "mt-7 flex items-start gap-2.5 rounded-2xl px-3.5 py-3 text-sm font-semibold",
+                    featured
+                      ? "bg-white/10 text-white dark:bg-zinc-950/10 dark:text-zinc-950"
+                      : "bg-zinc-100 text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50",
+                  )}
+                >
+                  <Mic className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span className="min-w-0 flex-1">{tier.exclusiveFeature}</span>
+                  <span className="shrink-0 rounded-full bg-[image:var(--brand-gradient)] px-2 py-0.5 text-[10px] font-bold text-white">
+                    רק ב{tier.name}
+                  </span>
+                </p>
+              ) : null}
+
+              <ul
+                className={cn(
+                  "flex-1 space-y-3",
+                  tier.exclusiveFeature ? "mt-5" : "mt-7",
+                )}
+              >
                 {tier.features.map((feature) => (
                   <li
                     key={feature}
@@ -185,6 +223,22 @@ export function PricingTable() {
                 ))}
               </ul>
 
+              {/* The overage is a price like the monthly one, so it is stated
+                  beside the list rather than left to the terms. */}
+              <p
+                className={cn(
+                  "mt-5 text-xs leading-relaxed",
+                  featured
+                    ? "text-zinc-400 dark:text-zinc-600"
+                    : "text-zinc-500",
+                )}
+              >
+                מעבר ל-{tier.whatsappIncluded} הודעות בחודש:{" "}
+                {formatPrice(tier.whatsappOverage.cents)} לכל{" "}
+                {tier.whatsappOverage.per} הודעות נוספות. התורים תמיד ללא
+                הגבלה.
+              </p>
+
               <Link
                 href={`/dashboard/setup?plan=${tier.id}`}
                 className={cn(
@@ -200,6 +254,17 @@ export function PricingTable() {
               >
                 התחלת ניסיון
               </Link>
+              <p
+                className={cn(
+                  "mt-2.5 text-center text-xs",
+                  featured
+                    ? "text-zinc-400 dark:text-zinc-600"
+                    : "text-zinc-500",
+                )}
+              >
+                {TRIAL_DAYS} ימים עם כל התכונות
+                {trialHasLibi ? ", כולל ליבי" : ""}
+              </p>
             </li>
           );
         })}

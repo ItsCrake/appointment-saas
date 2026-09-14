@@ -5,6 +5,9 @@
  * feature or reordering an FAQ therefore never touches a component.
  */
 
+import { trialEntitlements } from "./entitlements";
+import { findTier, TRIAL_DAYS, type PricingTier } from "./plans";
+
 export type FeatureIcon =
   "smartphone" | "bell" | "calendar" | "palette" | "chart" | "shield";
 
@@ -84,6 +87,20 @@ export const STEPS: Step[] = [
 
 export type Faq = { question: string; answer: string };
 
+/**
+ * The pricing facts the FAQ quotes, read from the tiers rather than typed.
+ *
+ * An answer that says "100 הודעות" is a second copy of a number `lib/plans.ts`
+ * owns, and the day the allowance changes it is the copy nobody remembers —
+ * which is how this page came to say a busy month could never cost extra, a
+ * sentence the overage pricing made false.
+ */
+const BASIC = findTier("starter") as PricingTier;
+const PRO = findTier("pro") as PricingTier;
+
+/** "‏15 ‏₪" is what `formatPrice` gives; the FAQ is prose, so whole shekels. */
+const shekels = (cents: number) => `${cents / 100} ₪`;
+
 export const FAQS: Faq[] = [
   {
     question: "כמה זמן לוקח להקים את זה?",
@@ -110,13 +127,15 @@ export const FAQS: Faq[] = [
     answer: "בוואטסאפ ובמייל. במסלול המקצועי יש גם ליווי בהקמה ומענה בעדיפות.",
   },
   {
-    question: "התזכורות נשלחות ב-SMS או במייל?",
-    answer:
-      "במסלול הבסיסי במייל, ובמסלול המקצועי ב-SMS ישירות לנייד של הלקוח. בשני המסלולים התזכורת נשלחת אוטומטית לפי מספר השעות שהגדרתם.",
+    question: "איך נשלחים האישורים והתזכורות ללקוחות?",
+    answer: `בוואטסאפ, בשני המסלולים: ${BASIC.whatsappIncluded} הודעות בחודש בבסיסי ו-${PRO.whatsappIncluded} במקצועי, ובמקצועי אפשר גם SMS. התזכורת נשלחת אוטומטית לפי מספר השעות שהגדרתם.`,
   },
   {
     question: "יש הגבלה על מספר התורים בחודש?",
-    answer:
-      "אין. שני המסלולים כוללים תורים ללא הגבלה. חודש עמוס לא יגרור חיוב נוסף ולא יחסום לקוח שמנסה לקבוע.",
+    answer: `אין. שני המסלולים כוללים תורים ללא הגבלה, וחודש עמוס לא יחסום אף לקוח שמנסה לקבוע. מה שנספר הוא הודעות הוואטסאפ: מעבר למכסה החודשית, כל ${BASIC.whatsappOverage.per} הודעות נוספות עולות ${shekels(BASIC.whatsappOverage.cents)} בבסיסי ו-${shekels(PRO.whatsappOverage.cents)} במקצועי. ההודעות ממשיכות לצאת גם מעבר למכסה — לקוח לא יפספס אישור בגלל המסלול.`,
+  },
+  {
+    question: "מה זה ליבי, והאם אפשר לנסות אותה?",
+    answer: `ליבי היא עוזרת קולית בלוח הבקרה: אומרים לה "תקבעי תור לדני מחר בשלוש" והיא קובעת, ומזיזה או מבטלת תורים אחרי שהיא מוודאת איתכם. היא חלק מהמסלול המקצועי${trialEntitlements().canAccessLibi ? `, והיא פתוחה לכל עסק בתקופת הניסיון של ${TRIAL_DAYS} הימים — גם אם בחרתם בבסיסי` : ""}.`,
   },
 ];

@@ -5,7 +5,7 @@ import { requireSuperAdmin } from "@/lib/master-session";
 import { getOwnerEmails, listTenants } from "@/db/queries";
 import { daysUntil } from "@/lib/platform-metrics";
 import { effectivePlan } from "@/lib/entitlements";
-import { whatsappCapFor } from "@/lib/plans";
+import { whatsappIncludedFor, whatsappOverageCents } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -65,9 +65,15 @@ export default async function MasterBusinessesPage() {
             trialUrgent: trial.urgent,
             bookings: t.bookings,
             whatsappThisMonth: t.whatsappThisMonth,
-            // The cap of the plan they are actually *served*, not the stored
-            // one — a trialing tenant is on Pro, and a frozen one sends nothing.
-            whatsappCap: whatsappCapFor(effectivePlan(t)),
+            // The allowance of the plan they are actually *served*, not the
+            // stored one — a trialing tenant is on Pro, and a frozen one sends
+            // nothing. What the month has accrued past it is computed from the
+            // same served plan, so the two can never describe different tiers.
+            whatsappIncluded: whatsappIncludedFor(effectivePlan(t)),
+            whatsappOverageCents: whatsappOverageCents(
+              effectivePlan(t),
+              t.whatsappThisMonth,
+            ),
           };
         })}
       />

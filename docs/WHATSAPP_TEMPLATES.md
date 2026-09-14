@@ -380,7 +380,7 @@ Three things in that table are easy to get wrong:
 `clientDelivery` tries WhatsApp → SMS → email and takes the first that is both
 entitled and live — **once, at enqueue time.** There is no second attempt at
 dispatch: a kind whose template is missing fails on the channel already chosen
-rather than falling back to the next one. See the audit note in §2. WhatsApp needs `canSendWhatsapp` (Pro) *and* credentials;
+rather than falling back to the next one. See the audit note in §2. WhatsApp needs `canSendWhatsapp` (both tiers since the allowance pricing) *and* credentials;
 SMS needs `smsReminders` (Pro) *and* Twilio. A waitlist entry has **no email**,
 so for the queue the walk is effectively WhatsApp → SMS → nothing.
 
@@ -432,6 +432,11 @@ one freed slot generates.
 So budget **900–1,400 client WhatsApp messages per shop per month**, and treat
 1,400 as the planning number — approval mode is the single biggest lever, worth
 +50% on its own.
+
+**Against the plans' allowances** (100 on Basic, 350 on Pro — `lib/plans.ts`),
+that shop is past its allowance within the first week. Computed with
+`whatsappOverageCents`: 915 messages bills ₪215 on Basic and ₪180 on Pro; 1,370
+bills ₪275 and ₪230. Pro is the cheaper plan from 301 messages a month.
 
 ### Two caveats on turning that into money
 

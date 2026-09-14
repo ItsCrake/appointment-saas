@@ -14,9 +14,15 @@ import {
   entitlementsFor,
   isDowngraded,
   isTrialing,
+  trialEntitlements,
 } from "@/lib/entitlements";
 import { formatPrice } from "@/lib/format";
-import { findTier, toPlanType, toSubscriptionStatus } from "@/lib/plans";
+import {
+  findTier,
+  toPlanType,
+  toSubscriptionStatus,
+  whatsappIncludedFor,
+} from "@/lib/plans";
 
 export const metadata: Metadata = { title: "חיוב ומנוי" };
 
@@ -153,12 +159,18 @@ export default async function BillingPage() {
 
         {trialing ? (
           // Stated rather than implied. The tenant may have picked Basic at
-          // signup and is being shown Pro at ₪99: without this line that reads
-          // as a price they did not agree to, instead of what it is.
+          // signup and is being shown Pro's price: without this line that
+          // reads as a price they did not agree to, instead of what it is. It
+          // names what Pro actually adds — design and WhatsApp are Basic too —
+          // and ליבי only while the trial really grants her.
           <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-xs leading-relaxed text-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
-            בתקופת הניסיון פתוחות לכם כל התכונות של המסלול המקצועי: עיצוב מותאם,
-            גלריה, חוות דעת ותזכורות SMS. בסיום הניסיון תוכלו לבחור את המסלול
-            שמתאים לכם, ולא נחייב אתכם בלי אישור.
+            בתקופת הניסיון פתוחות לכם כל התכונות של המסלול המקצועי
+            {trialEntitlements().canAccessLibi
+              ? " — כולל ליבי, העוזרת הקולית"
+              : ""}
+            , {whatsappIncludedFor("pro")} הודעות וואטסאפ בחודש ודוחות
+            מתקדמים. בסיום הניסיון תוכלו לבחור את המסלול שמתאים לכם, ולא נחייב
+            אתכם בלי אישור.
           </p>
         ) : null}
 

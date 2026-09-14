@@ -8,12 +8,13 @@ import type { PlanType, SubscriptionStatus } from "./plans";
  * rule below is unit-testable and callable from a server action, a page, or the
  * notification enqueuer without any of them reaching for a query.
  *
- * Deliberately all booleans. The tier line is separated by *features*, never by
- * volume: both paid tiers include unlimited bookings, so nothing here counts
- * anything. Adding a usage cap would mean adding IO to this module, which is
- * the signal to stop and reconsider — a cap punishes a tenant's client for the
- * tenant's plan choice, and turns a booking page into a paywall at the worst
- * possible moment.
+ * Deliberately all booleans. Both paid tiers include unlimited bookings, so
+ * nothing here counts anything. The one thing that *is* sold by volume —
+ * WhatsApp, an allowance a month with the messages past it priced — lives in
+ * `lib/plans.ts` as a price and is monitored in `/master`, not enforced here.
+ * Enforcing it would mean adding IO to this module, which is the signal to stop
+ * and reconsider: a cap punishes a tenant's client for the tenant's plan
+ * choice, and turns a booking page into a paywall at the worst possible moment.
  */
 export type Entitlements = {
   /**
@@ -36,6 +37,12 @@ export type Entitlements = {
    * confirmation, the approval, the rejection and the cancellation as much as
    * the reminder. A name that describes a quarter of what a gate controls is a
    * name somebody eventually reasons from.
+   *
+   * **Basic has it too, since the allowance pricing.** Basic's copy advertised
+   * WhatsApp messages for months while this flag was false for it — a paying
+   * Basic tenant was promised messages and sent none. Both tiers now include an
+   * allowance (`whatsappIncluded`), and what separates them is its size and the
+   * price of the hundred after it, not whether the channel exists.
    */
   canSendWhatsapp: boolean;
   /** Revenue and new-client breakdowns beyond the basic counts. */
@@ -84,10 +91,12 @@ const NOTHING: Entitlements = {
  * paying anything at all should look like themselves; what Pro sells is the
  * work the *owner* does, not how the shop appears.
  *
- * Pro is therefore four things that all cost us something per tenant:
- * analytics, message delivery over SMS/WhatsApp, human setup time, and — since
- * Libi — model calls. The last one is the first whose cost scales with *use*
- * rather than with headcount, which is worth watching when 8e prices this.
+ * **WhatsApp is Basic too**, sold by allowance rather than by switch — see
+ * `canSendWhatsapp`. Pro is what is left that costs us something per tenant
+ * and cannot be sold by the hundred: analytics, SMS, human setup time, the
+ * win-back automation, and — the one it is marketed on — ליבי's model calls,
+ * the first cost here that scales with *use* rather than with headcount, which
+ * is worth watching when 8e prices this.
  *
  * Staff management and the full calendar are in Basic's copy but appear
  * nowhere here on purpose. They are **ungated** — no entitlement key, no
@@ -104,7 +113,7 @@ const BY_PLAN: Record<PlanType, Entitlements> = {
   starter: {
     customBranding: true,
     smsReminders: false,
-    canSendWhatsapp: false,
+    canSendWhatsapp: true,
     canAccessAnalytics: false,
     clientRetention: false,
     canAccessLibi: false,
@@ -228,6 +237,18 @@ export function effectivePlan(state: SubscriptionState): PlanType {
  */
 export function entitlementsFor(state: SubscriptionState): Entitlements {
   return BY_PLAN[effectivePlan(state)];
+}
+
+/**
+ * What a trial hands over — the whole of `TRIAL_PLAN`.
+ *
+ * **The pricing page's promise is read from here.** "ליבי כלולה בתקופת הניסיון"
+ * is printed only while this says `canAccessLibi`, so the sentence cannot
+ * outlive the rule: move `TRIAL_PLAN` to a tier without her and the landing
+ * page stops saying it, rather than advertising a trial nobody gets.
+ */
+export function trialEntitlements(): Entitlements {
+  return BY_PLAN[TRIAL_PLAN];
 }
 
 /**

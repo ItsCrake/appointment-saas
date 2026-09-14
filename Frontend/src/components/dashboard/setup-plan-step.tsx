@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { ArrowLeft, Check } from "lucide-react";
 
+import { trialEntitlements } from "@/lib/entitlements";
 import { formatPrice } from "@/lib/format";
 import {
+  headlineFeatures,
   PRICING_TIERS,
   TRIAL_DAYS,
   yearlySavingsPercent,
@@ -30,8 +32,9 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
         בחירת מסלול
       </h2>
       <p className="mt-1 mb-4 text-sm text-zinc-500">
-        {TRIAL_DAYS} ימי ניסיון בחינם בכל המסלולים. לא נבקש כרטיס אשראי, ואפשר
-        לשנות מסלול בכל שלב.
+        {TRIAL_DAYS} ימי ניסיון בחינם בכל המסלולים, עם כל התכונות
+        {trialEntitlements().canAccessLibi ? " — כולל ליבי" : ""}. לא נבקש
+        כרטיס אשראי, ואפשר לשנות מסלול בכל שלב.
       </p>
 
       <ul className="space-y-3" role="radiogroup" aria-label="בחירת מסלול">
@@ -82,7 +85,9 @@ export function SetupPlanStep({ selected, pending, onBack, onSubmit }: Props) {
                 </span>
 
                 <span className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
-                  {tier.features.slice(0, 3).map((feature) => (
+                  {headlineFeatures(tier)
+                    .slice(0, 3)
+                    .map((feature) => (
                     <span
                       key={feature}
                       className="inline-flex items-center gap-1 text-[11px] text-zinc-600 dark:text-zinc-400"

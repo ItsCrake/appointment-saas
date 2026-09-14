@@ -1651,16 +1651,21 @@ signup still leaves a usable account.
 like `platform-metrics.ts` — no IO, no database handle — so every rule is
 unit-testable and callable from an action, a page or the notification enqueuer.
 
-**Two tiers, separated by features only — never by volume.** Both include
-unlimited bookings. A usage cap would mean adding IO to this module, which is
-the signal to stop: a cap punishes the *client* for the tenant's plan choice,
-turning a booking page into a paywall at the worst possible moment.
+**Two tiers. Bookings are unlimited on both; WhatsApp is sold by volume.**
+Each tier includes a monthly WhatsApp allowance and prices the hundred after
+it (`whatsappIncluded` / `whatsappOverage` in `lib/plans.ts`) — a price, not a
+gate. Nothing here counts anything: a usage cap would mean adding IO to this
+module, which is the signal to stop, because a cap punishes the *client* for
+the tenant's plan choice, turning a booking page into a paywall at the worst
+possible moment. The allowance is monitored in `/master` and not enforced.
 
 ```
-                    starter (₪69)   pro (₪99)   trialing
+                    starter (₪80)   pro (₪120)  trialing
+WhatsApp included      100/month    350/month   350/month
+overage per 100          ₪15           ₪10         —
 customBranding            ✓             ✓           ✓
 smsReminders              ·             ✓           ✓
-canSendWhatsapp           ·             ✓           ✓
+canSendWhatsapp           ✓             ✓           ✓
 canAccessAnalytics        ·             ✓           ✓
 clientRetention           ·             ✓           ✓
 canAccessLibi             ·             ✓           ✓

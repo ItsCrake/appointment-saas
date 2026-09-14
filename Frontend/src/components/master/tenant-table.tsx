@@ -17,6 +17,7 @@ import {
   updateTenantPlanAction,
 } from "@/app/master/actions";
 import { effectivePlan, isFrozen, isTrialing } from "@/lib/entitlements";
+import { formatPrice } from "@/lib/format";
 import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +46,10 @@ export type TenantRowView = {
   bookings: number;
   /** WhatsApp sent this calendar month, and the plan's advertised ceiling. */
   whatsappThisMonth: number;
-  whatsappCap: number | null;
+  /** Messages the served plan includes this month, or null when it sends none. */
+  whatsappIncluded: number | null;
+  /** Agorot accrued past the allowance — shown, not collected (no provider yet). */
+  whatsappOverageCents: number;
 };
 
 export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
@@ -209,24 +213,29 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                       </span>
                     </Td>
                     <Td>
-                      {/* Usage against the advertised ceiling. Amber past it
-                          rather than red: nothing is enforced, so this is a
-                          number to look at, not a failure. The ratio is always
-                          spelled out — never the colour alone. */}
+                      {/* Usage against the allowance, and what the month has
+                          accrued past it. Amber rather than red: going past is
+                          allowed and priced, not a failure — this is a number
+                          an operator bills from, since nothing collects it yet.
+                          Always spelled out, never the colour alone. */}
                       <span
                         className={cn(
                           "text-xs tabular-nums",
-                          t.whatsappCap !== null &&
-                            t.whatsappThisMonth > t.whatsappCap
+                          t.whatsappOverageCents > 0
                             ? "font-semibold text-amber-300"
                             : "text-zinc-300",
                         )}
                       >
                         {t.whatsappThisMonth}
-                        {t.whatsappCap !== null ? (
+                        {t.whatsappIncluded !== null ? (
                           <span className="text-zinc-500">
                             {" / "}
-                            {t.whatsappCap}
+                            {t.whatsappIncluded}
+                          </span>
+                        ) : null}
+                        {t.whatsappOverageCents > 0 ? (
+                          <span className="ms-1.5">
+                            +{formatPrice(t.whatsappOverageCents)}
                           </span>
                         ) : null}
                       </span>

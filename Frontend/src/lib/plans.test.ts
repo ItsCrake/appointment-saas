@@ -12,7 +12,9 @@ import {
   toPlanType,
   toSubscriptionStatus,
   yearlySavingsPercent,
-  whatsappCapFor,
+  headlineFeatures,
+  whatsappIncludedFor,
+  whatsappOverageCents,
   type PricingTier,
 } from "@/lib/plans";
 
@@ -21,7 +23,8 @@ const tier = (overrides: Partial<PricingTier> = {}): PricingTier => ({
   name: "בסיסי",
   tagline: "",
   monthlyCents: 10000,
-  whatsappMonthlyCap: 50,
+  whatsappIncluded: 50,
+  whatsappOverage: { per: 100, cents: 1500 },
   yearlyCents: 100000,
   features: [],
   ...overrides,
@@ -116,8 +119,31 @@ describe("shipped config", () => {
 
   it("ships the two-tier line at the agreed prices", () => {
     expect(PRICING_TIERS.map((t) => t.id)).toEqual(["starter", "pro"]);
-    expect(findTier("starter")?.monthlyCents).toBe(7900);
-    expect(findTier("pro")?.monthlyCents).toBe(11900);
+    expect(findTier("starter")?.monthlyCents).toBe(8000);
+    expect(findTier("pro")?.monthlyCents).toBe(12000);
+    // Ten months for twelve, as it has always been.
+    expect(findTier("starter")?.yearlyCents).toBe(80000);
+    expect(findTier("pro")?.yearlyCents).toBe(120000);
+  });
+
+  it("sells ליבי on Pro and only on Pro", () => {
+    expect(findTier("pro")?.exclusiveFeature).toContain("ליבי");
+    expect(findTier("starter")?.exclusiveFeature).toBeUndefined();
+    for (const t of PRICING_TIERS) {
+      if (t.id === "pro") continue;
+      expect(headlineFeatures(t).join(" ")).not.toContain("ליבי");
+    }
+  });
+
+  it("puts the exclusive feature where a three-line picker shows it", () => {
+    // Onboarding shows the first three. A Pro card there without ליבי is a Pro
+    // card without the reason to pick it.
+    expect(headlineFeatures(findTier("pro")!).slice(0, 3)[0]).toContain("ליבי");
+    // And Basic's allowance is inside its first three, since it is now what
+    // separates the tiers.
+    expect(
+      headlineFeatures(findTier("starter")!).slice(0, 3).join(" "),
+    ).toContain("הודעות וואטסאפ");
   });
 
   it("sells no tier on booking volume", () => {
@@ -150,19 +176,19 @@ describe("shipped config", () => {
 });
 
 /**
- * The cap is data rather than a literal in the UI, so the marketing copy on the
- * landing page and the usage counter in /master cannot drift apart.
+ * The allowance is data rather than a literal in the UI, so the marketing copy
+ * on the landing page and the usage counter in /master cannot drift apart.
  */
-describe("whatsappCapFor", () => {
-  it("matches the ceilings the pricing page advertises", () => {
-    expect(whatsappCapFor("starter")).toBe(50);
-    expect(whatsappCapFor("pro")).toBe(150);
+describe("whatsappIncludedFor", () => {
+  it("matches the allowances the pricing page advertises", () => {
+    expect(whatsappIncludedFor("starter")).toBe(100);
+    expect(whatsappIncludedFor("pro")).toBe(350);
   });
 
-  it("has no cap for a plan that sends no WhatsApp", () => {
+  it("has no allowance for a plan that sends no WhatsApp", () => {
     // `free` is what a frozen or lapsed tenant resolves to, and it has no
-    // WhatsApp entitlement at all — so there is no ceiling to report.
-    expect(whatsappCapFor("free")).toBeNull();
+    // WhatsApp entitlement at all — so there is no allowance to report.
+    expect(whatsappIncludedFor("free")).toBeNull();
   });
 
   it("states the same number the tier's own copy does", () => {
@@ -170,7 +196,39 @@ describe("whatsappCapFor", () => {
       const advertised = tier.features.find((f) =>
         f.includes("הודעות וואטסאפ"),
       );
-      expect(advertised).toContain(String(tier.whatsappMonthlyCap));
+      expect(advertised).toContain(String(tier.whatsappIncluded));
     }
+  });
+});
+
+describe("whatsappOverageCents", () => {
+  it("ships the agreed overage rates", () => {
+    expect(findTier("starter")?.whatsappOverage).toEqual({ per: 100, cents: 1500 });
+    expect(findTier("pro")?.whatsappOverage).toEqual({ per: 100, cents: 1000 });
+  });
+
+  it("charges nothing at or under the allowance", () => {
+    expect(whatsappOverageCents("starter", 0)).toBe(0);
+    expect(whatsappOverageCents("starter", 100)).toBe(0);
+    expect(whatsappOverageCents("pro", 350)).toBe(0);
+  });
+
+  it("counts every started hundred whole", () => {
+    // One message past is a block — "for every additional 100" read the way
+    // it is read wherever a price is quoted per block.
+    expect(whatsappOverageCents("starter", 101)).toBe(1500);
+    expect(whatsappOverageCents("starter", 200)).toBe(1500);
+    expect(whatsappOverageCents("starter", 201)).toBe(3000);
+    expect(whatsappOverageCents("pro", 351)).toBe(1000);
+    expect(whatsappOverageCents("pro", 650)).toBe(3000);
+  });
+
+  it("accrues nothing for a plan with no WhatsApp", () => {
+    expect(whatsappOverageCents("free", 500)).toBe(0);
+  });
+
+  it("ignores a fractional or negative count rather than inventing a charge", () => {
+    expect(whatsappOverageCents("starter", 100.9)).toBe(0);
+    expect(whatsappOverageCents("starter", -5)).toBe(0);
   });
 });
