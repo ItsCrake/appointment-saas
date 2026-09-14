@@ -22,9 +22,12 @@ import {
   Mic,
   Phone,
   Rows3,
+  Scissors,
+  Tag,
   Trash2,
   UserRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import {
@@ -76,8 +79,8 @@ import { whatsappHref } from "@/lib/whatsapp-link";
 
 import {
   btnPrimary,
-  btnSecondary,
   cardClass,
+  focusRing,
   inputClass,
   NotesBadge,
   StatusChip,
@@ -577,7 +580,10 @@ export function WeekCalendar({
 
           <Link
             href={`?view=${view}&week=${thisWeek}`}
-            className={cn(btnSecondary, "h-9 px-4 text-xs")}
+            className={cn(
+              "glass-control inline-flex h-9 items-center rounded-full px-4 text-xs font-semibold text-zinc-900 dark:text-zinc-100",
+              focusRing,
+            )}
           >
             {dayView ? "היום" : "השבוע"}
           </Link>
@@ -608,7 +614,7 @@ export function WeekCalendar({
           <div
             role="group"
             aria-label="צפיפות התצוגה"
-            className="flex items-center gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-800"
+            className="glass-inset flex items-center gap-1 rounded-full p-1"
           >
             {CALENDAR_DENSITIES.map((value) => {
               const Icon = DENSITY_ICON[value];
@@ -625,14 +631,14 @@ export function WeekCalendar({
                     // 36px square: the floor for a thumb, and the same height
                     // as the toggle it sits beside.
                     "flex size-9 items-center justify-center rounded-full transition-colors",
+                    focusRing,
                     active
-                      ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
-                      : // `zinc-400` in dark, not `zinc-500`: the unselected segment measured
-                        // **3.09:1** against `zinc-800`, which clears the 3:1 floor for a
-                        // non-text control by four hundredths. Measured, not guessed —
-                        // and applied to the view toggle beside it too, so the two keep
-                        // reading as one family.
-                        "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                      ? "glass-control text-zinc-950 dark:text-zinc-50"
+                      : // zinc-600 in light: zinc-500 measured 4.44:1 on the old zinc-100
+                        // track — under AA for the view toggle's text beside it — and the
+                        // set-in glass track is no darker. zinc-400 in dark clears it with
+                        // room now that the track is near-ink rather than zinc-800.
+                        "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100",
                   )}
                 >
                   <Icon className="size-4" aria-hidden />
@@ -648,7 +654,7 @@ export function WeekCalendar({
         <div
           role="group"
           aria-label="תצוגת יומן"
-          className="flex items-center gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-800"
+          className="glass-inset flex items-center gap-1 rounded-full p-1"
         >
           {(
             [
@@ -663,14 +669,11 @@ export function WeekCalendar({
               aria-pressed={view === value}
               className={cn(
                 "rounded-full px-4 py-1.5 text-xs font-bold transition-colors",
+                focusRing,
                 view === value
-                  ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
-                  : // `zinc-400` in dark, not `zinc-500`: the unselected segment measured
-                    // **3.09:1** against `zinc-800`, which clears the 3:1 floor for a
-                    // non-text control by four hundredths. Measured, not guessed —
-                    // and applied to the view toggle beside it too, so the two keep
-                    // reading as one family.
-                    "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                  ? "glass-control text-zinc-950 dark:text-zinc-50"
+                  : // See the density switch beside it: one family, one measurement.
+                    "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100",
               )}
             >
               {label}
@@ -739,7 +742,7 @@ export function WeekCalendar({
       <div
         className={cn(
           cardClass,
-          "overflow-auto overscroll-x-contain",
+          "glass-frame overflow-auto overscroll-x-contain",
           "max-h-[68dvh] sm:max-h-[76dvh]",
         )}
       >
@@ -762,18 +765,20 @@ export function WeekCalendar({
            * one screen holds about three hours and the header leaves almost
            * immediately.
            *
-           * Opaque on purpose. A sticky row with a transparent background lets
-           * the cards it is meant to be sitting over show straight through it,
-           * which reads as a rendering fault rather than as a header. It takes
-           * the same paper as the card around it.
+           * **Frosted, not transparent.** A sticky row with a transparent
+           * background let the cards it sits over show straight through, which
+           * read as a rendering fault — so it was made opaque. `.glass-header`
+           * is the third answer: what passes beneath is diffused into the
+           * surface, so the grid visibly scrolls *under* the day rather than
+           * through it, and the day labels stay on a surface at least 80% paper.
            *
            * `z-20` clears `hover:z-10` on the cards, which is the only other
            * stacking level in this grid.
            */}
           <div
             className={cn(
-              "sticky top-0 z-20 grid border-b border-zinc-200 dark:border-zinc-800",
-              "bg-white dark:bg-zinc-900",
+              "sticky top-0 z-20 grid border-b border-zinc-200/80 dark:border-zinc-800/80",
+              "glass-header",
             )}
             style={{ gridTemplateColumns: gridTemplate }}
           >
@@ -790,7 +795,9 @@ export function WeekCalendar({
                   day.isToday && "bg-(--accent-soft)",
                 )}
               >
-                <p className="text-[11px] leading-tight text-zinc-500">
+                {/* zinc-600, not 500: over a frosted row a tinted card can pass
+                    beneath, and 11px type needs the margin 500 does not have. */}
+                <p className="text-[11px] leading-tight text-zinc-600 dark:text-zinc-400">
                   {WEEKDAY_SHORT[day.weekday]}
                 </p>
                 <p
@@ -954,8 +961,10 @@ function ArrowButton({
   onStep?: () => boolean;
   children: React.ReactNode;
 }) {
-  const className =
-    "flex size-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100";
+  const className = cn(
+    "glass-control flex size-9 items-center justify-center rounded-full text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50",
+    focusRing,
+  );
 
   return (
     <Link
@@ -1432,7 +1441,7 @@ type HoveredEntry = { entry: CalendarEntry; rect: DOMRect };
  */
 function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
   const { entry, rect } = hovered;
-  const CARD_WIDTH = 240;
+  const CARD_WIDTH = 256;
 
   // Clamped to the viewport, because a card on the last column would otherwise
   // open past the right edge and a card near the bottom past the fold.
@@ -1440,12 +1449,20 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
     Math.max(8, rect.left + rect.width / 2 - CARD_WIDTH / 2),
     Math.max(8, window.innerWidth - CARD_WIDTH - 8),
   );
-  const opensUpward = rect.bottom + 200 > window.innerHeight;
+  const opensUpward = rect.bottom + 220 > window.innerHeight;
 
   // One shared rule. The inline strip-and-swap this replaces mishandled a
   // `00972…` number — it saw the leading zero as a trunk code and produced
   // `9720972…`, a chat with nobody. See `whatsappHref`.
   const wa = whatsappHref(entry.clientPhone);
+
+  /** The card's own colour on the glass edge — the same rule as the sheet. */
+  const hueClass =
+    entry.status === "pending"
+      ? "glass-hue-pending"
+      : entry.staffColor
+        ? staffSwatch(entry.staffColor).tint
+        : undefined;
 
   return (
     <div
@@ -1459,34 +1476,55 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
           ? { bottom: window.innerHeight - rect.top + 8 }
           : { top: rect.bottom + 8 }),
       }}
-      className="animate-fade pointer-events-none z-50 rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-xl backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/95"
+      className={cn(
+        "glass-float animate-fade pointer-events-none z-50 rounded-2xl p-3.5",
+        hueClass,
+      )}
     >
-      <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">
-        {entry.title}
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-zinc-950 dark:text-zinc-50">
+            {entry.title}
+          </p>
+          <p className="mt-0.5 text-xs font-semibold text-zinc-700 tabular-nums dark:text-zinc-300">
+            {minutesToLabel(entry.startMinutes)}–
+            {minutesToLabel(entry.endMinutes)}
+          </p>
+        </div>
+        {entry.status ? <StatusChip status={entry.status} /> : null}
+      </div>
 
-      <p className="mt-0.5 text-xs text-zinc-500 tabular-nums">
-        {minutesToLabel(entry.startMinutes)}–{minutesToLabel(entry.endMinutes)}
-      </p>
-
-      <dl className="mt-2 space-y-1 text-xs">
-        {entry.subtitle ? <Row label="שירות">{entry.subtitle}</Row> : null}
+      {/* The facts as icons with values — the appointment sheet's own line, so
+          hovering a card and opening it read as the same object at two sizes. */}
+      <ul className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1.5 text-xs text-zinc-800 dark:text-zinc-200">
+        {entry.subtitle ? (
+          <PopoverFact icon={Scissors} label="שירות">
+            {entry.subtitle}
+          </PopoverFact>
+        ) : null}
         {entry.priceCents !== null ? (
-          <Row label="מחיר">{formatPrice(entry.priceCents)}</Row>
+          <PopoverFact icon={Tag} label="מחיר">
+            <span className="tabular-nums">
+              {formatPrice(entry.priceCents)}
+            </span>
+          </PopoverFact>
         ) : null}
         {entry.staffName ? (
-          <Row label="נותן שירות">{entry.staffName}</Row>
+          <PopoverFact icon={UserRound} label="נותן שירות">
+            {entry.staffName}
+          </PopoverFact>
         ) : null}
         {entry.clientPhone ? (
-          <Row label="טלפון">
-            <span dir="ltr">{entry.clientPhone}</span>
-          </Row>
+          <PopoverFact icon={Phone} label="טלפון">
+            <span dir="ltr" className="tabular-nums">
+              {entry.clientPhone}
+            </span>
+          </PopoverFact>
         ) : null}
-      </dl>
+      </ul>
 
-      {entry.status || entry.notes ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {entry.status ? <StatusChip status={entry.status} /> : null}
+      {entry.notes ? (
+        <div className="mt-2">
           <NotesBadge notes={entry.notes} />
         </div>
       ) : null}
@@ -1495,7 +1533,7 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
           what the mark means and what to do about it — and the dialog behind a
           click opens with exactly those two buttons. */}
       {entry.status === "pending" ? (
-        <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <p className="mt-2.5 rounded-xl bg-amber-50/90 px-2.5 py-1.5 text-[11px] leading-relaxed font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
           ממתין לאישורכם — לחיצה על התור פותחת אישור או דחייה.
         </p>
       ) : null}
@@ -1508,12 +1546,12 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
           about them — so the mark and its explanation are visibly the same
           thing. */}
       {entry.notes?.trim() ? (
-        <div className="mt-2 rounded-lg bg-zinc-50 px-2.5 py-1.5 dark:bg-zinc-800">
-          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-zinc-500">
+        <div className="glass-inset mt-2.5 rounded-xl px-2.5 py-2">
+          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-zinc-600 dark:text-zinc-400">
             <FileText className="size-3" aria-hidden />
             הערה לתור הזה
           </p>
-          <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
+          <p className="text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
             {entry.notes}
           </p>
         </div>
@@ -1524,7 +1562,7 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
           has to be able to tell "they asked for X today" from "this is how they
           always are". */}
       {entry.clientProfileNotes?.trim() ? (
-        <div className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 dark:bg-amber-950/40">
+        <div className="mt-2.5 rounded-xl bg-amber-50/90 px-2.5 py-2 dark:bg-amber-950/50">
           <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
             <UserRound className="size-3" aria-hidden />
             הערות קבועות על הלקוח
@@ -1539,10 +1577,13 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
           transparent to the pointer, or moving toward it would leave the
           trigger and close it before the cursor arrived. */}
       {entry.clientPhone ? (
-        <div className="pointer-events-auto mt-2 flex gap-1.5">
+        <div className="pointer-events-auto mt-3 flex gap-1.5">
           <a
             href={`tel:${entry.clientPhone}`}
-            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-950 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-100 dark:hover:text-zinc-50"
+            className={cn(
+              "glass-control inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full text-[11px] font-semibold text-zinc-800 dark:text-zinc-200",
+              focusRing,
+            )}
           >
             <Phone className="size-3.5" aria-hidden />
             חיוג
@@ -1552,7 +1593,10 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
               href={wa}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-950 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-100 dark:hover:text-zinc-50"
+              className={cn(
+                "glass-control inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full text-[11px] font-semibold text-zinc-800 dark:text-zinc-200",
+                focusRing,
+              )}
             >
               <MessageCircle className="size-3.5" aria-hidden />
               וואטסאפ
@@ -1564,20 +1608,25 @@ function EntryPopover({ hovered }: { hovered: HoveredEntry }) {
   );
 }
 
-function Row({
+/** One fact on the hover card: an icon, a value, and its name for a screen reader. */
+function PopoverFact({
+  icon: Icon,
   label,
   children,
 }: {
+  icon: LucideIcon;
   label: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="shrink-0 text-zinc-500">{label}</dt>
-      <dd className="min-w-0 truncate text-zinc-800 dark:text-zinc-200">
-        {children}
-      </dd>
-    </div>
+    <li className="flex min-w-0 items-center gap-1">
+      <Icon
+        className="size-3.5 shrink-0 text-zinc-500 dark:text-zinc-400"
+        aria-hidden
+      />
+      <span className="sr-only">{label}: </span>
+      <span className="min-w-0 truncate">{children}</span>
+    </li>
   );
 }
 

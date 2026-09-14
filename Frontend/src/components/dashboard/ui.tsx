@@ -43,7 +43,8 @@ import { cn } from "@/lib/utils";
 /** The gradient fill, matching the recommended tier's action on `/`. */
 export const brandGradient = "bg-[image:var(--brand-gradient)]";
 
-const focusRing =
+/** The dashboard's keyboard focus ring — one ring, so every control announces focus alike. */
+export const focusRing =
   "focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:focus-visible:ring-white";
 
 /** Offset rings need a matching offset colour or they halo white on ink. */

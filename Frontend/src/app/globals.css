@@ -538,6 +538,22 @@ body {
     var(--cal-hue, var(--accent)) 34%,
     transparent
   );
+  /* Liquid glass: a lit top edge and a soft shadow in the card's own hue.
+     Light and depth only — the fill is untouched, so every surface the contrast
+     suite measures is still the surface that ships. Through Tailwind's shadow
+     variables, never a bare box-shadow: see LIQUID GLASS below for why. */
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.05),
+    0 6px 16px -10px
+      color-mix(in oklch, var(--cal-hue, var(--accent)) 70%, transparent);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+  transition:
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* The staff swatches, as colours rather than as Tailwind classes. Declared on
@@ -698,6 +714,37 @@ body {
     var(--cal-hue, var(--accent)) 34%,
     transparent
   );
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.06),
+    0 10px 24px -14px
+      color-mix(in oklch, var(--cal-hue, var(--accent)) 65%, transparent);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+  transition:
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Hover brightens the edge and deepens the glow — and moves nothing. A lift
+   would spend the 2px `CARD_GAP_PX` that keeps a card off its neighbour, and a
+   calendar whose cards jump under the pointer is harder to read, not nicer.
+   Pending is left out: its amber edge is a signal, not a resting state. */
+@media (hover: hover) {
+  .cal-glass:not(.cal-pending):hover,
+  .cal-glass-solid:not(.cal-pending):hover {
+    border-color: color-mix(
+      in oklch,
+      var(--cal-hue, var(--accent)) 62%,
+      transparent
+    );
+    --tw-shadow:
+      0 2px 4px rgb(9 9 11 / 0.06),
+      0 14px 28px -14px
+        color-mix(in oklch, var(--cal-hue, var(--accent)) 85%, transparent);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -717,6 +764,11 @@ body {
       var(--cal-hue, var(--accent)) 46%,
       transparent
     );
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+    --tw-shadow:
+      0 1px 2px rgb(0 0 0 / 0.35),
+      0 8px 20px -12px
+        color-mix(in oklch, var(--cal-hue, var(--accent)) 50%, transparent);
   }
 
   .cal-glass-solid {
@@ -731,6 +783,11 @@ body {
       var(--cal-hue, var(--accent)) 46%,
       transparent
     );
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
+    --tw-shadow:
+      0 1px 2px rgb(0 0 0 / 0.4),
+      0 12px 28px -14px
+        color-mix(in oklch, var(--cal-hue, var(--accent)) 45%, transparent);
   }
 
   /* The ladder in dark, and it climbs more gently than the light one.
@@ -853,12 +910,19 @@ body {
 .cal-pending {
   --cal-hue: oklch(76.9% 0.188 70.08); /* amber-500 */
   border-color: oklch(66.6% 0.179 58.318); /* amber-600 */
-  border-width: 2px;
+  /* The heavier edge used to be `border-width: 2px`, which took 2px from every
+     line the card's budget had counted on — `CARD_BORDER_PX` is a 1px border.
+     Drawn as an inset ring it weighs the same and costs no room.
+     `calendar-layout.test.ts` fails if a card rule changes the box again. */
+  --tw-inset-shadow:
+    inset 0 0 0 1px oklch(66.6% 0.179 58.318),
+    inset 0 2px 0 rgb(255 255 255 / 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
   .cal-pending {
     border-color: oklch(76.9% 0.188 70.08);
+    --tw-inset-shadow: inset 0 0 0 1px oklch(76.9% 0.188 70.08);
   }
 }
 
@@ -876,6 +940,355 @@ body {
 
 .animate-pending {
   animation: pending-breathe 2.4s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   LIQUID GLASS — what the calendar's floating surfaces are made of.
+
+   **A specific effect, not a finish.** The appointment sheet frosts the
+   calendar it opened over instead of blanking it, so the booking the owner
+   tapped stays faintly in view behind its own details. Its edge light and glow
+   are *that booking's* colour — the shop's accent, the provider's hue on a
+   team, amber for a request — so the sheet visibly belongs to the card. The
+   hue is declared on the element for the reason `--cal-tint` is: on `:root` it
+   would compute there, and every sheet would glow indigo.
+
+   **Light and depth go through Tailwind's shadow variables, never a bare
+   `box-shadow`.** These rules are unlayered, and an unlayered `box-shadow`
+   beats every layered utility — `focus-visible:ring-2` included, which draws
+   the keyboard focus ring through `--tw-ring-shadow`. Writing the five-variable
+   composition here keeps the ring and adds the glass.
+
+   **Frost at 12px — Tailwind's `backdrop-blur-md`, the value the brief named.**
+   Subtle on purpose: the fills do the work of legibility, so the blur only has
+   to diffuse what passes behind, not hide it.
+
+   **Legibility never depends on what is underneath.** The fills are opaque
+   enough for the secondary text to hold AA over the brightest thing the page
+   can put behind them, and a browser without `backdrop-filter` or a person
+   asking for `prefers-reduced-transparency` gets a solid surface instead.
+--------------------------------------------------------------------------- */
+.glass-scrim {
+  background-color: rgb(9 9 11 / 0.32);
+  -webkit-backdrop-filter: blur(4px) saturate(1.2);
+  backdrop-filter: blur(4px) saturate(1.2);
+}
+
+.glass-sheet {
+  --glass-hue: var(--cal-hue, var(--accent));
+  background-color: rgb(255 255 255 / 0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
+  border: 1px solid rgb(255 255 255 / 0.7);
+  --tw-inset-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    inset 0 0 0 1px color-mix(in oklch, var(--glass-hue) 22%, transparent);
+  /* On a phone the sheet sits on the bottom edge, so its light rises from the
+     top. Offset and blurred, so it reads as light falling on the page and not
+     as a halo drawn around a box. */
+  --tw-shadow:
+    0 -12px 40px -16px color-mix(in oklch, var(--glass-hue) 55%, transparent),
+    0 -2px 12px -6px rgb(9 9 11 / 0.18);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* A request is amber everywhere else on the grid; the sheet agrees. */
+.glass-hue-pending {
+  --cal-hue: oklch(76.9% 0.188 70.08); /* amber-500 */
+}
+
+/* Centred on a desktop, the light falls beneath it instead. */
+@media (min-width: 40rem) {
+  .glass-sheet {
+    --tw-shadow:
+      0 28px 64px -28px color-mix(in oklch, var(--glass-hue) 60%, transparent),
+      0 18px 44px -22px rgb(9 9 11 / 0.35);
+  }
+}
+
+/* The bubbles and pills on the sheet: one material, lit from the top edge. */
+.glass-control {
+  background-color: rgb(255 255 255 / 0.62);
+  border: 1px solid rgb(255 255 255 / 0.9);
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255);
+  --tw-shadow: 0 1px 2px rgb(9 9 11 / 0.06), 0 8px 20px -12px rgb(9 9 11 / 0.3);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+  transition:
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) {
+  .glass-control:hover:not(:disabled) {
+    background-color: rgb(255 255 255 / 0.92);
+    --tw-shadow:
+      0 2px 4px rgb(9 9 11 / 0.06), 0 14px 28px -14px rgb(9 9 11 / 0.34);
+  }
+}
+
+/* Focus arrives at once. The easing above is for the pointer; a ring that
+   fades in over 200ms is a keyboard user waiting to find out where they are.
+   It still eases out, which costs nobody anything. */
+.glass-control:focus-visible,
+.cal-glass:focus-visible,
+.cal-glass-solid:focus-visible {
+  transition-duration: 0s;
+}
+
+/* A press you can feel on glass: the control gives, rather than blinking. */
+.glass-control:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+/* The recommended action carries the booking's colour — as tinted glass under
+   dark text, never as a fill under white. A provider can be amber-500, and
+   amber-500 cannot hold white text at AA; this has to be legible for every hue
+   a card can be. */
+.glass-control-hue {
+  background-image: linear-gradient(
+    color-mix(in oklch, var(--glass-hue) 23%, transparent),
+    color-mix(in oklch, var(--glass-hue) 23%, transparent)
+  );
+  border-color: color-mix(in oklch, var(--glass-hue) 45%, white);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.06),
+    0 10px 24px -12px color-mix(in oklch, var(--glass-hue) 70%, transparent);
+}
+
+/* A surface set into the glass — the client's note, a tab or switch track.
+   Its edge is an inset ring rather than a border, so setting a track into the
+   glass never makes it 2px taller than the controls beside it. */
+.glass-inset {
+  background-color: rgb(9 9 11 / 0.035);
+  --tw-inset-shadow: inset 0 0 0 1px rgb(9 9 11 / 0.06);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* A small floating surface — the calendar's hover card. The sheet's material
+   at a card's scale, and like the sheet it glows in the booking's colour. */
+.glass-float {
+  --glass-hue: var(--cal-hue, var(--accent));
+  background-color: rgb(255 255 255 / 0.8);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
+  border: 1px solid rgb(255 255 255 / 0.75);
+  --tw-inset-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    inset 0 0 0 1px color-mix(in oklch, var(--glass-hue) 20%, transparent);
+  --tw-shadow:
+    0 2px 6px rgb(9 9 11 / 0.06),
+    0 18px 40px -18px color-mix(in oklch, var(--glass-hue) 55%, transparent);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* The grid's frame. It stays paper — `calendar-glass-contrast.test.ts` measures
+   every card against exactly this white — and gains only a lit top edge and a
+   soft shadow to stand on. Nothing sits behind a page's own frame, so there is
+   nothing for it to frost; blur here would be decoration. */
+.glass-frame {
+  border-color: rgb(9 9 11 / 0.08);
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.04), 0 18px 44px -26px rgb(9 9 11 / 0.2);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* The pinned day row: the one place on the calendar where something really
+   passes underneath, so the one place glass is literal. It was opaque because
+   a *transparent* row let cards show straight through and read as a rendering
+   fault; frosted, what passes beneath is diffused into the surface instead. */
+.glass-header {
+  background-color: rgb(255 255 255 / 0.8);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  .glass-scrim {
+    background-color: rgb(0 0 0 / 0.45);
+  }
+
+  .glass-sheet {
+    background-color: rgb(24 24 27 / 0.8);
+    border-color: rgb(255 255 255 / 0.09);
+    --tw-inset-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.1),
+      inset 0 0 0 1px color-mix(in oklch, var(--glass-hue) 30%, transparent);
+    --tw-shadow:
+      0 -12px 44px -16px color-mix(in oklch, var(--glass-hue) 45%, transparent),
+      0 -2px 12px -6px rgb(0 0 0 / 0.5);
+  }
+
+  .glass-control {
+    background-color: rgb(255 255 255 / 0.06);
+    border-color: rgb(255 255 255 / 0.1);
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
+    --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 20px -12px rgb(0 0 0 / 0.6);
+  }
+
+  .glass-control-hue {
+    background-image: linear-gradient(
+      color-mix(in oklch, var(--glass-hue) 30%, transparent),
+      color-mix(in oklch, var(--glass-hue) 30%, transparent)
+    );
+    border-color: color-mix(in oklch, var(--glass-hue) 50%, transparent);
+    --tw-shadow:
+      0 1px 2px rgb(0 0 0 / 0.3),
+      0 10px 24px -12px color-mix(in oklch, var(--glass-hue) 45%, transparent);
+  }
+
+  .glass-inset {
+    background-color: rgb(255 255 255 / 0.04);
+    --tw-inset-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  }
+
+  .glass-float {
+    background-color: rgb(24 24 27 / 0.82);
+    border-color: rgb(255 255 255 / 0.09);
+    --tw-inset-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.1),
+      inset 0 0 0 1px color-mix(in oklch, var(--glass-hue) 28%, transparent);
+    --tw-shadow:
+      0 2px 6px rgb(0 0 0 / 0.4),
+      0 18px 44px -18px color-mix(in oklch, var(--glass-hue) 42%, transparent);
+  }
+
+  .glass-frame {
+    border-color: rgb(255 255 255 / 0.08);
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+    --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 18px 44px -26px rgb(0 0 0 / 0.7);
+  }
+
+  .glass-header {
+    background-color: rgb(24 24 27 / 0.8);
+  }
+}
+
+@media (prefers-color-scheme: dark) and (min-width: 40rem) {
+  .glass-sheet {
+    --tw-shadow:
+      0 28px 70px -28px color-mix(in oklch, var(--glass-hue) 50%, transparent),
+      0 18px 44px -22px rgb(0 0 0 / 0.65);
+  }
+}
+
+@media (prefers-color-scheme: dark) and (hover: hover) {
+  .glass-control:hover:not(:disabled) {
+    background-color: rgb(255 255 255 / 0.11);
+  }
+}
+
+/* Solid wherever the frost cannot be rendered or is not wanted. */
+@supports not (
+  (-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))
+) {
+  .glass-sheet,
+  .glass-float,
+  .glass-header {
+    background-color: rgb(255 255 255);
+  }
+  @media (prefers-color-scheme: dark) {
+    .glass-sheet,
+    .glass-float,
+    .glass-header {
+      background-color: rgb(24 24 27);
+    }
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-scrim,
+  .glass-sheet,
+  .glass-float,
+  .glass-header {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-scrim {
+    background-color: rgb(9 9 11 / 0.5);
+  }
+  .glass-sheet,
+  .glass-float,
+  .glass-header {
+    background-color: rgb(255 255 255);
+  }
+  .glass-control {
+    background-color: rgb(250 250 250);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
+  .glass-sheet,
+  .glass-float,
+  .glass-header {
+    background-color: rgb(24 24 27);
+  }
+  .glass-control {
+    background-color: rgb(39 39 42);
+  }
+}
+
+/* The one authored moment: the page frosts over, the sheet rises into it. On
+   a phone it slides up from the edge a thumb is already at; centred on a
+   desktop it settles from just below. Opacity and transform only on the
+   sheet itself — a `filter` there would make it its own backdrop root, and
+   its frost would blur nothing while it arrived. */
+@keyframes glass-frost-in {
+  from {
+    background-color: rgb(9 9 11 / 0);
+    -webkit-backdrop-filter: blur(0);
+    backdrop-filter: blur(0);
+  }
+}
+
+@keyframes glass-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes glass-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-frost {
+  animation: glass-frost-in 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-glass-in {
+  animation: glass-sheet-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 40rem) {
+  .animate-glass-in {
+    animation: glass-dialog-in 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 /* Warm flare at the bottom centre, playing against the cool gradient base. */
@@ -1102,6 +1515,8 @@ body {
   .animate-rise,
   .animate-sheet,
   .animate-fade,
+  .animate-frost,
+  .animate-glass-in,
   .animate-shimmer,
   .animate-caret,
   .animate-scroll-hint,

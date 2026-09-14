@@ -876,7 +876,10 @@ export function LibiAssistant() {
       {result ? (
         <div
           className={cn(
-            "animate-sheet fixed inset-x-3 z-50 mx-auto max-w-lg rounded-2xl border p-4 shadow-lg backdrop-blur",
+            // z-[46]: above her own listening ring (45), beneath every modal
+            // and toast (50). At 50 she painted over whichever sheet opened
+            // after her, because an equal z-index falls back to DOM order.
+            "animate-sheet fixed inset-x-3 z-[46] mx-auto max-w-lg rounded-2xl border p-4 shadow-lg backdrop-blur",
             "border-zinc-200 bg-white/95 dark:border-zinc-800 dark:bg-zinc-900/95",
             /**
              * The fade out, once the conversation has ended and nothing is
@@ -1054,7 +1057,15 @@ export function LibiAssistant() {
         aria-label={phase === "recording" ? "עצירת ההקלטה" : "דיבור עם ליבי"}
         aria-pressed={phase === "recording"}
         className={cn(
-          "fixed end-4 z-50 flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",
+          /**
+           * **Beneath modals, not beside them.** At `z-50` — the z-index every
+           * dashboard sheet also uses — the microphone won on DOM order and sat
+           * on top of the appointment sheet on a phone, over its tabs, where a
+           * modal is supposed to have the screen to itself. The stack is: bottom
+           * nav 20, cookie banner 40, her ring 45, her controls 46, modals and
+           * toasts 50.
+           */
+          "fixed end-4 z-[46] flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",
           "bottom-[calc(5rem_+_env(safe-area-inset-bottom))] md:bottom-8",
           "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
           "disabled:opacity-70 motion-safe:active:scale-95",

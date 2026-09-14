@@ -877,3 +877,57 @@ describe("the card's classes say what its metrics say", () => {
     expect(card).not.toMatch(/\bleading-/);
   });
 });
+
+describe("no stylesheet rule changes a card's box", () => {
+  /**
+   * ---------------------------------------------------------------------------
+   * The metrics above are a contract with *every* class a card can wear, not
+   * only with its Tailwind utilities. \`.cal-pending\` broke it without anybody
+   * touching the component: \`border-width: 2px\` in \`globals.css\` took 2px from
+   * every line the budget had counted on, on exactly the cards — requests
+   * waiting on the owner — that most need reading. It clipped nothing only
+   * because the padding happened to absorb the difference.
+   *
+   * So the card's hand-written classes may paint, light and tint a card, and
+   * may not size it. Emphasis that needs weight is drawn inside, as the inset
+   * ring \`.cal-pending\` now uses.
+   * ---------------------------------------------------------------------------
+   */
+  const css = readFileSync(
+    path.resolve(process.cwd(), "src/app/globals.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+
+  /** Classes a calendar card is given by \`EntryCard\`. */
+  const CARD_CLASS =
+    /\.cal-(?:glass|glass-solid|pending|staff-[\w-]+|tone-\d|dup-\d)\b/;
+  const BOX =
+    /(?:^|;|\{)\s*(border(?:-(?:top|bottom|block)(?:-(?:start|end))?)?-width|border(?:-(?:top|bottom|block))?\s*:|padding(?:-[\w-]+)?|(?:min-|max-)?height|box-sizing)\s*:/;
+
+  const cardRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+    .filter(({ selector }) => CARD_CLASS.test(selector));
+
+  it("finds the card rules at all", () => {
+    expect(cardRules.length).toBeGreaterThan(10);
+    expect(
+      cardRules.some(({ selector }) => selector.includes(".cal-pending")),
+    ).toBe(true);
+  });
+
+  it("lets them paint and light a card, never size it", () => {
+    const offenders = cardRules
+      .filter(({ body }) => BOX.test(body))
+      .map(({ selector, body }) => `${selector} → ${body.match(BOX)?.[1]}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it("draws their light through Tailwind's variables, so focus rings survive", () => {
+    // An unlayered \`box-shadow\` beats \`focus-visible:ring-2\`. Every card rule
+    // that sets one must compose the ring's variable into it.
+    for (const { selector, body } of cardRules) {
+      if (!/(?:^|;)\s*box-shadow\s*:/.test(body)) continue;
+      expect(body, selector).toContain("var(--tw-ring-shadow");
+    }
+  });
+});

@@ -1270,6 +1270,76 @@ is accidentally empty. That check exists because this feature was built by
 hunting leftover Hebrew in screenshots, which is not a method that survives the
 next change.
 
+### Liquid glass: the appointment sheet and the calendar ✅
+
+**One material for the calendar's floating surfaces**, in `globals.css` under
+*LIQUID GLASS*: `.glass-sheet`, `.glass-float`, `.glass-control`,
+`.glass-control-hue`, `.glass-inset`, `.glass-scrim`, `.glass-header`,
+`.glass-frame`. Two decisions were Itay's, asked once before building: the
+sheet's actions are **two wide pills (העברה, עריכה) and three bubbles (חיוג,
+וואטסאפ, ביטול התור)**, and the glass **carries the colour of the card that
+opened it** — the shop's accent, the provider's hue on a team, amber for a
+request.
+
+- **Glass as a specific effect, not a finish.** The sheet frosts the calendar
+  it opens over, so the tapped booking stays faintly in view behind its own
+  details; the pinned day row frosts the hours scrolling beneath it. The grid's
+  frame, with nothing behind it, stays paper and only gains a lit edge and a
+  shadow — blur there would be decoration.
+- **Actions before details, because they are why the sheet opened.** Move and
+  edit are 48px pills; call, WhatsApp (SMS where the number cannot reach
+  WhatsApp) and cancel are 56px bubbles, the destructive one furthest from the
+  thumb. A request's approve/reject pair goes above them, and approving is the
+  only solid fill — emerald-700, because white on emerald-600 is 3.7:1 and the
+  old quick action had been shipping it. Completed / no-show moved below the
+  facts as quiet chips: they close the record. The label rows became a line of
+  icon facts with screen-reader names. Every behaviour is unchanged — tabs,
+  undo on cancel, the edit and move forms, focus on the close button, Escape.
+- **"Move carries the booking's colour" is tinted glass under dark text**,
+  never a fill under white: a provider can be amber-500, which cannot hold
+  white text at AA, and this has to work for every hue a card can be.
+- **Light and depth go through Tailwind's shadow variables.** These rules are
+  unlayered, and an unlayered `box-shadow` beats `focus-visible:ring-2`, which
+  draws the focus ring through `--tw-ring-shadow` — so every glass rule writes
+  Tailwind's five-variable composition and sets `--tw-shadow` /
+  `--tw-inset-shadow` inside it. Pinned in `calendar-layout.test.ts`.
+- **Focus arrives at once.** The first browser pass found no ring on the first
+  Tab stop; the computed `--tw-ring-shadow` was set, and the ring was mid-way
+  through the controls' 200ms `box-shadow` transition. `:focus-visible` now
+  has `transition-duration: 0s` — hover still eases, a keyboard user does not
+  wait to find out where they are.
+- **The cards changed nothing the contrast suite measures.** Tints and bases
+  are byte-identical; the cards gained a lit top edge, a soft shadow in their
+  own hue, and a hover that brightens the edge and deepens the glow without
+  moving — a lift would spend the 2px `CARD_GAP_PX`. `.cal-pending` lost its
+  `border-width: 2px` (which broke `CARD_BORDER_PX`; the padding absorbed it,
+  measured at 1px, so nothing clipped) for an inset ring of the same weight, and
+  a guard now fails any card rule that sizes a card.
+- **Legibility is measured on painted pixels**, not reasoned: text colour
+  resolved through a canvas, background taken as the commonest pixel in the
+  element's own box on a screenshot over the real calendar. The sheet at
+  1440px and 390px in both themes: **6.25:1 or better**. The hover card:
+  **12.8:1**. The frosted header's weekday labels with cards scrolled beneath:
+  **7.30:1 light, 5.98:1 dark** — the lowest reading anywhere. Toolbar labels
+  moved to zinc-600 (zinc-500 measured 4.44:1 on the old track). The frost is
+  **12px — `backdrop-blur-md`, the value the brief named** — and
+  `prefers-reduced-transparency` or a browser without `backdrop-filter` gets
+  solid surfaces.
+- **ליבי's microphone sat on top of every dashboard modal on a phone.** Found by
+  the first look at the sheet at 390px — the unseen view this plan had been
+  listing. The microphone and her reply card were `z-50`, the same as every
+  sheet, and an equal z-index falls back to DOM order, where she renders last.
+  Both are `z-[46]` now: above her own listening ring (45), beneath modals and
+  toasts (50). **Hit-tested at her position with each one open**: the
+  appointment sheet, the phone's «עוד» sheet and «אירוע חדש» all sit above her
+  now, and she is back when they close. The client drawer, the waitlist
+  dialog and the block dialog share the same `fixed inset-0 z-50` wrapper, so
+  they are fixed by the same construction — not individually opened.
+- **One authored moment:** the page frosts over while the sheet rises into it —
+  from the bottom edge on a phone, settling from just below on a desktop.
+  Opacity and transform only on the sheet: a `filter` there would make it its
+  own backdrop root, and its frost would blur nothing while it arrived.
+
 ### Pricing: allowances, overage, and ליבי in the trial ✅
 
 **Basic ₪80 with 100 WhatsApp messages a month, ₪15 per 100 after; Pro ₪120
@@ -1340,7 +1410,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1540 tests across 103 files**; Playwright
+**Green:** `npm run verify` at **1543 tests across 103 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1550,6 +1620,7 @@ the served tier plus the reason.
 | **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. `screenshots.test.ts` compares the two files. | `next.config.ts`, `phone-frame.tsx` |
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
 | **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
+| **An unlayered `box-shadow` erases every focus ring** | Tailwind v4 draws `focus-visible:ring-2` as `box-shadow` through `--tw-ring-shadow`, inside `@layer utilities`. A plain `box-shadow` in `globals.css` is unlayered, so it wins outright and the ring silently never draws. Set `--tw-shadow` / `--tw-inset-shadow` and write the five-variable composition instead — every `.glass-*` and `.cal-glass*` rule does. And give `:focus-visible` a `0s` transition, or a `box-shadow` transition fades the ring in. | `globals.css` *LIQUID GLASS* |
 | **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
 
@@ -2412,7 +2483,9 @@ were empty. They are not — **124 appointments**, counted against production an
 recorded at the top of §5 — so nothing external is in the way and these are one
 script away. The calendar half has since been seen loaded, in passing: the
 overlap fix was measured on the seeded week at 45 cards with zero spilling
-pairs. **The dialog as a bottom sheet on a phone is still genuinely unseen.**
+pairs. **The dialog as a bottom sheet on a phone has now been seen** — at 390px in
+both themes, while rebuilding it as glass — and the first look found ליבי's
+microphone on top of it. See *Liquid glass* above.
 
 The **landing page** is no longer in this bucket either: it has been checked in
 the browser in both themes at 375px and desktop, with contrast measured in-page

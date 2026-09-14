@@ -5,15 +5,21 @@ import {
   AlertCircle,
   CalendarClock,
   Check,
+  Clock,
   FileText,
   Loader2,
   MessageCircle,
+  MessageSquare,
   Pencil,
   Phone,
+  RotateCcw,
+  Scissors,
+  Tag,
   TriangleAlert,
   UserRound,
   UserX,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import {
@@ -24,12 +30,14 @@ import {
 import { saveClientProfileAction } from "@/app/dashboard/clients/actions";
 import { useToast } from "@/components/ui/toast";
 import { dayOfMonth, formatPrice, weekdayLabel } from "@/lib/format";
+import { staffSwatch } from "@/lib/staff-colors";
 import { cn } from "@/lib/utils";
 import { whatsappHref } from "@/lib/whatsapp-link";
 
 import {
   btnPrimary,
   btnSecondary,
+  focusRing,
   inputClass,
   STATUS_LABEL,
   StatusChip,
@@ -159,23 +167,63 @@ export function AppointmentDialog({
     setTab(next);
   }
 
+  /**
+   * The two prominent actions work from either tab: they are about the
+   * booking, and an owner reading the client's standing note is exactly when
+   * "move this one" comes to mind. The form lives on the booking's tab, so that
+   * is where they land.
+   */
+  function begin(next: "edit" | "move") {
+    setError(undefined);
+    setTab("appointment");
+    setMode(next);
+  }
+
+  const phone = entry.clientPhone?.trim() ? entry.clientPhone : null;
+
+  /**
+   * Whose colour the glass carries — the card's own. A provider's hue on a
+   * team, amber while a request waits, and otherwise nothing: the sheet falls
+   * back to the shop's accent the way the card does. Read from live `status`,
+   * so approving a request turns the glow from amber to the shop's colour
+   * while the owner is still looking at it.
+   */
+  const hueClass = awaitingApproval
+    ? "glass-hue-pending"
+    : entry.staffColor
+      ? staffSwatch(entry.staffColor).tint
+      : undefined;
+
   return (
-    <Sheet onClose={onClose}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <Sheet onClose={onClose} hueClass={hueClass}>
+      {/* Where a thumb takes hold of a sheet. Decoration for the eye only —
+          closing is the button, Escape, or the frosted page behind. */}
+      <div
+        aria-hidden
+        className="mx-auto -mt-1 mb-4 h-1 w-10 rounded-full bg-zinc-950/15 sm:hidden dark:bg-white/20"
+      />
+
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2
               id="appointment-dialog-title"
-              className="truncate text-base font-bold text-zinc-900 dark:text-zinc-100"
+              className="truncate text-xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50"
             >
               {entry.title}
             </h2>
             <StatusChip status={status} />
           </div>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            {`יום ${weekdayLabel(entry.date)} ${dayOfMonth(entry.date)}/${month(entry.date)}`}
-            <span className="mx-1.5 opacity-50">·</span>
-            <span className="tabular-nums" dir="ltr">
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-sm text-zinc-600 dark:text-zinc-400">
+            <Clock className="size-3.5 shrink-0" aria-hidden />
+            <span>{`יום ${weekdayLabel(entry.date)} ${dayOfMonth(entry.date)}/${month(entry.date)}`}</span>
+            <span aria-hidden className="opacity-50">
+              ·
+            </span>
+            <span
+              className="font-semibold text-zinc-900 tabular-nums dark:text-zinc-100"
+              dir="ltr"
+            >
               {entry.startTime}–{entry.endTime}
             </span>
           </p>
@@ -186,18 +234,124 @@ export function AppointmentDialog({
           type="button"
           onClick={onClose}
           aria-label="סגירה"
-          className="-me-1 shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800"
+          className={cn(
+            "glass-control -me-1 inline-flex size-10 shrink-0 items-center justify-center rounded-full text-zinc-600 dark:text-zinc-300",
+            focusRing,
+          )}
         >
           <X className="size-5" aria-hidden />
         </button>
       </div>
 
-      {/* The same segmented control the calendar's own view switch uses, so the
-          two toggles on this screen behave alike. */}
+      {/**
+       * **The actions come before the details, because they are why the sheet
+       * was opened.** An owner tapping a card mid-day is moving it, fixing it or
+       * reaching the client — reading a price back to themselves is the rarest
+       * reason. So the two things they change most are wide pills they cannot
+       * miss, and the three ways to reach or release the client are bubbles
+       * beneath them, the destructive one last and furthest from the thumb.
+       *
+       * A request has two answers of its own, and they go first: approving is
+       * the one thing being *asked* of the owner, so it is the only solid fill
+       * on the sheet. Hidden while a form is open, which has its own way back.
+       */}
+      {mode === "view" ? (
+        <div className="mt-5 space-y-3">
+          {awaitingApproval ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Pill
+                tone="approve"
+                icon={Check}
+                label="אישור התור"
+                busy={pending}
+                disabled={pending}
+                onClick={() => changeStatus("confirmed")}
+              />
+              <Pill
+                tone="danger"
+                icon={X}
+                label="דחייה"
+                disabled={pending}
+                onClick={() => changeStatus("cancelled")}
+              />
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-2">
+            {/* Moving a cancelled or finished appointment is not a thing to
+                offer: the action refuses it server-side, and a button that
+                always fails is worse than no button. Its place goes to the way
+                back to an active booking instead. */}
+            {open ? (
+              <Pill
+                tone="hue"
+                icon={CalendarClock}
+                label="העברה"
+                disabled={pending}
+                onClick={() => begin("move")}
+              />
+            ) : (
+              <Pill
+                tone="hue"
+                icon={RotateCcw}
+                label="החזרה לתור פעיל"
+                busy={pending}
+                disabled={pending}
+                onClick={() => changeStatus("confirmed")}
+              />
+            )}
+            <Pill
+              tone="glass"
+              icon={Pencil}
+              label="עריכה"
+              disabled={pending}
+              onClick={() => begin("edit")}
+            />
+          </div>
+
+          {phone || (open && !awaitingApproval) ? (
+            <div className="flex items-start justify-center gap-5 pt-1">
+              {phone ? (
+                <Bubble icon={Phone} label="חיוג" href={`tel:${phone}`} />
+              ) : null}
+              {phone ? (
+                /* WhatsApp where the number can reach it; a plain message
+                   where it cannot, rather than a chat with nobody. */
+                wa ? (
+                  <Bubble
+                    icon={MessageCircle}
+                    label="וואטסאפ"
+                    href={wa}
+                    external
+                  />
+                ) : (
+                  <Bubble
+                    icon={MessageSquare}
+                    label="הודעה"
+                    href={`sms:${phone}`}
+                  />
+                )
+              ) : null}
+              {open && !awaitingApproval ? (
+                <Bubble
+                  tone="danger"
+                  icon={X}
+                  label="ביטול התור"
+                  disabled={pending}
+                  onClick={() => changeStatus("cancelled")}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* The same segmented control the calendar's own view switch uses, set
+          into the glass rather than floating on it. */}
       <div
         role="tablist"
         aria-label="פרטי התור והלקוח"
-        className="mb-4 flex items-center gap-1 rounded-full bg-zinc-100 p-1 dark:bg-zinc-800"
+        className="glass-inset mt-5 mb-4 flex items-center gap-1 rounded-full p-1"
       >
         {TABS.map(({ id, label }) => (
           <button
@@ -209,10 +363,11 @@ export function AppointmentDialog({
             aria-controls={`appointment-panel-${id}`}
             onClick={() => show(id)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-colors",
+              "flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full px-4 text-xs font-bold transition-colors",
+              focusRing,
               tab === id
-                ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
-                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
+                ? "glass-control text-zinc-950 dark:text-zinc-50"
+                : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50",
             )}
           >
             {label}
@@ -236,156 +391,79 @@ export function AppointmentDialog({
           id="appointment-panel-appointment"
           aria-labelledby="appointment-tab-appointment"
         >
-          <dl className="space-y-1 text-xs">
-            {entry.subtitle ? <Row label="שירות">{entry.subtitle}</Row> : null}
-            {entry.priceCents !== null ? (
-              <Row label="מחיר">{formatPrice(entry.priceCents)}</Row>
-            ) : null}
-            {entry.staffName ? (
-              <Row label="נותן שירות">{entry.staffName}</Row>
-            ) : null}
-            {entry.clientPhone ? (
-              <Row label="טלפון">
-                <span dir="ltr">{entry.clientPhone}</span>
-              </Row>
-            ) : null}
-          </dl>
-
-          {/* This booking's note only. What the shop knows about the person
-              lives on the other tab, because it is about the person. */}
-          {entry.notes?.trim() ? (
-            <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2 dark:bg-zinc-800">
-              <p className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
-                <FileText className="size-3" aria-hidden />
-                הערת הלקוח לתור הזה
-              </p>
-              <p className="text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
-                {entry.notes}
-              </p>
-            </div>
-          ) : null}
-
-          {entry.clientPhone ? (
-            <div className="mt-3 flex gap-2">
-              <a
-                href={`tel:${entry.clientPhone}`}
-                className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
-              >
-                <Phone className="size-3.5" aria-hidden />
-                חיוג
-              </a>
-              {wa ? (
-                <a
-                  href={wa}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(btnSecondary, "h-10 flex-1 px-3 text-xs")}
-                >
-                  <MessageCircle className="size-3.5" aria-hidden />
-                  וואטסאפ
-                </a>
-              ) : null}
-            </div>
-          ) : null}
-
           {error ? (
             <p
               role="alert"
-              className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-950/40 dark:text-red-300"
+              className="mb-3 flex items-start gap-2 rounded-2xl bg-red-50/90 px-3.5 py-2.5 text-xs font-medium text-red-700 dark:bg-red-950/50 dark:text-red-300"
             >
               <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
               {error}
             </p>
           ) : null}
 
-          {mode === "view" ? (
-            <>
-              {/* A request has exactly two useful answers, and they are not the
-                  same two as a booking's — the same rule the agenda follows. */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {awaitingApproval ? (
-                  <>
-                    <Action
-                      tone="approve"
-                      icon={<Check className="size-3.5" aria-hidden />}
-                      label="אישור התור"
-                      busy={pending}
-                      disabled={pending}
-                      onClick={() => changeStatus("confirmed")}
-                    />
-                    <Action
-                      tone="red"
-                      icon={<X className="size-3.5" aria-hidden />}
-                      label="דחייה"
-                      disabled={pending}
-                      onClick={() => changeStatus("cancelled")}
-                    />
-                  </>
-                ) : open ? (
-                  <>
-                    <Action
-                      tone="brand"
-                      icon={<Check className="size-3.5" aria-hidden />}
-                      label="הושלם"
-                      busy={pending}
-                      disabled={pending}
-                      onClick={() => changeStatus("completed")}
-                    />
-                    <Action
-                      tone="neutral"
-                      icon={<UserX className="size-3.5" aria-hidden />}
-                      label="לא הגיע"
-                      disabled={pending}
-                      onClick={() => changeStatus("no_show")}
-                    />
-                    <Action
-                      tone="red"
-                      icon={<X className="size-3.5" aria-hidden />}
-                      label="ביטול התור"
-                      disabled={pending}
-                      onClick={() => changeStatus("cancelled")}
-                    />
-                  </>
-                ) : (
-                  <Action
-                    tone="neutral"
-                    icon={<Check className="size-3.5" aria-hidden />}
-                    label="החזרה לתור פעיל"
-                    busy={pending}
-                    disabled={pending}
-                    onClick={() => changeStatus("confirmed")}
-                  />
-                )}
-              </div>
+          {/* The facts as a line to glance along, not a form to read down: each
+              one carries its own icon, and its name is there for a screen
+              reader rather than repeated to everybody else. */}
+          <ul className="flex flex-wrap gap-x-5 gap-y-2.5 text-sm text-zinc-800 dark:text-zinc-200">
+            {entry.subtitle ? (
+              <Fact icon={Scissors} label="שירות">
+                {entry.subtitle}
+              </Fact>
+            ) : null}
+            {entry.priceCents !== null ? (
+              <Fact icon={Tag} label="מחיר">
+                <span className="tabular-nums">
+                  {formatPrice(entry.priceCents)}
+                </span>
+              </Fact>
+            ) : null}
+            {entry.staffName ? (
+              <Fact icon={UserRound} label="נותן שירות">
+                {entry.staffName}
+              </Fact>
+            ) : null}
+            {phone ? (
+              <Fact icon={Phone} label="טלפון">
+                <span dir="ltr" className="tabular-nums">
+                  {phone}
+                </span>
+              </Fact>
+            ) : null}
+          </ul>
 
-              {/* Moving a cancelled or finished appointment is not a thing to
-                  offer: the action refuses it server-side, and a button that
-                  always fails is worse than no button. */}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Action
-                  tone="neutral"
-                  icon={<Pencil className="size-3.5" aria-hidden />}
-                  label="עריכת פרטים"
-                  disabled={pending}
-                  onClick={() => {
-                    setError(undefined);
-                    setMode("edit");
-                  }}
-                />
-                {open ? (
-                  <Action
-                    tone="neutral"
-                    icon={<CalendarClock className="size-3.5" aria-hidden />}
-                    label="העברת התור"
-                    disabled={pending}
-                    onClick={() => {
-                      setError(undefined);
-                      setMode("move");
-                    }}
-                  />
-                ) : null}
-              </div>
-            </>
+          {/* This booking's note only. What the shop knows about the person
+              lives on the other tab, because it is about the person. */}
+          {entry.notes?.trim() ? (
+            <div className="glass-inset mt-4 rounded-2xl px-3.5 py-3">
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+                <FileText className="size-3.5" aria-hidden />
+                הערת הלקוח לתור הזה
+              </p>
+              <p className="text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                {entry.notes}
+              </p>
+            </div>
+          ) : null}
+
+          {/* How it went — after the fact, so after the facts. Quiet on purpose:
+              these close the record, they are not what the sheet is for. The
+              same two marks the agenda's quick actions offer. */}
+          {mode === "view" && open && !awaitingApproval ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <MarkChip
+                icon={Check}
+                label="הושלם"
+                busy={pending}
+                disabled={pending}
+                onClick={() => changeStatus("completed")}
+              />
+              <MarkChip
+                icon={UserX}
+                label="לא הגיע"
+                disabled={pending}
+                onClick={() => changeStatus("no_show")}
+              />
+            </div>
           ) : null}
 
           {mode === "edit" ? (
@@ -518,9 +596,9 @@ function ClientCardPanel({
 
   if (!phone) {
     return (
-      <p className="rounded-xl bg-zinc-50 px-3 py-3 text-xs leading-relaxed text-zinc-500 dark:bg-zinc-800">
+      <p className="glass-inset rounded-2xl px-3.5 py-3 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
         לתור הזה אין מספר טלפון, והערות על לקוח נשמרות לפי מספר. אפשר להוסיף
-        מספר דרך «עריכת פרטים» בלשונית השנייה.
+        מספר דרך «עריכה» בלשונית «פרטי התור».
       </p>
     );
   }
@@ -960,32 +1038,38 @@ function PanelActions({
   );
 }
 
-function Action({
+/**
+ * A wide action — the ones an owner reaches for most, sized so a thumb cannot
+ * miss them. 48px tall, the height every primary control on the dashboard has.
+ *
+ * - `hue` carries the booking's colour as tinted glass under dark text; see
+ *   `.glass-control-hue` for why it is never a fill under white.
+ * - `approve` is the only solid fill: accepting a request is the one thing
+ *   being asked of the owner. Emerald-700, not 600 — white on emerald-600 is
+ *   3.7:1, which is under AA for this type, and the quick action this replaces
+ *   had been shipping it.
+ */
+function Pill({
+  tone,
+  icon: Icon,
+  label,
   onClick,
   disabled,
-  tone,
-  icon,
-  label,
   busy,
 }: {
+  tone: "hue" | "glass" | "approve" | "danger";
+  icon: LucideIcon;
+  label: string;
   onClick: () => void;
   disabled: boolean;
-  tone: "brand" | "red" | "neutral" | "approve";
-  icon: React.ReactNode;
-  label: string;
   busy?: boolean;
 }) {
-  // The same four tones the agenda's quick actions use, for the same reason:
-  // approving is the only thing being *asked* of the owner, so it is the only
-  // filled control.
   const tones = {
+    hue: "glass-control glass-control-hue text-zinc-950 dark:text-zinc-50",
+    glass: "glass-control text-zinc-900 dark:text-zinc-100",
     approve:
-      "border-transparent bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500",
-    brand:
-      "border-indigo-200 text-indigo-800 hover:bg-indigo-50 dark:border-indigo-900 dark:text-indigo-300 dark:hover:bg-indigo-950/40",
-    red: "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40",
-    neutral:
-      "border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800",
+      "bg-emerald-700 text-white shadow-sm transition-colors hover:bg-emerald-800 active:scale-[0.97] dark:bg-emerald-600 dark:text-emerald-950 dark:hover:bg-emerald-500",
+    danger: "glass-control text-red-700 dark:text-red-300",
   };
 
   return (
@@ -994,11 +1078,140 @@ function Action({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors disabled:opacity-60",
+        "inline-flex h-12 w-full min-w-0 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold disabled:opacity-60",
+        focusRing,
         tones[tone],
       )}
     >
-      {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : icon}
+      {busy ? (
+        <Loader2 className="size-[18px] shrink-0 animate-spin" aria-hidden />
+      ) : (
+        <Icon className="size-[18px] shrink-0" aria-hidden />
+      )}
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * A round glass control with its name beneath it — reaching the client, or
+ * letting the booking go.
+ *
+ * The whole column is the target, not just the circle: 56px of glass plus its
+ * label is comfortably past the 44px a finger needs, and the label is real text,
+ * so the control's accessible name is exactly what is on screen.
+ */
+function Bubble({
+  icon: Icon,
+  label,
+  href,
+  external,
+  onClick,
+  disabled,
+  tone = "glass",
+}: {
+  icon: LucideIcon;
+  label: string;
+  href?: string;
+  external?: boolean;
+  onClick?: () => void;
+  disabled?: boolean;
+  tone?: "glass" | "danger";
+}) {
+  const body = (
+    <>
+      <span
+        className={cn(
+          "glass-control inline-flex size-14 items-center justify-center rounded-full group-active:scale-[0.96]",
+          tone === "danger"
+            ? "text-red-600 dark:text-red-400"
+            : "text-zinc-800 dark:text-zinc-100",
+        )}
+      >
+        <Icon className="size-[22px]" aria-hidden />
+      </span>
+      <span className="text-xs font-medium whitespace-nowrap text-zinc-700 dark:text-zinc-300">
+        {label}
+      </span>
+    </>
+  );
+
+  const shell = cn(
+    "group flex min-w-16 flex-col items-center gap-1.5 rounded-2xl p-1 disabled:opacity-60",
+    focusRing,
+  );
+
+  return href ? (
+    <a
+      href={href}
+      className={shell}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    >
+      {body}
+    </a>
+  ) : (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={shell}
+    >
+      {body}
+    </button>
+  );
+}
+
+/** One fact about the booking: an icon, a value, and its name for a screen reader. */
+function Fact({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <li className="flex min-w-0 items-center gap-1.5">
+      <Icon
+        className="size-4 shrink-0 text-zinc-500 dark:text-zinc-400"
+        aria-hidden
+      />
+      <span className="sr-only">{label}: </span>
+      <span className="min-w-0 truncate">{children}</span>
+    </li>
+  );
+}
+
+/** Closing the record: how the appointment went. Quieter than every action above. */
+function MarkChip({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  busy,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  disabled: boolean;
+  busy?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "glass-control inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold text-zinc-700 disabled:opacity-60 dark:text-zinc-300",
+        focusRing,
+      )}
+    >
+      {busy ? (
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <Icon className="size-3.5" aria-hidden />
+      )}
       {label}
     </button>
   );
@@ -1008,29 +1221,39 @@ function Action({
  * A sheet on a phone, a centred dialog on a desktop — the block dialog's shape,
  * including the bottom inset, because a sheet that ends under the home indicator
  * puts its primary button somewhere a thumb cannot reach.
+ *
+ * Made of the calendar's glass: the page behind frosts rather than blacks out,
+ * so the booking that was tapped stays faintly in view, and the edge glows in
+ * that booking's colour (`hueClass`). `dvh` rather than `vh`, so a phone's
+ * collapsing toolbar cannot push the sheet's last button off the screen.
  */
 function Sheet({
   children,
   onClose,
+  hueClass,
 }: {
   children: React.ReactNode;
   onClose: () => void;
+  hueClass?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
       <button
         type="button"
         aria-label="סגירה"
         tabIndex={-1}
         onClick={onClose}
-        className="animate-fade absolute inset-0 cursor-default bg-black/40"
+        className="glass-scrim animate-frost absolute inset-0 cursor-default"
       />
 
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="appointment-dialog-title"
-        className="animate-sheet relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl sm:rounded-3xl sm:pb-5 dark:bg-zinc-900"
+        className={cn(
+          "glass-sheet animate-glass-in relative max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-3xl p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:rounded-3xl sm:p-6",
+          hueClass,
+        )}
       >
         {children}
       </div>
