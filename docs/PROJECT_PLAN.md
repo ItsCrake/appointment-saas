@@ -1402,6 +1402,62 @@ counter turns over at 03:00 Israel time in summer and 02:00 in winter, and a
 message sent in those hours on the 1st counts toward the month before. Harmless
 for monitoring; fix it to the shop's timezone before anyone bills from it.
 
+### The calendar at capacity: a load-test batch in `demo-barber` ✅
+
+**`npm run db:seed:load-test` books a demo shop solid for this week and next,
+and `npm run db:purge:load-test` takes exactly that batch out again** — a
+preview until `-- --confirm` is added. The planner is `db/load-test-plan.ts`;
+the runner and the purge are `db/seed-load-test.ts`. Run against production on
+2026-09-15.
+
+- **What went in: 148 rows, Sun 13.9 11:25 → Fri 25.9 13:45** — 126 confirmed,
+  13 pending, 9 cancelled, 132 distinct clients, 17 with a note, created via
+  online 66 / manual 73 / voice 9. Every open stretch is filled until no service
+  fits: consecutive bookings sit 0 (36 pairs), 5 (86) or 10 (29) minutes apart,
+  the only wider gaps are the 13:00–14:00 break, and Saturdays stay closed.
+  Sunday and Monday already held the full-week seed's rows and gained two each.
+- **Rows, not bookings — the opposite of `db:seed:full-week`, for the opposite
+  question.** That one books through the real actions because it tests
+  availability. This tests the calendar at a density the booking engine would
+  never produce, so it writes rows — and writing a row queues nothing:
+  confirmations, reminders and waitlist offers are put in the outbox by the
+  actions, and the cron only sends what the outbox holds. **Read back after the
+  run: 0 outbox rows for the batch, and 0 created anywhere in the 30 minutes
+  before the read-back.**
+- **The silence is checked, not assumed.** The runner refuses if
+  `appointments` has a trigger (a Supabase database webhook is one), if a
+  `pg_cron` job reads the table, or if WhatsApp dispatch is live — that last
+  because *approving* a pending row by hand does queue a real message. No email
+  is stored and marketing consent is false, so the channel walk and the
+  win-back sweep have nothing to reach.
+- **`0560` is the batch's own block.** `056` is every seed's prefix, but
+  `seed-week` numbers start at `0561`, so the purge takes these 148 and not the
+  99 older seeded rows. A second batch is refused while any `0560` row exists.
+- **A diary, not a grid.** Names drawn within one community each — Hebrew,
+  Arabic, Russian, Ethiopian-Israeli; parents booking children's cuts, sometimes
+  two back to back; regulars back after six days or more. A booking flush
+  against a neighbour is never `online`, because the booking page keeps the
+  5-minute buffer, and so never `pending` either. Every cancellation sits under
+  the booking that took its slot and was cancelled before that one was made.
+  Seeded, so the dry run and the real run placed the same fortnight.
+- **Two things this shop cannot show.** One chair, and the exclusion constraint
+  forbids two live bookings on one provider — so **no overlapping lanes**; only
+  a team makes them, and the planner fills each provider on its own for
+  `--slug=demo-nails`. And the 13 pending rows **draw as ordinary cards**: the
+  calendar paints amber only when `requiresApproval` is on, and `demo-barber`
+  has it off. Their sheet still opens with approve / reject.
+- **Measured in a browser, both weeks:** 90 and 83 cards — the database's own
+  live counts — in standard, compact and summary plus three day views, at 1440px
+  and 390px. **0 intersecting cards, minimum clearance exactly 2.0px
+  (`CARD_GAP_PX`), 0 squeezed or overflowing lines, 0 console errors.**
+- **Mon 21.9 is Yom Kippur and is booked like any Monday.** The shop has no
+  closure for it, and the planner follows posted hours and `time_off` exactly.
+- **Tested from the rows, not from the planner's arithmetic.**
+  `load-test-plan.test.ts` checks overlap, posted hours and "no bookable hole"
+  over 25 seeds each. Eight deliberate breaks of the planner were each caught;
+  the one that first survived — a cancelled row running past closing — was
+  checked on a single seed, which is why that test now runs all 25.
+
 ---
 
 ## 5. Where things stand
@@ -1410,7 +1466,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1543 tests across 103 files**; Playwright
+**Green:** `npm run verify` at **1554 tests across 104 files**; Playwright
 **11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
 safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
 drop is the one direction where code may ship first: Drizzle names an explicit
@@ -1440,20 +1496,29 @@ the ranked residual risk.
 owned by `xitaybarkay@`). Both are owned by real accounts — read the seed traps
 below before running it.
 
-> ⚠️ **The demo shops hold 124 appointments** — `demo-barber` 82, `demo-nails`
-> 42 — counted against production on 2026-09-09. This block has now been stale
-> in *both* directions: it claimed ~293 and ~124, was corrected to **zero** on
-> 2026-08-29, and that zero then outlived the full-week seed run recorded
-> below, which put 99 rows back. The numbers are the first thing a session
-> trusts, so **count them rather than reading them** — a `select count(*)`
-> grouped by slug takes a minute, and this line has been wrong more often than
-> it has been right.
+> ⚠️ **The demo shops hold 273 appointments** — `demo-barber` 231, `demo-nails`
+> 42 — counted against production on 2026-09-15. **148 of `demo-barber`'s are
+> a load-test batch that books the shop solid from Sun 13.9 to Fri 25.9.**
+> Until it is purged the public page offers nothing for those two weeks, and
+> the E2E `bookAppointment` helper fails with "No bookable slot found in the
+> next 10 days". `npm run db:purge:load-test` previews the purge; add
+> `-- --confirm` to run it. See *The calendar at capacity* above.
 >
-> Of the 124, **99 carry a `056%` phone** and came from `db:seed:full-week`;
-> the remaining 25 are `db:seed:appointments` rows and ליבי's own placeholder
-> bookings from the live voice checks. By status: **114 confirmed, 1 pending, 9
-> cancelled**. Two `demo-barber` rows read `created_via = 'voice'`, flipped by
-> hand — see the `created_via` note further down.
+> This block has now been stale in *both* directions: it claimed ~293 and ~124,
+> was corrected to **zero** on 2026-08-29, and that zero then outlived the
+> full-week seed run recorded below, which put 99 rows back. The numbers are
+> the first thing a session trusts, so **count them rather than reading them**
+> — a `select count(*)` grouped by slug takes a minute, and this line has been
+> wrong more often than it has been right.
+>
+> **Three kinds of row, told apart by phone.** `0560…` is the load-test batch
+> (148). Other `056…` numbers came from `db:seed:full-week` (99: 73 barber, 26
+> nails). The remaining 26 are `db:seed:appointments` rows, ליבי's own
+> placeholder bookings from the live voice checks, and one manual booking made
+> and cancelled by hand. Outside the batch, by status: **114 confirmed, 1
+> pending, 10 cancelled**. Two `demo-barber` rows outside it read
+> `created_via = 'voice'`, flipped by hand — see the `created_via` note further
+> down.
 >
 > Everything else is intact — services, staff, logos, galleries, reviews,
 > waitlist rows — so both booking pages work and the E2E suite still books
@@ -1547,8 +1612,10 @@ below before running it.
 > server's would differ with its region, but the round-trip *count* is the same
 > wherever it runs, which is what makes the booking flow latency-bound on
 > database proximity.
->> Undo is `delete from appointments where client_phone like '056%'`, which is
-> exactly the set this script creates and nothing else.
+>> Undo is `delete from appointments where client_phone like '056%' and
+> client_phone not like '0560%'` — every number this script creates, and not the
+> load-test batch, which has its own purge. The bare `'056%'` this line used to
+> give now takes both.
 >> **`npm run db:seed:appointments` is the other one, and it is not that one.**
 > `db:seed` *rebuilds* a demo tenant — it deletes every appointment, waitlist
 > entry, client note and outbox row before it writes. That is right when the
@@ -1621,6 +1688,7 @@ the served tier plus the reason.
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
 | **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
 | **An unlayered `box-shadow` erases every focus ring** | Tailwind v4 draws `focus-visible:ring-2` as `box-shadow` through `--tw-ring-shadow`, inside `@layer utilities`. A plain `box-shadow` in `globals.css` is unlayered, so it wins outright and the ring silently never draws. Set `--tw-shadow` / `--tw-inset-shadow` and write the five-variable composition instead — every `.glass-*` and `.cal-glass*` rule does. And give `:focus-visible` a `0s` transition, or a `box-shadow` transition fades the ring in. | `globals.css` *LIQUID GLASS* |
+| **A `Date` in a raw `sql` template throws — after everything before it committed** | Through Drizzle's postgres-js driver a `Date` parameter inside `` sql`…` `` reaches postgres.js unserialised and fails with `ERR_INVALID_ARG_TYPE` at runtime; typecheck is happy. The load-test runner's read-back hit it *after* its insert had committed, so the error read like a failed run. Query-builder comparisons (`lt(column, date)`) encode fine. In raw SQL pass `date.toISOString()` with `::timestamptz`. | `seed-load-test.ts` |
 | **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
 
@@ -2479,11 +2547,12 @@ cost time here:
 
 **No longer blocked on data.** The calendar carrying real appointments and the
 appointment dialog as a bottom sheet were parked here because both demo tenants
-were empty. They are not — **124 appointments**, counted against production and
-recorded at the top of §5 — so nothing external is in the way and these are one
-script away. The calendar half has since been seen loaded, in passing: the
-overlap fix was measured on the seeded week at 45 cards with zero spilling
-pairs. **The dialog as a bottom sheet on a phone has now been seen** — at 390px in
+were empty. They are not — counted against production and recorded at the top
+of §5 — so nothing external is in the way and these are one script away. The
+calendar half has since been seen loaded twice: the overlap fix was measured on
+the seeded week at 45 cards with zero spilling pairs, and **a fortnight at full
+capacity** at 90 and 83 cards a week with zero — see *The calendar at
+capacity*. **The dialog as a bottom sheet on a phone has now been seen** — at 390px in
 both themes, while rebuilding it as glass — and the first look found ליבי's
 microphone on top of it. See *Liquid glass* above.
 

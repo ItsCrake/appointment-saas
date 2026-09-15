@@ -25,7 +25,9 @@
     "test:e2e:ui": "playwright test --ui",
     "push:keys": "tsx src/db/generate-vapid-keys.ts",
     "db:seed:appointments": "tsx src/db/seed-demo-appointments.ts",
-    "db:seed:full-week": "tsx src/db/seed-full-week.ts"
+    "db:seed:full-week": "tsx src/db/seed-full-week.ts",
+    "db:seed:load-test": "tsx src/db/seed-load-test.ts",
+    "db:purge:load-test": "tsx src/db/seed-load-test.ts --purge"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
