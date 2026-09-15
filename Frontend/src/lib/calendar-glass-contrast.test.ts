@@ -212,27 +212,71 @@ const PAPER = hex("#fafafa"); // zinc-50, the card's text in dark mode
 /**
  * The tint percentages and base alphas from `.cal-glass` / `.cal-glass-solid`.
  * Asserted against the stylesheet below, so editing one without the other fails.
+ *
+ * `sheen` is the white light gathered along the top of a light card. It only
+ * lightens what dark text sits on, so leaving it out measures the darker —
+ * worse — surface. Dark cards carry none (`--cal-sheen: none`): measured, a 6%
+ * sheen took the amber, emerald and sky hues under AA. It stays in the model
+ * so that putting one back is a number to change here, and a failure if the
+ * ladder is not lowered to pay for it.
  */
 const GLASS = {
   light: {
-    week: { tint: 0.16, tones: [0.24, 0.32, 0.4], base: null },
+    week: { tint: 0.2, tones: [0.28, 0.36, 0.44], base: null, sheen: 0 },
     day: {
-      tint: 0.18,
-      tones: [0.26, 0.34, 0.42],
+      tint: 0.22,
+      tones: [0.3, 0.38, 0.46],
       base: { color: hex("#ffffff"), alpha: 0.9 },
+      sheen: 0,
     },
   },
   dark: {
     week: {
-      tint: 0.26,
-      tones: [0.32, 0.38, 0.44],
+      tint: 0.3,
+      tones: [0.34, 0.39, 0.44],
       base: { color: hex("#09090b"), alpha: 0.55 },
+      sheen: 0,
     },
     day: {
-      tint: 0.26,
-      tones: [0.32, 0.38, 0.44],
+      tint: 0.3,
+      tones: [0.34, 0.39, 0.44],
       base: { color: hex("#09090b"), alpha: 0.88 },
+      sheen: 0,
     },
+  },
+} as const;
+
+/**
+ * A request's warm glass: amber at the top gathering into orange at the bottom
+ * (`.cal-glass.cal-pending`). Both stops are measured, because the text on a
+ * tall card sits over both.
+ */
+const PENDING = {
+  light: [
+    { hue: "oklch(82.8% 0.189 84.429)", alpha: 0.26 },
+    { hue: "oklch(75% 0.183 55.934)", alpha: 0.3 },
+  ],
+  dark: [
+    { hue: "oklch(82.8% 0.189 84.429)", alpha: 0.22 },
+    { hue: "oklch(75% 0.183 55.934)", alpha: 0.26 },
+  ],
+} as const;
+
+/**
+ * A cancelled or no-show card (`.cal-muted`): a neutral zinc glass, and its
+ * text set in zinc-600 / zinc-400 at full strength rather than faded — the
+ * old `opacity-55` took the secondary line under AA.
+ */
+const MUTED = {
+  light: {
+    hue: "oklch(70.5% 0.015 286.067)",
+    alpha: 0.14,
+    text: hex("#52525b"),
+  },
+  dark: {
+    hue: "oklch(55.2% 0.016 285.938)",
+    alpha: 0.2,
+    text: hex("#a1a1aa"),
   },
 } as const;
 
@@ -291,11 +335,13 @@ function surface(
   view: "week" | "day",
   hue: Rgb = accentOf(name),
   tone = 0,
+  /** Overrides the tint's alpha — the request and muted fills set their own. */
+  tintAlpha?: number,
 ): Rgb {
   const { base, layers } = ground(name, mode);
   const glass = GLASS[mode][view];
   // Step 0 is the base tint; 1–3 are the collision ladder.
-  const alpha = tone === 0 ? glass.tint : glass.tones[tone - 1];
+  const alpha = tintAlpha ?? (tone === 0 ? glass.tint : glass.tones[tone - 1]);
 
   return composite(base, [
     ...layers,
@@ -303,6 +349,7 @@ function surface(
       ? [{ color: glass.base.color, alpha: glass.base.alpha }]
       : []),
     { color: hue, alpha },
+    ...(glass.sheen ? [{ color: hex("#ffffff"), alpha: glass.sheen }] : []),
   ]);
 }
 
@@ -365,23 +412,31 @@ describe("the stylesheet still says what this test assumes", () => {
   // The numbers above are a copy of the CSS. If the CSS moves and this does not,
   // the measurement silently describes a surface that no longer ships.
   it.each([
-    ["var(--cal-hue, var(--accent)) 16%", "light week tint"],
-    ["var(--cal-hue, var(--accent)) 18%", "light day tint"],
-    ["var(--cal-hue, var(--accent)) 26%", "dark tint"],
+    ["var(--cal-hue, var(--accent)) 20%", "light week tint"],
+    ["var(--cal-hue, var(--accent)) 22%", "light day tint"],
+    ["var(--cal-hue, var(--accent)) 30%", "dark tint"],
     ["rgb(255 255 255 / 0.9)", "light day base"],
     ["rgb(9 9 11 / 0.55)", "dark week base"],
     ["rgb(9 9 11 / 0.88)", "dark day base"],
+    ["--cal-sheen: none;", "no sheen in dark"],
     // The collision ladder. Listed one by one rather than derived, so that
     // changing a percentage in the stylesheet without changing the number this
     // suite measures fails here instead of silently measuring the old surface.
-    ["var(--cal-hue, var(--accent)) 24%", "light week tone 1"],
-    ["var(--cal-hue, var(--accent)) 32%", "light week tone 2"],
-    ["var(--cal-hue, var(--accent)) 40%", "light week tone 3"],
-    ["var(--cal-hue, var(--accent)) 26%", "light day tone 1"],
-    ["var(--cal-hue, var(--accent)) 34%", "light day tone 2"],
-    ["var(--cal-hue, var(--accent)) 42%", "light day tone 3"],
-    ["var(--cal-hue, var(--accent)) 38%", "dark tone 2"],
-    ["var(--cal-hue, var(--accent)) 44%", "dark tone 3"],
+    ["var(--cal-hue, var(--accent)) 28%", "light week tone 1"],
+    ["var(--cal-hue, var(--accent)) 36%", "light week tone 2"],
+    ["var(--cal-hue, var(--accent)) 44%", "light week tone 3"],
+    ["var(--cal-hue, var(--accent)) 30%", "light day tone 1"],
+    ["var(--cal-hue, var(--accent)) 38%", "light day tone 2"],
+    ["var(--cal-hue, var(--accent)) 46%", "light day tone 3"],
+    ["var(--cal-hue, var(--accent)) 34%", "dark tone 1"],
+    ["var(--cal-hue, var(--accent)) 39%", "dark tone 2"],
+    // The request's two stops, and the muted glass, in both themes.
+    ["oklch(82.8% 0.189 84.429) 26%", "light pending top"],
+    ["oklch(75% 0.183 55.934) 30%", "light pending bottom"],
+    ["oklch(82.8% 0.189 84.429) 22%", "dark pending top"],
+    ["oklch(75% 0.183 55.934) 26%", "dark pending bottom"],
+    ["oklch(70.5% 0.015 286.067) 14%", "light muted"],
+    ["oklch(55.2% 0.016 285.938) 20%", "dark muted"],
   ])("declares %s", (fragment) => {
     expect(CSS).toContain(fragment);
   });
@@ -439,6 +494,44 @@ describe("every glass surface clears AA against the text on it", () => {
     for (const view of ["week", "day"] as const) {
       it.each([...THEME_COLORS])(`${mode} ${view}: %s`, (name) => {
         assertLegible(surface(name, mode, view), mode);
+      });
+    }
+  }
+});
+
+describe("a request's warm glass clears AA at both of its stops", () => {
+  /**
+   * The one card whose fill is not the shop's or the provider's colour, and the
+   * one that most needs reading: somebody is waiting on the answer. Measured on
+   * every tenant's ground, because today's column is still the tenant's accent
+   * under an amber card.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    for (const view of ["week", "day"] as const) {
+      it.each([...THEME_COLORS])(`${mode} ${view}: %s`, (name) => {
+        for (const stop of PENDING[mode]) {
+          assertLegible(
+            surface(name, mode, view, oklch(stop.hue), 0, stop.alpha),
+            mode,
+          );
+        }
+      });
+    }
+  }
+});
+
+describe("a cancelled card is quiet without going under AA", () => {
+  /**
+   * Muted by colour rather than by opacity. Its text is zinc-600 (zinc-400 in
+   * dark) at full strength on every line, so the lowest reading on the card is
+   * the body text itself — measured here, with no 75% line to fall back on.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    for (const view of ["week", "day"] as const) {
+      it.each([...THEME_COLORS])(`${mode} ${view}: %s`, (name) => {
+        const { hue, alpha, text } = MUTED[mode];
+        const paint = surface(name, mode, view, oklch(hue), 0, alpha);
+        expect(ratio(paint, text)).toBeGreaterThanOrEqual(FLOOR);
       });
     }
   }

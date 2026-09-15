@@ -7,6 +7,7 @@ import { setAppointmentStatusAction } from "@/app/dashboard/actions";
 import { useSharedStatus } from "@/components/dashboard/appointment-status-store";
 import { useToast } from "@/components/ui/toast";
 import {
+  focusRing,
   NotesBadge,
   STATUS_LABEL,
   StatusChip,
@@ -138,28 +139,54 @@ function AgendaRow({
   return (
     <li
       className={cn(
-        "rounded-2xl border border-zinc-200 bg-white p-4 transition-opacity dark:border-zinc-800 dark:bg-zinc-900",
-        !open && "opacity-70",
+        // The appointment sheet's glass at list scale: the day and the booking
+        // it opens read as one material. A request is edged in the amber the
+        // calendar gives it, so the two screens agree about what is waiting.
+        "glass-row rounded-3xl p-4",
+        awaitingApproval && "glass-row-pending",
       )}
     >
       <div className="flex items-start gap-4">
-        <div className="shrink-0 text-center">
+        {/* The time on its own set-in capsule: it is what an owner scans down a
+            day for, so it is the first thing on the row with a shape. */}
+        <div
+          className={cn(
+            "glass-inset shrink-0 rounded-2xl px-3 py-2 text-center",
+            !open && "opacity-80",
+          )}
+        >
           {showDate ? (
-            <p className="mb-1 text-[11px] font-medium text-zinc-500">
+            <p className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
               {start.weekday} · {start.date}
             </p>
           ) : null}
-          <p className="text-lg leading-none font-bold text-zinc-900 tabular-nums dark:text-zinc-100">
+          <p
+            className={cn(
+              "text-lg leading-none font-bold text-zinc-900 tabular-nums dark:text-zinc-100",
+              status === "cancelled" && "line-through",
+            )}
+          >
             {start.time}
           </p>
-          <p className="mt-1 text-[11px] text-zinc-400 tabular-nums">
+          <p className="mt-1 text-[11px] text-zinc-600 tabular-nums dark:text-zinc-400">
             {end.time}
           </p>
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-zinc-900 dark:text-zinc-100">
+            {/* A booking that is not happening is set in zinc rather than
+                faded: the old `opacity-70` on the whole row took its secondary
+                line under AA. The chip beside it says which of the two. */}
+            <p
+              className={cn(
+                "font-semibold",
+                open
+                  ? "text-zinc-900 dark:text-zinc-100"
+                  : "text-zinc-600 dark:text-zinc-400",
+                status === "cancelled" && "line-through",
+              )}
+            >
               {appointment.clientName}
             </p>
             <StatusChip status={status} />
@@ -169,12 +196,12 @@ function AgendaRow({
             <NotesBadge notes={appointment.notes} />
           </div>
 
-          <p className="mt-0.5 truncate text-sm text-zinc-500">
+          <p className="mt-0.5 truncate text-sm text-zinc-600 dark:text-zinc-400">
             {appointment.serviceName} · {formatPrice(appointment.priceCents)}
           </p>
 
           {appointment.notes ? (
-            <p className="mt-1.5 rounded-lg bg-zinc-50 px-2.5 py-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            <p className="glass-inset mt-2 rounded-2xl px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">
               {appointment.notes}
             </p>
           ) : null}
@@ -182,7 +209,10 @@ function AgendaRow({
       </div>
 
       {error ? (
-        <p role="alert" className="mt-3 text-xs font-medium text-red-600">
+        <p
+          role="alert"
+          className="mt-3 text-xs font-medium text-red-700 dark:text-red-300"
+        >
           {error}
         </p>
       ) : null}
@@ -190,7 +220,7 @@ function AgendaRow({
       <div className="mt-3 flex flex-wrap gap-2">
         <a
           href={`tel:${appointment.clientPhone}`}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className={cn(GLASS_ACTION, "text-zinc-800 dark:text-zinc-200")}
         >
           <Phone className="size-3.5" aria-hidden />
           <span dir="ltr">{appointment.clientPhone}</span>
@@ -214,7 +244,10 @@ function AgendaRow({
             href={waHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 px-3 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+            className={cn(
+              GLASS_ACTION,
+              "text-emerald-800 dark:text-emerald-300",
+            )}
           >
             <MessageCircle className="size-3.5" aria-hidden />
             שליחת וואטסאפ
@@ -274,7 +307,7 @@ function AgendaRow({
             type="button"
             onClick={() => update("confirmed")}
             disabled={pending}
-            className="h-9 rounded-lg px-3 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-900 disabled:opacity-60 dark:hover:text-zinc-100"
+            className={cn(GLASS_ACTION, "text-zinc-700 dark:text-zinc-300")}
           >
             ביטול השינוי
           </button>
@@ -283,6 +316,16 @@ function AgendaRow({
     </li>
   );
 }
+
+/**
+ * Every action on a row is a glass pill, the sheet's own control at a smaller
+ * size, so a row of five reads as one set rather than as five bordered boxes
+ * each asking for attention. 36px tall: the thumb's floor.
+ */
+const GLASS_ACTION = cn(
+  "glass-control inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold disabled:opacity-60",
+  focusRing,
+);
 
 function QuickAction({
   onClick,
@@ -300,17 +343,17 @@ function QuickAction({
   busy?: boolean;
 }) {
   const tones = {
-    // Filled, not outlined, and the only filled control in the list. Approving
-    // is the one thing on this card that is genuinely being *asked* of the
-    // owner rather than merely offered — the same rule the nav and the plan
-    // picker follow.
-    approve:
-      "border-transparent bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500",
-    brand:
-      "border-indigo-200 text-indigo-800 hover:bg-indigo-50 dark:border-indigo-900 dark:text-indigo-300 dark:hover:bg-indigo-950/40",
-    red: "border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40",
-    neutral:
-      "border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800",
+    // Solid, not glass, and the only solid control in the list. Approving is
+    // the one thing on this card that is genuinely being *asked* of the owner
+    // rather than merely offered — the same rule the nav and the plan picker
+    // follow. emerald-700, because white on emerald-600 measures 3.7:1.
+    approve: cn(
+      "inline-flex h-9 items-center gap-1.5 rounded-full bg-emerald-700 px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:opacity-60",
+      focusRing,
+    ),
+    brand: cn(GLASS_ACTION, "text-indigo-800 dark:text-indigo-300"),
+    red: cn(GLASS_ACTION, "text-red-700 dark:text-red-300"),
+    neutral: cn(GLASS_ACTION, "text-zinc-700 dark:text-zinc-300"),
   };
 
   return (
@@ -318,10 +361,7 @@ function QuickAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={cn(
-        "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors disabled:opacity-60",
-        tones[tone],
-      )}
+      className={tones[tone]}
     >
       {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : icon}
       {label}

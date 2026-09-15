@@ -7,11 +7,13 @@ import {
   useState,
   useSyncExternalStore,
   useTransition,
+  type CSSProperties,
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CalendarPlus,
+  Check,
   ChevronLeft,
   ChevronRight,
   Columns3,
@@ -26,6 +28,7 @@ import {
   Tag,
   Trash2,
   UserRound,
+  UserX,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -39,23 +42,27 @@ import { useToast } from "@/components/ui/toast";
 import { AppointmentDialog } from "./appointment-dialog";
 import {
   assignLanes,
+  blockMinHeight,
   cardBox,
   cardHeightPx,
   cardPxForLines,
   gapsToNext,
   gridBounds,
   gridMinWidthPx,
+  hourRowPx,
   hourRows,
   lineBudget,
   MAX_CARD_LINES,
   minutesToLabel,
   placeItem,
   type CalendarItem,
+  type CardMode,
 } from "@/lib/calendar-layout";
 import {
   FOCUS_RING_MS,
   CALENDAR_DENSITIES,
   chooseDensity,
+  DAY_HEADER_ROW,
   densityServerSnapshot,
   densitySnapshot,
   DENSITY,
@@ -83,7 +90,9 @@ import {
   focusRing,
   inputClass,
   NotesBadge,
+  STATUS_LABEL,
   StatusChip,
+  type AppointmentStatusName,
 } from "./ui";
 
 const WEEKDAY_SHORT = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
@@ -159,44 +168,16 @@ export type CalendarEntry = CalendarItem & {
 };
 
 /**
- * One hour of grid, in both the rail and every day column.
- *
- * A shared constant because the two are separate elements that must agree
- * exactly: a difference of a single step shears the whole week, and the times
- * on the left stop describing the cards on the right.
- *
- * `h-24` — 96px an hour, down from `h-32`, which is a quarter of the grid's
- * height given back. A shop open 09:00–19:00 was 1280px of scroll for a week
- * an owner wanted to *scan*; it is now 960, and the difference is roughly one
- * phone screen less travel to reach the evening.
- *
- * **What that costs, stated plainly.** The number this was originally tuned
- * against is the shortest booking sold: a quarter hour is now 24px rather than
- * 32. Neither reaches the 46px floor on its own, so both already depended on it
- * — the floor is absolute and did not move. What changes is how often the
- * floor's *cap* bites, since `cardHeightPx` will not draw a card past the start
- * of the next one in its lane: two back-to-back fifteen-minute bookings now
- * have 24px each instead of 32, which is one line of type rather than two. A
- * half hour is 48px and still clears all three lines outright, which is the
- * case that actually fills these calendars.
- *
- * The day view keeps its full height. It exists to be read rather than scanned,
- * and compressing both would have removed the difference between them.
- *
- * Transcribed into `HOUR_ROW_PX` in `calendar-layout`, which the line budget is
- * arithmetic on, and `calendar-layout.test.ts` fails if the two drift apart.
+ * **One hour of grid is no longer a class.** It was `h-24` in the week and
+ * `h-40` in the day, and a quarter-hour booking back to back with another got
+ * 22px — one line, with the time and the service gone exactly when the day was
+ * busy. The hour is now `hourRowPx`, grown until the shortest booking in the
+ * loaded week holds everything its mode promises, and applied as one pixel
+ * height to the rail and to every day column alike: a difference of a single
+ * pixel between the two would shear the week, and the times on the left would
+ * stop describing the cards on the right. The overview is the exception — its
+ * hour is `SUMMARY_HOUR_ROW`, sized by the stylesheet to fit the frame.
  */
-const HOUR_ROW_WEEK = "h-24";
-
-/**
- * The day view spends its extra room vertically as well as horizontally.
- *
- * `h-40`, so a quarter-hour booking lifted to this view's taller 58px floor
- * clears three lines of the larger type it uses, and a half hour clears them
- * outright at 80 pixels. The point of the day view is that every card on it
- * reads at full size.
- */
-const HOUR_ROW_DAY = "h-40";
 
 /**
  * **The card's type, with its line-height inside the size class.**
@@ -270,7 +251,6 @@ export function WeekCalendar({
   thisWeek,
   staff,
   timezone,
-  requiresApproval,
   focusAppointmentId,
 }: {
   initialView: CalendarView;
@@ -285,16 +265,6 @@ export function WeekCalendar({
   thisWeek: string;
   staff: { id: string; name: string; color: string }[];
   timezone: string;
-  /**
-   * Whether this shop takes bookings as requests.
-   *
-   * Gates the amber pending treatment. Keyed on the setting rather than on the
-   * status alone: with approval off the product never writes `pending`, so a
-   * card in that state is stale data rather than something waiting on the
-   * owner — and lighting the calendar amber for a shop with nothing to approve
-   * teaches them to ignore the colour.
-   */
-  requiresApproval: boolean;
   /**
    * An appointment to scroll to and ring, from `?focus=` (0033).
    *
@@ -407,16 +377,43 @@ export function WeekCalendar({
   const dayView = view === "day";
   const spec = DENSITY[density];
   /**
-   * The day view has one column and nothing to compress sideways, so density
-   * does not reach it — and `summary` is the only mode that changes the row at
-   * all, because it is the only one with no text the row height has to hold.
+   * What every card on this grid shows. The day view has one column and
+   * nothing to compress sideways, so density does not reach it: it always
+   * draws full cards.
    */
-  const summaryCards = !dayView && spec.card === "block";
-  const hourRow = dayView
-    ? HOUR_ROW_DAY
-    : summaryCards
-      ? SUMMARY_HOUR_ROW
-      : HOUR_ROW_WEEK;
+  const cardMode: CardMode = dayView ? "full" : spec.card;
+  const summaryCards = cardMode === "block";
+
+  /**
+   * The shortest appointment in the **loaded week**, which the hour grows to
+   * fit — see `hourRowPx`.
+   *
+   * The week rather than the column on screen, so stepping between days in the
+   * day view keeps one scale instead of jumping with each day's shortest
+   * booking. Blocks are left out: a ten-minute break has no three lines to
+   * hold, and should not make every booking's hour taller.
+   */
+  const shortestMinutes = useMemo(() => {
+    let shortest: number | null = null;
+    for (const entry of entries) {
+      if (entry.kind !== "appointment") continue;
+      const minutes = entry.endMinutes - entry.startMinutes;
+      if (minutes > 0 && (shortest === null || minutes < shortest)) {
+        shortest = minutes;
+      }
+    }
+    return shortest;
+  }, [entries]);
+
+  const rowPx = hourRowPx(dayView ? "day" : "week", cardMode, shortestMinutes);
+
+  /**
+   * One hour of grid, as the rail and every column draw it. A pixel height
+   * everywhere but the overview, whose row the stylesheet fits to the frame.
+   */
+  const hourRow = summaryCards
+    ? { className: SUMMARY_HOUR_ROW }
+    : { style: { height: rowPx } };
 
   const focusedIndex = Math.max(
     0,
@@ -468,8 +465,11 @@ export function WeekCalendar({
       gridBounds(
         visibleEntries,
         days.flatMap((day) => day.open),
+        // The overview fits the working day to the screen, so it spends no row
+        // on the empty hour either side.
+        summaryCards ? 0 : 1,
       ),
-    [visibleEntries, days],
+    [visibleEntries, days, summaryCards],
   );
   const rows = useMemo(() => hourRows(bounds), [bounds]);
 
@@ -787,11 +787,12 @@ export function WeekCalendar({
               <div
                 key={day.date}
                 className={cn(
-                  // Tighter than it was: the pinned header is now permanently
-                  // on screen, so every pixel it takes is one the grid under it
-                  // does not get, at every scroll depth rather than only at the
-                  // top.
-                  "px-1 py-1.5 text-center",
+                  // A fixed height rather than padding around two lines of
+                  // type: the overview fits its hours into the frame by
+                  // subtracting exactly this, and a header that grew with its
+                  // font would push the day's last hour off the screen.
+                  "flex flex-col items-center justify-center px-1 text-center",
+                  DAY_HEADER_ROW,
                   day.isToday && "bg-(--accent-soft)",
                 )}
               >
@@ -814,14 +815,24 @@ export function WeekCalendar({
             ))}
           </div>
 
-          <div className="grid" style={{ gridTemplateColumns: gridTemplate }}>
+          <div
+            className="grid"
+            style={
+              {
+                gridTemplateColumns: gridTemplate,
+                // How many hours `.cal-summary-row` shares the frame between.
+                "--cal-rows": rows.length,
+              } as CSSProperties
+            }
+          >
             {/* Hour rail */}
             <div>
               {rows.map((hour) => (
                 <div
                   key={hour}
+                  style={hourRow.style}
                   className={cn(
-                    hourRow,
+                    hourRow.className,
                     "relative border-b border-zinc-100 dark:border-zinc-800/60",
                   )}
                 >
@@ -843,8 +854,9 @@ export function WeekCalendar({
                 {rows.map((hour) => (
                   <div
                     key={hour}
+                    style={hourRow.style}
                     className={cn(
-                      hourRow,
+                      hourRow.className,
                       "border-b border-zinc-100 dark:border-zinc-800/60",
                     )}
                   />
@@ -881,21 +893,25 @@ export function WeekCalendar({
                       variant={
                         entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
                       }
-                      requiresApproval={requiresApproval}
-                      card={dayView ? "full" : spec.card}
+                      card={cardMode}
                       /**
                        * Every mode's floor, capped by the room to the next card
                        * below and less the gap that keeps them apart — measured
-                       * on the grid this card is actually drawn on, which for
-                       * `summary` is a 48px hour. Capping it with the week's
-                       * 96px one let a summary card run into its neighbour.
+                       * on the grid this card is actually drawn on. In pixels on
+                       * the grown hour; as a percentage of the grid in the
+                       * overview, whose hour only the stylesheet knows.
                        */
-                      minHeightPx={cardHeightPx(
-                        entry.endMinutes - entry.startMinutes,
-                        dayView ? "day" : "week",
-                        toNext,
-                        dayView ? "full" : spec.card,
-                      )}
+                      minHeight={
+                        summaryCards
+                          ? blockMinHeight(toNext, bounds)
+                          : cardHeightPx(
+                              entry.endMinutes - entry.startMinutes,
+                              dayView ? "day" : "week",
+                              toNext,
+                              cardMode,
+                              rowPx,
+                            )
+                      }
                       onHoverChange={setHovered}
                       onOpen={(target) => {
                         // The hover card is supplementary detail about what is
@@ -983,33 +999,102 @@ function ArrowButton({
 }
 
 /**
- * The colour of a card's accent bar.
+ * The mark a booking in a non-default state carries, and what it says.
  *
- * **Staff colour wins when there is one**, because a team shop renders a staff
- * legend directly above this grid — a bar in any other colour would contradict
- * the key the owner is reading it against. `staffName`/`staffColor` are only
- * populated for a team, so a one-chair shop has no legend and the bar is free
- * to carry the thing that actually varies there: the status.
+ * ---------------------------------------------------------------------------
+ * **These replaced the coloured bar down the card's side.** The bar was the one
+ * saturated thing on a card and it carried the status, but a 4px stripe is
+ * hue alone, and hue alone never carries status in this product. Each state
+ * now gets a drawn mark with a name — an hourglass for a request, a tick for a
+ * finished booking, a crossed-out person for a no-show, a cross for a
+ * cancellation — so it reads without colour and is announced to a screen
+ * reader as the word.
  *
- * Blocks get zinc. A block is the absence of availability and must not compete
- * with a real booking for attention.
+ * White glyphs on the 600 steps: amber-500 cannot hold a white mark at the 3:1
+ * a graphic needs, amber-600 can. `confirmed` has no mark, because a mark on
+ * every ordinary booking is wallpaper.
+ * ---------------------------------------------------------------------------
  */
-function accentBar(entry: CalendarEntry): string {
-  if (entry.kind === "block") return "bg-zinc-400 dark:bg-zinc-600";
-  if (entry.staffColor) return staffSwatch(entry.staffColor).dot;
+const STATUS_MARKS: Partial<
+  Record<
+    AppointmentStatusName,
+    { Icon: LucideIcon; label: string; tone: string }
+  >
+> = {
+  pending: {
+    Icon: Hourglass,
+    label: "ממתין לאישור",
+    tone: "animate-pending bg-amber-600",
+  },
+  completed: { Icon: Check, label: "הושלם", tone: "bg-emerald-600" },
+  no_show: { Icon: UserX, label: "לא הגיע", tone: "bg-zinc-500" },
+  cancelled: { Icon: X, label: "בוטל", tone: "bg-rose-600" },
+};
 
-  switch (entry.status) {
-    case "pending":
-      return "bg-amber-500";
-    case "cancelled":
-      return "bg-rose-500";
-    case "no_show":
-      return "bg-zinc-400";
-    case "completed":
-      return "bg-emerald-500";
-    default:
-      return "bg-indigo-500";
+function StatusMark({
+  status,
+  size,
+}: {
+  status: string | null;
+  /**
+   * `dot` for the compact card, which has no width to spare for a glyph: a
+   * point of the same colour in its corner, still named for a screen reader.
+   */
+  size: "sm" | "md" | "dot";
+}) {
+  const mark = status
+    ? STATUS_MARKS[status as AppointmentStatusName]
+    : undefined;
+  if (!mark) return null;
+
+  if (size === "dot") {
+    return (
+      <span
+        role="img"
+        aria-label={mark.label}
+        className={cn(
+          "absolute end-1 top-1 size-1.5 rounded-full ring-1 ring-white/80 dark:ring-zinc-950/70",
+          mark.tone,
+        )}
+      />
+    );
   }
+
+  const { Icon } = mark;
+  return (
+    <span
+      role="img"
+      aria-label={mark.label}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full text-white shadow-sm",
+        size === "md" ? "size-4" : "size-3.5",
+        mark.tone,
+      )}
+    >
+      <Icon
+        className={size === "md" ? "size-2.5" : "size-2"}
+        strokeWidth={3}
+        aria-hidden
+      />
+    </span>
+  );
+}
+
+/** "דנה" from "דנה אזולאי" — what the compact card has room for. */
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || name;
+}
+
+/**
+ * How round a card is, by how much of itself it draws. Rounder where there is
+ * room for the curve to read as glass, tighter where the card is a sliver and
+ * a large radius would eat the corner of its own text.
+ */
+function cardRadius(dayView: boolean, card: CardMode): string {
+  if (dayView) return "rounded-2xl";
+  if (card === "full") return "rounded-xl";
+  if (card === "chip") return "rounded-lg";
+  return "rounded-md";
 }
 
 function EntryCard({
@@ -1018,69 +1103,81 @@ function EntryCard({
   dayView,
   variant,
   card,
-  requiresApproval,
-  minHeightPx,
+  minHeight,
   focused,
   onHoverChange,
   onOpen,
 }: {
   entry: CalendarEntry;
-  style: React.CSSProperties;
+  style: CSSProperties;
   /** One column instead of seven — the card can afford to be read, not scanned. */
   dayView: boolean;
   /**
    * This provider's texture index among everyone who picked the same colour.
-   * `0` — the overwhelmingly common case — is the untouched solid bar.
+   * `0` — the overwhelmingly common case — is the untouched solid dot.
    */
   variant: number;
   /**
    * How much of itself the card puts on screen — the chosen density's
    * `card` mode. See `lib/calendar-density.ts`.
    */
-  card: "full" | "chip" | "block";
-  /** See the prop of the same name on `WeekCalendar`. */
-  requiresApproval: boolean;
+  card: CardMode;
   /**
-   * The floor from `cardHeightPx`, already capped at the room before the next
-   * booking in this lane. Applied as `min-height` so it only ever lifts a card
-   * that would otherwise be too short to read.
+   * The floor, already capped at the room before the next booking in this
+   * lane: pixels from `cardHeightPx`, or the overview's CSS from
+   * `blockMinHeight`. Applied as `min-height` so it only ever lifts a card that
+   * would otherwise be too short to read.
    */
-  minHeightPx: number;
+  minHeight: number | string;
   /** Arrived here from ליבי pointing at this one. */
   focused: boolean;
   onHoverChange: (hover: HoveredEntry | null) => void;
   onOpen: (entry: CalendarEntry) => void;
 }) {
-  const cancelled = entry.status === "cancelled" || entry.status === "no_show";
-  const span = `${minutesToLabel(entry.startMinutes)}–${minutesToLabel(entry.endMinutes)}`;
+  const status = entry.kind === "appointment" ? entry.status : null;
+  /**
+   * A booking the owner has not answered yet.
+   *
+   * **Amber whether or not the shop runs "תורים באישור".** This used to be
+   * gated on the shop's flag, on the reasoning that with approval off nothing
+   * becomes `pending`. That stopped being true at 0029: a single service can
+   * require approval inside a shop that does not, and its requests were drawn
+   * as ordinary bookings — the one card on the grid waiting on the owner,
+   * indistinguishable from the rest.
+   */
+  const pending = status === "pending";
+  const cancelled = status === "cancelled";
+  /** Not happening: cancelled, or the client never came. */
+  const muted = cancelled || status === "no_show";
+
+  const start = minutesToLabel(entry.startMinutes);
+  const span = `${start}–${minutesToLabel(entry.endMinutes)}`;
+  const statusLabel =
+    status && status !== "confirmed" && status in STATUS_LABEL
+      ? STATUS_LABEL[status as AppointmentStatusName]
+      : null;
   /** What this card would say if it had room — the tooltip, and the label. */
-  const description = `${span} · ${entry.title}${entry.subtitle ? ` · ${entry.subtitle}` : ""}`;
-  /** Percentages position the card; the floor is real pixels on top of them. */
-  const boxStyle: React.CSSProperties = { ...style, minHeight: minHeightPx };
+  const description = [span, entry.title, entry.subtitle, statusLabel]
+    .filter(Boolean)
+    .join(" · ");
+  /** Percentages position the card; the floor is laid on top of them. */
+  const boxStyle: CSSProperties = { ...style, minHeight };
 
   /** What the client asked for on this booking. */
   const hasNote = Boolean(entry.notes?.trim());
   /** What the shop knows about this person, across every booking. */
   const hasClientNote = Boolean(entry.clientProfileNotes?.trim());
-  /**
-   * A booking the owner has not answered yet ("תורים באישור").
-   *
-   * Only where the shop actually takes requests. With approval off nothing can
-   * become `pending` — `createBookingAction` writes `confirmed` directly — so a
-   * card in that state is a leftover, and painting the calendar amber for a
-   * shop with nothing to approve is how an owner learns to ignore the colour.
-   */
-  const awaitingApproval = requiresApproval && entry.status === "pending";
 
   /**
    * How many of name / time / service this booking has room for — see
-   * `lineBudget`, which owns the arithmetic and is tested on its own.
+   * `lineBudget`, which owns the arithmetic and is tested on its own. The hour
+   * has already grown so every booking of ten minutes or more gets them all;
+   * the budget is what keeps a shorter one honest.
    */
-  const lines = lineBudget(
-    minHeightPx,
-    dayView ? "day" : "week",
-    card === "chip" ? "chip" : "full",
-  );
+  const lines =
+    card === "block" || typeof minHeight !== "number"
+      ? 1
+      : lineBudget(minHeight, dayView ? "day" : "week", card);
 
   /**
    * The note's text on the card, rather than only a mark saying there is one.
@@ -1093,7 +1190,16 @@ function EntryCard({
   const showNoteText =
     dayView &&
     hasNote &&
-    minHeightPx >= cardPxForLines(MAX_CARD_LINES + 1, "day");
+    typeof minHeight === "number" &&
+    minHeight >= cardPxForLines(MAX_CARD_LINES + 1, "day");
+
+  /**
+   * The secondary lines' weight. Faded on a live card, where the name leads; at
+   * full strength on a muted one, whose zinc text has no contrast to spare —
+   * `calendar-glass-contrast.test.ts` measures it with no fade.
+   */
+  const quiet = muted ? undefined : "opacity-75";
+  const row = dayView ? CARD_ROW_DAY : CARD_ROW_WEEK;
 
   const show = (event: React.MouseEvent | React.FocusEvent) => {
     onHoverChange({
@@ -1103,19 +1209,18 @@ function EntryCard({
   };
 
   const className = cn(
-    "group absolute flex overflow-hidden rounded-lg text-start",
-    "border backdrop-blur-sm transition-shadow",
+    "group absolute flex overflow-hidden text-start",
+    cardRadius(dayView, card),
+    "border backdrop-blur-sm",
     "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
-    "hover:z-10 hover:shadow-lg",
+    "hover:z-10",
     // Type scales with the room available. Seven columns cannot afford
     // more than 10px; one column can, and shrinking it there would be
     // making the view smaller than the one it replaced. The line-height rides
     // inside the size class — see `CARD_TYPE_WEEK` for why it has to.
     dayView ? CARD_TYPE_DAY : CARD_TYPE_WEEK,
     entry.kind === "block"
-      ? dayView
-        ? "bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700"
-        : "bg-zinc-100/70 text-zinc-600 border-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-300 dark:border-zinc-700"
+      ? "cal-block text-zinc-700 dark:text-zinc-300"
       : cn(
           /**
            * **Glass in the tenant's own hue, and more of it in the day view.**
@@ -1123,17 +1228,18 @@ function EntryCard({
            * `.cal-glass` mixes `var(--accent)` into a translucent fill in CSS
            * rather than here, because Tailwind cannot build a class from a
            * runtime colour and a `--cal-glass-bg` token on `:root` would bake in
-           * the fallback — see the block in `globals.css`. The percentages and
-           * their dark variants live there too.
+           * the fallback — see the block in `globals.css`. The percentages, the
+           * sheen and their dark variants live there too.
            *
            * The week view stays properly translucent so seven narrow columns do
            * not become a wall of colour and the open-hours band reads through.
            * The day view has one wide column with nothing to compete with, so it
            * spends the room on legibility instead: same hue, nearly opaque.
            */
-          dayView
-            ? "cal-glass-solid text-zinc-900 shadow-sm dark:text-zinc-50"
-            : "cal-glass text-zinc-900 dark:text-zinc-50",
+          dayView ? "cal-glass-solid" : "cal-glass",
+          muted
+            ? "text-zinc-600 dark:text-zinc-400"
+            : "text-zinc-900 dark:text-zinc-50",
           /**
            * **Whose booking this is, in the colour the legend uses.**
            *
@@ -1141,8 +1247,7 @@ function EntryCard({
            * one-chair shop keeps the tenant's accent and the grid reads as the
            * shop's own. With a team, each card takes that person's hue through
            * `--cal-hue`, which is the same swatch as their dot in the key
-           * directly above the grid. The glass is untouched: only which colour
-           * is mixed into it changes.
+           * directly above the grid.
            */
           entry.staffColor && staffSwatch(entry.staffColor).tint,
           /**
@@ -1153,12 +1258,13 @@ function EntryCard({
            */
           staffToneClass(variant),
           /**
-           * Last, so it wins the hue from the staff tint above — see
-           * `.cal-pending`. A request is not booked, and until it is answered
-           * "what has to happen" outranks "whose it is".
+           * Last, so they win the fill from the staff tint above — see
+           * `.cal-pending` and `.cal-muted`. What has to happen, or that
+           * nothing will, outranks whose booking it is.
            */
-          awaitingApproval && "cal-pending",
-          cancelled && "opacity-55",
+          pending && "cal-pending",
+          muted && "cal-muted",
+          cancelled && "cal-cancelled",
         ),
     /**
      * **The one ליבי was asked to point at.**
@@ -1173,172 +1279,168 @@ function EntryCard({
       "z-20 ring-2 ring-violet-500 ring-offset-1 ring-offset-white shadow-lg dark:ring-violet-400 dark:ring-offset-zinc-950",
   );
 
-  const body = (
+  /**
+   * The footnotes: what was written, and whether ליבי booked it.
+   *
+   * The note marks go in `full` only. A 42px column has room for a first name
+   * or for two 12px badges, not both — and a name cut to two characters to make
+   * space for a mark saying "there is more to read" has itself become the thing
+   * there is more to read.
+   *
+   * **ליבי's mark survives `compact` where the notes do not.** It answers a
+   * different question — *did that spoken sentence actually become a booking* —
+   * on the newest way into this calendar, the one an owner is still learning to
+   * trust.
+   */
+  const footnotes = (
     <>
-      {/* The bar is the only saturated thing on the card, which is what lets it
-          carry meaning at a glance across seven columns. */}
-      <span
-        aria-hidden
-        className={cn(
-          "shrink-0 rounded-s-lg",
-          /**
-           * A textured bar is widened by one step, because the texture is the
-           * information and a 4px stripe at 4px wide is a smudge. Only where
-           * there is a collision to resolve — an unshared colour keeps the
-           * narrower bar and gives the room back to the text.
-           */
-          variant ? (dayView ? "w-2" : "w-1.5") : dayView ? "w-1.5" : "w-1",
-          accentBar(entry),
-          staffVariantClass(variant),
-        )}
-      />
+      {card === "full" && hasNote ? <NoteMark kind="appointment" /> : null}
+      {card === "full" && hasClientNote ? <NoteMark kind="client" /> : null}
+      {marksTheCard(entry.origin) ? (
+        <Mic
+          className="size-3 shrink-0 text-violet-600 dark:text-violet-400"
+          aria-label="נקבע על ידי ליבי"
+        />
+      ) : null}
+    </>
+  );
 
-      {/**
+  const body =
+    card === "block" ? (
+      /**
+       * **The overview draws one thing: when.**
+       *
+       * The card's position already says roughly where in the day a booking
+       * sits; the badge is the refinement — "half past", not "about half past" —
+       * and it sits on a chip of its own glass so it reads on every tint. A
+       * finished booking adds its tick, the one status a colour could not
+       * already say. The name and the rest are one tap away.
+       */
+      <span
+        className={cn(
+          // 9px tall on a phone, flush to the card's top edge: a quarter hour
+          // there is 11px of card, and a 10px badge with a margin ran past the
+          // bottom border. From `sm` up the hour is taller and the badge
+          // gets its margin and a larger type back.
+          "cal-time-pill flex h-[9px] shrink-0 items-center gap-0.5 self-start rounded-full px-1 text-[8px]/[9px] font-semibold tabular-nums sm:m-px sm:h-3 sm:text-[9px]/[12px]",
+          cancelled && "line-through",
+        )}
+      >
+        {status === "completed" ? (
+          <Check className="size-2 shrink-0" strokeWidth={3} aria-hidden />
+        ) : null}
+        {start}
+      </span>
+    ) : (
+      /**
        * **A column, one field per line.**
        *
        * Name, then time, then service — each on its own row, each either shown
-       * whole or not shown at all. They used to share a single row on anything
-       * short, which in a ninety-pixel column arrived as `09:00 · דני · תספ…`:
-       * one ellipsis eating three fields at once. `lineBudget` decides how many
-       * of the three the booking's height can carry, so what is dropped is the
-       * least important field rather than the end of every field.
+       * whole or not shown at all. `lineBudget` decides how many the booking's
+       * height carries, and the hour has grown so that is all of them from ten
+       * minutes up; below that, what is dropped is the least important field
+       * rather than the end of every field.
        *
        * `justify-center` so a one-line card sits in the middle of its block
        * instead of clinging to the top edge.
-       *
-       * **`block` renders none of it.** In the summary mode the card is a mark
-       * of colour and the detail is one tap away — that is the mode, not a
-       * degradation of this one. Nothing is truncated to nothing; it is simply
-       * not asked for.
-       */}
-      {card === "block" ? null : (
-        <div
-          className={cn(
-            "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
-            dayView ? "px-3" : card === "chip" ? "px-1" : "px-1.5",
-            CARD_PAD[dayView ? "day" : "week"][
-              card === "chip" || lines <= 1 ? "tight" : "roomy"
-            ],
-          )}
-        >
-          <div
+       */
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
+          dayView ? "px-3" : card === "chip" ? "px-1" : "px-2",
+          CARD_PAD[dayView ? "day" : "week"][
+            card === "chip" || lines <= 1 ? "tight" : "roomy"
+          ],
+        )}
+      >
+        <div className={cn("flex shrink-0 items-center gap-1", row)}>
+          {/* Whose booking, on a team: the legend's own dot, texture and all,
+              where the side bar used to carry it. Keyed on `staffName`, which
+              the page sets only for a team — `staffColor` is set for a one-chair
+              shop too, and a dot on every card of a shop with one provider says
+              nothing. */}
+          {card === "full" && entry.staffName && entry.staffColor ? (
+            <span
+              aria-hidden
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                staffSwatch(entry.staffColor).dot,
+                staffVariantClass(variant),
+              )}
+            />
+          ) : null}
+          <span
             className={cn(
-              "flex shrink-0 items-center gap-1",
-              dayView ? CARD_ROW_DAY : CARD_ROW_WEEK,
+              "min-w-0 flex-1 truncate font-bold",
+              cancelled && "line-through",
             )}
           >
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate font-bold",
-                cancelled && "line-through",
-              )}
-            >
-              {entry.title}
-            </span>
-            {/* Ahead of the note marks: one says there is something to read, the
-                other says something is waiting on you. */}
-            {awaitingApproval ? (
-              <span
-                role="img"
-                aria-label="ממתין לאישור"
-                className={cn(
-                  "animate-pending flex shrink-0 items-center justify-center rounded-full bg-amber-500 text-white",
-                  dayView ? "size-4" : "size-3.5",
-                )}
-              >
-                <Hourglass className="size-2.5" aria-hidden />
-              </span>
-            ) : null}
-            {/**
-             * The note marks go in `compact`, and only there.
-             *
-             * A 52px column has room for a truncated name or for two 12px
-             * badges, not both — and a name cut to two characters to make space
-             * for a mark saying "there is more to read" has itself become the
-             * thing there is more to read. What is waiting on the owner stays,
-             * because that is an action rather than a footnote.
-             */}
-            {card === "full" && hasNote ? (
-              <NoteMark kind="appointment" />
-            ) : null}
-            {card === "full" && hasClientNote ? (
-              <NoteMark kind="client" />
-            ) : null}
-
-            {/**
-              * **ליבי's mark, and it survives `compact` where the notes do not.**
-              *
-              * The note marks are footnotes — there is more to read, one tap
-              * away — and a narrow column spends its width better on the name.
-              * This one answers a different question: *did that spoken sentence
-              * actually become a booking*. It is the newest way into this
-              * calendar and the one an owner is still learning to trust, so it
-              * is worth the 12px wherever the card draws text at all. `block`
-              * never reaches here — it returns above with no content to mark.
-              */}
-            {marksTheCard(entry.origin) ? (
-              <Mic
-                className="size-3 shrink-0 text-violet-600 dark:text-violet-400"
-                aria-label="נקבע על ידי ליבי"
-              />
-            ) : null}
-          </div>
-
-          {/**
-           * Three lines is the target and the floor is sized for it. Two happens
-           * only where a booking is followed immediately by another and the floor
-           * is capped to avoid drawing over it — so the service joins the time on
-           * one row rather than being dropped. Compressed, not hidden: an owner
-           * scanning a week still learns what the appointment is *for*, which is
-           * the field that would otherwise be lost exactly when the day is busy
-           * enough for it to matter.
-           *
-           * **`chip` stops at the start time.** The service name in a 52px
-           * column is three characters and an ellipsis, which reads as damage
-           * rather than as information. The time survives because it is the one
-           * field the card's own position only approximates — a block sitting
-           * between two hour lines says "about half past", and the owner
-           * checking whether they can fit somebody in needs the half.
-           */}
-          {card === "chip" ? (
-            lines >= 2 ? (
-              <span className="shrink-0 truncate tabular-nums opacity-75">
-                {minutesToLabel(entry.startMinutes)}
-              </span>
-            ) : null
-          ) : lines >= 3 ? (
-            <>
-              <span className="shrink-0 truncate tabular-nums opacity-75">
-                {span}
-              </span>
-              {entry.subtitle ? (
-                <span className="shrink-0 truncate opacity-75">
-                  {entry.subtitle}
-                </span>
-              ) : null}
-            </>
-          ) : lines === 2 ? (
-            <span className="shrink-0 truncate opacity-75">
-              <span className="tabular-nums">
-                {minutesToLabel(entry.startMinutes)}
-              </span>
-              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
-            </span>
+            {card === "chip" ? firstName(entry.title) : entry.title}
+          </span>
+          {card === "chip" && lines <= 1 ? (
+            <span className={cn("shrink-0 tabular-nums", quiet)}>{start}</span>
           ) : null}
-
-          {/* The note itself, where there is genuinely room for it: one wide
-              column and a booking long enough that a fourth line does not crowd
-              out the three above. Everywhere else the mark says *look* and the
-              dialog is where it is read. */}
-          {showNoteText ? (
-            <span className="shrink-0 truncate text-[11px]/5 opacity-70">
-              {entry.notes}
-            </span>
+          {card === "full" ? (
+            <StatusMark status={status} size={dayView ? "md" : "sm"} />
           ) : null}
         </div>
-      )}
-    </>
-  );
+
+        {/**
+         * **`chip` is a first name and a start time, on every booking.** The
+         * service in a 42px column is three characters and an ellipsis, which
+         * reads as damage rather than as information; the time survives because
+         * it is the one field the card's position only approximates.
+         */}
+        {card === "chip" ? (
+          lines >= 2 ? (
+            <div className={cn("flex shrink-0 items-center gap-0.5", row)}>
+              <span className={cn("min-w-0 truncate tabular-nums", quiet)}>
+                {start}
+              </span>
+              {footnotes}
+            </div>
+          ) : null
+        ) : lines >= 3 ? (
+          <>
+            <div className={cn("flex shrink-0 items-center gap-1", row)}>
+              <span
+                className={cn("min-w-0 flex-1 truncate tabular-nums", quiet)}
+              >
+                {span}
+              </span>
+              {footnotes}
+            </div>
+            {entry.subtitle ? (
+              <span className={cn("shrink-0 truncate", quiet)}>
+                {entry.subtitle}
+              </span>
+            ) : null}
+          </>
+        ) : lines === 2 ? (
+          // Shorter than the hour was grown for: the service joins the time
+          // rather than being dropped.
+          <div className={cn("flex shrink-0 items-center gap-1", row)}>
+            <span className={cn("min-w-0 flex-1 truncate", quiet)}>
+              <span className="tabular-nums">{start}</span>
+              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
+            </span>
+            {footnotes}
+          </div>
+        ) : null}
+
+        {/* The note itself, where there is genuinely room for it: one wide
+            column and a booking long enough that a fourth line does not crowd
+            out the three above. Everywhere else the mark says *look* and the
+            dialog is where it is read. */}
+        {showNoteText ? (
+          <span className="shrink-0 truncate text-[11px]/5 opacity-70">
+            {entry.notes}
+          </span>
+        ) : null}
+
+        {card === "chip" ? <StatusMark status={status} size="dot" /> : null}
+      </div>
+    );
 
   // A block is not an appointment and has nothing to open — it is removed from
   // the list below the grid. Rendering it as a button would announce an action
@@ -1368,13 +1470,13 @@ function EntryCard({
       id={`entry-${entry.appointmentId}`}
       aria-haspopup="dialog"
       /**
-       * **A summary block has no text, so it has no accessible name.**
+       * **The overview card shows only a time, so it needs a name.**
        *
        * `title` supplies one as a last resort, and a last resort is the wrong
        * place for the only name a control has. Given explicitly here, and only
-       * where the visible content is gone — on a card that *does* show its
-       * name, an `aria-label` would replace what a voice-control user can see
-       * and say with something longer that they cannot.
+       * where the visible content is a fragment — on a card that shows its
+       * client's name, an `aria-label` would replace what a voice-control user
+       * can see and say with something longer that they cannot.
        */
       aria-label={card === "block" ? description : undefined}
       // The native tooltip stays as the no-JavaScript, no-pointer fallback —

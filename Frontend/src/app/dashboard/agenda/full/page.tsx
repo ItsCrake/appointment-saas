@@ -17,6 +17,7 @@ import {
 } from "@/db/queries";
 import { listActiveStaff } from "@/db/queries/staff";
 import { toThemeColor } from "@/lib/branding";
+import { withoutCoveredCancellations } from "@/lib/calendar-layout";
 import { shiftDays, toDaySpans, weekOf } from "@/lib/calendar-week";
 import { appointmentOrigin } from "@/lib/appointment-origin";
 import { requireBusiness } from "@/lib/dashboard-session";
@@ -75,11 +76,18 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
   const rangeEnd = new Date(rangeStart.getTime() + 7 * 86_400_000);
 
   const [appointments, blocks, team, hours, clientNotes] = await Promise.all([
+    /**
+     * Cancelled rows too, now. A cancellation is drawn as dimmed glass while
+     * its slot is still open — it is the reason for the gap — and dropped once
+     * something else holds that time: see `withoutCoveredCancellations`, which
+     * runs over the finished entries below.
+     */
     listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
       "pending",
       "confirmed",
       "completed",
       "no_show",
+      "cancelled",
     ]),
     listTimeOffInRange(db, business.id, rangeStart, rangeEnd),
     listActiveStaff(db, business.id),
@@ -256,7 +264,7 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
           focus && /^[0-9a-f-]{36}$/i.test(focus) ? focus : undefined
         }
         days={calendarDays}
-        entries={entries}
+        entries={withoutCoveredCancellations(entries)}
         weekStart={days[0]}
         previousWeek={shiftDays(days[0], -7)}
         nextWeek={shiftDays(days[0], 7)}
@@ -267,7 +275,6 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
           color: member.color,
         }))}
         timezone={business.timezone}
-        requiresApproval={business.requiresApproval}
       />
 
       <BlockList blocks={entries.filter((entry) => entry.kind === "block")} />

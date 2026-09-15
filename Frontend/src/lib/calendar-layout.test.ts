@@ -5,6 +5,7 @@ import path from "node:path";
 
 import {
   assignLanes,
+  blockMinHeight,
   CARD_BORDER_PX,
   CARD_GAP_PX,
   CARD_LINE_PX,
@@ -12,13 +13,16 @@ import {
   cardBox,
   cardHeightPx,
   cardPxForLines,
+  FULL_CONTENT_MIN_MINUTES,
   gapsToNext,
+  hourRowPx,
   MAX_CHIP_LINES,
   MIN_BLOCK_PX,
   MIN_CHIP_PX,
   type CardMode,
   type CalendarView,
   type PlacedItem,
+  type StatusItem,
   gridBounds,
   hourRows,
   HOUR_ROW_PX,
@@ -33,6 +37,7 @@ import {
   SOLO_LANE_PX,
   placeItem,
   slotHeightPx,
+  withoutCoveredCancellations,
   type CalendarItem,
   type GridBounds,
 } from "@/lib/calendar-layout";
@@ -92,6 +97,14 @@ describe("gridBounds", () => {
 
   it("falls back to a working day when there is nothing at all", () => {
     expect(gridBounds([])).toEqual({ startHour: 8, endHour: 20 });
+  });
+
+  it("spends no row on empty hours when asked for none", () => {
+    // The overview fits the working day to the screen; the padding hours would
+    // be height taken from every card's start time.
+    expect(
+      gridBounds([], [{ startMinutes: at(9), endMinutes: at(19) }], 0),
+    ).toEqual({ startHour: 9, endHour: 19 });
   });
 });
 
@@ -435,28 +448,208 @@ describe("lineBudget", () => {
     expect(gaps.get("right")).toBeNull();
   });
 
-  it("keeps the row heights in step with the Tailwind classes", () => {
+  it("draws every row at the hour the line budget is measured on", () => {
     /**
-     * `HOUR_ROW_PX` is a transcription of the `h-*` utilities the grid actually
-     * uses, and the whole line budget is arithmetic on it. If somebody retunes
-     * the row height in the component and not here, every card silently claims
-     * room it does not have — so the two are checked against each other rather
-     * than trusted to stay in sync.
+     * The line budget is arithmetic on the hour's height, so the grid has to
+     * draw exactly that height — in the rail and in every column. It used to be
+     * a pair of `h-*` classes transcribed into `HOUR_ROW_PX`; it is now one
+     * number from `hourRowPx`, applied as a style, and the budget is handed the
+     * same number. A row drawn from anything else would put the times on the
+     * left out of step with the cards on the right.
      */
     const source = readFileSync(
       path.resolve(process.cwd(), "src/components/dashboard/week-calendar.tsx"),
       "utf8",
     );
 
-    const scale = (name: string) => {
-      const match = source.match(new RegExp(`${name} = "h-(\\d+)"`));
-      if (!match) throw new Error(`${name} is no longer a plain h-* class`);
-      // Tailwind's spacing scale is 0.25rem a step, and 1rem is 16px.
-      return Number(match[1]) * 4;
-    };
+    expect(source).toMatch(/const rowPx = hourRowPx\(/);
+    expect(source).toContain("{ style: { height: rowPx } }");
+    // The budget's card height is computed on the same grown hour.
+    expect(source).toMatch(/cardHeightPx\([^)]*\browPx,\s*\)/);
+    // And no fixed hour class survives to disagree with it.
+    expect(source).not.toMatch(/HOUR_ROW_(?:WEEK|DAY)\s*=/);
+  });
+});
 
-    expect(scale("HOUR_ROW_WEEK")).toBe(HOUR_ROW_PX.week);
-    expect(scale("HOUR_ROW_DAY")).toBe(HOUR_ROW_PX.day);
+describe("hourRowPx", () => {
+  it("grows the hour until the shortest booking holds all three lines", () => {
+    /**
+     * A quarter hour back to back used to keep one line of its three, because
+     * the floor that lifted it could not reach past the next booking's start.
+     * The hour now grows instead: 52px of card and the 2px gap in fifteen
+     * minutes is 216px an hour in the week, 304 in the day view.
+     */
+    expect(hourRowPx("week", "full", 15)).toBe(216);
+    expect(hourRowPx("day", "full", 15)).toBe(304);
+    expect(hourRowPx("week", "full", 20)).toBe(162);
+  });
+
+  it("grows the compact hour only as far as its two lines", () => {
+    // A first name and a start time: 34px of card and the gap in fifteen
+    // minutes is 144px an hour, not the 216 a full card needs.
+    expect(hourRowPx("week", "chip", 15)).toBe(144);
+  });
+
+  it("never shrinks below the base hour", () => {
+    // A shop selling only hour-long appointments keeps the grid it had.
+    expect(hourRowPx("week", "full", 60)).toBe(HOUR_ROW_PX.week);
+    expect(hourRowPx("week", "chip", 60)).toBe(HOUR_ROW_PX.week);
+    expect(hourRowPx("day", "full", 60)).toBe(HOUR_ROW_PX.day);
+    expect(hourRowPx("week", "full", null)).toBe(HOUR_ROW_PX.week);
+  });
+
+  it("stops growing at the shortest booking it promises a whole card to", () => {
+    // Five minutes would need 648px an hour. Below the promise the scale holds
+    // at ten minutes' worth and the floor and its cap take over.
+    expect(hourRowPx("week", "full", 5)).toBe(
+      hourRowPx("week", "full", FULL_CONTENT_MIN_MINUTES),
+    );
+    expect(hourRowPx("week", "full", FULL_CONTENT_MIN_MINUTES)).toBe(324);
+  });
+
+  it("leaves the overview's hour to the stylesheet", () => {
+    // The row is fitted to the frame in CSS; this is only the nominal hour the
+    // pixel fallbacks are measured on.
+    expect(hourRowPx("week", "block", 15)).toBe(HOUR_ROW_PX.summary);
+  });
+
+  it("gives every booking from ten minutes up its whole card, back to back", () => {
+    /**
+     * The promise itself, over every length and both views: the shortest
+     * booking of the week sets the hour, and a run of them back to back — the
+     * case that used to lose two lines of three — keeps all of them.
+     */
+    for (const minutes of [10, 12, 15, 20, 25, 30, 45, 60, 90]) {
+      for (const [view, card, most] of [
+        ["week", "full", MAX_CARD_LINES],
+        ["day", "full", MAX_CARD_LINES],
+        ["week", "chip", MAX_CHIP_LINES],
+      ] as const) {
+        const hour = hourRowPx(view, card, minutes);
+        const height = cardHeightPx(minutes, view, minutes, card, hour);
+        expect(
+          lineBudget(height, view, card),
+          `${view}/${card} ${minutes}m`,
+        ).toBe(most);
+      }
+    }
+  });
+});
+
+describe("blockMinHeight", () => {
+  it("lifts a lone overview card to a visible mark", () => {
+    expect(blockMinHeight(null, { startHour: 9, endHour: 19 })).toBe(
+      `${MIN_BLOCK_PX}px`,
+    );
+  });
+
+  it("caps the mark at the next card, as a share of the grid", () => {
+    // Fifteen minutes of a ten-hour grid is 2.5%. Whatever height the
+    // stylesheet gives the hour, the floor stops the gap short of that.
+    expect(blockMinHeight(15, { startHour: 9, endHour: 19 })).toBe(
+      `max(0px, min(${MIN_BLOCK_PX}px, calc(2.5% - ${CARD_GAP_PX}px)))`,
+    );
+  });
+});
+
+describe("withoutCoveredCancellations", () => {
+  const entry = (
+    id: string,
+    startMinutes: number,
+    endMinutes: number,
+    status: string,
+    {
+      staffId = "chair",
+      kind = "appointment",
+      dayIndex = 0,
+    }: {
+      staffId?: string | null;
+      kind?: "appointment" | "block";
+      dayIndex?: number;
+    } = {},
+  ): StatusItem => ({
+    id,
+    dayIndex,
+    startMinutes,
+    endMinutes,
+    status,
+    staffId,
+    kind,
+  });
+
+  const ids = (items: StatusItem[]) => items.map((item) => item.id);
+
+  it("keeps a cancellation whose slot is still open", () => {
+    // The reason for the gap at eleven, drawn where the gap is.
+    const items = [
+      entry("before", at(10), at(11), "confirmed"),
+      entry("gone", at(11), at(11, 30), "cancelled"),
+    ];
+    expect(ids(withoutCoveredCancellations(items))).toEqual(["before", "gone"]);
+  });
+
+  it("drops one the same chair has since re-booked", () => {
+    // Beside its replacement it would split the column, and every live booking
+    // in that hour would lose half its width to one that is not happening.
+    const items = [
+      entry("gone", at(11), at(11, 45), "cancelled"),
+      entry("taken", at(11), at(11, 30), "confirmed"),
+      entry("after", at(11, 30), at(12), "completed"),
+    ];
+    expect(ids(withoutCoveredCancellations(items))).toEqual(["taken", "after"]);
+  });
+
+  it("treats a finished booking and a no-show as holding the time", () => {
+    for (const status of ["completed", "no_show", "pending"]) {
+      const items = [
+        entry("gone", at(9), at(9, 30), "cancelled"),
+        entry("held", at(9, 15), at(9, 45), status),
+      ];
+      expect(ids(withoutCoveredCancellations(items))).toEqual(["held"]);
+    }
+  });
+
+  it("keeps one that only another provider's booking overlaps", () => {
+    // On a team that is two chairs busy at once, which is exactly what lanes
+    // are for.
+    const items = [
+      entry("gone", at(9), at(9, 30), "cancelled", { staffId: "dana" }),
+      entry("nir", at(9), at(9, 30), "confirmed", { staffId: "nir" }),
+    ];
+    expect(ids(withoutCoveredCancellations(items))).toEqual(["gone", "nir"]);
+  });
+
+  it("drops one under a block, and under a whole-shop block for anybody", () => {
+    const shopClosed = [
+      entry("gone", at(13), at(13, 30), "cancelled", { staffId: "dana" }),
+      entry("break", at(13), at(14), "", { kind: "block", staffId: null }),
+    ];
+    expect(ids(withoutCoveredCancellations(shopClosed))).toEqual(["break"]);
+  });
+
+  it("keeps only the first of two cancellations for the same slot", () => {
+    const items = [
+      entry("second", at(10, 15), at(10, 45), "cancelled"),
+      entry("first", at(10), at(10, 30), "cancelled"),
+    ];
+    expect(ids(withoutCoveredCancellations(items))).toEqual(["first"]);
+  });
+
+  it("never lets a booking on another day hide one", () => {
+    const items = [
+      entry("gone", at(9), at(9, 30), "cancelled", { dayIndex: 1 }),
+      entry("monday", at(9), at(9, 30), "confirmed", { dayIndex: 0 }),
+    ];
+    expect(ids(withoutCoveredCancellations(items))).toEqual(["gone", "monday"]);
+  });
+
+  it("touches nothing that is not cancelled, and keeps the order", () => {
+    const items = [
+      entry("c", at(12), at(13), "confirmed"),
+      entry("a", at(9), at(10), "pending"),
+      entry("b", at(9), at(10), "confirmed", { staffId: "other" }),
+    ];
+    expect(withoutCoveredCancellations(items)).toEqual(items);
   });
 });
 
@@ -668,31 +861,78 @@ describe("a card never touches the card below it", () => {
     return items;
   }
 
-  const FRAMES: { view: CalendarView; card: CardMode; hourPx: number }[] = [
-    { view: "week", card: "full", hourPx: HOUR_ROW_PX.week },
-    { view: "week", card: "chip", hourPx: HOUR_ROW_PX.week },
-    { view: "week", card: "block", hourPx: HOUR_ROW_PX.summary },
-    { view: "day", card: "full", hourPx: HOUR_ROW_PX.day },
+  /**
+   * The grids a card can be drawn on. The full and compact hours grow from the
+   * day's shortest booking, exactly as the component grows them from the
+   * week's; the overview's hour is the stylesheet's, so it is drawn at a phone's
+   * floor, the nominal hour and a laptop's to prove the percentage floor holds
+   * at every one of them.
+   */
+  const FRAMES: {
+    view: CalendarView;
+    card: CardMode;
+    /** A fixed hour for the overview; the grown one everywhere else. */
+    overviewHourPx?: number;
+  }[] = [
+    { view: "week", card: "full" },
+    { view: "week", card: "chip" },
+    { view: "week", card: "block", overviewHourPx: 36 },
+    { view: "week", card: "block", overviewHourPx: HOUR_ROW_PX.summary },
+    { view: "week", card: "block", overviewHourPx: 72 },
+    { view: "day", card: "full" },
   ];
+
+  /**
+   * Resolves a `min-height` the way the browser does: a number is pixels, and
+   * the overview's `max(0px, min(Npx, calc(P% - Gpx)))` is a share of the grid.
+   */
+  function minHeightPx(value: number | string, gridPx: number): number {
+    if (typeof value === "number") return value;
+    const floor = value.match(/^(\d+)px$/);
+    if (floor) return Number(floor[1]);
+    const capped = value.match(
+      /^max\(0px, min\((\d+)px, calc\(([\d.e-]+)% - (\d+)px\)\)\)$/,
+    );
+    if (!capped) throw new Error(`unreadable min-height: ${value}`);
+    return Math.max(
+      0,
+      Math.min(
+        Number(capped[1]),
+        (Number(capped[2]) / 100) * gridPx - Number(capped[3]),
+      ),
+    );
+  }
 
   /** Every card as the browser paints it, in px. */
   function draw(
     placed: PlacedItem<CalendarItem>[],
     frame: (typeof FRAMES)[number],
   ) {
-    const bounds = gridBounds(placed);
-    const gridPx = (bounds.endHour - bounds.startHour) * frame.hourPx;
+    const overview = frame.card === "block";
+    const bounds = gridBounds(placed, [], overview ? 0 : 1);
+    const shortest = Math.min(
+      ...placed.map((entry) => entry.endMinutes - entry.startMinutes),
+    );
+    const hourPx =
+      frame.overviewHourPx ?? hourRowPx(frame.view, frame.card, shortest);
+    const gridPx = (bounds.endHour - bounds.startHour) * hourPx;
     const gaps = gapsToNext(placed);
 
     return placed.map((entry) => {
       const toNext = gaps.get(entry.id) ?? null;
       const box = placeItem(entry, bounds, undefined, toNext);
       const fromPercent = Math.max(0, (box.height / 100) * gridPx - CARD_GAP_PX);
-      const minHeight = cardHeightPx(
-        entry.endMinutes - entry.startMinutes,
-        frame.view,
-        toNext,
-        frame.card,
+      const minHeight = minHeightPx(
+        overview
+          ? blockMinHeight(toNext, bounds)
+          : cardHeightPx(
+              entry.endMinutes - entry.startMinutes,
+              frame.view,
+              toNext,
+              frame.card,
+              hourPx,
+            ),
+        gridPx,
       );
       const top = (box.top / 100) * gridPx;
       return {
@@ -735,8 +975,9 @@ describe("a card never touches the card below it", () => {
             const clearance = lower.top - upper.bottom;
             if (clearance < VISIBLE_GAP_PX - 1e-6) {
               failures.push(
-                `seed ${seed} ${frame.view}/${frame.card}: ${upper.entry.id} ` +
-                  `ends ${clearance.toFixed(2)}px above ${lower.entry.id}`,
+                `seed ${seed} ${frame.view}/${frame.card}` +
+                  `${frame.overviewHourPx ? `@${frame.overviewHourPx}` : ""}: ` +
+                  `${upper.entry.id} ends ${clearance.toFixed(2)}px above ${lower.entry.id}`,
               );
             }
           }
@@ -900,7 +1141,7 @@ describe("no stylesheet rule changes a card's box", () => {
 
   /** Classes a calendar card is given by \`EntryCard\`. */
   const CARD_CLASS =
-    /\.cal-(?:glass|glass-solid|pending|staff-[\w-]+|tone-\d|dup-\d)\b/;
+    /\.cal-(?:glass|glass-solid|pending|muted|cancelled|block|staff-[\w-]+|tone-\d|dup-\d)\b/;
   const BOX =
     /(?:^|;|\{)\s*(border(?:-(?:top|bottom|block)(?:-(?:start|end))?)?-width|border(?:-(?:top|bottom|block))?\s*:|padding(?:-[\w-]+)?|(?:min-|max-)?height|box-sizing)\s*:/;
 

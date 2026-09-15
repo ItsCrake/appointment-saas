@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   CALENDAR_DENSITIES,
   chooseDensity,
+  DAY_HEADER_ROW,
   DEFAULT_DENSITY,
   densityServerSnapshot,
   densitySnapshot,
@@ -139,37 +140,62 @@ describe("what actually fits on a 390px phone", () => {
   });
 });
 
-describe("only summary changes the vertical scale", () => {
-  it("gives summary its own row and its own floor", () => {
+describe("the overview fits the day to the frame", () => {
+  const component = readFileSync(
+    path.resolve(process.cwd(), "src/components/dashboard/week-calendar.tsx"),
+    "utf8",
+  );
+  const css = readFileSync(
+    path.resolve(process.cwd(), "src/app/globals.css"),
+    "utf8",
+  );
+
+  it("sizes its hour from the same frame the scroll container is capped at", () => {
     /**
-     * The line-budget floor is arithmetic on a 96px hour. Over summary's 48px
-     * row it would draw a quarter-hour booking at roughly twice its length —
-     * a calendar overstating how full it is, in the one view whose whole job is
-     * answering that. So summary's floor is its own, and it is measured — and
-     * capped — on summary's own scale: `h-12` is the 48px `HOUR_ROW_PX` says.
+     * `.cal-summary-row` divides the frame's height by the number of hours.
+     * That only fits exactly if "the frame" is the same number in both places:
+     * the container's `max-h` and the row's `calc`, at the same breakpoint. A
+     * frame retuned in one and not the other scrolls the overview again — the
+     * failure this replaced, 47px on a 390px phone.
      */
-    expect(Number(SUMMARY_HOUR_ROW.replace("h-", "")) * 4).toBe(
-      HOUR_ROW_PX.summary,
+    expect(SUMMARY_HOUR_ROW).toBe("cal-summary-row");
+    expect(component).toContain("max-h-[68dvh] sm:max-h-[76dvh]");
+
+    // Regexes rather than offsets, so a checkout with CRLF line endings reads
+    // the same rules.
+    // The first rule is the base one; the wide screen's override follows it.
+    const base = css.match(/\.cal-summary-row \{([^}]*)\}/);
+    const wide = css.match(
+      /@media \(min-width: 40rem\) \{\s*\.cal-summary-row \{([^}]*)\}/,
     );
+    expect(base?.[1]).toContain("68dvh - 3rem - 3px");
+    expect(base?.[1]).toContain("var(--cal-rows");
+    expect(wide?.[1]).toContain("76dvh - 3rem - 3px");
+  });
+
+  it("subtracts exactly the day header the grid draws", () => {
+    // 3rem is `h-12`. A header that grew with its type would push the day's
+    // last hour below the fold.
+    expect(DAY_HEADER_ROW).toBe("h-12");
+    expect(component).toContain("DAY_HEADER_ROW");
+    // And the grid tells the stylesheet how many hours it is sharing out.
+    expect(component).toContain('"--cal-rows": rows.length');
+  });
+
+  it("keeps its pixel fallbacks on its own nominal hour", () => {
+    /**
+     * The overview's cards take their floor as a percentage — see
+     * `blockMinHeight` — but `cardHeightPx` still answers for them on the
+     * nominal hour, and never lifts a quarter hour past its own length there.
+     */
     expect(cardHeightPx(15, "week", null, "block")).toBe(
       slotHeightPx(15, "summary") - CARD_GAP_PX,
     );
     expect(cardHeightPx(1, "week", null, "block")).toBe(MIN_BLOCK_PX);
-    // A floor never reaches past the next card, on the grid it is drawn on.
     expect(cardHeightPx(1, "week", 3, "block")).toBe(
       slotHeightPx(3, "summary") - CARD_GAP_PX,
     );
-  });
-
-  it("keeps the summary row class in step with the component", () => {
-    // The same transcription hazard `HOUR_ROW_PX` has: a class named in one
-    // file and applied in another, with nothing but this to hold them together.
-    const source = readFileSync(
-      path.resolve(process.cwd(), "src/components/dashboard/week-calendar.tsx"),
-      "utf8",
-    );
-    expect(source).toContain("SUMMARY_HOUR_ROW");
-    expect(SUMMARY_HOUR_ROW).toMatch(/^h-\d+$/);
+    expect(HOUR_ROW_PX.summary).toBe(48);
   });
 });
 

@@ -1440,12 +1440,12 @@ the runner and the purge are `db/seed-load-test.ts`. Run against production on
   5-minute buffer, and so never `pending` either. Every cancellation sits under
   the booking that took its slot and was cancelled before that one was made.
   Seeded, so the dry run and the real run placed the same fortnight.
-- **Two things this shop cannot show.** One chair, and the exclusion constraint
+- **One thing this shop cannot show.** One chair, and the exclusion constraint
   forbids two live bookings on one provider — so **no overlapping lanes**; only
   a team makes them, and the planner fills each provider on its own for
-  `--slug=demo-nails`. And the 13 pending rows **draw as ordinary cards**: the
-  calendar paints amber only when `requiresApproval` is on, and `demo-barber`
-  has it off. Their sheet still opens with approve / reject.
+  `--slug=demo-nails`. (The 13 pending rows drew as ordinary cards when this
+  ran, because amber was gated on `requiresApproval`; *Liquid glass, round two*
+  removed that gate, and they are amber now.)
 - **Measured in a browser, both weeks:** 90 and 83 cards — the database's own
   live counts — in standard, compact and summary plus three day views, at 1440px
   and 390px. **0 intersecting cards, minimum clearance exactly 2.0px
@@ -1458,6 +1458,97 @@ the runner and the purge are `db/seed-load-test.ts`. Run against production on
   the one that first survived — a cancelled row running past closing — was
   checked on a single seed, which is why that test now runs all 25.
 
+### Liquid glass, round two: the dock, and a card that always says everything ✅
+
+Three briefs from Itay, built together because they meet on the same screen:
+the navigation as a connected glass dock, the calendar's cards in the same
+material with every state distinct, and each density view promising a fixed
+set of fields on **every** booking rather than on the ones tall enough.
+
+- **The dock.** On a phone the bottom bar became one floating piece of glass
+  (`.glass-dock`, `backdrop-blur-xl` as the brief named): four glass spheres
+  and the overflow as a fifth, each a little taller than the band, so they read
+  as drops joined by liquid rather than as buttons in a strip. The current tab
+  is the one solid thing — lit glass with its name and the brand gradient
+  glowing in its icon (`.glass-bubble-active`, `.glass-dock-glow`), the
+  gradient still spent only on "active". Four spheres and one pill fit 390px
+  where five labelled tabs truncated; every sphere keeps its name as
+  `aria-label`/`title`. «עוד» moved from a header bar into the dock, so that bar
+  is gone and the page gains its height. On a desktop the sidebar is the same
+  glass as a floating rail, sticky, with each icon in its own bubble.
+  `.dashboard-ambient` lays two sub-10% washes of the brand stops behind the
+  dashboard so the glass has something real to frost. «היומן» now lights up on
+  the full calendar too, which lit nothing before. Measured at 390px: dock
+  331px wide, tabs 52px, 20px clear of ליבי's microphone, no horizontal
+  overflow; toasts lifted above it.
+- **The «עוד» sheet was dock-sized in the first browser pass** — see the new
+  trap row: a `backdrop-filter` is a containing block for `fixed` children.
+  It is portalled to `document.body` now; hit-tested above the microphone in
+  both themes.
+- **Cards.** Rounder, a white sheen along the top, an edge lifted towards white,
+  a glow in the card's own hue, and a stronger tint — 20% in light (was 16),
+  30% in dark (was 26), the collision ladder 28/36/44 and 34/39/44. **The dark
+  sheen was measured out**: a 6% white sheen took the amber, emerald and sky
+  staff hues under AA on every rung, so dark cards carry none and
+  `calendar-glass-contrast.test.ts` models it at zero. The side accent bar is
+  gone: it was hue alone carrying status. A team's card shows the legend's own
+  dot, texture and all, before the name — and only on a team, keyed on
+  `staffName`, because `staffColor` is set for a one-chair shop too.
+- **Every state is its own thing, and none relies on hue.** A request is warm
+  glass, amber gathering into orange, with a breathing hourglass mark. A
+  finished booking carries a green tick; a no-show a crossed-out person; both
+  are muted zinc glass with text at full zinc-600 strength (the old
+  `opacity-55` put the secondary line under AA). A cancellation is muted,
+  dashed, struck through and marked with a cross. Marks are white glyphs on the
+  600 steps, each with a Hebrew name for a screen reader.
+- **Requests are amber whether or not the shop runs "תורים באישור".** The gate
+  on `requiresApproval` is gone: since 0029 a single service can require
+  approval inside a shop that does not, and its requests had been drawn as
+  ordinary bookings. The prop is removed from `WeekCalendar`.
+- **Cancelled bookings are on the calendar again — while their slot is open.**
+  The page now fetches them and `withoutCoveredCancellations` drops any whose
+  time the same chair has since given to a live, finished or no-show booking,
+  or a block (a whole-shop block for anybody). Drawn beside its replacement a
+  cancellation split the column into lanes and halved every live card in that
+  hour for a booking that is not happening.
+- **The full view gives every booking its name, time and service.** The hour is
+  no longer a class: `hourRowPx` grows it until the shortest appointment in the
+  loaded week holds all three lines — 216px an hour in the week and 304 in the
+  day view when a quarter hour is on screen, the base 96/160 otherwise — one
+  scale for the whole week so the rail never shears, applied as a style to the
+  rail and every column. Below ten minutes (`FULL_CONTENT_MIN_MINUTES`) the
+  scale holds and the floor with its cap takes over. **What it costs:** a
+  quarter-hour week is 2.25× as tall; the compact and overview views exist for
+  scanning.
+- **Compact shows a first name and a start time on every booking** — the hour
+  grows to fit those two lines (144px for a quarter hour) and the card shows the
+  first name only, because a surname in a 42px column is an ellipsis. Status is
+  a coloured point in the corner, still named.
+- **The overview fits the whole day on one screen and shows only start
+  times**, as a small glass badge (`.cal-time-pill`), with a tick added for a
+  finished booking. `.cal-summary-row` divides the frame's own `68dvh`/`76dvh`
+  (less the now fixed `h-12` day header) by `--cal-rows`, and the overview
+  drops the empty padding hour either side, so demo-barber's day is ten rows.
+  The old fixed `h-12` hour scrolled 47px on a phone. Because only the
+  stylesheet knows that hour, the overview's floor is a percentage of the grid
+  (`blockMinHeight`) rather than pixels.
+- **The day agenda is the same glass** — rows as `.glass-row` with a request
+  edged in amber, the time in a set-in capsule, every action a glass pill, and
+  approving the one solid control (emerald-700).
+- **Measured in a browser**, desktop 1440 and phone 390, light and dark, on the
+  load-test fortnight: 91 and 83 cards a week, **0 intersecting, 2.0px minimum
+  clearance, 0 clipped lines, 0 cards missing a field** in every view; overview
+  frame overflow **0**; every overview badge inside its card; 0 console errors.
+  Completed and no-show were seen on two load-test rows set by SQL for the pass
+  and put back to confirmed afterwards; a cancellation was seen on the week of
+  6.9, where a seeded one still holds an open slot.
+- **Tests:** the fuzz now draws every card on the grown hour and the overview at
+  36, 48 and 72px an hour through the percentage floor — 0 touching pairs
+  across 3000 days; `hourRowPx`, `blockMinHeight` and
+  `withoutCoveredCancellations` are pinned; the contrast suite measures the
+  request's two stops and the muted glass in both themes; the nav tests follow
+  the sheet into the dock.
+
 ---
 
 ## 5. Where things stand
@@ -1466,13 +1557,12 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1554 tests across 104 files**; Playwright
-**11/11** across 3 specs (not run every session). **31 of 32 migrations** are applied to production. **0031 is pending and is
-safe to leave pending** — it drops the orphaned `siri_api_token` columns, and a
-drop is the one direction where code may ship first: Drizzle names an explicit
-column list, so a column the database has and the schema does not is simply
-never selected. Fifteen tables, RLS on every one, zero
-reachable by `anon`. **No migration pending.**
+**Green:** `npm run verify` at **1627 tests across 104 files**; Playwright
+**11/11** across 3 specs (not run every session). **All 35 migrations
+(0000–0034) are applied to production**, read from `drizzle.__drizzle_migrations`
+on 2026-09-15 — including 0031, so the orphaned `siri_api_token` columns are
+gone; the "0031 is pending" this line carried was stale. Fifteen tables, RLS on
+every one, zero reachable by `anon`. **No migration pending.**
 
 > ⚠️ **The ordering rule 0025 established, for every migration after it.**
 > Every `businesses` read is a bare `.select()`, which Drizzle compiles to an
@@ -1687,6 +1777,7 @@ the served tier plus the reason.
 | **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. `screenshots.test.ts` compares the two files. | `next.config.ts`, `phone-frame.tsx` |
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
 | **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
+| **A `backdrop-filter` is a containing block for `fixed` children** | Like `transform` and `filter`, an element with a backdrop filter becomes the containing block for every `position: fixed` descendant — so `fixed inset-0` means *that element's box*. The «עוד» sheet rendered inside the frosted phone dock came out 331×48px-anchored: dock-wide, rising from the dock, its scrim covering nothing. Anything `fixed` whose trigger lives in glass goes through `createPortal(…, document.body)`. The calendar's hover card already escapes its cards (`backdrop-blur-sm`) by rendering at the root for the same reason. | `dashboard-nav.tsx` `MoreSheet` |
 | **An unlayered `box-shadow` erases every focus ring** | Tailwind v4 draws `focus-visible:ring-2` as `box-shadow` through `--tw-ring-shadow`, inside `@layer utilities`. A plain `box-shadow` in `globals.css` is unlayered, so it wins outright and the ring silently never draws. Set `--tw-shadow` / `--tw-inset-shadow` and write the five-variable composition instead — every `.glass-*` and `.cal-glass*` rule does. And give `:focus-visible` a `0s` transition, or a `box-shadow` transition fades the ring in. | `globals.css` *LIQUID GLASS* |
 | **A `Date` in a raw `sql` template throws — after everything before it committed** | Through Drizzle's postgres-js driver a `Date` parameter inside `` sql`…` `` reaches postgres.js unserialised and fails with `ERR_INVALID_ARG_TYPE` at runtime; typecheck is happy. The load-test runner's read-back hit it *after* its insert had committed, so the error read like a failed run. Query-builder comparisons (`lt(column, date)`) encode fine. In raw SQL pass `date.toISOString()` with `::timestamptz`. | `seed-load-test.ts` |
 | **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
@@ -1713,20 +1804,20 @@ optional. What follows from that:
 
 - **Full calendar** (`week-calendar.tsx`) — glass blocks in the tenant accent via
   `data-accent`; a staff hue overrides it on a team; **amber overrides both** for
-  `pending`, and only when `requiresApproval` is on. Cards stack three lines
-  (name / time / service): `lineBudget` and `MIN_CARD_PX` decide how many fit,
-  capped so a floor never draws over the next booking. `gridMinWidthPx` sizes the
-  grid from the widest lane count, so overlaps scroll rather than collapse.
-  **The week row is `h-24`** — 96px an hour, down from 128, a quarter of the
-  grid's height given back to an owner who wants to scan rather than read. The
-  cost is exact and is pinned in `calendar-layout.test.ts`, and it is larger
-  than this bullet used to claim: three lines cost **52px** once the border is
-  counted and the lines are the 14px the browser actually draws, so a half hour
-  (46px drawn) shows two — time and service sharing a row — and needs the floor
-  for the third. A quarter hour back to back shows one whole name. The earlier
-  "clears all three at 48px" was arithmetic on 12px lines that never rendered;
-  see *Cards that looked stacked* below. The day view keeps `h-40`;
-  compressing both would have removed the difference between them.
+  `pending`, whatever the shop's approval setting (0029 made per-service
+  requests possible in a shop that takes none). Cancelled bookings are drawn
+  muted while their slot is open (`withoutCoveredCancellations`); finished and
+  no-show bookings carry marks. Cards stack three lines (name / time /
+  service), and **the hour grows until the shortest booking holds all three**
+  (`hourRowPx`): 96px an hour in the week and 160 in the day at base, 216 and
+  304 when a quarter hour is on screen. Three lines cost **52px** once the
+  border is counted and the lines are the 14px the browser draws; the earlier
+  fixed `h-24` gave a quarter hour back to back one line, which is what the
+  growing hour replaced — see *Liquid glass, round two*. `lineBudget` and
+  `MIN_CARD_PX` still decide lines below ten minutes, capped so a floor never
+  draws over the next booking. `gridMinWidthPx` sizes the grid from the widest
+  lane count, so overlaps scroll rather than collapse. Compact grows to fit a
+  first name and a start time; the overview fits the day to the frame in CSS.
   **The day/date row is pinned** while the hours scroll under it — an owner
   reading an 18:00 booking on a phone had nothing on screen telling them which
   day they were looking at. That needed the scroll wrapper's height bounded;
@@ -1746,8 +1837,8 @@ optional. What follows from that:
   `createdAt` anyway. `staff-collapse.test.ts` holds the one case that
   separates them.
 - **Two providers who picked the same colour** are told apart by **two cues on
-  the same index** — `lib/staff-variants.ts`. A texture on the accent bar
-  (`cal-dup-*`, `staffVariantClass`) and a deeper step of the same tint on the
+  the same index** — `lib/staff-variants.ts`. A texture on the name dot that
+  replaced the accent bar (`cal-dup-*`, `staffVariantClass`) and a deeper step of the same tint on the
   card body (`cal-tone-*`, `staffToneClass`). The bar answers the question once
   you are looking at a card; six pixels is not enough to answer it while
   *scanning* a week, which is what the grid is for, so the surface carries it

@@ -17,6 +17,7 @@ import {
 
 import { AgendaList, type AgendaAppointment } from "./agenda-list";
 import { ManualBookingDialog } from "./manual-booking-dialog";
+import { btnPrimary, focusRing } from "./ui";
 import { dayOfMonth, weekdayLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -99,7 +100,7 @@ export function AgendaView({
             aiming a thumb between clients. Present and marked as current costs
             one segment and holds the layout still. */}
         <nav
-          className="flex items-center overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+          className="glass-inset flex items-center gap-1 rounded-full p-1"
           aria-label="ניווט בתאריכים"
         >
           {/* RTL: "previous" sits on the right, so the chevron points that way. */}
@@ -112,7 +113,8 @@ export function AgendaView({
             href="/dashboard"
             aria-current={selectedDate === today ? "date" : undefined}
             className={cn(
-              "border-x border-zinc-200 px-3 py-2 text-xs font-semibold transition-colors dark:border-zinc-800",
+              "flex h-9 items-center rounded-full px-4 text-xs font-semibold transition-colors",
+              focusRing,
               /**
                * Quiet when you are already on today, loud when you are not —
                * which is the reverse of what this used to do.
@@ -126,7 +128,7 @@ export function AgendaView({
                * this is an ordinary primary action.
                */
               selectedDate === today
-                ? "text-zinc-500 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
+                ? "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
                 : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white",
             )}
           >
@@ -143,12 +145,11 @@ export function AgendaView({
           <button
             type="button"
             onClick={() => setDialogDate(selectedDate)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-800"
+            className={cn(btnPrimary, "h-10 px-4 text-xs")}
           >
             <Plus className="size-4" aria-hidden />
             תור ידני
           </button>
-
         </div>
       </div>
 
@@ -200,9 +201,13 @@ export function AgendaView({
         </div>
 
         {dayAppointments.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-zinc-200 bg-white/50 px-4 py-8 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-            <CalendarOff className="size-5 text-zinc-300" aria-hidden />
-            <p className="text-xs text-zinc-500">אין תורים ביום זה</p>
+          <div className="glass-row flex flex-col items-center gap-2 rounded-3xl px-4 py-8 text-center">
+            <span className="glass-bubble flex size-10 items-center justify-center rounded-full">
+              <CalendarOff className="size-5 text-zinc-500" aria-hidden />
+            </span>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              אין תורים ביום זה
+            </p>
 
             {/*
               Without this an owner whose bookings are all days away sees
@@ -267,7 +272,10 @@ function ArrowLink({
     <Link
       href={href}
       aria-label={label}
-      className="p-2.5 text-zinc-600 transition-colors hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      className={cn(
+        "glass-control flex size-9 items-center justify-center rounded-full text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50",
+        focusRing,
+      )}
     >
       <NavIcon>{icon}</NavIcon>
     </Link>

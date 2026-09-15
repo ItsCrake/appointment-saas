@@ -94,12 +94,19 @@ describe("mobile navigation coverage", () => {
   });
 
   it("renders the overflow behind a control that is visible on mobile", () => {
-    // The sidebar holding the rest is `md:block`. The sheet must therefore live
-    // in a container that is *not* hidden below `md`, or the overflow is as
-    // unreachable as it was before.
-    const mobileBar = source.match(
-      /<div className="[^"]*md:hidden[^"]*">\s*<MoreSheet/,
+    // The rail holding the rest is `md:block`. The sheet must therefore live
+    // inside the phone's dock — a container that is *not* hidden below `md` —
+    // or the overflow is as unreachable as it was before.
+    const docks = [...source.matchAll(/<nav\b[\s\S]*?<\/nav>/g)].map(
+      (match) => match[0],
     );
-    expect(mobileBar).not.toBeNull();
+    const phoneDock = docks.find((nav) =>
+      /className="[^"]*\bmd:hidden\b[^"]*"/.test(nav),
+    );
+
+    expect(phoneDock).toBeDefined();
+    expect(phoneDock).toContain("<MoreSheet");
+    // And the dock carries the four destinations the sheet does not.
+    expect(phoneDock).toContain("MOBILE_LINKS.map");
   });
 });

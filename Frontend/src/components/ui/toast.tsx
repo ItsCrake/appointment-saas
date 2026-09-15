@@ -112,7 +112,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         // aria-live so screen readers announce actions that have no visual focus.
         aria-live="polite"
         aria-atomic="false"
-        className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex flex-col items-center gap-2 px-4 md:bottom-6"
+        // Above the phone's floating dock, which sits on the home indicator's
+        // inset: a fixed 5rem cleared it on a phone with no inset and landed a
+        // toast on the dock's upper edge on one that has one.
+        className="pointer-events-none fixed inset-x-0 bottom-[calc(5.5rem_+_env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-2 px-4 md:bottom-6"
       >
         {toasts.map((item) => (
           <ToastItem key={item.id} toast={item} onDismiss={dismiss} />

@@ -30,10 +30,13 @@ export const FOCUS_RING_MS = 8000;
  * the note on `WeekCalendar`); deriving the mode from `matchMedia` would put a
  * resize listener into the one component built to avoid them.
  *
- * The vertical scale is left alone except in `summary`, which is the only mode
- * with no text to fit. Everywhere else the row height is what `lineBudget` does
- * its arithmetic on, and re-deriving that per density would fork the one piece
- * of this grid that is genuinely subtle.
+ * **Each mode also sets its own vertical scale, and says what every card
+ * shows.** `standard` grows the hour until the shortest booking holds all three
+ * lines; `compact` until it holds a first name and a start time; `summary` fits
+ * the whole day into the frame and puts only a start time on each card. The
+ * arithmetic for the first two is `hourRowPx` in `calendar-layout`; the third
+ * is `.cal-summary-row` in the stylesheet, because "the frame" is a viewport
+ * height and this grid measures nothing at runtime.
  * ---------------------------------------------------------------------------
  */
 
@@ -51,15 +54,29 @@ export const DEFAULT_DENSITY: CalendarDensity = "standard";
 export const DENSITY_STORAGE_KEY = "bazman.calendar-density";
 
 /**
- * The hour row `summary` uses instead of the week's own.
+ * The hour row `summary` uses instead of a pixel height.
  *
- * Half height, and it costs nothing to read because there is nothing to read: a
- * summary card carries no text, so the floor that exists to fit three lines
- * does not apply and every position on this grid is a percentage anyway.
- * Transcribed in `calendar-density.test.ts` against the component, exactly as
- * `HOUR_ROW_PX` is.
+ * ---------------------------------------------------------------------------
+ * **Sized to the frame, so the whole day is one screen.** It was a fixed
+ * `h-12`, which fit a laptop and not a phone: twelve 48px hours under the day
+ * header came to 621px inside a 574px frame, and the overview scrolled. The
+ * rule in `globals.css` divides the frame's own height — the same `68dvh` /
+ * `76dvh` the scroll container is capped at, less the fixed day header — by the
+ * number of rows, which the grid passes in as `--cal-rows`.
+ *
+ * A floor of 2.25rem an hour stops a shop open from dawn to midnight becoming
+ * slivers; past that the overview scrolls, which is the honest answer.
+ * ---------------------------------------------------------------------------
  */
-export const SUMMARY_HOUR_ROW = "h-12";
+export const SUMMARY_HOUR_ROW = "cal-summary-row";
+
+/**
+ * The pinned day header's height, which `.cal-summary-row` subtracts.
+ *
+ * Fixed in every mode, not only the overview, so the header never changes size
+ * as the owner switches between them.
+ */
+export const DAY_HEADER_ROW = "h-12";
 
 export type DensitySpec = {
   /**
@@ -70,15 +87,14 @@ export type DensitySpec = {
   /**
    * What a card puts inside itself.
    *
-   * - `full` — the three stacked lines, as the grid has always drawn them.
-   * - `chip` — the client's name truncated to whatever the column holds, with
-   *   the start time on a second line where the booking is tall enough for one.
-   *   The name leads because the card's *position* already says roughly when —
-   *   the time is the refinement, not the headline. Nothing falls back to an
-   *   initial: how many characters fit is a width question, and this grid
-   *   deliberately measures nothing at runtime, so the ellipsis does that job.
-   * - `block` — nothing. The card is a coloured block and the detail lives one
-   *   tap away, which is the entire point of the mode.
+   * - `full` — name, time span and service, on every booking: the hour grows
+   *   until the shortest one holds all three.
+   * - `chip` — the client's **first** name and the start time, on every
+   *   booking. A surname in a 42px column is an ellipsis; the first name is the
+   *   part an owner scans for, and the hour grows until both lines fit.
+   * - `block` — the start time and nothing else, as a small badge. The card is
+   *   a mark of colour and the detail lives one tap away, which is the point of
+   *   the mode; the time is what the mark's position only approximates.
    */
   card: "full" | "chip" | "block";
   /** Hebrew label for the switcher. */
@@ -89,10 +105,10 @@ export type DensitySpec = {
 
 export const DENSITY: Record<CalendarDensity, DensitySpec> = {
   /**
-   * Unchanged, deliberately. Whatever else this feature does, the view an owner
-   * already knows has to still be there — a density switcher whose first option
-   * is subtly different from yesterday is a regression wearing a feature's
-   * clothes.
+   * The default, and the widest. Its lane is unchanged — the view an owner
+   * already knows keeps its columns — and what it gained is height: every
+   * booking now shows all three lines, because the hour grows to fit the
+   * shortest one rather than the floor being capped by its neighbour.
    */
   standard: {
     lanePx: 144,
@@ -115,7 +131,7 @@ export const DENSITY: Record<CalendarDensity, DensitySpec> = {
     lanePx: 42,
     card: "chip",
     label: "צפוף",
-    hint: "תצוגה צפופה — כל השבוע במסך אחד",
+    hint: "תצוגה צפופה — כל השבוע ברוחב המסך, שם פרטי ושעה",
   },
   /**
    * 20px a lane, so even a **seven**-day week with two providers overlapping is
@@ -139,7 +155,7 @@ export const DENSITY: Record<CalendarDensity, DensitySpec> = {
     lanePx: 20,
     card: "block",
     label: "סיכום",
-    hint: "תצוגת סיכום — עומס השבוע בצבע, בלי טקסט",
+    hint: "תצוגת סיכום — כל השבוע במסך אחד, שעת התחלה בלבד",
   },
 };
 

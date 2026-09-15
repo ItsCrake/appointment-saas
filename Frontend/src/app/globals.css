@@ -524,29 +524,38 @@ body {
 --------------------------------------------------------------------------- */
 .cal-glass {
   /* No base at all in the week view: the open-hours band and today's tint have
-     to read through, or "glass" is just paint. 16% is low enough that zinc-900
-     body text keeps a wide margin over AA on every swatch and every staff hue. */
+     to read through, or "glass" is just paint. 20% is the strongest the hue can
+     be mixed while zinc-900 body text — and its 75% secondary line — keeps AA on
+     every swatch and every staff hue; `calendar-glass-contrast.test.ts` holds it
+     there. */
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 16%,
+    var(--cal-hue, var(--accent)) 20%,
     transparent
+  );
+  /* The sheen is what makes it glass rather than a pastel: light gathered along
+     the top of the card and gone by its middle. Painted over the tint, and white,
+     so in light mode it only ever lightens what dark text sits on — the contrast
+     suite measures the card without it, which is the darker case. */
+  --cal-sheen: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.4),
+    rgb(255 255 255 / 0) 55%
   );
   background-color: transparent;
-  background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
-  border-color: color-mix(
-    in oklch,
-    var(--cal-hue, var(--accent)) 34%,
-    transparent
-  );
-  /* Liquid glass: a lit top edge and a soft shadow in the card's own hue.
-     Light and depth only — the fill is untouched, so every surface the contrast
-     suite measures is still the surface that ships. Through Tailwind's shadow
-     variables, never a bare box-shadow: see LIQUID GLASS below for why. */
-  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6);
+  background-image:
+    var(--cal-sheen), linear-gradient(var(--cal-tint), var(--cal-tint));
+  /* A glowing edge: the hue lifted towards white rather than towards clear, so
+     the border reads as lit glass instead of as a darker outline. */
+  border-color: color-mix(in oklch, var(--cal-hue, var(--accent)) 44%, white);
+  /* Liquid glass: a lit top edge and a soft shadow in the card's own hue, offset
+     downwards so it reads as the card standing on the grid. Through Tailwind's
+     shadow variables, never a bare box-shadow: see LIQUID GLASS below for why. */
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8);
   --tw-shadow:
     0 1px 2px rgb(9 9 11 / 0.05),
-    0 6px 16px -10px
-      color-mix(in oklch, var(--cal-hue, var(--accent)) 70%, transparent);
+    0 8px 18px -10px
+      color-mix(in oklch, var(--cal-hue, var(--accent)) 75%, transparent);
   box-shadow:
     var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
     var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
@@ -657,42 +666,42 @@ body {
 .cal-glass.cal-tone-1 {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 24%,
+    var(--cal-hue, var(--accent)) 28%,
     transparent
   );
 }
 .cal-glass.cal-tone-2 {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 32%,
+    var(--cal-hue, var(--accent)) 36%,
     transparent
   );
 }
 .cal-glass.cal-tone-3 {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 40%,
+    var(--cal-hue, var(--accent)) 44%,
     transparent
   );
 }
 .cal-glass-solid.cal-tone-1 {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 26%,
+    var(--cal-hue, var(--accent)) 30%,
     transparent
   );
 }
 .cal-glass-solid.cal-tone-2 {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 34%,
+    var(--cal-hue, var(--accent)) 38%,
     transparent
   );
 }
 .cal-glass-solid.cal-tone-3 {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 42%,
+    var(--cal-hue, var(--accent)) 46%,
     transparent
   );
 }
@@ -704,21 +713,23 @@ body {
 .cal-glass-solid {
   --cal-tint: color-mix(
     in oklch,
-    var(--cal-hue, var(--accent)) 18%,
+    var(--cal-hue, var(--accent)) 22%,
     transparent
+  );
+  --cal-sheen: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.5),
+    rgb(255 255 255 / 0) 50%
   );
   background-color: rgb(255 255 255 / 0.9);
-  background-image: linear-gradient(var(--cal-tint), var(--cal-tint));
-  border-color: color-mix(
-    in oklch,
-    var(--cal-hue, var(--accent)) 34%,
-    transparent
-  );
-  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85);
+  background-image:
+    var(--cal-sheen), linear-gradient(var(--cal-tint), var(--cal-tint));
+  border-color: color-mix(in oklch, var(--cal-hue, var(--accent)) 44%, white);
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9);
   --tw-shadow:
     0 1px 2px rgb(9 9 11 / 0.06),
-    0 10px 24px -14px
-      color-mix(in oklch, var(--cal-hue, var(--accent)) 65%, transparent);
+    0 12px 26px -14px
+      color-mix(in oklch, var(--cal-hue, var(--accent)) 70%, transparent);
   box-shadow:
     var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
     var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
@@ -733,61 +744,64 @@ body {
    calendar whose cards jump under the pointer is harder to read, not nicer.
    Pending is left out: its amber edge is a signal, not a resting state. */
 @media (hover: hover) {
-  .cal-glass:not(.cal-pending):hover,
-  .cal-glass-solid:not(.cal-pending):hover {
-    border-color: color-mix(
-      in oklch,
-      var(--cal-hue, var(--accent)) 62%,
-      transparent
-    );
+  .cal-glass:not(.cal-pending, .cal-muted):hover,
+  .cal-glass-solid:not(.cal-pending, .cal-muted):hover {
+    border-color: color-mix(in oklch, var(--cal-hue, var(--accent)) 70%, white);
     --tw-shadow:
       0 2px 4px rgb(9 9 11 / 0.06),
-      0 14px 28px -14px
-        color-mix(in oklch, var(--cal-hue, var(--accent)) 85%, transparent);
+      0 16px 30px -14px
+        color-mix(in oklch, var(--cal-hue, var(--accent)) 90%, transparent);
   }
 }
 
 @media (prefers-color-scheme: dark) {
-  /* An ink base under the tint, rather than a stronger tint on nothing. 26% of a
+  /* An ink base under the tint, rather than a stronger tint on nothing. A
      mid-chroma accent floating on a near-black page reads as a glowing sliver
      instead of a surface — the same reason `--accent-soft` inverts to a deep
-     tone rather than merely dimming. */
+     tone rather than merely dimming.
+
+     **No sheen in dark.** White laid over a dark card moves it towards the light
+     text on it: measured, a 6% sheen cost the amber, emerald and sky staff hues
+     their AA margin at every step of the ladder. The lit top edge carries the
+     glass here instead. */
   .cal-glass {
     --cal-tint: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 26%,
+      var(--cal-hue, var(--accent)) 30%,
       transparent
     );
+    --cal-sheen: none;
     background-color: rgb(9 9 11 / 0.55);
     border-color: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 46%,
+      var(--cal-hue, var(--accent)) 58%,
       transparent
     );
-    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
     --tw-shadow:
       0 1px 2px rgb(0 0 0 / 0.35),
-      0 8px 20px -12px
-        color-mix(in oklch, var(--cal-hue, var(--accent)) 50%, transparent);
+      0 10px 24px -12px
+        color-mix(in oklch, var(--cal-hue, var(--accent)) 60%, transparent);
   }
 
   .cal-glass-solid {
     --cal-tint: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 26%,
+      var(--cal-hue, var(--accent)) 30%,
       transparent
     );
+    --cal-sheen: none;
     background-color: rgb(9 9 11 / 0.88);
     border-color: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 46%,
+      var(--cal-hue, var(--accent)) 58%,
       transparent
     );
-    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
     --tw-shadow:
       0 1px 2px rgb(0 0 0 / 0.4),
-      0 12px 28px -14px
-        color-mix(in oklch, var(--cal-hue, var(--accent)) 45%, transparent);
+      0 14px 30px -14px
+        color-mix(in oklch, var(--cal-hue, var(--accent)) 55%, transparent);
   }
 
   /* The ladder in dark, and it climbs more gently than the light one.
@@ -798,14 +812,14 @@ body {
   .cal-glass.cal-tone-1 {
     --cal-tint: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 32%,
+      var(--cal-hue, var(--accent)) 34%,
       transparent
     );
   }
   .cal-glass.cal-tone-2 {
     --cal-tint: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 38%,
+      var(--cal-hue, var(--accent)) 39%,
       transparent
     );
   }
@@ -819,14 +833,14 @@ body {
   .cal-glass-solid.cal-tone-1 {
     --cal-tint: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 32%,
+      var(--cal-hue, var(--accent)) 34%,
       transparent
     );
   }
   .cal-glass-solid.cal-tone-2 {
     --cal-tint: color-mix(
       in oklch,
-      var(--cal-hue, var(--accent)) 38%,
+      var(--cal-hue, var(--accent)) 39%,
       transparent
     );
   }
@@ -919,10 +933,142 @@ body {
     inset 0 2px 0 rgb(255 255 255 / 0.45);
 }
 
+/* **Warm, and warmer towards the bottom.** A request is the one card on the
+   grid that is waiting on the owner, so its glass is amber gathering into
+   orange rather than one flat tint — findable across a full week without a
+   second colour meaning anything else. Compound selectors, so it wins the fill
+   from `.cal-tone-*` as well as from the base: a request outranks whose it is.
+   Both stops are measured by `calendar-glass-contrast.test.ts`. */
+.cal-glass.cal-pending,
+.cal-glass-solid.cal-pending {
+  background-image:
+    var(--cal-sheen),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, oklch(82.8% 0.189 84.429) 26%, transparent),
+      color-mix(in oklch, oklch(75% 0.183 55.934) 30%, transparent)
+    );
+}
+
 @media (prefers-color-scheme: dark) {
   .cal-pending {
     border-color: oklch(76.9% 0.188 70.08);
     --tw-inset-shadow: inset 0 0 0 1px oklch(76.9% 0.188 70.08);
+  }
+
+  .cal-glass.cal-pending,
+  .cal-glass-solid.cal-pending {
+    background-image:
+      var(--cal-sheen),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklch, oklch(82.8% 0.189 84.429) 22%, transparent),
+        color-mix(in oklch, oklch(75% 0.183 55.934) 26%, transparent)
+      );
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   CANCELLED AND NO-SHOW — a booking that is not happening.
+
+   **Muted glass, not a faded card.** The old treatment was `opacity: 0.55` on
+   the whole card, which dimmed the text along with everything else and took
+   the secondary line under AA. This takes the colour away instead — a neutral
+   zinc glass with a flat edge and no glow — and the component sets its text in
+   zinc-600 at full strength, so the card reads as quiet and stays legible.
+
+   **A cancellation is dashed as well.** Hue alone never carries status here: a
+   dashed edge is the conventional "this slot is not held", the name is struck
+   through, and the card carries a mark saying which of the two it is.
+--------------------------------------------------------------------------- */
+.cal-glass.cal-muted,
+.cal-glass-solid.cal-muted {
+  --cal-hue: oklch(70.5% 0.015 286.067); /* zinc-400 */
+  background-image:
+    var(--cal-sheen),
+    linear-gradient(
+      color-mix(in oklch, oklch(70.5% 0.015 286.067) 14%, transparent),
+      color-mix(in oklch, oklch(70.5% 0.015 286.067) 14%, transparent)
+    );
+  border-color: rgb(9 9 11 / 0.18);
+  --tw-shadow: 0 1px 2px rgb(9 9 11 / 0.04);
+}
+
+.cal-cancelled {
+  border-style: dashed;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cal-glass.cal-muted,
+  .cal-glass-solid.cal-muted {
+    background-image:
+      var(--cal-sheen),
+      linear-gradient(
+        color-mix(in oklch, oklch(55.2% 0.016 285.938) 20%, transparent),
+        color-mix(in oklch, oklch(55.2% 0.016 285.938) 20%, transparent)
+      );
+    border-color: rgb(255 255 255 / 0.2);
+    --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+}
+
+/* A block of time off — the absence of availability, not a booking. Hatched
+   glass, so it can never be mistaken for one at a glance, and neutral so it
+   never competes with a real booking for attention. */
+.cal-block {
+  background-color: rgb(244 244 245 / 0.78);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(9 9 11 / 0.045) 0 6px,
+    transparent 6px 12px
+  );
+  border-color: rgb(9 9 11 / 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cal-block {
+    background-color: rgb(39 39 42 / 0.62);
+    background-image: repeating-linear-gradient(
+      135deg,
+      rgb(255 255 255 / 0.05) 0 6px,
+      transparent 6px 12px
+    );
+    border-color: rgb(255 255 255 / 0.12);
+  }
+}
+
+/* The overview's hour: the frame's own height, less the pinned day header
+   (3rem) and the frame's two borders, shared between however many hours the
+   day has — `--cal-rows`, set by the grid. The same `68dvh` / `76dvh` the
+   scroll container is capped at, at the same `sm` breakpoint, so the day fits
+   exactly. See `SUMMARY_HOUR_ROW` for the floor. */
+.cal-summary-row {
+  height: max(2.25rem, calc((68dvh - 3rem - 3px) / var(--cal-rows, 12)));
+}
+
+@media (min-width: 40rem) {
+  .cal-summary-row {
+    height: max(2.25rem, calc((76dvh - 3rem - 3px) / var(--cal-rows, 12)));
+  }
+}
+
+/* The overview card's only content: its start time, on a chip of its own
+   glass so it reads on every tint without depending on it. */
+.cal-time-pill {
+  background-color: rgb(255 255 255 / 0.78);
+  color: rgb(24 24 27);
+  --tw-inset-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.9);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cal-time-pill {
+    background-color: rgb(9 9 11 / 0.62);
+    color: rgb(250 250 250);
+    --tw-inset-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
   }
 }
 
@@ -1288,6 +1434,250 @@ body {
 @media (min-width: 40rem) {
   .animate-glass-in {
     animation: glass-dialog-in 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   THE DOCK — the dashboard's navigation, as one connected piece of glass.
+
+   **Bubbles on a band.** On a phone the tabs are glass spheres a little taller
+   than the band they sit on, so each one bulges out of it the way a drop sits
+   on a surface, and the band between them reads as the liquid joining them.
+   The current tab is the one solid thing in it: lit glass, nearly opaque, with
+   the brand gradient glowing underneath — `/` spends that gradient on "active",
+   and so does this.
+
+   **Frost at 24px — `backdrop-blur-xl`, the value the brief named.** Here the
+   blur is the point rather than a finish: the dock floats over a page that
+   scrolls beneath it, so what passes behind is diffused into the glass instead
+   of cutting across the tabs.
+
+   Light and depth through Tailwind's shadow variables, like every rule in
+   LIQUID GLASS, so a keyboard focus ring still draws on every tab.
+--------------------------------------------------------------------------- */
+.glass-dock {
+  background-color: rgb(255 255 255 / 0.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid rgb(255 255 255 / 0.75);
+  --tw-inset-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -1px 0 rgb(9 9 11 / 0.04);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.06), 0 20px 44px -20px rgb(9 9 11 / 0.35);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* A tab that is not the current one: a small sphere of the same glass. */
+.glass-bubble {
+  background-color: rgb(255 255 255 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.85);
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255);
+  --tw-shadow: 0 1px 2px rgb(9 9 11 / 0.05), 0 6px 14px -8px rgb(9 9 11 / 0.28);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+  transition:
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) {
+  .glass-bubble:hover {
+    background-color: rgb(255 255 255 / 0.9);
+  }
+}
+
+.glass-bubble:active {
+  transform: scale(0.94);
+}
+
+/* The current tab. Opaque enough that its label is on paper rather than on
+   whatever scrolled beneath, and lit from below in the brand's two stops. */
+.glass-bubble-active {
+  background-color: rgb(255 255 255 / 0.97);
+  border: 1px solid rgb(255 255 255);
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.08),
+    0 12px 26px -12px color-mix(in oklab, var(--brand-from) 75%, transparent),
+    0 8px 20px -14px color-mix(in oklab, var(--brand-to) 70%, transparent);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* The glowing mark inside the current tab: the one gradient in the dock. */
+.glass-dock-glow {
+  background-image: var(--brand-gradient);
+  --tw-shadow: 0 4px 12px -2px
+    color-mix(in oklab, var(--brand-from) 60%, transparent);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+.glass-bubble:focus-visible,
+.glass-bubble-active:focus-visible {
+  transition-duration: 0s;
+}
+
+/* One row of the day's agenda: the sheet's glass at list scale, so the day and
+   the booking it opens read as the same material. */
+.glass-row {
+  background-color: rgb(255 255 255 / 0.74);
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+  backdrop-filter: blur(12px) saturate(1.5);
+  border: 1px solid rgb(255 255 255 / 0.8);
+  --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.04), 0 14px 32px -20px rgb(9 9 11 / 0.22);
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow, 0 0 #0000);
+}
+
+/* A request in the agenda, edged in the amber the calendar gives it. */
+.glass-row-pending {
+  --tw-inset-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    inset 0 0 0 1px oklch(76.9% 0.188 70.08 / 0.7);
+  --tw-shadow:
+    0 1px 2px rgb(9 9 11 / 0.04),
+    0 14px 32px -18px oklch(76.9% 0.188 70.08 / 0.55);
+}
+
+/* ---------------------------------------------------------------------------
+   The ground the dashboard's glass stands on.
+
+   Glass over flat zinc-50 has nothing to diffuse, which is decoration. Two very
+   soft washes of the brand's own stops, fixed to the viewport so they stay put
+   while the page scrolls, give the dock and the agenda something real to
+   frost. Under 10%, so text set straight on the page keeps its contrast, and
+   drawn by a pseudo-element so the page's own background never has to know.
+--------------------------------------------------------------------------- */
+.dashboard-ambient {
+  isolation: isolate;
+}
+
+.dashboard-ambient::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      60% 50% at 100% 0%,
+      color-mix(in oklab, var(--brand-from) 9%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      55% 45% at 0% 100%,
+      color-mix(in oklab, var(--brand-to) 8%, transparent),
+      transparent 70%
+    );
+}
+
+@media (prefers-color-scheme: dark) {
+  .glass-dock {
+    background-color: rgb(24 24 27 / 0.6);
+    border-color: rgb(255 255 255 / 0.1);
+    --tw-inset-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 -1px 0 rgb(0 0 0 / 0.3);
+    --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 20px 44px -20px rgb(0 0 0 / 0.8);
+  }
+
+  .glass-bubble {
+    background-color: rgb(255 255 255 / 0.07);
+    border-color: rgb(255 255 255 / 0.12);
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
+    --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 14px -8px rgb(0 0 0 / 0.6);
+  }
+
+  .glass-bubble-active {
+    background-color: rgb(250 250 250 / 0.96);
+    border-color: rgb(255 255 255);
+  }
+
+  .glass-row {
+    background-color: rgb(24 24 27 / 0.72);
+    border-color: rgb(255 255 255 / 0.08);
+    --tw-inset-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+    --tw-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 14px 32px -20px rgb(0 0 0 / 0.7);
+  }
+
+  .glass-row-pending {
+    --tw-inset-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      inset 0 0 0 1px oklch(76.9% 0.188 70.08 / 0.6);
+    --tw-shadow:
+      0 1px 2px rgb(0 0 0 / 0.3),
+      0 14px 32px -18px oklch(76.9% 0.188 70.08 / 0.35);
+  }
+
+  .dashboard-ambient::before {
+    background-image:
+      radial-gradient(
+        60% 50% at 100% 0%,
+        color-mix(in oklab, var(--brand-from) 14%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        55% 45% at 0% 100%,
+        color-mix(in oklab, var(--brand-to) 12%, transparent),
+        transparent 70%
+      );
+  }
+}
+
+@media (prefers-color-scheme: dark) and (hover: hover) {
+  .glass-bubble:hover {
+    background-color: rgb(255 255 255 / 0.13);
+  }
+}
+
+@supports not (
+  (-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))
+) {
+  .glass-dock,
+  .glass-row {
+    background-color: rgb(255 255 255);
+  }
+  @media (prefers-color-scheme: dark) {
+    .glass-dock,
+    .glass-row {
+      background-color: rgb(24 24 27);
+    }
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-dock,
+  .glass-row {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: rgb(255 255 255);
+  }
+  .glass-bubble {
+    background-color: rgb(244 244 245);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
+  .glass-dock,
+  .glass-row {
+    background-color: rgb(24 24 27);
+  }
+  .glass-bubble {
+    background-color: rgb(39 39 42);
   }
 }
 

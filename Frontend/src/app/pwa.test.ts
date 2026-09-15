@@ -135,12 +135,14 @@ describe("iOS safe areas", () => {
     expect(globals).toMatch(/padding-top:\s*env\(safe-area-inset-top\)/);
   });
 
-  it("keeps the bottom bar clear of the home indicator", () => {
+  it("keeps the dock clear of the home indicator", () => {
     const nav = readFileSync(
       path.resolve(process.cwd(), "src/components/dashboard/dashboard-nav.tsx"),
       "utf8",
     );
-    expect(nav).toContain("pb-[max(env(safe-area-inset-bottom),0.25rem)]");
+    // The inset where the device has one, and a small float where it does not:
+    // the dock is lifted off the edge either way.
+    expect(nav).toContain("pb-[max(env(safe-area-inset-bottom),0.75rem)]");
   });
 
   it("scrolls dashboard content past the bar rather than under it", () => {

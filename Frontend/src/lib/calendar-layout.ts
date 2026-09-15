@@ -54,6 +54,12 @@ export type GridBounds = {
 export function gridBounds(
   items: readonly CalendarItem[],
   openMinutes: readonly { startMinutes: number; endMinutes: number }[] = [],
+  /**
+   * Empty hours either side of the working day. The overview asks for none:
+   * it has to fit the whole day on one screen, and every row spent on an hour
+   * nobody works is height taken from the cards' start times.
+   */
+  padHours = 1,
 ): GridBounds {
   const spans = [
     ...items.map((item) => ({
@@ -68,8 +74,8 @@ export function gridBounds(
   const earliest = Math.min(...spans.map((span) => span.startMinutes));
   const latest = Math.max(...spans.map((span) => span.endMinutes));
 
-  let startHour = Math.max(0, Math.floor(earliest / 60) - 1);
-  let endHour = Math.min(24, Math.ceil(latest / 60) + 1);
+  let startHour = Math.max(0, Math.floor(earliest / 60) - padHours);
+  let endHour = Math.min(24, Math.ceil(latest / 60) + padHours);
 
   // A single 30-minute booking would otherwise produce a two-row grid whose
   // rows are taller than the card inside them.
@@ -261,19 +267,14 @@ export function hourRows(bounds: GridBounds): number[] {
 }
 
 /**
- * Pixel height of one hour of grid, per scale.
+ * Pixel height of one hour of grid, per scale — **the least it is ever drawn
+ * at**, not the height it always is.
  *
- * The rail and the day columns are Tailwind classes, so these numbers are a
- * transcription of them and `calendar-layout.test.ts` fails if the classes and
- * these drift apart. They live here because the line budget below is arithmetic
- * on them, and that arithmetic is the whole reason a booking either shows its
- * service name or does not.
- *
- * `summary` is the week grid at half height — `SUMMARY_HOUR_ROW` in
- * `calendar-density`. It is a scale of its own rather than a view because it
- * changes how tall a minute is and nothing else, and the floor's cap has to be
- * measured on the grid the card is actually drawn on: capping a summary card
- * with the week's 96px hour let it run to twice the room it had.
+ * `week` and `day` grow past these in `hourRowPx` until the shortest booking on
+ * screen can hold every line its card promises. `summary` is the overview's
+ * *nominal* hour: the component sizes that row in CSS so the whole day fits the
+ * frame (`.cal-summary-row`), which is why its cards take their floor from
+ * `blockMinHeight` — a percentage of the grid — rather than from pixels.
  */
 export const HOUR_ROW_PX = { week: 96, day: 160, summary: 48 } as const;
 
@@ -499,8 +500,64 @@ export type CalendarView = "week" | "day";
 export function slotHeightPx(
   durationMinutes: number,
   scale: RowScale = "week",
+  /** The hour actually drawn, when `hourRowPx` has grown it. */
+  hourPx: number = HOUR_ROW_PX[scale],
 ): number {
-  return (Math.max(0, durationMinutes) * HOUR_ROW_PX[scale]) / 60;
+  return (Math.max(0, durationMinutes) * hourPx) / 60;
+}
+
+/**
+ * The shortest booking a card promises its whole content to.
+ *
+ * Ten minutes, because that is below anything the demo shops or the product's
+ * presets sell, and because the hour it takes to fit three lines into one — 324px
+ * in the week — is already most of a laptop screen. Anything shorter is drawn at
+ * that scale and falls back to the floor and its cap, which gives up the service
+ * line before it gives up the time.
+ */
+export const FULL_CONTENT_MIN_MINUTES = 10;
+
+/**
+ * How tall an hour of grid is drawn, grown until the shortest booking fits.
+ *
+ * ---------------------------------------------------------------------------
+ * **The row answers to the cards, rather than the cards to the row.** A fixed
+ * 96px hour made a quarter hour 24px, and the floor that lifted it to three
+ * lines had to be capped at the next booking's start, so two back-to-back
+ * quarter hours kept one line each: the service and the time went exactly when
+ * the day was busy enough for them to matter. Growing the hour instead gives
+ * every booking its own full card with nothing drawn over anything.
+ *
+ * **One scale for the whole week, never one per day.** Seven columns share an
+ * hour rail; a Tuesday drawn taller than its Monday would put 10:00 at two
+ * heights on one screen. The caller passes the shortest booking across the
+ * loaded week, so stepping between days in the day view keeps its scale too.
+ *
+ * - `full` — and the day view, which only draws full cards — fits all three
+ *   lines: name, time span, service.
+ * - `chip` fits its two: first name, start time.
+ * - `block` is the overview. Its row is sized in CSS to fit the frame, so this
+ *   returns the nominal hour its fallbacks are measured against.
+ * ---------------------------------------------------------------------------
+ */
+export function hourRowPx(
+  view: CalendarView,
+  card: CardMode,
+  /** The shortest appointment on screen, in minutes, or null for none. */
+  shortestMinutes: number | null,
+): number {
+  if (view === "week" && card === "block") return HOUR_ROW_PX.summary;
+
+  const base = HOUR_ROW_PX[view];
+  if (shortestMinutes === null || shortestMinutes <= 0) return base;
+
+  const content =
+    view === "week" && card === "chip"
+      ? cardPxForLines(MAX_CHIP_LINES, "week", "chip")
+      : cardPxForLines(MAX_CARD_LINES, view);
+  const minutes = Math.max(FULL_CONTENT_MIN_MINUTES, shortestMinutes);
+
+  return Math.max(base, Math.ceil(((content + CARD_GAP_PX) * 60) / minutes));
 }
 
 /** The grid a card is drawn on, and the floor it may be lifted to. */
@@ -532,15 +589,98 @@ export function cardHeightPx(
   view: CalendarView = "week",
   minutesToNext: number | null = null,
   card: CardMode = "full",
+  /** The hour this card is drawn on — `hourRowPx` — when it has grown. */
+  hourPx?: number,
 ): number {
   const { scale, floorPx } = cardFrame(view, card);
-  const own = slotHeightPx(durationMinutes, scale) - CARD_GAP_PX;
+  const own = slotHeightPx(durationMinutes, scale, hourPx) - CARD_GAP_PX;
   const ceiling =
     minutesToNext === null
       ? Infinity
-      : slotHeightPx(minutesToNext, scale) - CARD_GAP_PX;
+      : slotHeightPx(minutesToNext, scale, hourPx) - CARD_GAP_PX;
 
   return Math.max(0, own, Math.min(floorPx, ceiling));
+}
+
+/**
+ * The overview's floor, as CSS rather than as pixels.
+ *
+ * The overview's hour is sized by the stylesheet to fit the frame, so no
+ * pixel figure computed here would be the one the browser draws — and a cap
+ * measured on the wrong hour is exactly how a floor runs into the card below
+ * it. A percentage of the grid is the one unit that stays true at every row
+ * height: `MIN_BLOCK_PX` so a five-minute booking is still a mark, capped at
+ * the next card's start less the gap, the same rule `cardHeightPx` applies in
+ * pixels.
+ */
+export function blockMinHeight(
+  minutesToNext: number | null,
+  bounds: GridBounds,
+): string {
+  if (minutesToNext === null) return `${MIN_BLOCK_PX}px`;
+
+  const gridSpan = Math.max(1, (bounds.endHour - bounds.startHour) * 60);
+  const ceiling = (minutesToNext / gridSpan) * 100;
+  return `max(0px, min(${MIN_BLOCK_PX}px, calc(${ceiling}% - ${CARD_GAP_PX}px)))`;
+}
+
+/** What `withoutCoveredCancellations` needs to know about an entry. */
+export type StatusItem = CalendarItem & {
+  kind: "appointment" | "block";
+  status: string | null;
+  /** Null for a block that closes the whole shop. */
+  staffId: string | null;
+};
+
+/**
+ * Cancelled bookings, only where nothing else holds their time.
+ *
+ * ---------------------------------------------------------------------------
+ * **A cancellation earns a card while its slot is still open.** Then it is the
+ * answer to "why is there a gap at eleven", and dimmed glass says so without
+ * taking the slot back. The moment somebody else books that time, the
+ * cancellation is history — it is in the agenda and on the client's record —
+ * and drawing it beside its replacement would split the column into lanes, so
+ * every live booking in that hour lost half its width to a booking that is not
+ * happening.
+ *
+ * Held means held by *that chair*: a live booking, a finished one, a no-show or
+ * a block for the same provider, or a block for the whole shop. Two
+ * cancellations for the same slot keep only the first, for the same reason.
+ * Per span, because that is what the grid draws.
+ * ---------------------------------------------------------------------------
+ */
+export function withoutCoveredCancellations<T extends StatusItem>(
+  items: readonly T[],
+): T[] {
+  const isCancelled = (item: T) =>
+    item.kind === "appointment" && item.status === "cancelled";
+
+  const clash = (a: T, b: T) =>
+    a.dayIndex === b.dayIndex &&
+    a.startMinutes < b.endMinutes &&
+    b.startMinutes < a.endMinutes &&
+    (a.staffId === null || b.staffId === null || a.staffId === b.staffId);
+
+  const held = items.filter((item) => !isCancelled(item));
+  const kept: T[] = [];
+
+  const cancelled = items
+    .filter(isCancelled)
+    .sort(
+      (a, b) =>
+        a.dayIndex - b.dayIndex ||
+        a.startMinutes - b.startMinutes ||
+        a.endMinutes - b.endMinutes,
+    );
+
+  for (const item of cancelled) {
+    if (held.some((other) => clash(item, other))) continue;
+    if (kept.some((other) => clash(item, other))) continue;
+    kept.push(item);
+  }
+
+  return items.filter((item) => !isCancelled(item) || kept.includes(item));
 }
 
 /**
