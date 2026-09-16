@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { db } from "@/db";
+import { PausedBanner } from "@/components/dashboard/bookings-pause";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { FrozenBanner } from "@/components/dashboard/frozen-banner";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
@@ -92,6 +93,29 @@ async function libiEntitled(): Promise<boolean> {
   return business ? entitlementsFor(business).canAccessLibi : false;
 }
 
+/**
+ * Whether this tenant's online bookings are paused (0035), for the switch in
+ * the navigation and the banner above every page.
+ *
+ * Null where there is no switch to show: no session, no business yet, or a
+ * frozen one — a frozen shop takes no bookings already, and the switch could
+ * not write anyway. Resolved the same cached way as the two above.
+ */
+async function bookingsPausedState(): Promise<boolean | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const impersonatedId = await readImpersonatedBusinessId();
+  const business = impersonatedId
+    ? (await currentSuperAdmin())
+      ? await getBusinessById(db, impersonatedId)
+      : null
+    : await businessForOwner(user.id);
+
+  if (!business || !business.isActive) return null;
+  return business.bookingsPaused;
+}
+
 export default async function DashboardLayout({
   children,
 }: {
@@ -113,9 +137,10 @@ export default async function DashboardLayout({
     );
   }
 
-  const [supportingBusiness, frozen] = await Promise.all([
+  const [supportingBusiness, frozen, bookingsPaused] = await Promise.all([
     impersonatedName(),
     frozenState(),
+    bookingsPausedState(),
   ]);
 
   const voiceReady = isVoiceConfigured() && (await libiEntitled());
@@ -130,13 +155,20 @@ export default async function DashboardLayout({
           everything, so the glass rail, the dock and the agenda rows have
           something real to frost — see the rule in `globals.css`. */}
       <div className="dashboard-ambient flex min-h-full flex-1 flex-col bg-zinc-50 md:flex-row dark:bg-zinc-950">
-        <DashboardNav />
+        <DashboardNav bookingsPaused={bookingsPaused} />
         {/* Clears the mobile dock, which floats 3.25rem of bubbles above
             whatever the home indicator claims — 6rem alone left the last row of
             a long page tucked under the old bar on an iPhone once the inset
             became real. `md` restores normal padding, where there is no dock. */}
         <main className="flex-1 px-4 pt-6 pb-[calc(6rem_+_env(safe-area-inset-bottom))] md:px-8 md:pb-10">
-          <div className="mx-auto w-full max-w-4xl">{children}</div>
+          <div className="mx-auto w-full max-w-4xl">
+            {/* In the content column rather than across the top of the page:
+                a full-width strip pushed the full-height glass rail down by its
+                own height, and the rail's last item went below the fold. Inside
+                the toast provider, so resuming from it reports itself. */}
+            {bookingsPaused ? <PausedBanner /> : null}
+            {children}
+          </div>
         </main>
       </div>
 

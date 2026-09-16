@@ -44,7 +44,16 @@ export function DateTimeStep({
   onSelectDate,
   onSelectSlot,
   onJoinWaitlist,
-}: Props & { onJoinWaitlist?: () => void }) {
+  paused = false,
+}: Props & {
+  onJoinWaitlist?: () => void;
+  /**
+   * Online bookings paused by the owner (0035): the days are shown but cannot
+   * be chosen, and there are no times to offer. The notice explaining why sits
+   * above the flow.
+   */
+  paused?: boolean;
+}) {
   const t = useCopy();
   const locale = useLocale();
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -78,9 +87,15 @@ export function DateTimeStep({
       <div
         // `pt-2` is not decoration: the active chip translates upward and casts
         // a shadow, and an overflow container clips both without it.
-        className="-mx-5 mb-6 flex snap-x [scrollbar-width:none] gap-2 overflow-x-auto px-5 pt-2 pb-3 [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "-mx-5 mb-6 flex snap-x [scrollbar-width:none] gap-2 overflow-x-auto px-5 pt-2 pb-3 [&::-webkit-scrollbar]:hidden",
+          // Visibly out of reach, not merely inert: a strip that looks live and
+          // ignores the tap reads as a broken page.
+          paused && "opacity-45 saturate-50",
+        )}
         role="radiogroup"
         aria-label={t("datetime.pickDay", "בחירת יום")}
+        aria-disabled={paused || undefined}
       >
         {dates.map((date, index) => {
           const active = date === selectedDate;
@@ -94,7 +109,9 @@ export function DateTimeStep({
               type="button"
               role="radio"
               aria-checked={active}
+              disabled={paused}
               className={cn(
+                "disabled:cursor-not-allowed disabled:active:scale-100",
                 "flex w-16 shrink-0 snap-center flex-col items-center gap-1.5 rounded-2xl py-3.5",
                 "ring-1 ring-inset",
                 // Transform is deliberately absent from the transition list.
@@ -139,14 +156,21 @@ export function DateTimeStep({
         </p>
       ) : null}
 
-      <SlotPicker
-        slots={slots}
-        loading={loading}
-        error={error}
-        selectedSlot={selectedSlot}
-        onSelectSlot={onSelectSlot}
-        onJoinWaitlist={onJoinWaitlist}
-      />
+      {paused ? (
+        // No times while paused, and no skeleton pretending to fetch them.
+        <p className="rounded-2xl px-4 py-6 text-center text-sm leading-relaxed text-zinc-600 ring-1 ring-zinc-900/8 ring-inset dark:text-zinc-400 dark:ring-white/10">
+          {t("paused.slots", "בחירת שעה תחזור כשהעסק יחדש את קביעת התורים.")}
+        </p>
+      ) : (
+        <SlotPicker
+          slots={slots}
+          loading={loading}
+          error={error}
+          selectedSlot={selectedSlot}
+          onSelectSlot={onSelectSlot}
+          onJoinWaitlist={onJoinWaitlist}
+        />
+      )}
     </section>
   );
 }

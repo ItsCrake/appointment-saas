@@ -10,6 +10,13 @@ export type BookingBusiness = {
    * details form asks for marketing consent.
    */
   retentionEnabled: boolean;
+  /**
+   * Online bookings paused by the owner (0035). The flow shows its notice and
+   * disables the day and time picker; the server refuses regardless.
+   */
+  bookingsPaused: boolean;
+  /** For the paused notice's call link. Null renders no link. */
+  phone: string | null;
 };
 
 /** A provider, as the public picker needs them. No ids beyond the one. */

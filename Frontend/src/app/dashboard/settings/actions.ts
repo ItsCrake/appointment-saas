@@ -124,6 +124,35 @@ export async function saveSettingsAction(
 }
 
 /**
+ * Pauses or resumes online bookings (0035) — the switch in the rail, the
+ * overflow sheet, the banner and settings all call this one action.
+ *
+ * **Instant, not part of the settings form's save bar.** A pause is something
+ * an owner does *now*, often from a phone between clients; a switch that only
+ * took effect after pressing Save on a page of unrelated fields would leave the
+ * booking page open while they believed it was shut.
+ *
+ * `requireWritable`, like every mutation here: a frozen shop takes no bookings
+ * anyway, and pausing one is not a write it should be able to make.
+ */
+export async function setBookingsPausedAction(
+  input: unknown,
+): Promise<SettingsResult> {
+  const parsed = z.boolean().safeParse(input);
+  if (!parsed.success) return { ok: false, error: "ערך לא תקין" };
+
+  const { business } = await requireWritable();
+
+  await updateBusiness(db, business.id, { bookingsPaused: parsed.data });
+
+  // The banner and the switch live in the dashboard's layout, so every page
+  // under it re-renders; the public page is dynamic, and is named for clarity.
+  revalidatePath("/dashboard", "layout");
+  revalidatePath(`/${business.slug}`);
+  return { ok: true };
+}
+
+/**
  * Which Hebrew forms ליבי uses when she addresses the owner (0033).
  *
  * `requireWritable`, like every mutating action here — the coverage test in

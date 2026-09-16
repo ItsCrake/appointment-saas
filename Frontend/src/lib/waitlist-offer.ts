@@ -63,6 +63,17 @@ export async function offerSlotToWaitlist({
   dispatchNow?: boolean;
 }): Promise<{ offeredTo: string | null }> {
   try {
+    /**
+     * Paused by the owner (0035): nothing is offered. An invite is a link to
+     * book, and the claim it leads to is refused while the page is paused — so
+     * sending one would spend a message on a promise the shop is not keeping,
+     * and cost the person who received it a lapsed offer. The queue keeps its
+     * order; the next cancellation after the pause offers as normal.
+     */
+    if (business.bookingsPaused) {
+      return { offeredTo: null };
+    }
+
     // A slot in the past is not an opening. Checked before the query, because
     // most cancellations of past appointments are just tidying up.
     if (slot.startsAt.getTime() <= now.getTime()) {

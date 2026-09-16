@@ -19,6 +19,10 @@ import {
   staffAvailableAt,
   type SlotWithStaff,
 } from "@/lib/availability";
+import {
+  BOOKINGS_PAUSED_CODE,
+  BOOKINGS_PAUSED_MESSAGE,
+} from "@/lib/bookings-pause";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError, reportWarning } from "@/lib/observability";
@@ -38,7 +42,8 @@ import {
 } from "@/lib/validation";
 
 export type SlotsResult =
-  { ok: true; slots: SlotWithStaff[] } | { ok: false; error: string };
+  | { ok: true; slots: SlotWithStaff[] }
+  | { ok: false; error: string; code?: typeof BOOKINGS_PAUSED_CODE };
 
 /**
  * Availability for one day. Called from the client on every date change, so it
@@ -59,6 +64,19 @@ export async function fetchSlotsAction(
 
   const business = await getActiveBusinessBySlug(db, slug);
   if (!business) return { ok: false, error: "העסק לא נמצא" };
+
+  /**
+   * Paused by the owner (0035). Answered before any availability is computed:
+   * a page that went on offering times the booking would then refuse is the
+   * thing the pause exists to prevent, and it costs nothing to say no first.
+   */
+  if (business.bookingsPaused) {
+    return {
+      ok: false,
+      code: BOOKINGS_PAUSED_CODE,
+      error: BOOKINGS_PAUSED_MESSAGE,
+    };
+  }
 
   try {
     // Returns who is free at each time as well as the time itself, so the
@@ -101,7 +119,11 @@ export type BookingResult =
   | {
       ok: false;
       error: string;
-      code?: "SLOT_TAKEN" | "VALIDATION" | "RATE_LIMITED";
+      code?:
+        | "SLOT_TAKEN"
+        | "VALIDATION"
+        | "RATE_LIMITED"
+        | typeof BOOKINGS_PAUSED_CODE;
     };
 
 /**
@@ -169,6 +191,21 @@ export async function createBookingAction(
   if (!businessRow) {
     return { ok: false, error: "העסק אינו זמין לקביעת תורים" };
   }
+
+  /**
+   * Paused by the owner (0035) — checked here as well as at the slot lookup,
+   * because the page a client is typing into may have loaded before the pause.
+   * The booking is refused with a code rather than a generic error, so the page
+   * can switch into its paused state instead of inviting another attempt.
+   */
+  if (businessRow.bookingsPaused) {
+    return {
+      ok: false,
+      code: BOOKINGS_PAUSED_CODE,
+      error: BOOKINGS_PAUSED_MESSAGE,
+    };
+  }
+
   const businessId = businessRow.id;
 
   const clientIp = await getClientIp();

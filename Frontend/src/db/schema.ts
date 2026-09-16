@@ -162,6 +162,16 @@ export const businesses = pgTable("businesses", {
    */
   requiresApproval: boolean("requires_approval").notNull().default(false),
   /**
+   * Online bookings paused by the owner (0035).
+   *
+   * Stops what a client reaches without a session — the slot lookup and the
+   * booking on `/[slug]`, the waitlist's claim link, and the automatic offer a
+   * cancellation would make to the queue. The owner's own writes do not read
+   * it: pausing the page to reorganise a week must leave the calendar fully
+   * usable. See the migration for why this is not hours or time off.
+   */
+  bookingsPaused: boolean("bookings_paused").notNull().default(false),
+  /**
    * Which starting point the owner picked in the wizard (0026). Nullable
    * because every shop created before it chose nothing, and text rather than
    * an enum because the list is a product decision that will churn — see the

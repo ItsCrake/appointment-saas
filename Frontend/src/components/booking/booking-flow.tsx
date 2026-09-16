@@ -9,6 +9,7 @@ import {
   type BookingConfirmation,
 } from "@/app/[slug]/actions";
 import type { SlotWithStaff } from "@/lib/availability";
+import { BOOKINGS_PAUSED_CODE } from "@/lib/bookings-pause";
 import {
   previousStep as stepBefore,
   stepAfterSlot as nextStepAfterSlot,
@@ -22,6 +23,7 @@ import { WaitlistDialog } from "./waitlist-dialog";
 import { DateTimeStep } from "./datetime-step";
 import { DetailsStep } from "./details-step";
 import { OnlyStaffStep } from "./only-staff-step";
+import { PausedNotice } from "./paused-notice";
 import type { ServiceLayout } from "@/lib/appearance";
 
 import { ServiceStep } from "./service-step";
@@ -85,6 +87,16 @@ export function BookingFlow({
   const [submitError, setSubmitError] = useState<string>();
   const [confirmation, setConfirmation] = useState<BookingConfirmation>();
 
+  /**
+   * Online bookings paused by the owner (0035).
+   *
+   * Seeded from the page, and switched on by any refusal that says so: a
+   * client can be mid-flow on a page loaded before the owner paused it, and
+   * the answer to that is the same notice a fresh visitor sees rather than an
+   * error inviting them to try again.
+   */
+  const [paused, setPaused] = useState(business.bookingsPaused);
+
   const headingRef = useRef<HTMLDivElement>(null);
   // Guards against a slow response for an earlier date landing last.
   const requestId = useRef(0);
@@ -100,6 +112,9 @@ export function BookingFlow({
 
       if (result.ok) {
         setSlots(result.slots);
+      } else if (result.code === BOOKINGS_PAUSED_CODE) {
+        setSlots([]);
+        setPaused(true);
       } else {
         setSlots([]);
         setSlotsError(result.error);
@@ -148,7 +163,9 @@ export function BookingFlow({
     setService(next);
     setSlot(undefined);
     setStep(2);
-    void loadSlots(next.id, date);
+    // Nothing to ask for while paused: the server would refuse, and the step
+    // shows its disabled picker instead.
+    if (!paused) void loadSlots(next.id, date);
   }
 
   function selectDate(next: string) {
@@ -158,7 +175,7 @@ export function BookingFlow({
     // Leaving it set kept the picker showing that error for every subsequent
     // date, with no way back to the grid short of reloading the page.
     setSubmitError(undefined);
-    if (service) void loadSlots(service.id, next);
+    if (service && !paused) void loadSlots(service.id, next);
   }
 
   /**
@@ -267,6 +284,19 @@ export function BookingFlow({
       return;
     }
 
+    /**
+     * Paused while they were typing (0035). Back to the day and time step,
+     * which now shows the notice and its disabled picker; what they typed stays
+     * in the form's state for when the shop resumes.
+     */
+    if (result.code === BOOKINGS_PAUSED_CODE) {
+      setPaused(true);
+      setSlot(undefined);
+      setSlots([]);
+      setStep(2);
+      return;
+    }
+
     setSubmitError(result.error);
 
     // The slot went while they were typing — send them back to pick another.
@@ -322,6 +352,11 @@ export function BookingFlow({
 
   return (
     <div ref={headingRef}>
+      {/* Above the steps, so it is the first thing a client reads whichever
+          step they are on — the services stay browsable underneath it, and
+          the day and time picker is what is disabled. */}
+      {paused ? <PausedNotice phone={business.phone} /> : null}
+
       {/* The staff question belongs to "choosing the appointment", so it shows
           as step 2 on the rail rather than adding a fourth marker. */}
       <Stepper current={step === "staff" || step === "only" ? 2 : step} />
@@ -369,6 +404,7 @@ export function BookingFlow({
             onSelectDate={selectDate}
             onSelectSlot={selectSlot}
             onJoinWaitlist={() => setWaitlistOpen(true)}
+            paused={paused}
           />
         ) : null}
 

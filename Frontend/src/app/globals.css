@@ -2135,6 +2135,50 @@ body {
     0 0 0 1.5px var(--accent) inset;
 }
 
+/* ---------------------------------------------------------------------------
+   The paused notice (0035) — glass whatever the owner's card style.
+
+   **Frosted in the tenant's colour, and lit.** It is the one thing on the page
+   a client must read before anything else, so it is its own material rather
+   than a card: a tint of `--accent` mixed into near-opaque white, a lit top
+   edge, an accent ring and a soft glow in the same hue. The fill is opaque
+   enough that zinc-700 body text holds AA over the brightest ground the
+   ambient background can put behind it, blurred or not.
+--------------------------------------------------------------------------- */
+.booking-notice {
+  background-image: linear-gradient(
+    color-mix(in oklab, var(--accent) 12%, rgb(255 255 255 / 0.84)),
+    color-mix(in oklab, var(--accent) 12%, rgb(255 255 255 / 0.84))
+  );
+  border-radius: var(--radius-card, 1rem);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 32%, transparent) inset,
+    0 1px 0 rgb(255 255 255 / 0.95) inset,
+    0 16px 36px -18px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .booking-notice {
+    background-image: linear-gradient(
+      color-mix(in oklab, var(--accent) 18%, rgb(24 24 27 / 0.8)),
+      color-mix(in oklab, var(--accent) 18%, rgb(24 24 27 / 0.8))
+    );
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--accent) 42%, transparent) inset,
+      0 1px 0 rgb(255 255 255 / 0.08) inset,
+      0 16px 36px -18px color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .booking-notice {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /* The ground a glass card reads through. Transparent in the other two modes,
    so this element costs nothing when it is not in use. */
 .booking-wash {

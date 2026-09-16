@@ -1549,6 +1549,44 @@ set of fields on **every** booking rather than on the ones tall enough.
   request's two stops and the muted glass in both themes; the nav tests follow
   the sheet into the dock.
 
+### Pausing online bookings (0035) ✅
+
+**A switch that stops the public page taking bookings and leaves the owner's
+calendar alone** — for the Friday on which next week's hours are rebuilt. The
+design is in [ARCHITECTURE.md](ARCHITECTURE.md#pausing-online-bookings-0035);
+the short version:
+
+- **`businesses.bookings_paused`**, default false, applied to production on
+  2026-09-16 after Itay approved it (ask → apply → verify → push): 36 migrations
+  recorded, none pending, the column present on all three shops, all false.
+- **Refused on every public path, before any work**: the slot lookup and the
+  booking return `BOOKINGS_PAUSED`, the waitlist claim returns the person to the
+  queue, and a cancellation's automatic offer goes to nobody. **The owner's
+  manual booking, edit, move and ליבי never read it.** Five deliberate breaks of
+  these guards were each caught by `bookings-pause.test.ts`, which also runs the
+  offer against PGlite with the migration applied.
+- **The switch reads "קבלת הזמנות אונליין" and pausing is turning it off** — the
+  thing that is normally true is what is on. It sits at the top of the desktop
+  rail, first in the phone's «עוד» sheet, and first on the settings page;
+  instant, never behind the save bar. While it is off, every dashboard page
+  opens with an amber card saying what clients see, with «חידוש ההזמנות» on it.
+  The card lives in the content column: as a full-width strip it pushed the
+  glass rail down and took «התנתקות» below the fold, found in the browser pass.
+- **The page**: a frosted notice in the tenant's accent above the steps, with a
+  call button where the shop has a phone; services stay browsable; the day strip
+  is disabled and the times are one line. A page loaded before the pause
+  switches into the same state on its first refusal. Spanish on the showcase.
+- **Verified in a browser against production, demo-barber paused for 36
+  seconds and then 17** (Itay approved a short pause): all 21 day chips
+  disabled, **no server action called** after the paused page loaded, the
+  Spanish notice on `/demo-barber-es`, settings and the phone sheet in step,
+  resumed from the banner. Contrast measured on pixels: banner 13.4:1, notice
+  title 15.6:1, body 9.2:1 light and 9.7:1 dark. The shop was confirmed open
+  from the database afterwards.
+- **Not exercised end to end:** a manual booking made while paused. It would
+  write a real appointment and queue its messages; the owner paths are held by
+  the guard test instead.
+
 ---
 
 ## 5. Where things stand
@@ -1557,11 +1595,12 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1627 tests across 104 files**; Playwright
-**11/11** across 3 specs (not run every session). **All 35 migrations
-(0000–0034) are applied to production**, read from `drizzle.__drizzle_migrations`
-on 2026-09-15 — including 0031, so the orphaned `siri_api_token` columns are
-gone; the "0031 is pending" this line carried was stale. Fifteen tables, RLS on
+**Green:** `npm run verify` at **1639 tests across 105 files**; Playwright
+**11/11** across 3 specs (not run every session). **All 36 migrations
+(0000–0035) are applied to production** — 0035 (`bookings_paused`) on
+2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
+so the orphaned `siri_api_token` columns are gone; the "0031 is pending" this
+line once carried was stale. Fifteen tables, RLS on
 every one, zero reachable by `anon`. **No migration pending.**
 
 > ⚠️ **The ordering rule 0025 established, for every migration after it.**

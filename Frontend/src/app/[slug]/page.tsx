@@ -362,6 +362,8 @@ export default async function BusinessPage({
               maxAdvanceDays: business.maxAdvanceDays,
               hasMultipleStaff: business.hasMultipleStaff,
               retentionEnabled: business.retentionEnabled,
+              bookingsPaused: business.bookingsPaused,
+              phone: business.phone,
             }}
             // The roster is only ever used to put names on ids the availability
             // engine returned, so nothing here decides who is bookable.

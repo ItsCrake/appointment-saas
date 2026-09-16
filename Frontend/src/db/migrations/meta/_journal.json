@@ -246,6 +246,13 @@
       "when": 1788904688476,
       "tag": "0034_appointment_created_via",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789496707284,
+      "tag": "0035_bookings_paused",
+      "breakpoints": true
     }
   ]
 }

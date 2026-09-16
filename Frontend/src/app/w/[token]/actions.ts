@@ -11,6 +11,7 @@ import {
   SlotTakenError,
 } from "@/db/queries";
 import { db } from "@/db";
+import { WAITLIST_PAUSED_MESSAGE } from "@/lib/bookings-pause";
 import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import { enqueueBookingNotifications } from "@/lib/notifications/enqueue";
 import { reportError } from "@/lib/observability";
@@ -79,6 +80,23 @@ export async function claimWaitlistSlotAction(
   const business = await getBusinessById(db, entry.businessId);
   if (!business || !business.isActive) {
     return { ok: false, error: "העסק אינו זמין כרגע" };
+  }
+
+  /**
+   * Paused by the owner (0035). This link is a public booking like any other,
+   * and the owner paused the page to stop exactly this — a slot being taken
+   * while the week is being rearranged.
+   *
+   * **Back into the queue, not out of it.** The person holding this link was
+   * offered the slot before the pause and did nothing wrong, so their entry
+   * returns to `active` exactly as it does when somebody else wins the race:
+   * the next opening after the pause finds them where they were. The token is
+   * cleared with it, so this offer cannot be claimed later over a slot the owner
+   * may have moved.
+   */
+  if (business.bookingsPaused) {
+    await setWaitlistStatus(db, entry.id, "active", { clearInvite: true });
+    return { ok: false, error: WAITLIST_PAUSED_MESSAGE };
   }
 
   /**

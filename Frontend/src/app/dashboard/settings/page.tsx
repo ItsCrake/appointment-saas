@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 
 import { AppearanceForm } from "@/components/dashboard/appearance-form";
+import { BookingsPauseSwitch } from "@/components/dashboard/bookings-pause";
 import {
   DepositSettingsForm,
   LogoForm,
@@ -64,6 +65,16 @@ export default async function SettingsPage() {
             פרטי העסק וכללי קביעת התורים
           </p>
         </header>
+
+        {/* First on the page and outside the save bar: pausing is instant, and
+            an owner who comes here to do it should not have to scroll past the
+            business details or press Save for it to happen. */}
+        <div className="mb-6">
+          <BookingsPauseSwitch
+            paused={business.bookingsPaused}
+            variant="settings"
+          />
+        </div>
 
         <SettingsForm
           appUrl={appUrl}

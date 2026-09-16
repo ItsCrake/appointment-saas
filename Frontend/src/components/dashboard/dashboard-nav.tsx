@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { signOutAction } from "@/app/login/actions";
+import { BookingsPauseSwitch } from "@/components/dashboard/bookings-pause";
 import { focusRing } from "@/components/dashboard/ui";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { cn } from "@/lib/utils";
@@ -91,7 +92,14 @@ function LinkSpinner() {
  * It closes on navigation — `pathname` changing is the signal, which also
  * covers a back gesture — on Escape, and on a backdrop tap.
  */
-function MoreSheet({ isActive }: { isActive: (href: string) => boolean }) {
+function MoreSheet({
+  isActive,
+  bookingsPaused,
+}: {
+  isActive: (href: string) => boolean;
+  /** Null where there is no switch to offer — see the layout. */
+  bookingsPaused: boolean | null;
+}) {
   const pathname = usePathname();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -212,6 +220,18 @@ function MoreSheet({ isActive }: { isActive: (href: string) => boolean }) {
                     <X className="size-5" aria-hidden />
                   </button>
                 </div>
+
+                {/* First in the sheet: on a phone this is the quickest way to
+                    the pause, and the one thing here that changes something
+                    rather than going somewhere. */}
+                {bookingsPaused !== null ? (
+                  <div className="px-3 pb-2">
+                    <BookingsPauseSwitch
+                      paused={bookingsPaused}
+                      variant="sheet"
+                    />
+                  </div>
+                ) : null}
 
                 <ul className="flex flex-col gap-1 px-3 pb-2">
                   {SECONDARY_LINKS.map(({ href, label, icon }) => (
@@ -381,7 +401,15 @@ function RailLink({
   );
 }
 
-export function DashboardNav() {
+export function DashboardNav({
+  bookingsPaused = null,
+}: {
+  /**
+   * Whether online bookings are paused (0035), resolved by the layout. Null
+   * where the switch has nothing to control: no business yet, or a frozen one.
+   */
+  bookingsPaused?: boolean | null;
+}) {
   const pathname = usePathname();
 
   /**
@@ -427,6 +455,13 @@ export function DashboardNav() {
           <p className="px-3 pb-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
             ניהול
           </p>
+          {/* At the top of the rail, above the destinations: the one control
+              here that changes what clients can do, one click from any page. */}
+          {bookingsPaused !== null ? (
+            <div className="px-1 pb-3">
+              <BookingsPauseSwitch paused={bookingsPaused} variant="rail" />
+            </div>
+          ) : null}
           <ul className="flex flex-col gap-1">
             {LINKS.map(({ href, label, icon }) => (
               <li key={href}>
@@ -486,7 +521,7 @@ export function DashboardNav() {
               destructive action one stray thumb away from the tabs is not
               where it belongs. */}
           <li>
-            <MoreSheet isActive={isActive} />
+            <MoreSheet isActive={isActive} bookingsPaused={bookingsPaused} />
           </li>
         </ul>
       </nav>

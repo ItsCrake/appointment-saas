@@ -78,6 +78,14 @@ const ES: Dictionary = {
     "Prueba con otro día en la barra de fechas — casi siempre queda hueco en uno o dos días.",
   "slot.waitlist": "¿Sin hueco? Apúntate a la lista de espera",
 
+  // Online bookings paused by the business (0035).
+  "paused.title": "Las reservas en línea están en pausa",
+  "paused.body":
+    "El negocio ha pausado temporalmente las reservas en esta página. Vuelve a intentarlo pronto.",
+  "paused.call": "Llamar para reservar",
+  "paused.slots":
+    "Podrás elegir hora cuando el negocio vuelva a abrir las reservas.",
+
   // Opening hours.
   "hours.title": "Horario",
   "hours.close": "Cerrar",

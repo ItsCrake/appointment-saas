@@ -1021,6 +1021,42 @@ Thresholds are configurable in code (`DEFAULT_REMINDER_RULES`, or a table passed
 straight to `planReminder`). **Per-tenant thresholds would need columns** and are
 not built.
 
+## Pausing online bookings (0035)
+
+`businesses.bookings_paused`, default false. An owner flips it when the public
+page should stop taking bookings for a while — typically on a Friday, while the
+next week's hours are being rebuilt.
+
+**Not hours and not time off.** Both already stop bookings, and both would be
+false: blocking every open hour tells the page the shop is closed, and it is
+not. The flag says exactly what is true, so the page can say it too.
+
+**What it stops is everything a client reaches without a session**, each
+refusing before any work is done:
+
+| Path | Where | What happens while paused |
+| --- | --- | --- |
+| Slot lookup | `fetchSlotsAction` | refused with `BOOKINGS_PAUSED` before availability is computed |
+| Booking | `createBookingAction` | refused with `BOOKINGS_PAUSED` before availability and the insert |
+| Waitlist claim | `claimWaitlistSlotAction` | refused, and the entry returns to `active` with its invite cleared — the person keeps their place |
+| Automatic waitlist offer | `offerSlotToWaitlist` | nothing is offered; the queue keeps its order |
+
+**What it does not stop is the owner.** Manual booking, edit, move, status
+changes and ליבי never read the flag — pausing the page to rearrange a week must
+leave the calendar that is being rearranged fully writable.
+`bookings-pause.test.ts` holds both halves: each public refusal comes before
+the write, and the owner's paths do not mention the flag.
+
+**The page.** `BookingFlow` shows `PausedNotice` above the steps — frosted glass
+in the tenant's accent, with a call button where the shop has a phone — keeps
+the services browsable, disables the day strip and replaces the times with one
+line. A refusal carrying the code switches a page loaded before the pause into
+the same state. The Spanish showcase has its own strings.
+
+**The switch** is `setBookingsPausedAction`, instant rather than part of the
+settings save bar, rendered in the desktop rail, the phone's overflow sheet and
+settings, with a banner above every dashboard page while it is on.
+
 ## Requires approval — "תורים באישור" (0019)
 
 `businesses.requires_approval`, default false. When on, a public booking is
