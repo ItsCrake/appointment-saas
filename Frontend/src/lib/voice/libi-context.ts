@@ -1,5 +1,6 @@
 import { formatInTimeZone } from "date-fns-tz";
 
+import { shiftDays } from "@/lib/calendar-week";
 import { todayInTimezone, weekdayLabel } from "@/lib/format";
 
 import type { RosterRow } from "./libi-tools";
@@ -34,11 +35,47 @@ import type { RosterRow } from "./libi-tools";
  * ---------------------------------------------------------------------------
  */
 
+/**
+ * **The diary is detailed for two days and summarised for the rest.**
+ *
+ * It used to be the first 25 rows of the week, introduced as "the complete
+ * list — there are no other appointments". On a full week that was today,
+ * tomorrow and a slice of the day after; asked about Monday, the model read
+ * the list, believed it, and said there was nothing — and asked to cancel a
+ * client booked on Sunday, it answered "I don't see him" without calling the
+ * tool. Both were verified against `demo-barber`'s load-tested fortnight.
+ *
+ * Today and tomorrow are what most questions are about, so they are listed in
+ * full (up to {@link DETAIL_LIMIT}); every other day is one line of count and
+ * hours, with no names. The model is told exactly which of the two it is
+ * looking at, and told plainly when even that was cut short.
+ */
+export const DETAIL_DAYS = 2;
+export const DETAIL_LIMIT = 40;
+
 /** Times in the shop's zone; the model must never do timezone arithmetic. */
 function line(row: RosterRow, timezone: string): string {
   const day = formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd");
   const time = formatInTimeZone(row.startsAt, timezone, "HH:mm");
   return `- ${day} (${weekdayLabel(day)}) ${time} · ${row.clientName} · ${row.serviceName} · ${row.status}`;
+}
+
+/** One day as a count and its hours, for the days not listed in full. */
+function summaryLine(
+  day: string,
+  rows: readonly RosterRow[],
+  timezone: string,
+) {
+  const first = formatInTimeZone(rows[0].startsAt, timezone, "HH:mm");
+  const last = formatInTimeZone(
+    rows[rows.length - 1].startsAt,
+    timezone,
+    "HH:mm",
+  );
+  const count = rows.length === 1 ? "תור אחד" : `${rows.length} תורים`;
+  const hours =
+    rows.length === 1 ? `ב-${first}` : `הראשון ב-${first}, האחרון ב-${last}`;
+  return `- ${day} (${weekdayLabel(day)}): ${count}, ${hours}`;
 }
 
 /**
@@ -47,11 +84,15 @@ function line(row: RosterRow, timezone: string): string {
  * Kept pure and separate from the prompt's *instructions* so it can be tested
  * against real rows: the instructions are prose and change with taste, while
  * this is data and has to be exactly right.
+ *
+ * `fetchLimit` is the cap the roster was read with; a roster that reached it
+ * may be missing rows, and the block says so instead of claiming the week.
  */
 export function buildPromptContext(
   now: Date,
   timezone: string,
   roster: readonly RosterRow[],
+  { fetchLimit }: { fetchLimit?: number } = {},
 ): string {
   const today = todayInTimezone(timezone, now);
   const clock = formatInTimeZone(now, timezone, "HH:mm");
@@ -67,14 +108,53 @@ export function buildPromptContext(
     return `${header}\nאין תורים ביומן בשבוע הקרוב.`;
   }
 
-  const todays = roster.filter(
-    (row) => formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd") === today,
+  const byDay = new Map<string, RosterRow[]>();
+  for (const row of roster) {
+    const day = formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd");
+    const rows = byDay.get(day) ?? [];
+    rows.push(row);
+    byDay.set(day, rows);
+  }
+
+  // Today and tomorrow as shop-local calendar dates — calendar arithmetic on
+  // the date string, so a DST night cannot shift which day is "tomorrow".
+  const detailDays = Array.from({ length: DETAIL_DAYS }, (_, offset) =>
+    shiftDays(today, offset),
   );
 
-  return [
+  const detailed = roster.filter((row) =>
+    detailDays.includes(formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd")),
+  );
+  const shown = detailed.slice(0, DETAIL_LIMIT);
+  const later = [...byDay.entries()]
+    .filter(([day]) => !detailDays.includes(day))
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const truncated = fetchLimit !== undefined && roster.length >= fetchLimit;
+
+  const lines = [
     header,
-    `תורים היום: ${todays.length}.`,
-    "היומן לשבוע הקרוב (זו הרשימה המלאה — אין תורים אחרים):",
-    ...roster.map((row) => line(row, timezone)),
-  ].join("\n");
+    `תורים היום: ${(byDay.get(today) ?? []).length}.`,
+    shown.length < detailed.length
+      ? `היום ומחר — מוצגים ${shown.length} מתוך ${detailed.length} תורים:`
+      : "היום ומחר — כל התורים:",
+    ...(shown.length > 0
+      ? shown.map((row) => line(row, timezone))
+      : ["- אין תורים היום ומחר."]),
+  ];
+
+  if (later.length > 0) {
+    lines.push(
+      "שאר השבוע — סיכום בלבד, בלי שמות:",
+      ...later.map(([day, rows]) => summaryLine(day, rows, timezone)),
+    );
+  }
+
+  lines.push(
+    truncated
+      ? "היומן עמוס: ייתכן שיש תורים שאינם מופיעים כאן."
+      : "ימים שאינם מופיעים — אין בהם תורים.",
+  );
+
+  return lines.join("\n");
 }

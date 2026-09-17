@@ -27,6 +27,7 @@ import {
   RELEASE_TAIL_MS,
   ROOM_SEED_MAX_AGE_MS,
 } from "@/lib/voice/libi-capture";
+import { SPEECH_RATE, timeStretch } from "@/lib/voice/libi-stretch";
 import {
   decideSilence,
   frameFeatures,
@@ -34,6 +35,8 @@ import {
   idleOutcome,
   initialSilenceState,
   PRESSED_IDLE_MS,
+  SHORT_SILENCE_MS,
+  SILENCE_MS,
   type IdleOutcome,
 } from "@/lib/voice/libi-vad";
 
@@ -177,6 +180,53 @@ const NEWLINE = String.fromCharCode(10);
  */
 const TAP_MS = 400;
 
+/** The rate the speech arrives at — see `ELEVENLABS_OUTPUT_FORMAT`. */
+const SPEECH_SAMPLE_RATE = 22_050;
+
+/**
+ * A clip of her voice as samples, at its own rate where the browser allows.
+ *
+ * An `OfflineAudioContext` decodes without resampling to the playback
+ * context's 48kHz, which halves the work `faster` has to do; a browser without
+ * one decodes the ordinary way. The bytes are copied for the first attempt,
+ * because `decodeAudioData` detaches what it is given and the fallback needs
+ * them whole.
+ */
+async function decodeSpeech(
+  ctx: AudioContext,
+  data: ArrayBuffer,
+): Promise<AudioBuffer> {
+  type WithWebkit = typeof window & {
+    webkitOfflineAudioContext?: typeof OfflineAudioContext;
+  };
+  const Offline =
+    window.OfflineAudioContext ??
+    (window as WithWebkit).webkitOfflineAudioContext;
+  if (Offline) {
+    try {
+      return await new Offline(1, 1, SPEECH_SAMPLE_RATE).decodeAudioData(
+        data.slice(0),
+      );
+    } catch {
+      // Fall through to the playback context.
+    }
+  }
+  return ctx.decodeAudioData(data);
+}
+
+/** The clip, `SPEECH_RATE` times faster at the same pitch. */
+function faster(ctx: AudioContext, decoded: AudioBuffer): AudioBuffer {
+  if (SPEECH_RATE === 1) return decoded;
+  const stretched = timeStretch(
+    decoded.getChannelData(0),
+    decoded.sampleRate,
+    SPEECH_RATE,
+  );
+  const buffer = ctx.createBuffer(1, stretched.length, decoded.sampleRate);
+  buffer.getChannelData(0).set(stretched);
+  return buffer;
+}
+
 export function LibiAssistant() {
   const { toast } = useToast();
   const router = useRouter();
@@ -236,6 +286,13 @@ export function LibiAssistant() {
   const roomRef = useRef<{ level: number; at: number } | null>(null);
   /** Turns in a row that came back with nothing heard — see `MAX_UNHEARD_TURNS`. */
   const unheardRef = useRef(0);
+  /**
+   * Which answer is current. Each request takes the next number; talking over
+   * her moves it on, and a reading loop holding an older number stops.
+   */
+  const turnRef = useRef(0);
+  /** The clip in the air, so talking over her can stop it. */
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   /** When the current press began, so a tap and a hold can be told apart. */
   const pressedAtRef = useRef(0);
   /** Kept across turns: closing it would need another gesture to unlock. */
@@ -433,6 +490,14 @@ export function LibiAssistant() {
    * **What it deliberately no longer does is reopen the microphone.** That
    * belongs to the *last* clip, not to every clip, and only the loop reading
    * the stream knows which one that is.
+   *
+   * **A tenth faster, at the same pitch.** The clip is decoded at its own
+   * 22kHz — cheaper to work on than the context's 48kHz — and time-stretched
+   * before it plays, because the voice provider ignores its own speed setting.
+   * See `libi-stretch`.
+   *
+   * **The source is kept** so the owner can talk over her: `interrupt` stops
+   * it, and stopping fires `onended`, which is what lets the loop move on.
    * -------------------------------------------------------------------------
    */
   const play = useCallback(
@@ -444,20 +509,44 @@ export function LibiAssistant() {
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-      // `decodeAudioData` wants its own ArrayBuffer and detaches what it is given.
-      const buffer = await ctx.decodeAudioData(bytes.buffer);
+      const decoded = await decodeSpeech(ctx, bytes.buffer);
+      const buffer = faster(ctx, decoded);
 
       await new Promise<void>((resolve) => {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(ctx.destination);
-        source.onended = () => resolve();
+        source.onended = () => {
+          if (sourceRef.current === source) sourceRef.current = null;
+          resolve();
+        };
+        sourceRef.current = source;
         setPhase("speaking");
         source.start();
       });
     },
     [setPhase],
   );
+
+  /**
+   * Stops her mid-sentence so the owner can speak.
+   *
+   * The answer being spoken stops belonging to the current turn — the reading
+   * loop sees the turn number move and drops the rest of the stream — and the
+   * phase is idle again at once, so the press that interrupted can open the
+   * microphone in the same gesture.
+   */
+  const interrupt = useCallback(() => {
+    turnRef.current += 1;
+    const source = sourceRef.current;
+    sourceRef.current = null;
+    try {
+      source?.stop();
+    } catch {
+      // Already finished; nothing to stop.
+    }
+    setPhase("idle");
+  }, [setPhase]);
 
   /**
    * Ends the recording once the speaking ends.
@@ -484,6 +573,7 @@ export function LibiAssistant() {
         onIdle,
         idleMs,
         seed,
+        expectsAnswer,
       }: {
         onSilent: () => void;
         /** Nobody audibly spoke within `idleMs` — see {@link idleOutcome}. */
@@ -491,6 +581,11 @@ export function LibiAssistant() {
         idleMs: number;
         /** The room as the previous turn measured it, if recent. */
         seed?: number;
+        /**
+         * ליבי has just asked something, so a one-word reply is complete as
+         * soon as it is said — see `SHORT_SILENCE_MS`.
+         */
+        expectsAnswer: boolean;
       },
     ) => {
       const analyser = ctx.createAnalyser();
@@ -511,6 +606,9 @@ export function LibiAssistant() {
           state,
           frameFeatures(samples, ctx.sampleRate),
           now,
+          SILENCE_MS,
+          undefined,
+          expectsAnswer ? SHORT_SILENCE_MS : undefined,
         );
         state = outcome.state;
 
@@ -572,6 +670,7 @@ export function LibiAssistant() {
 
   const send = useCallback(
     async (audio: Blob) => {
+      const turn = ++turnRef.current;
       setPhase("processing");
 
       const form = new FormData();
@@ -647,6 +746,11 @@ export function LibiAssistant() {
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
+          // Talked over: the rest of this answer belongs to nobody.
+          if (turn !== turnRef.current) {
+            void reader.cancel().catch(() => {});
+            return;
+          }
           buffered += decoder.decode(value, { stream: true });
 
           // A chunk boundary can land mid-line, so only whole lines are parsed.
@@ -703,6 +807,17 @@ export function LibiAssistant() {
                */
               if (message.audioBase64) {
                 await play(message.audioBase64).catch(() => {});
+              }
+
+              /**
+               * **Talked over.** The owner pressed while she spoke: a new turn
+               * owns the phase and the microphone now, so this one stops
+               * reading and touches neither — writing "idle" or continuing
+               * from here would land on top of the recording that replaced it.
+               */
+              if (turn !== turnRef.current) {
+                void reader.cancel().catch(() => {});
+                return;
               }
 
               /**
@@ -932,6 +1047,12 @@ export function LibiAssistant() {
             room && Date.now() - room.at < ROOM_SEED_MAX_AGE_MS
               ? room.level
               : undefined,
+          // A question is pending, or her last line was one: the answer is
+          // likely a word, and a word is finished when it is said.
+          expectsAnswer:
+            continued &&
+            (Boolean(pendingRef.current) ||
+              /\?\s*$/.test(historyRef.current.at(-1)?.replied ?? "")),
         });
       }
 
@@ -1138,7 +1259,7 @@ export function LibiAssistant() {
                 {phase === "recording"
                   ? "מקשיבה — אפשר לדבר"
                   : phase === "speaking"
-                    ? "מדברת…"
+                    ? "מדברת — אפשר לקטוע"
                     : "רגע…"}
               </span>
               <button
@@ -1222,6 +1343,9 @@ export function LibiAssistant() {
          * leaves it recording, and the next press stops it.
          */
         onPointerDown={(event) => {
+          // Pressing while she speaks is talking over her: she stops, and the
+          // same press opens the microphone.
+          if (phaseRef.current === "speaking") interrupt();
           if (phaseRef.current === "recording") {
             // Stopping by hand sends what was said; it does not close the
             // conversation, so her answer still hands back to the microphone.
@@ -1255,10 +1379,16 @@ export function LibiAssistant() {
          */
         onClick={(event) => {
           if (event.detail !== 0) return;
+          if (phaseRef.current === "speaking") interrupt();
           if (phaseRef.current === "recording") finishSoon();
           else void start();
         }}
-        disabled={phase === "processing" || phase === "speaking"}
+        /**
+         * **Only while she is thinking.** Speaking used to disable the button
+         * too, so a reply the owner had already understood still had to be
+         * sat through before the next question. Now a press stops her.
+         */
+        disabled={phase === "processing"}
         aria-label={phase === "recording" ? "עצירת ההקלטה" : "דיבור עם ליבי"}
         aria-pressed={phase === "recording"}
         className={cn(
@@ -1279,7 +1409,7 @@ export function LibiAssistant() {
             : "bg-[image:var(--brand-gradient)]",
         )}
       >
-        {phase === "processing" || phase === "speaking" ? (
+        {phase === "processing" ? (
           <Loader2 className="size-6 animate-spin" aria-hidden />
         ) : phase === "recording" ? (
           <Square className="size-5 fill-current" aria-hidden />

@@ -8,7 +8,10 @@ import {
   idleOutcome,
   initialSilenceState,
   INITIAL_SILENCE_STATE,
+  NOISY_SILENCE_MS,
   PRESSED_IDLE_MS,
+  SHORT_SILENCE_MS,
+  SHORT_VOICE_MS,
   SILENCE_MS,
   VAD_TUNING,
   type SilenceState,
@@ -37,7 +40,9 @@ import {
  * | music with melody, +6dB   | 16/16                      | 0/16 (cap)   |
  * | music as loud as the voice| 7/16                       | 0/16 (cap)   |
  *
- * The same at 44.1kHz and 16kHz within a clip or two. Noise alone never
+ * The pause that ends a turn is 1.4s in a quiet room and 1.8s in a loud one;
+ * with 1.4s everywhere, the +3dB and +6dB rows fell to 13/16 each. The same
+ * results at 44.1kHz and 16kHz within a clip or two. Noise alone never
  * latched, except when a quiet room was seeded and music then started — which
  * ends by itself in under seven seconds rather than running to the cap. The
  * signals below are synthetic stand-ins for those cases, small enough to run on
@@ -272,7 +277,7 @@ describe("decideSilence", () => {
     expect(turn.latchedAt).not.toBeNull();
     expect(turn.stoppedAt).not.toBeNull();
     expect(turn.stoppedAt!).toBeGreaterThanOrEqual(3700 + 300);
-    expect(turn.stoppedAt!).toBeLessThan(3700 + SILENCE_MS + 900);
+    expect(turn.stoppedAt!).toBeLessThan(3700 + NOISY_SILENCE_MS + 900);
   });
 
   it("does not ratchet its idea of the room down until noise reads as voice", () => {
@@ -287,7 +292,7 @@ describe("decideSilence", () => {
     const turn = run(add(room, words), { seed: 0.02 });
 
     expect(turn.stoppedAt).not.toBeNull();
-    expect(turn.stoppedAt!).toBeLessThan(5000 + SILENCE_MS + 1500);
+    expect(turn.stoppedAt!).toBeLessThan(5000 + NOISY_SILENCE_MS + 1500);
   });
 
   it("treats a pause between clauses as part of the sentence", () => {
@@ -336,10 +341,105 @@ describe("decideSilence", () => {
     expect(stoppedAt! - quietFrom).toBeLessThan(SILENCE_MS + 32 + 250);
   });
 
-  it("holds the pause the browser check measured", () => {
-    // A live run against a 1.54s utterance stopped the recording 1.800s after
-    // the speech ended. Changing it changes how every turn feels.
-    expect(SILENCE_MS).toBe(1800);
+  it("keeps the pause short in a quiet room and long in a loud one", () => {
+    /**
+     * The pause is the largest wait in every turn. 1.4s where the owner
+     * stands clear of the room; 1.8s — the value a live run once measured —
+     * where they do not, because the calibration showed the shorter pause
+     * clipping the soft end of sentences only a few dB above the noise.
+     */
+    expect(SILENCE_MS).toBe(1400);
+    expect(NOISY_SILENCE_MS).toBe(1800);
+    expect(SHORT_SILENCE_MS).toBeLessThan(SILENCE_MS);
+  });
+
+  it("waits the longer pause when the voice barely clears the room", () => {
+    // A loud room, and a voice only twice as loud as it: the full margin.
+    let state = initialSilenceState(0.1);
+    for (let t = 16; t <= 600; t += 16) {
+      state = decideSilence(state, { level: 0.2, flatness: 0.05 }, t).state;
+    }
+    expect(state.spoke).toBe(true);
+
+    let stoppedAt: number | null = null;
+    for (let t = 616; t <= 6000 && stoppedAt === null; t += 16) {
+      const outcome = decideSilence(state, { level: 0.1, flatness: 0.5 }, t);
+      state = outcome.state;
+      if (outcome.stop) stoppedAt = t;
+    }
+    expect(stoppedAt! - 616).toBeGreaterThanOrEqual(NOISY_SILENCE_MS);
+  });
+
+  it("ends a one-word answer sooner, when an answer is what it expects", () => {
+    /**
+     * "כן" is finished when it is said. Waiting the full pause after it was
+     * most of a confirmation turn's delay; the caller passes the short pause
+     * when ליבי has just asked something.
+     */
+    const answer = (short?: number) => {
+      let state = initialSilenceState(0.001);
+      // ~300ms of voice: a one-word answer.
+      for (let t = 16; t <= 300; t += 16) {
+        state = decideSilence(
+          state,
+          { level: 0.2, flatness: 0.05 },
+          t,
+          SILENCE_MS,
+          undefined,
+          short,
+        ).state;
+      }
+      for (let t = 316; t <= 5000; t += 16) {
+        const outcome = decideSilence(
+          state,
+          { level: 0, flatness: 1 },
+          t,
+          SILENCE_MS,
+          undefined,
+          short,
+        );
+        state = outcome.state;
+        if (outcome.stop) return t - 316;
+      }
+      return null;
+    };
+
+    const quick = answer(SHORT_SILENCE_MS)!;
+    const normal = answer()!;
+    expect(quick).toBeLessThan(SHORT_SILENCE_MS + 300);
+    expect(normal).toBeGreaterThanOrEqual(SILENCE_MS);
+  });
+
+  it("gives a sentence the full pause even when an answer was expected", () => {
+    // Anything longer than a word is a sentence — "כן, ותזיזי גם את דני" —
+    // and a sentence may pause mid-way.
+    let state = initialSilenceState(0.001);
+    for (let t = 16; t <= 2000; t += 16) {
+      state = decideSilence(
+        state,
+        { level: 0.2, flatness: 0.05 },
+        t,
+        SILENCE_MS,
+        undefined,
+        SHORT_SILENCE_MS,
+      ).state;
+    }
+    expect(state.voicedMs).toBeGreaterThan(SHORT_VOICE_MS);
+
+    let stoppedAt: number | null = null;
+    for (let t = 2016; t <= 6000 && stoppedAt === null; t += 16) {
+      const outcome = decideSilence(
+        state,
+        { level: 0, flatness: 1 },
+        t,
+        SILENCE_MS,
+        undefined,
+        SHORT_SILENCE_MS,
+      );
+      state = outcome.state;
+      if (outcome.stop) stoppedAt = t;
+    }
+    expect(stoppedAt! - 2016).toBeGreaterThanOrEqual(SILENCE_MS);
   });
 
   it("starts from the room the previous turn left, when told it", () => {

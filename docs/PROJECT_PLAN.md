@@ -1666,13 +1666,85 @@ the pipeline as it now stands is in [ARCHITECTURE.md](ARCHITECTURE.md#ליבי--
     detector already knew); letting go mid-word: stopped 842ms after release,
     tail kept. The browser reported the constraints as applied and the
     recorder as `audio/webm;codecs=opus` at 32000.
-- **What the run showed next, and is not in this round:** asked to cancel
-  ג'ורג' ג'בארין, the model answered "אני לא רואה תור" without calling the tool
-  — his booking sits outside the 25 roster rows the prompt calls complete.
-  That is the roster and prompt work that follows.
+- **What the run showed next:** asked to cancel ג'ורג' ג'בארין, the model
+  answered "אני לא רואה תור" without calling the tool — his booking sat
+  outside the 25 roster rows the prompt called complete. Fixed in the round
+  below.
 - **Not verified here:** an iPhone. Holding the microphone open across a
   conversation is what the brief asked for; whether iOS lowers playback volume
   while a capture is live needs a real device.
+
+### ליבי, faster: tolerant names, an honest diary, a quicker voice ✅
+
+The second half of the audit's list. The browser run at the end of the round
+above had shown what came next: a cancellation answered with "אני לא רואה תור"
+by a model that never called the tool.
+
+- **Near names are found.** `libi-names.ts` compares a name the exact lookup
+  missed against every upcoming client: vowel points, geresh and quotes
+  stripped, final letters folded, vowel letters ignored, one or two letters of
+  slack on tokens of four letters or more, exact only below that — "דנה" is
+  not "דינה". Ties come back as a question naming both people ("מצאתי 2
+  תורים: איתן אלקיים ב-10:00 ואיתן טולדנו ב-11:00. איזה מהם לבטל?"). Used by
+  the find, cancel, move and show tools, and for services with unambiguous
+  matches only; every match speaks the diary's own name, and the destructive
+  tools still wait for "כן". The model is also told its input is a transcript
+  and to pass the diary's spelling.
+- **The diary is no longer called complete when it was not.** The prompt had
+  the first 25 of a week's rows under "זו הרשימה המלאה — אין תורים אחרים"; on
+  `demo-barber`'s load-tested week (81 live bookings) that was Thursday, Friday
+  and four of Sunday's thirteen. Now: today and tomorrow in full (up to 40
+  rows, with "מוצגים X מתוך Y" when cut), every other day as a count and its
+  first and last time, a read cap of 300 and a line saying so if it is ever
+  reached, and a rule that no client is declared absent without the tool.
+  Verified in the browser: the same cancellation now proposes "מצאתי תור של
+  ג'ורג' ג'בארין ביום חמישי ב-17:05. לבטל אותו?", and "מה יש לי ביום שני?"
+  answers "17 תורים, הראשון ב-09:05 והאחרון ב-18:35" where it would have said
+  nothing.
+- **`eleven_v3_conversational` is the default voice**, measured warm on this
+  account: 212ms to the first byte and 1033ms for a sentence, against
+  `eleven_v3`'s 837ms and 2871ms. Read back through the transcriber both are
+  intelligible Hebrew. MP3 at 22kHz/32kbps instead of 44kHz/128kbps — 19KB a
+  sentence instead of 71KB, same latency. `eleven_multilingual_v2` and
+  `eleven_turbo_v2_5` left the allowed list: ElevenLabs lists neither as
+  speaking Hebrew, and this file had recommended turbo as the fix for a slow
+  turn. The OpenAI fallback is `gpt-4o-mini-tts-2025-12-15` with Hebrew
+  instructions — the only OpenAI voice of three that read all test sentences
+  cleanly.
+- **`speed: 1.1` never did anything.** Probed three times each at 0.8, 1.2 and
+  unset on both v3 models, durations read from constant-bitrate files: all
+  between 5.7s and 7.0s at random. The key is gone, and ליבי is sped up in the
+  browser instead — decoded at 22kHz and time-stretched ×1.1 with WSOLA
+  (`libi-stretch.ts`), pitch unchanged, ~20ms for a long sentence; stretched
+  recordings still transcribe as before.
+- **The first word comes sooner.** A long opening sentence is cut at its first
+  comma, since a piece plays only when whole: first audio went from 1.43s to
+  0.85s after the text line on the same question, the two pieces playing 13ms
+  apart.
+- **The owner can talk over her.** The button no longer disables while she
+  speaks; a press stops the clip, drops the rest of that answer's stream, and
+  opens the microphone — 138–147ms from press to listening, and the old answer
+  never flips the new turn back to idle.
+- **Shorter waits where it is safe.** The pause that ends a turn is 1.4s where
+  the owner's peak stands 14dB over the room and 1.8s where it does not, and
+  0.8s after a one-word answer to a question she just asked. Calibrated on the
+  same 80 turns: 1.4s everywhere clipped three noisy commands the longer pause
+  kept; the adaptive pause kept all of them and moved the median stop from
+  1.51s to 1.22s after the last word.
+- **The diary is read while the audio is heard**, and the transcriber's
+  vocabulary is cached for 30 seconds per shop, so a conversation's later turns
+  skip that round trip (605ms → 1ms measured). Every response now carries
+  `Server-Timing`: `auth`, `upload`, `ctx`, `stt`, `roster`, `llm`, `tool`.
+- **Measured end to end in Chromium** against production data from this
+  machine: from the recorder stopping to the text line ~4.9s on a first turn
+  (auth 0.9s, vocabulary 0.6s, transcription 1.0s, model 1.5s, tool 0.6s) and
+  ~2.5s on a follow-up question; first audio ~0.85s after that. **The biggest
+  fixed cost left is distance**: the functions run in `fra1` and the database
+  is in Seoul, and every one of those round trips pays for it.
+- **Changed locally, and needed in production:** `.env.local` pinned
+  `ELEVENLABS_MODEL_ID=eleven_v3` and now reads `eleven_v3_conversational`.
+  The Vercel variable, if it is set the same way, keeps the slow model until it
+  is changed or deleted — see *Blocked on a decision or an account*.
 
 ---
 
@@ -1682,7 +1754,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1693 tests across 107 files**; Playwright
+**Green:** `npm run verify` at **1737 tests across 109 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 36 migrations
 (0000–0035) are applied to production** — 0035 (`bookings_paused`) on
 2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -2723,6 +2795,7 @@ it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
 | ~~WhatsApp transport~~ | **Done.** Credentials are live and **real messages have been delivered** on Meta Cloud — 2 `booking_confirmation` sends in production as of 2026-08-23. This row was stale for weeks. |
 | WhatsApp, the last two | **Seven of eight kinds now deliver.** All 8 registered templates are wired — see [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §2. Outstanding: `client_winback` (**Marketing**, different rules) and `booking_rescheduled`, which needs a migration and a `renderNotification` case before a template is worth submitting. Two traps are pinned by tests: the `_he` suffix (the un-suffixed names hold the **English** originals and would deliver those), and three distinct button-suffix shapes — bare token, `b/<token>`, and the slug. |
 | ~~Voice ("ליבי")~~ | **Done.** `OPENAI_API_KEY` is live and real Hebrew utterances have been transcribed, routed to the right tool and spoken back. Pro-gated. |
+| ליבי's fast voice in production | `ELEVENLABS_MODEL_ID` in Vercel: set it to `eleven_v3_conversational` or delete it. The code's default is already the fast model, but a variable pinned to `eleven_v3` keeps every sentence ~1.8s slower. `.env.local` was switched on 2026-09-17. |
 | Web push | Nothing — a VAPID trio is configured and `check:env` reports `push → live`. Unproven: no notification has reached a real device. |
 | Media uploads | `npm run storage:setup` against the production project. |
 | Legal text | An Israeli lawyer. `LEGAL_ENTITY` still holds placeholder ח.פ. and address fields. |
@@ -2762,6 +2835,12 @@ cost time here:
   bottom. The DOM has exactly one — it is a capture artifact of `fullPage`
   against a sticky element. Confirm a duplicate by counting in the DOM before
   believing a full-page image.
+
+**ליבי on an iPhone.** The microphone now stays open for a whole
+conversation (2026-09-17). Chromium with a WAV file as the microphone
+verified the loop, the noise handling, talking over her and the faster voice;
+whether iOS Safari lowers her volume or routes it to the earpiece while a
+capture is live needs a real device.
 
 **No longer blocked on data.** The calendar carrying real appointments and the
 appointment dialog as a bottom sheet were parked here because both demo tenants

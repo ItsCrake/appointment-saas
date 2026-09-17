@@ -15,6 +15,7 @@ import {
 import { parseHistory } from "@/lib/voice/libi-history";
 import {
   upcomingClientNames,
+  upcomingRoster,
   type PendingAction,
   type VoiceNavigation,
 } from "@/lib/voice/libi-tools";
@@ -22,6 +23,7 @@ import {
   MAX_CLIENT_KEYWORDS,
   transcriptionContext,
   transcriptionKeywords,
+  type VocabularySources,
 } from "@/lib/voice/libi-vocabulary";
 import { decide, speakChunks, transcribe } from "@/lib/voice/libi-voice";
 
@@ -140,6 +142,84 @@ function pendingQuestion(pending: PendingAction | undefined): string | null {
 }
 
 /**
+ * How long one shop's vocabulary is reused.
+ *
+ * ---------------------------------------------------------------------------
+ * **A conversation is several turns a few seconds apart**, and each one used
+ * to read the same three lists again before it could transcribe anything —
+ * from a function in Frankfurt to a database in Seoul, a quarter of a second
+ * or more before the audio could even be sent. Half a minute covers a
+ * conversation and nothing much longer.
+ *
+ * **What staleness costs is a hint, not an answer.** These lists only bias the
+ * transcriber; a client booked twenty seconds ago who is missing from them is
+ * still found by the tools, exactly or near. Per warm instance, per shop —
+ * nothing crosses tenants, and an instance that is recycled simply reads again.
+ * ---------------------------------------------------------------------------
+ */
+const VOCABULARY_TTL_MS = 30_000;
+const vocabularyCache = new Map<
+  string,
+  { at: number; value: Promise<VocabularySources> }
+>();
+
+function vocabularyFor(ctx: {
+  db: typeof db;
+  businessId: string;
+  timezone: string;
+  now: Date;
+}): Promise<VocabularySources> {
+  const now = Date.now();
+  const hit = vocabularyCache.get(ctx.businessId);
+  if (hit && now - hit.at < VOCABULARY_TTL_MS) return hit.value;
+
+  // Expired entries go when a new one is written, so the map stays the size
+  // of the shops that spoke in the last half minute.
+  for (const [key, entry] of vocabularyCache) {
+    if (now - entry.at >= VOCABULARY_TTL_MS) vocabularyCache.delete(key);
+  }
+
+  const value = Promise.all([
+    listServices(ctx.db, ctx.businessId),
+    listActiveStaff(ctx.db, ctx.businessId),
+    upcomingClientNames(ctx, MAX_CLIENT_KEYWORDS),
+  ]).then(([services, staff, clients]) => ({
+    clients,
+    staff: staff.map((row) => row.name),
+    services: services.map((row) => row.name),
+  }));
+  vocabularyCache.set(ctx.businessId, { at: now, value });
+  // A failed read must not be served to the next turn.
+  value.catch(() => vocabularyCache.delete(ctx.businessId));
+  return value;
+}
+
+/**
+ * Where a turn's time went, as a `Server-Timing` header.
+ *
+ * A header rather than a log line: it costs nothing when nobody is looking,
+ * and it is exactly where somebody measuring a slow turn already is — the
+ * browser's network panel, or a test reading the response. Each mark is the
+ * time since the previous one; `total` is since the request arrived.
+ */
+function stageTimer() {
+  const started = performance.now();
+  let last = started;
+  const stages: string[] = [];
+  return {
+    mark(name: string) {
+      const now = performance.now();
+      stages.push(`${name};dur=${Math.round(now - last)}`);
+      last = now;
+    },
+    header() {
+      const total = Math.round(performance.now() - started);
+      return [...stages, `total;dur=${total}`].join(", ");
+    },
+  };
+}
+
+/**
  * A refusal is one JSON object, not a stream.
  *
  * There is nothing to wait for — no audio is coming — and a client that has to
@@ -150,6 +230,7 @@ function fail(
   status: number,
   textResult: string,
   extra: Partial<VoiceProcessResponse> = {},
+  serverTiming?: string,
 ) {
   return NextResponse.json<VoiceProcessResponse>(
     {
@@ -159,7 +240,13 @@ function fail(
       actionTaken: "none",
       ...extra,
     },
-    { status, headers: { "Cache-Control": "private, no-store" } },
+    {
+      status,
+      headers: {
+        "Cache-Control": "private, no-store",
+        ...(serverTiming ? { "Server-Timing": serverTiming } : {}),
+      },
+    },
   );
 }
 
@@ -170,13 +257,17 @@ export async function POST(request: Request) {
     return fail(503, "העוזר הקולי לא מוגדר בשרת.", { error: "not_configured" });
   }
 
+  const timing = stageTimer();
+
   // Redirects when there is no session, exactly like every dashboard route.
   const { business, access } = await requireBusiness();
+  timing.mark("auth");
 
   let transcribedText = "";
 
   try {
     const form = await request.formData();
+    timing.mark("upload");
     const audio = form.get("audio");
 
     if (!(audio instanceof Blob) || audio.size === 0) {
@@ -226,43 +317,44 @@ export async function POST(request: Request) {
     const history = parseHistory(form.get("history"), Date.now());
     const gender = addressGender(business.libiAddressGender);
 
+    const toolContext = {
+      db,
+      businessId: business.id,
+      timezone: business.timezone,
+      now: new Date(),
+    };
+
+    /**
+     * **The diary is read while the audio is being heard.** The model needs
+     * the week's roster whatever was said, so waiting for the transcript
+     * before asking for it was a database round trip spent standing still.
+     * Started here, it lands with the transcript; a turn that turns out to be
+     * a "כן" never reads it, which costs one indexed query. The `catch` only
+     * marks it handled — `decide` still sees a failure when it awaits.
+     */
+    const roster = upcomingRoster(toolContext);
+    roster.catch(() => {});
+
     /**
      * **The shop's own words, handed to the transcriber before it guesses.**
      *
      * Services, staff, and — the half that was missing — the clients the
      * owner is about to name, nearest first. A general model has never had
      * reason to spell this diary's names the way the diary does, and the
-     * tools look them up as written. See `libi-vocabulary`.
-     *
-     * Read on every turn rather than cached: a client booked a minute ago
-     * should be heard correctly now, and three indexed reads in parallel cost
-     * far less than the transcription they precede.
+     * tools look them up as written. See `libi-vocabulary` and
+     * `vocabularyFor`.
      */
-    const [shopServices, shopStaff, clients] = await Promise.all([
-      listServices(db, business.id),
-      listActiveStaff(db, business.id),
-      upcomingClientNames(
-        {
-          db,
-          businessId: business.id,
-          timezone: business.timezone,
-          now: new Date(),
-        },
-        MAX_CLIENT_KEYWORDS,
-      ),
-    ]);
+    const vocabulary = await vocabularyFor(toolContext);
+    timing.mark("ctx");
 
     transcribedText = await transcribe(audio, filename, {
       context: transcriptionContext({
         question: history.at(-1)?.replied ?? pendingQuestion(pending),
         gender,
       }),
-      keywords: transcriptionKeywords({
-        clients,
-        staff: shopStaff.map((row) => row.name),
-        services: shopServices.map((row) => row.name),
-      }),
+      keywords: transcriptionKeywords(vocabulary),
     });
+    timing.mark("stt");
 
     if (!transcribedText) {
       /**
@@ -272,22 +364,25 @@ export async function POST(request: Request) {
        * owner's repeated "כן" a yes to nothing. So it is handed back unchanged
        * and the question stays open for one more try.
        */
-      return fail(200, "לא שמעתי. אפשר לחזור על זה?", {
-        error: "empty_transcript",
-        ...(pending ? { pending } : {}),
-      });
+      return fail(
+        200,
+        "לא שמעתי. אפשר לחזור על זה?",
+        { error: "empty_transcript", ...(pending ? { pending } : {}) },
+        timing.header(),
+      );
     }
 
     const outcome = await decide(
       transcribedText,
-      {
-        db,
-        businessId: business.id,
-        timezone: business.timezone,
-        now: new Date(),
-      },
+      toolContext,
       writable ? pending : undefined,
-      { writable, history, gender },
+      {
+        writable,
+        history,
+        gender,
+        roster,
+        onStage: (stage) => timing.mark(stage),
+      },
     );
 
     const spoken = outcome.spoken;
@@ -372,6 +467,7 @@ export async function POST(request: Request) {
         // Tells a proxy that buffers by default not to. Without it the two
         // lines arrive together and the split buys nothing.
         "X-Accel-Buffering": "no",
+        "Server-Timing": timing.header(),
       },
     });
   } catch (error) {

@@ -19,6 +19,7 @@ import {
   runVoiceTool,
   upcomingClientNames,
   upcomingRoster,
+  ROSTER_DAYS,
   ROSTER_LIMIT,
   VOICE_TOOLS,
   type ToolContext,
@@ -938,15 +939,20 @@ describe("upcomingRoster", () => {
     // owner is waiting through.
     const s = await shop();
     await book(s, "2026-09-20T08:00:00Z", "מחוץ לחלון");
-    for (let i = 0; i < ROSTER_LIMIT + 5; i++) {
+    for (let i = 0; i < 15; i++) {
       const hour = String(6 + (i % 12)).padStart(2, "0");
       const day = String(3 + Math.floor(i / 12)).padStart(2, "0");
       await book(s, `2026-09-${day}T${hour}:0${i % 6}:00Z`, `לקוח ${i}`);
     }
 
-    const roster = await upcomingRoster(s.ctx);
-    expect(roster.length).toBeLessThanOrEqual(ROSTER_LIMIT);
-    expect(roster.some((r) => r.clientName === "מחוץ לחלון")).toBe(false);
+    const capped = await upcomingRoster(s.ctx, ROSTER_DAYS, 10);
+    expect(capped).toHaveLength(10);
+    expect(capped.some((r) => r.clientName === "מחוץ לחלון")).toBe(false);
+
+    // The default cap holds a busy week whole.
+    const week = await upcomingRoster(s.ctx);
+    expect(week).toHaveLength(15);
+    expect(ROSTER_LIMIT).toBeGreaterThanOrEqual(200);
   });
 });
 
@@ -1010,5 +1016,160 @@ describe("upcomingClientNames", () => {
     await book(theirs, "2026-09-03T10:00:00Z", "של מישהו אחר");
 
     expect(await upcomingClientNames(mine.ctx, 10)).toEqual([]);
+  });
+});
+
+describe("a name the transcriber spelled its own way", () => {
+  /**
+   * The substring lookup is tried first and a near match second — see
+   * `upcomingFor`. What matters is that the diary's own name is what comes
+   * back, so a near match is always heard, and the destructive tools still
+   * wait for an answer.
+   */
+  it("finds a client whose vowel letters were dropped", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "ג'ורג' ג'בארין");
+
+    const out = await runVoiceTool(
+      "find_client_appointments",
+      { name: "ג'ורג' ג'ברין" },
+      s.ctx,
+    );
+    expect(out.actionTaken).toBe("find_client_appointments");
+    expect(out.spoken).toContain("ג'ורג' ג'בארין");
+  });
+
+  it("proposes the cancellation under the diary's spelling, and writes nothing", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "ג'ורג' ג'בארין");
+
+    const out = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "גורג גבארין" },
+      s.ctx,
+    );
+    expect(out.pending?.kind).toBe("cancel");
+    expect(out.pending?.clientName).toBe("ג'ורג' ג'בארין");
+    expect(out.spoken).toContain("ג'ורג' ג'בארין");
+
+    const after = await runVoiceTool("get_next_appointment", {}, s.ctx);
+    expect(after.spoken).toContain("ג'ורג' ג'בארין");
+  });
+
+  it("proposes a move for a surname heard with an extra letter", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "ארטיום לבדב");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "ארטיום לוודאב", time: "15:30" },
+      s.ctx,
+    );
+    expect(out.pending?.kind).toBe("reschedule");
+    expect(out.pending?.clientName).toBe("ארטיום לבדב");
+  });
+
+  it("asks which, by name, when a near match fits two people", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "איתן אלקיים");
+    await book(s, "2026-09-05T08:00:00Z", "איתן טולדנו");
+
+    const out = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "איתי" },
+      s.ctx,
+    );
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("איתן אלקיים");
+    expect(out.spoken).toContain("איתן טולדנו");
+  });
+
+  it("does not read one short name as another", async () => {
+    // דנה is not דינה. A short name is a whole name, and the lookup says so.
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דינה לוי");
+
+    const out = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("לא מצאתי");
+  });
+
+  it("shows the right booking for a near name", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(s, "2026-09-04T13:00:00Z", "אליאס ג'בארין");
+
+    const out = await runVoiceTool(
+      "show_appointment_in_calendar",
+      { date: "2026-09-04", name: "אליס ג'בארין" },
+      s.ctx,
+    );
+    expect(out.actionTaken).toBe("show_appointment_in_calendar");
+    expect(out.spoken).toContain("אליאס ג'בארין");
+  });
+
+  it("books the service the owner named, however it was worded", async () => {
+    const s = await shop();
+    await createService(db, s.business.id, {
+      name: "עיצוב זקן",
+      durationMin: 20,
+    });
+
+    await runVoiceTool(
+      "create_appointment",
+      {
+        name: "דני",
+        date: "2026-09-04",
+        time: "15:00",
+        service: "עיצוב זקנים",
+      },
+      s.ctx,
+    );
+    await runVoiceTool(
+      "create_appointment",
+      { name: "רון", date: "2026-09-04", time: "17:00", service: "עיצוב הזקן" },
+      s.ctx,
+    );
+
+    const rows = await db
+      .select({
+        client: appointments.clientName,
+        service: appointments.serviceName,
+      })
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(rows).toContainEqual({ client: "דני", service: "עיצוב זקן" });
+    expect(rows).toContainEqual({ client: "רון", service: "עיצוב זקן" });
+  });
+
+  it("falls back to the shop's first service rather than guessing between two", async () => {
+    // "תספורות" is equally near to both haircuts. A guess between them is not
+    // an answer; the owner's own first service is, as it always was.
+    const s = await shop();
+    await createService(db, s.business.id, {
+      name: "תספורת ילד",
+      durationMin: 20,
+    });
+    await createService(db, s.business.id, {
+      name: "צבע",
+      durationMin: 20,
+      sortOrder: -1,
+    });
+
+    await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00", service: "תספורות" },
+      s.ctx,
+    );
+
+    const [row] = await db
+      .select({ service: appointments.serviceName })
+      .from(appointments)
+      .where(eq(appointments.businessId, s.business.id));
+    expect(row.service).toBe("צבע");
   });
 });

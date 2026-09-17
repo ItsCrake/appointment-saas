@@ -194,8 +194,8 @@ export const ENV_VARS: EnvVar[] = [
   },
   /*
    * ElevenLabs — speech out only. `optional` because the assistant works
-   * without it: `speak()` falls back to OpenAI's `tts-1`, which reads Hebrew
-   * with an audible foreign accent but reads it. The pair is all-or-nothing —
+   * without it: `speak()` falls back to OpenAI's `gpt-4o-mini-tts`, which
+   * reads Hebrew less naturally but reads it. The pair is all-or-nothing —
    * a key with no voice id is a 404 on every turn, so `elevenLabsConfig()`
    * treats it as absent and stays on OpenAI rather than going mute.
    */
@@ -204,7 +204,7 @@ export const ENV_VARS: EnvVar[] = [
     requirement: "optional",
     group: "Voice assistant",
     description:
-      "ElevenLabs key for ליבי's speech. Needs ELEVENLABS_VOICE_ID alongside it; without both, speech falls back to OpenAI tts-1.",
+      "ElevenLabs key for ליבי's speech. Needs ELEVENLABS_VOICE_ID alongside it; without both, speech falls back to OpenAI gpt-4o-mini-tts.",
     howTo: "elevenlabs.io → Profile → API Keys.",
   },
   {
@@ -220,16 +220,13 @@ export const ENV_VARS: EnvVar[] = [
     requirement: "optional",
     group: "Voice assistant",
     description:
-      "eleven_v3 (default, most expressive, ~3.0s), eleven_multilingual_v2 (~1.2s) or eleven_turbo_v2_5 (~0.6s). Anything else falls back to the default.",
-    howTo: "Leave unset unless the turn feels slow — then eleven_turbo_v2_5.",
+      "eleven_v3_conversational (default, ~0.2s to first audio, ~1.0s a sentence) or eleven_v3 (~0.8s / ~2.9s, the more careful reader). The only two ElevenLabs models that speak Hebrew; anything else falls back to the default.",
+    howTo:
+      "Leave unset for the fast default. eleven_v3 only if a shop prefers its delivery.",
     validate: (value) =>
-      [
-        "eleven_v3",
-        "eleven_multilingual_v2",
-        "eleven_turbo_v2_5",
-      ].includes(value.trim())
+      ["eleven_v3_conversational", "eleven_v3"].includes(value.trim())
         ? null
-        : "not a model this pipeline uses — eleven_v3 will be used",
+        : "not a Hebrew model this pipeline uses — eleven_v3_conversational will be used",
   },
   /*
    * Web push. `optional` rather than `production` because the failure is

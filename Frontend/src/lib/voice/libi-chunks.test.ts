@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EARLY_CUT_CHARS,
   MAX_CHUNKS,
   MIN_SPLIT_CHARS,
   splitForSpeech,
@@ -152,6 +153,43 @@ describe("splitForSpeech", () => {
     // no request at all rather than a request for silence.
     expect(splitForSpeech("")).toEqual([]);
     expect(splitForSpeech("   ")).toEqual([]);
+  });
+
+  it("cuts a long single sentence at its first comma, to start sooner", () => {
+    /**
+     * A piece plays only once it is whole, so the first piece's length is
+     * the owner's wait. ליבי's answers are often one sentence with a comma
+     * exactly where a speaker would pause.
+     */
+    const reply = "מצאתי תור אחד לברהנו אדמסו, בשעה שבע בערב, תספורת וזקן.";
+    expect(reply.length).toBeGreaterThanOrEqual(EARLY_CUT_CHARS);
+    const parts = splitForSpeech(reply);
+
+    expect(parts[0]).toBe("מצאתי תור אחד לברהנו אדמסו,");
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(rejoin(parts)).toBe(reply);
+  });
+
+  it("cuts only the opening sentence at a comma", () => {
+    const reply =
+      "מחר יש לך שלושה תורים. הראשון בתשע וחצי, האחרון בעשר בלילה, ואין הפסקות.";
+    const parts = splitForSpeech(reply);
+    expect(parts[0]).toBe("מחר יש לך שלושה תורים.");
+    expect(rejoin(parts)).toBe(reply);
+  });
+
+  it("leaves a comma alone when either side would be a fragment", () => {
+    const early = "כן, הזזתי את התור של דניאל כהן לשעה חמש אחר הצהריים היום.";
+    const parts = splitForSpeech(early);
+    expect(parts[0]).not.toBe("כן,");
+    expect(rejoin(parts)).toBe(early);
+  });
+
+  it("never cuts a number written with a comma", () => {
+    const reply =
+      "סך ההכנסות החודש הוא 1,500 שקלים מתוך שלושים ושניים תורים שנקבעו.";
+    for (const part of splitForSpeech(reply)) expect(part).not.toMatch(/^500/);
+    expect(rejoin(splitForSpeech(reply))).toBe(reply);
   });
 
   it("honours a cap of one", () => {

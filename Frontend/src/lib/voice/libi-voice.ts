@@ -2,11 +2,13 @@ import { reportWarning } from "@/lib/observability";
 
 import {
   assertVoiceServer,
+  ELEVENLABS_OUTPUT_FORMAT,
   elevenLabsConfig,
   INTENT_MODEL,
   STT_FALLBACK_MODEL,
   STT_MODEL,
   STT_TIMEOUT_MS,
+  TTS_INSTRUCTIONS,
   TTS_MODEL,
   ttsVoice,
   voiceApiKey,
@@ -14,11 +16,13 @@ import {
 import { addressGender, type AddressGender } from "./libi-address";
 import {
   READ_ONLY_TOOLS,
+  ROSTER_LIMIT,
   VOICE_TOOLS,
   executePending,
   runVoiceTool,
   upcomingRoster,
   type PendingAction,
+  type RosterRow,
   type ToolContext,
   type ToolOutcome,
 } from "./libi-tools";
@@ -35,9 +39,9 @@ import { buildPromptContext } from "./libi-context";
  * ---------------------------------------------------------------------------
  * **Plain `fetch`, no SDK.** These are three HTTP calls, and the one with any
  * subtlety — the transcription's multipart upload — is handled by the
- * runtime's own `FormData` rather than by hand. That matters: the last hand-rolled multipart
- * body in this repository copied the fields and forgot the headers, and every
- * upload since has been stored uncacheable. Letting `fetch` encode it is how
+ * runtime's own `FormData` rather than by hand. That matters: the last
+ * hand-rolled multipart body in this repository copied the fields and forgot
+ * the headers, and every upload since has been stored uncacheable. Letting `fetch` encode it is how
  * that does not happen twice. The cost of the dependency is also real — the
  * dashboard ships 19KB of JavaScript and none of this belongs in it.
  *
@@ -56,12 +60,15 @@ const OPENAI = "https://api.openai.com/v1";
 /**
  * How ElevenLabs should deliver the line.
  *
- * Named rather than inlined so the two numbers are one thing to change and
- * one thing to find. Both were probed against the live endpoint before being
- * set — the API accepts unknown keys silently, so a typo here would be a
- * setting that simply never applied.
+ * **There is no `speed` here, and that is a measurement, not an omission.**
+ * One sat here at 1.1 for months. Probed properly — the same sentence three
+ * times each at 0.8, 1.2 and unset, on both v3 models, durations read from a
+ * constant-bitrate file — it changed nothing: every setting landed between
+ * 5.7s and 7.0s at random. The API accepts the key and ignores it, which is
+ * exactly the silent failure the note that used to sit here warned about.
+ * ליבי's pace is set in the browser instead — see `libi-stretch`.
  */
-const TTS_VOICE_SETTINGS = { stability: 0.4, speed: 1.1 } as const;
+const TTS_VOICE_SETTINGS = { stability: 0.4 } as const;
 
 /** Long enough for a slow model, short enough that a person will wait. */
 const STEP_TIMEOUT_MS = 15_000;
@@ -251,6 +258,17 @@ async function transcribeWith(
  * is one they wait three seconds to hear after it, into a microphone that has
  * already re-opened. Both are forbidden rather than discouraged.
  *
+ * **A question about a client always goes through a tool.** Asked to cancel
+ * a client booked outside the rows she could see, she answered "אני לא רואה
+ * תור" and called nothing — the prompt had called a truncated list complete,
+ * and she believed it. The diary is now detailed for two days and summarised
+ * for the rest, and the rule is stated: no client is declared absent without
+ * the tool's say-so.
+ *
+ * **The input is a transcript, and she is told so.** A name spelled a little
+ * differently from the diary is still that client; the tool matches it too,
+ * but the model passing the diary's spelling is the first and cheapest fix.
+ *
  * **The vocabulary is bounded to the diary.** She is not a general assistant
  * with calendar access; she is the calendar, spoken. Naming the words she has
  * — תור, פנוי, מוזמן, מבוטל, הוזז — is what stops the model editorialising
@@ -262,7 +280,9 @@ const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בז�
 כללים:
 - יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
 - get_today_summary הוא **להיום בלבד**. נשאלת על מחר, על אתמול או על יום נקוב? אל תקראי לו — עני מהיומן שלמעלה. תשובה על היום לשאלה על מחר היא הטעות הגרועה ביותר שלך.
-- אין כלי מתאים? עני מהיומן שלמעלה בלבד. אל תמציאי דבר; מה שאינו שם — אמרי שאינך רואה אותו.
+- אין כלי מתאים? עני מהיומן שלמעלה בלבד ואל תמציאי דבר. היום ומחר מפורטים בו; לשאר הימים יש רק סיכום, בלי שמות.
+- כל בקשה על לקוח מסוים — מתי מגיע, ביטול, הזזה, הצגה — עוברת בכלי, גם כשהשם לא מופיע למעלה. לעולם אל תאמרי שאין תור ללקוח בלי לקרוא לכלי.
+- הבקשה הגיעה מזיהוי דיבור ועלולה לשבש שמות ומילים. שם שדומה לשם ביומן — שלחי לכלי את השם כפי שהוא כתוב ביומן. מילה משובשת שדומה לפועל (תבטלי, תזיזי, תקבעי) — פעלי לפי הפועל.
 - **לעולם אל תקריאי רשימה, וזה כולל שלושה תורים.** את נשמעת בקול: בלי מקפים, בלי נקודתיים, בלי "confirmed", בלי שורות.
 - יותר משני תורים? אמרי רק כמה יש ומתי הראשון והאחרון. אל תפרטי שמות ושירותים של כולם — אם ירצה, הוא ישאל.
 - תור אחד או שניים? שם, שעה, שירות. וזהו.
@@ -338,11 +358,24 @@ export async function decide(
     writable = true,
     history = [],
     gender,
+    roster: rosterInFlight,
+    onStage,
   }: {
+    /**
+     * Called as each step finishes — `roster`, `llm`, `tool` — so the route
+     * can report where a slow turn spent its time.
+     */
+    onStage?: (stage: "roster" | "llm" | "tool") => void;
     writable?: boolean;
     history?: readonly Turn[];
     /** The owner's setting, coerced here so a stray value cannot reach a prompt. */
     gender?: string | null;
+    /**
+     * The diary, already being read. The route starts this read alongside
+     * transcription, so the model call does not wait on a query that never
+     * depended on what was said.
+     */
+    roster?: Promise<RosterRow[]>;
   } = {},
 ): Promise<ToolOutcome> {
   /**
@@ -375,12 +408,16 @@ export async function decide(
    * needed whichever tool is chosen, since "today" and "Thursday" are
    * arguments the model cannot resolve without it.
    */
-  const roster = await upcomingRoster(ctx);
+  const roster = await (rosterInFlight ?? upcomingRoster(ctx));
+  onStage?.("roster");
+  const context = buildPromptContext(ctx.now, ctx.timezone, roster, {
+    fetchLimit: ROSTER_LIMIT,
+  });
 
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `${buildPromptContext(ctx.now, ctx.timezone, roster)}
+      content: `${context}
 
 ${instructionsFor(addressGender(gender))}`,
     },
@@ -435,6 +472,7 @@ ${instructionsFor(addressGender(gender))}`,
   const body = (await response.json()) as {
     choices?: { message?: ChatMessage }[];
   };
+  onStage?.("llm");
   const message = body.choices?.[0]?.message;
   const call = message?.tool_calls?.[0];
 
@@ -459,7 +497,9 @@ ${instructionsFor(addressGender(gender))}`,
     return { spoken: "לא הבנתי. אפשר לנסות שוב?", actionTaken: "none" };
   }
 
-  return runVoiceTool(call.function.name, args, ctx);
+  const outcome = await runVoiceTool(call.function.name, args, ctx);
+  onStage?.("tool");
+  return outcome;
 }
 
 /**
@@ -467,8 +507,8 @@ ${instructionsFor(addressGender(gender))}`,
  *
  * ---------------------------------------------------------------------------
  * **ElevenLabs when it is configured, OpenAI when it is not.** The reason for
- * the switch is the accent: `tts-1` reads Hebrew as a foreign language and it
- * is audible in every reply. ElevenLabs' multilingual model does not, which
+ * the switch is the accent: OpenAI's voices read Hebrew as a foreign language
+ * and it is audible in every reply. ElevenLabs' v3 models do not, which
  * matters more here than anywhere else in the product — this is the one part of
  * Bazman that a shop's clients might overhear.
  *
@@ -554,7 +594,7 @@ async function speakWithElevenLabs(
    * see `speakChunks`.
    */
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=${ELEVENLABS_OUTPUT_FORMAT}`,
     {
       method: "POST",
       signal: AbortSignal.timeout(STEP_TIMEOUT_MS),
@@ -571,12 +611,8 @@ async function speakWithElevenLabs(
         text,
         model_id: model,
         /**
-         * **Quick without being hurried, and steady enough to be believed.**
-         *
-         * `speed: 1.1` is about a tenth off every reply — worth having when
-         * the owner is standing still through it, and far enough from the
-         * point where Hebrew starts to slur. `stability: 0.4` sits below
-         * the midpoint on purpose: the higher end flattens the question
+         * **Steady enough to be believed.** `stability: 0.4` sits below the
+         * midpoint on purpose: the higher end flattens the question
          * intonation that makes "?להזיז אותו" sound like a question rather
          * than an announcement, and this assistant asks a lot of them.
          */
@@ -612,6 +648,7 @@ async function speakWithOpenAI(text: string): Promise<string> {
       model: TTS_MODEL,
       voice: ttsVoice(),
       input: text,
+      instructions: TTS_INSTRUCTIONS,
       response_format: "mp3",
     }),
   });

@@ -19,17 +19,18 @@
  * - The level is measured **in the speech band only** (250–3800 Hz, from an
  *   FFT of the latest ~20ms), so a clipper's motor hum and hiss and a radio's
  *   bass count for little.
- * - The **room** is a low percentile of the recent level, in 100ms buckets
- *   over two seconds. Before the owner speaks, every bucket counts, so a
- *   steady noise *becomes* the room within two seconds instead of passing for a
- *   voice forever. After they speak, only the quiet buckets do — a voice must
- *   not teach the detector that the room is loud.
+ * - The **room** is the median of the recent level, in 100ms buckets over
+ *   two seconds. Before the owner speaks, every bucket counts, so a steady
+ *   noise *becomes* the room within two seconds instead of passing for a voice
+ *   forever. After they speak, a bucket counts unless it is loud enough to be
+ *   them — a voice must not teach the detector that the room is loud.
  * - **Speech starts** when the level stands well above the room for a
  *   syllable's length *and* the spectrum is peaked like a voiced sound rather
  *   than flat like a clipper's hiss.
  * - **Speech ends** when the level falls back toward the room — or far below
  *   the loudest the owner was this turn, which separates a voice held near the
- *   phone from a radio across the room — and stays there for {@link SILENCE_MS}.
+ *   phone from a radio across the room — and stays there for a pause that is
+ *   shorter in a quiet room than in a loud one (see {@link SILENCE_MS}).
  *
  * **Calibrated, not guessed.** Every threshold below was set against the
  * sixteen spoken commands from the transcription benchmark, run through this
@@ -43,10 +44,38 @@
 /**
  * How long a pause has to last before it counts as "finished speaking".
  *
- * 1.8s is long enough to survive the gap between clauses and short enough that
- * the answer still feels like a reply rather than a form submission.
+ * ---------------------------------------------------------------------------
+ * **1.4s where the owner stands clear of the room, 1.8s where they do not.**
+ * The pause is the single largest wait in a turn — paid in full after the last
+ * word, before a byte leaves the phone — so it was the first thing to cut when
+ * speed became the priority. Measured on the calibration clips, cutting it
+ * everywhere was a mistake: in a quiet shop and under clippers 10dB down it cut
+ * nothing, but where the voice is only a few dB above the noise the soft end of
+ * a sentence reads as quiet, and the shorter pause clipped three commands the
+ * longer one had kept. So the pause follows the room: {@link NOISY_SILENCE_MS}
+ * once the owner's own peak is less than {@link CLEAR_PEAK_RATIO} times the
+ * room.
+ *
+ * Someone who pauses longer mid-sentence can hold the button: a held turn ends
+ * when it is let go, whatever the detector hears.
+ * ---------------------------------------------------------------------------
  */
-export const SILENCE_MS = 1800;
+export const SILENCE_MS = 1400;
+export const NOISY_SILENCE_MS = 1800;
+/** The owner's peak over the room, ×5 ≈ 14dB, below which the room is loud. */
+export const CLEAR_PEAK_RATIO = 5;
+
+/**
+ * The pause after a one-word answer, when ליבי has just asked a question.
+ *
+ * "כן" is complete the moment it is said; waiting the full pause after it is
+ * most of the delay in a confirmation turn. Applied only when the caller says
+ * an answer is expected, and only to an utterance shorter than
+ * {@link SHORT_VOICE_MS} — anything longer is a sentence, and gets the full
+ * pause.
+ */
+export const SHORT_SILENCE_MS = 800;
+export const SHORT_VOICE_MS = 600;
 
 /**
  * How long a re-opened microphone waits for the owner to say anything at all.
@@ -263,6 +292,8 @@ export type SilenceState = {
   spoke: boolean;
   /** When the current quiet spell began, or 0 while there is voice. */
   quietSince: number;
+  /** How long the owner has been audibly speaking this turn. */
+  voicedMs: number;
   /** Voice-shaped time above the onset level, leaky, before the latch. */
   onsetMs: number;
   /** Any time above the onset level at all — "something happened". */
@@ -302,6 +333,7 @@ export function initialSilenceState(seedRoom?: number): SilenceState {
   return {
     spoke: false,
     quietSince: 0,
+    voicedMs: 0,
     onsetMs: 0,
     activityMs: 0,
     smooth: 0,
@@ -334,6 +366,10 @@ function percentile(values: readonly number[], p: number): number {
  *
  * Returns the next state and whether to stop, rather than mutating or calling
  * back — which is what makes the sequence testable without an audio graph.
+ *
+ * `shortSilenceMs`, when given, is the pause that ends a turn whose speech so
+ * far is shorter than {@link SHORT_VOICE_MS} — the caller passes it when ליבי
+ * has just asked a question and a one-word answer is what it expects.
  */
 export function decideSilence(
   state: SilenceState,
@@ -341,6 +377,7 @@ export function decideSilence(
   now: number,
   silenceMs = SILENCE_MS,
   tuning: VadTuning = VAD_TUNING,
+  shortSilenceMs?: number,
 ): { state: SilenceState; stop: boolean } {
   const first = state.lastAt === 0;
   const dt = first ? 16 : Math.min(100, Math.max(0, now - state.lastAt));
@@ -435,7 +472,15 @@ export function decideSilence(
     const spoke = onsetMs >= tuning.onsetMs;
 
     return {
-      state: { ...base, spoke, onsetMs, peak: spoke ? smooth : 0 },
+      state: {
+        ...base,
+        spoke,
+        onsetMs,
+        peak: spoke ? smooth : 0,
+        // The onset itself was speech; count it, or a one-word answer would
+        // look shorter than it was.
+        voicedMs: spoke ? onsetMs : 0,
+      },
       stop: false,
     };
   }
@@ -443,15 +488,26 @@ export function decideSilence(
   if (smooth >= sustain) {
     // Sound resets the pause; a gap between two clauses is not the end.
     return {
-      state: { ...base, quietSince: 0, peak: Math.max(state.peak, smooth) },
+      state: {
+        ...base,
+        quietSince: 0,
+        voicedMs: state.voicedMs + dt,
+        peak: Math.max(state.peak, smooth),
+      },
       stop: false,
     };
   }
 
   const quietSince = state.quietSince === 0 ? now : state.quietSince;
+  const noisy = state.peak < room * CLEAR_PEAK_RATIO;
+  const full = noisy ? Math.max(silenceMs, NOISY_SILENCE_MS) : silenceMs;
+  const pause =
+    shortSilenceMs !== undefined && state.voicedMs < SHORT_VOICE_MS
+      ? Math.min(full, shortSilenceMs)
+      : full;
   return {
     state: { ...base, quietSince },
-    stop: now - quietSince >= silenceMs,
+    stop: now - quietSince >= pause,
   };
 }
 

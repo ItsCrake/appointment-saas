@@ -489,18 +489,19 @@ question and the last few exchanges ride along with each recording.
 ```
 browser                    /api/voice/process                          providers
 ───────                    ──────────────────                          ─────────
-getUserMedia (once per     parse pending + history
-  conversation)            services · staff · upcoming clients  ──┐
-MediaRecorder webm/opus    (three reads, in parallel)             │
+getUserMedia (once per     parse pending + history; roster read starts ─┐
+  conversation)            services · staff · upcoming clients        │
+MediaRecorder webm/opus    (cached 30s per shop)                       │
 32kbps ──────────────────▶ transcribe ───────────────────────────────▶ OpenAI gpt-transcribe
 libi-vad ends the turn                                                   (whisper-1 on failure)
-                           decide: word list for yes/no, else
+                           decide: word list for yes/no, else ◀────────┘
                              roster + prompt + history ─────────────▶ OpenAI gpt-4o-mini (tools)
                              → one tool → SQL → a Hebrew sentence
-◀── NDJSON line 1 (card) ─ speakChunks: ≤3 sentences in parallel ───▶ ElevenLabs eleven_v3
-◀── NDJSON audio lines ───                                             (OpenAI tts-1 on failure)
-decodeAudioData, in order;
-last clip → listen again
+◀── NDJSON line 1 (card) ─ speakChunks: ≤3 pieces in parallel ──────▶ ElevenLabs eleven_v3_conversational
+    + Server-Timing                                                      (OpenAI gpt-4o-mini-tts on failure)
+◀── NDJSON audio lines ───
+decode at 22kHz, stretch ×1.1, play in order;
+last clip → listen again · a press mid-answer stops her
 ```
 
 ### Hearing: the transcriber is told what to expect
@@ -545,8 +546,13 @@ The recording loop lives in `libi-assistant.tsx`; what the samples mean lives in
   the newest ~20ms), against **the room**: the median of recent 100ms buckets.
   A steady clipper becomes the room within two seconds instead of passing for a
   voice forever. Onset needs the level ×1.4 above the room for 80ms of
-  voice-shaped (low spectral flatness) frames; the turn ends after 1.8s below
-  ×1.4 of the room *or* 18dB under the owner's own peak.
+  voice-shaped (low spectral flatness) frames; the turn ends once the level
+  stays below ×1.4 of the room *or* 18dB under the owner's own peak — for
+  1.4s where the owner's peak stands 14dB clear of the room, 1.8s where it
+  does not, and 0.8s after a one-word answer to a question she just asked.
+  1.4s everywhere clipped the soft end of three noisy commands the longer
+  pause had kept; the adaptive pause kept them and still cut the median wait
+  after the last word from 1.5s to 1.2s.
 - **Calibrated on the same clips.** The fixed RMS threshold this replaced ran
   **64 of 64** noisy turns to the twenty-second cap. The detector ends 53 of
   them after the words — 46 of the 48 where the voice stands at least 3dB
@@ -556,14 +562,33 @@ The recording loop lives in `libi-assistant.tsx`; what the samples mean lives in
   500ms tail, because people let go on the last syllable. A turn the owner
   pressed waits 8s for a voice and then *sends*; a turn that re-opened by itself
   waits 4.5s and discards when nothing at all happened. Caps are 15s and 10s.
+- **The owner can talk over her.** The button stays live while she speaks; a
+  press stops the clip, moves the turn counter on so the old answer's stream
+  drops out, and opens the microphone in the same gesture — measured at
+  ~140ms from press to listening.
 
 ### Deciding: tools first, the diary second
 
 `decide` answers a pending yes/no from a **word list** (`libi-confirm`), never
 the model — it is the gate in front of every destructive write. Otherwise the
-model gets the shop's date and time, a bounded roster, the rules, and up to four
+model gets the shop's date and time, the diary, the rules, and up to four
 earlier exchanges, and may call one tool. The tool's own Hebrew sentence is what
 is spoken; the model's text is used only when it calls nothing.
+
+- **The diary is detailed for today and tomorrow and summarised for the
+  rest** — one line per day, a count and its first and last time, no names.
+  It used to be the first 25 rows, called "the complete list": on a full week
+  the model answered Monday with nothing and a Sunday client with "I don't see
+  him", without calling a tool. The prompt now says which days are detailed,
+  says when the read reached its cap, and forbids declaring a client absent
+  without the tool.
+- **The input is a transcript and the model is told so**, and the tools meet it
+  halfway: a name that finds nothing exactly is compared against every upcoming
+  client by `libi-names` — vowel points, geresh and quotes stripped, final
+  letters folded, vowel letters ignored, one or two letters of slack on longer
+  tokens, never on names of three letters or fewer. Ties are read back as a
+  question; every match speaks the diary's own name; services get the same
+  treatment, unambiguous matches only.
 
 Writes follow one line: **booking runs on the first sentence** (it takes an
 empty slot and is undone with one tap); **moves and cancellations return a
@@ -574,11 +599,34 @@ tenant is offered the reading tools only.
 ### Speaking
 
 `normalizeForSpeech` turns times, dates and counts into Hebrew words, and the
-reply is cut into at most three sentences requested in parallel, so the first is
-playing while the rest are generated. ElevenLabs when both its key and voice id
-are set, OpenAI on absence *or* failure. The stream notices a cancelled request
-— an owner who closed the card mid-answer — and stops writing rather than
-reporting it as a speech failure.
+reply is cut into at most three pieces requested in parallel, so the first is
+playing while the rest are generated — a long opening sentence is cut at its
+first comma, because a piece plays only once it is whole and its length is the
+wait. ElevenLabs when both its key and voice id are set, OpenAI
+(`gpt-4o-mini-tts-2025-12-15`) on absence *or* failure. The stream notices a
+cancelled request — an owner who closed the card mid-answer — and stops writing
+rather than reporting it as a speech failure.
+
+- **`eleven_v3_conversational`**, at 22kHz/32kbps: ~212ms to the first byte and
+  ~1.0s for a sentence, against `eleven_v3`'s ~837ms and ~2.9s, and a quarter
+  of the bytes. Only the two v3 models speak Hebrew; `ELEVENLABS_MODEL_ID` may
+  pin either and coerces anything else to the default.
+- **ElevenLabs ignores `speed` on both**, measured, so the pace is set in the
+  browser: each clip is decoded at its own 22kHz and time-stretched ×1.1 with
+  WSOLA (`libi-stretch`), which keeps her pitch where `playbackRate` would
+  raise it — about 20ms of work for a long sentence.
+
+### Where a turn's time goes
+
+Every response carries `Server-Timing` — `auth`, `upload`, `ctx`, `stt`,
+`roster`, `llm`, `tool` — so a slow turn can be read off the network panel.
+Measured from this machine against production data: auth ~0.9s, vocabulary
+~0.6s on a conversation's first turn and ~0 after (cached 30s per shop),
+transcription 0.7–1.5s, the model ~1.0–1.5s, a tool ~0.6s, first audio ~0.85s
+after the text line. **The database round trips are the largest fixed cost
+left**: functions run in `fra1` and the database is in Seoul, so every query
+pays the distance — moving either next to the other is worth more than any
+further change here.
 
 ### Keys and gates
 

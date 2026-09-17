@@ -10,7 +10,7 @@ import {
   TTS_VOICES,
   ttsVoice,
 } from "./libi-config";
-import { buildPromptContext } from "./libi-context";
+import { buildPromptContext, DETAIL_LIMIT } from "./libi-context";
 import type { RosterRow } from "./libi-tools";
 
 /**
@@ -99,23 +99,86 @@ describe("buildPromptContext", () => {
     expect(context).toContain("2026-09-04");
   });
 
-  it("tells the model the list is complete", () => {
+  it("says a day it does not show is empty — when that is true", () => {
     /**
      * Without this the model treats the roster as a sample and hedges — or
-     * worse, supplements it. The list really is complete within its window, and
-     * saying so is what makes "I do not see it in the diary" an available
-     * answer rather than an invented one.
+     * worse, supplements it. Within its window the read is complete, and
+     * saying so is what makes "there is nothing that day" an available answer.
      */
-    expect(buildPromptContext(NOW, TZ, [row("2026-09-03T11:00:00Z")])).toContain(
-      "אין תורים אחרים",
+    const context = buildPromptContext(NOW, TZ, [row("2026-09-03T11:00:00Z")], {
+      fetchLimit: 300,
+    });
+    expect(context).toContain("ימים שאינם מופיעים — אין בהם תורים");
+    expect(context).not.toContain("עמוס");
+  });
+
+  it("never calls a read that reached its cap complete", () => {
+    /**
+     * **The bug this replaced.** The first 25 rows of a full week were
+     * introduced as "the complete list — there are no other appointments",
+     * and the model answered Monday with nothing and a Sunday client with "I
+     * don't see him".
+     */
+    const full = Array.from({ length: 5 }, (_, i) =>
+      row(`2026-09-0${4 + i}T06:00:00Z`, `לקוח ${i}`),
     );
+    const context = buildPromptContext(NOW, TZ, full, { fetchLimit: 5 });
+    expect(context).toContain("ייתכן שיש תורים שאינם מופיעים");
+    expect(context).not.toContain("אין בהם תורים");
+    expect(context).not.toContain("אין תורים אחרים");
+  });
+
+  it("lists today and tomorrow in full, and only summarises the rest", () => {
+    const context = buildPromptContext(NOW, TZ, [
+      row("2026-09-03T06:00:00Z", "היום"),
+      row("2026-09-04T06:00:00Z", "מחר"),
+      row("2026-09-06T06:00:00Z", "ראשון בבוקר"),
+      row("2026-09-06T15:30:00Z", "ראשון בערב"),
+    ]);
+
+    expect(context).toContain("היום ומחר — כל התורים:");
+    expect(context).toContain("היום");
+    expect(context).toContain("מחר");
+    // Sunday is a count and its hours — no names, so no name can be denied
+    // from it; a question about a client goes to the tool.
+    expect(context).toMatch(
+      /2026-09-06 \(ראשון\): 2 תורים, הראשון ב-09:00, האחרון ב-18:30/,
+    );
+    expect(context).not.toContain("ראשון בבוקר");
+    expect(context).not.toContain("ראשון בערב");
+  });
+
+  it("says one booking the way Hebrew does", () => {
+    const context = buildPromptContext(NOW, TZ, [row("2026-09-06T06:00:00Z")]);
+    expect(context).toMatch(/2026-09-06 \(ראשון\): תור אחד, ב-09:00/);
+  });
+
+  it("says how many of today and tomorrow it left out, when it has to", () => {
+    const busy = Array.from({ length: DETAIL_LIMIT + 3 }, (_, i) =>
+      row(
+        new Date(
+          Date.parse("2026-09-03T04:00:00Z") + i * 10 * 60_000,
+        ).toISOString(),
+        `לקוח ${i}`,
+      ),
+    );
+    const context = buildPromptContext(NOW, TZ, busy);
+    expect(context).toContain(
+      `מוצגים ${DETAIL_LIMIT} מתוך ${DETAIL_LIMIT + 3}`,
+    );
+  });
+
+  it("says so when today and tomorrow are empty but the week is not", () => {
+    const context = buildPromptContext(NOW, TZ, [row("2026-09-07T06:00:00Z")]);
+    expect(context).toContain("אין תורים היום ומחר");
+    expect(context).toContain("תורים היום: 0");
   });
 
   it("orders the day before the time on each line", () => {
     // The model reads these as text. A bare "14:00" with no date is the kind of
     // line that gets attributed to today whatever day it belongs to.
-    const context = buildPromptContext(NOW, TZ, [row("2026-09-05T06:00:00Z")]);
-    expect(context).toMatch(/2026-09-05 \(שבת\) 09:00/);
+    const context = buildPromptContext(NOW, TZ, [row("2026-09-04T06:00:00Z")]);
+    expect(context).toMatch(/2026-09-04 \(שישי\) 09:00/);
   });
 });
 
@@ -219,21 +282,34 @@ describe("elevenLabsConfig", () => {
     });
   });
 
-  it("defaults the model, and accepts only the two this pipeline uses", () => {
+  it("defaults to the fast Hebrew model, and accepts only the two that speak it", () => {
     process.env.ELEVENLABS_API_KEY = "xi-test";
     process.env.ELEVENLABS_VOICE_ID = "voice-123";
 
+    // Measured: ~212ms to first audio against eleven_v3's ~837ms.
     delete process.env.ELEVENLABS_MODEL_ID;
-    expect(elevenLabsConfig()?.model).toBe("eleven_v3");
+    expect(elevenLabsConfig()?.model).toBe("eleven_v3_conversational");
 
+    expect([...ELEVENLABS_MODELS].sort()).toEqual(
+      ["eleven_v3", "eleven_v3_conversational"].sort(),
+    );
     for (const model of ELEVENLABS_MODELS) {
       process.env.ELEVENLABS_MODEL_ID = model;
       expect(elevenLabsConfig()?.model).toBe(model);
     }
 
     // An unknown model would come back a 422 mid-turn, which reaches the owner
-    // as silence. Falling back keeps her talking.
-    for (const junk of ["", "eleven_v4", "turbo", "gpt-4o-mini"]) {
+    // as silence. The two former "fast" options are here too: they answer
+    // Hebrew with a 200 and a foreign reading of it, which is worse.
+    for (const junk of [
+      "",
+      "eleven_v4",
+      "turbo",
+      "gpt-4o-mini",
+      "eleven_multilingual_v2",
+      "eleven_turbo_v2_5",
+      "eleven_flash_v2_5",
+    ]) {
       process.env.ELEVENLABS_MODEL_ID = junk;
       expect(elevenLabsConfig()?.model).toBe(DEFAULT_ELEVENLABS_MODEL);
     }
@@ -241,7 +317,7 @@ describe("elevenLabsConfig", () => {
 
   it("does not decide whether the assistant exists at all", () => {
     /**
-     * ElevenLabs replaces the speech-out leg only. Whisper still hears the
+     * ElevenLabs replaces the speech-out leg only. OpenAI still hears the
      * question and the intent model still decides what it means, so the
      * microphone's presence stays keyed on the OpenAI key — an ElevenLabs key
      * alone is a voice with nothing to say.

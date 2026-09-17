@@ -12,6 +12,7 @@ import {
   lt,
   ne,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
@@ -30,6 +31,7 @@ import type { Database } from "@/db/types";
 import { todayInTimezone } from "@/lib/format";
 import { normalizePhone } from "@/lib/validation";
 
+import { matchNames } from "./libi-names";
 import {
   spokenDay,
   spokenNext,
@@ -466,19 +468,66 @@ async function todaySummary(ctx: ToolContext): Promise<ToolOutcome> {
   };
 }
 
+/**
+ * Upcoming appointments for a spoken name.
+ *
+ * ---------------------------------------------------------------------------
+ * **Exact first, then a second chance.** The substring match is what a name
+ * spelled the way the diary spells it needs, and it is tried first. When it
+ * finds nothing, the name is compared against every upcoming client with
+ * `matchNames` — vowel letters, a geresh, one letter off — because the name
+ * arrived through a transcriber and Hebrew names have several honest
+ * spellings before one gets anywhere near them.
+ *
+ * Every caller speaks the diary's own name back, so a near match is heard, and
+ * the destructive ones wait for "כן" as well.
+ * ---------------------------------------------------------------------------
+ */
 async function upcomingFor(name: string, ctx: ToolContext) {
-  return ctx.db
-    .select(SPOKEN_COLUMNS)
+  const upcoming = (condition: SQL | undefined) =>
+    ctx.db
+      .select(SPOKEN_COLUMNS)
+      .from(appointments)
+      .where(
+        and(
+          live(ctx.businessId),
+          gt(appointments.startsAt, ctx.now),
+          condition,
+        ),
+      )
+      .orderBy(asc(appointments.startsAt))
+      .limit(5);
+
+  const exact = await upcoming(
+    ilike(appointments.clientName, `%${escapeLike(name)}%`),
+  );
+  if (exact.length > 0) return exact;
+
+  const near = matchNames(name, await futureClientNames(ctx));
+  if (near.length === 0) return [];
+  return upcoming(inArray(appointments.clientName, near));
+}
+
+/** How many distinct upcoming names the second chance compares against. */
+const FUZZY_CANDIDATES = 500;
+
+/** Distinct client names with a live booking still ahead, nearest first. */
+async function futureClientNames(ctx: ToolContext): Promise<string[]> {
+  const rows = await ctx.db
+    .select({ name: appointments.clientName })
     .from(appointments)
     .where(
       and(
         live(ctx.businessId),
         gt(appointments.startsAt, ctx.now),
-        ilike(appointments.clientName, `%${escapeLike(name)}%`),
+        ne(appointments.clientName, PLACEHOLDER_NAME),
       ),
     )
-    .orderBy(asc(appointments.startsAt))
-    .limit(5);
+    .groupBy(appointments.clientName)
+    .orderBy(sql`min(${appointments.startsAt})`)
+    .limit(FUZZY_CANDIDATES);
+
+  return rows.map((row) => row.name);
 }
 
 async function findClient(name: string, ctx: ToolContext): Promise<ToolOutcome> {
@@ -549,14 +598,27 @@ async function resolveOne(
      * The times are read back rather than just counted. "There are two" leaves
      * the owner exactly where they started; "at two and at five, which one"
      * is a question they can answer in the next breath.
+     *
+     * **And the names, when they differ.** "דני" finds דני כהן and דני לוי; a
+     * near match finds איתן אלקיים for "איתי". Reading back only the name the
+     * owner said would hide which people were found.
      */
-    const times = matches
-      .map((row) => spokenTime(row.startsAt, ctx.timezone))
-      .join(" ו-");
+    const sameName = matches.every(
+      (row) => row.clientName === matches[0].clientName,
+    );
+    const choices = matches
+      .map((row) =>
+        sameName
+          ? spokenTime(row.startsAt, ctx.timezone)
+          : `${row.clientName} ב-${spokenTime(row.startsAt, ctx.timezone)}`,
+      )
+      .join(sameName ? " ו-" : " ו");
     return {
       ok: false,
       outcome: {
-        spoken: `יש ${matches.length} תורים על השם ${trimmed} — ב-${times}. איזה מהם ${verb}?`,
+        spoken: sameName
+          ? `יש ${matches.length} תורים על השם ${matches[0].clientName} — ב-${choices}. איזה מהם ${verb}?`
+          : `מצאתי ${matches.length} תורים: ${choices}. איזה מהם ${verb}?`,
         actionTaken: "none",
       },
     };
@@ -842,12 +904,8 @@ async function createVoiceAppointment(
    * owner arranged them in — so "the first one" is their own answer to "what
    * do you mostly do", not ours.
    */
-  const named = input.service
-    ? services.find((row) =>
-        row.name.toLowerCase().includes(input.service!.toLowerCase()),
-      )
-    : undefined;
-  const service = named ?? services[0];
+  const service =
+    (input.service && serviceNamed(input.service, services)) || services[0];
 
   const phone = input.phone ? normalizePhone(input.phone) : "";
   const clientName = input.name?.trim() || PLACEHOLDER_NAME;
@@ -924,6 +982,41 @@ async function createVoiceAppointment(
 }
 
 /**
+ * The service a spoken name means, or `undefined` for the shop's default.
+ *
+ * Three tries, most literal first. A service containing what was said —
+ * "תספורת" is the first haircut on the owner's list. Then what was said
+ * containing a service — "תספורת גברים" is "תספורת גבר", the longest one wins.
+ * Then a near match, but only an unambiguous one: a near match to two services
+ * is a guess, and the default is the honest answer to a guess.
+ */
+function serviceNamed<T extends { name: string }>(
+  spoken: string,
+  services: readonly T[],
+): T | undefined {
+  const wanted = spoken.trim().toLowerCase();
+  if (!wanted) return undefined;
+
+  const contained = services.find((row) =>
+    row.name.toLowerCase().includes(wanted),
+  );
+  if (contained) return contained;
+
+  const containing = services
+    .filter((row) => wanted.includes(row.name.toLowerCase()))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (containing) return containing;
+
+  const near = matchNames(
+    spoken,
+    services.map((row) => row.name),
+  );
+  return near.length === 1
+    ? services.find((row) => row.name === near[0])
+    : undefined;
+}
+
+/**
  * Opens the calendar on one booking and says which.
  *
  * ---------------------------------------------------------------------------
@@ -959,7 +1052,7 @@ async function showInCalendar(
   const from = fromZonedTime(`${day}T00:00:00`, ctx.timezone);
   const to = new Date(from.getTime() + 86_400_000);
 
-  const rows = await ctx.db
+  const dayRows = await ctx.db
     .select(SPOKEN_COLUMNS)
     .from(appointments)
     .where(
@@ -967,12 +1060,32 @@ async function showInCalendar(
         live(ctx.businessId),
         gte(appointments.startsAt, from),
         lt(appointments.startsAt, to),
-        ...(input.name && input.name.trim().length >= 2
-          ? [ilike(appointments.clientName, `%${escapeLike(input.name.trim())}%`)]
-          : []),
       ),
     )
     .orderBy(asc(appointments.startsAt));
+
+  /**
+   * The day's bookings for the named client — exact first, then the same
+   * second chance `upcomingFor` gives, within the day. A day is a few dozen
+   * rows at most, so both happen here rather than in SQL.
+   */
+  const wantedName = input.name?.trim() ?? "";
+  let rows = dayRows;
+  if (wantedName.length >= 2) {
+    const needle = wantedName.toLowerCase();
+    rows = dayRows.filter((row) =>
+      row.clientName.toLowerCase().includes(needle),
+    );
+    if (rows.length === 0) {
+      const near = new Set(
+        matchNames(
+          wantedName,
+          dayRows.map((row) => row.clientName),
+        ),
+      );
+      rows = dayRows.filter((row) => near.has(row.clientName));
+    }
+  }
 
   if (rows.length === 0) {
     const who = input.name ? ` על השם ${input.name}` : "";
@@ -1147,9 +1260,17 @@ export type RosterRow = {
   status: string;
 };
 
-/** How far ahead the prompt looks, and how much of it it will carry. */
+/**
+ * How far ahead the prompt looks, and how much of the diary is read for it.
+ *
+ * The read is generous and the prompt is not: `buildPromptContext` lists today
+ * and tomorrow in full and turns every other day into one line, so the cap
+ * here only has to hold a busy week — the load-tested `demo-barber` fortnight
+ * put 81 live bookings in one — and the prompt says so if it is ever reached.
+ * The old cap was 25 rows, introduced to the model as the complete week.
+ */
 export const ROSTER_DAYS = 7;
-export const ROSTER_LIMIT = 25;
+export const ROSTER_LIMIT = 300;
 
 export async function upcomingRoster(
   ctx: ToolContext,

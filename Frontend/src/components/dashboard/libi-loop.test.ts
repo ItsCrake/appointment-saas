@@ -118,8 +118,62 @@ describe("the auto-listen loop", () => {
      * `play` used to resolve at `source.start()`, so awaiting it meant nothing.
      * With a queue that is two sentences talking over each other.
      */
-    const body = SOURCE.slice(SOURCE.indexOf("const play = useCallback"));
-    expect(body.slice(0, 1200)).toContain("source.onended = () => resolve()");
+    const body = SOURCE.slice(
+      SOURCE.indexOf("const play = useCallback"),
+      SOURCE.indexOf("const interrupt = useCallback"),
+    );
+    expect(body).toMatch(
+      /source\.onended = \(\) => \{[\s\S]{0,160}resolve\(\);/,
+    );
+  });
+
+  it("lets the owner talk over her", () => {
+    /**
+     * The button used to be disabled while she spoke, so an answer the owner
+     * had already understood still had to be sat through. A press now stops
+     * the clip and opens the microphone in the same gesture.
+     */
+    expect(SOURCE).toContain('disabled={phase === "processing"}');
+    const button = SOURCE.slice(SOURCE.indexOf("onPointerDown="));
+    const down = button.slice(0, button.indexOf("onPointerUp="));
+    expect(down).toContain('if (phaseRef.current === "speaking") interrupt();');
+    expect(down.indexOf("interrupt()")).toBeLessThan(down.indexOf("start()"));
+
+    const interrupt = SOURCE.slice(
+      SOURCE.indexOf("const interrupt = useCallback"),
+    );
+    const body = interrupt.slice(0, interrupt.indexOf("}, ["));
+    expect(body).toContain("turnRef.current += 1");
+    expect(body).toContain("source?.stop()");
+    expect(body).toContain('setPhase("idle")');
+  });
+
+  it("never lets an answer that was talked over touch the next turn", () => {
+    /**
+     * The reading loop outlives the interruption: the stopped clip still ends,
+     * and more lines may still arrive. Each check sits before the loop writes
+     * the phase or continues the conversation, or the stale answer would
+     * write "idle" over the recording that replaced it.
+     */
+    const send = SOURCE.slice(SOURCE.indexOf("const send = useCallback"));
+    expect(send.slice(0, 200)).toContain("const turn = ++turnRef.current;");
+    const guards = send.match(/if \(turn !== turnRef\.current\) \{/g) ?? [];
+    expect(guards.length).toBeGreaterThanOrEqual(2);
+
+    const last = send.indexOf("if (message.last) {");
+    const guardBeforeLast = send.lastIndexOf(
+      "if (turn !== turnRef.current) {",
+      last,
+    );
+    expect(guardBeforeLast).toBeGreaterThan(send.indexOf("await play("));
+    expect(guardBeforeLast).toBeLessThan(last);
+  });
+
+  it("speaks a little faster, at the same pitch", () => {
+    // Through the stretch, never through `playbackRate`, which would raise
+    // her voice with her speed.
+    expect(SOURCE).toContain("timeStretch(");
+    expect(SOURCE).not.toMatch(/playbackRate/);
   });
 
   it("passes `true` so the continued turn is armed differently", () => {

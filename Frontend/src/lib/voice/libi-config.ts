@@ -83,8 +83,20 @@ export const STT_TIMEOUT_MS = 8_000;
  */
 export const INTENT_MODEL = "gpt-4o-mini";
 
-/** Speech out. */
-export const TTS_MODEL = "tts-1";
+/**
+ * Speech out, when ElevenLabs is absent or fails.
+ *
+ * The dated snapshot rather than `tts-1` or the bare alias: read back through
+ * the transcriber, it was the only OpenAI voice that said all three test
+ * sentences cleanly — `tts-1` dropped a name, the alias turned "תור" into
+ * "טול" — and it answered in 1.5–2.3s against `tts-1`'s 1.4–3.0s. It also
+ * takes {@link TTS_INSTRUCTIONS}, which `tts-1` ignores.
+ */
+export const TTS_MODEL = "gpt-4o-mini-tts-2025-12-15";
+
+/** How the fallback voice should sound. Only the gpt-4o voices read this. */
+export const TTS_INSTRUCTIONS =
+  "דברי עברית ישראלית טבעית, בקצב מעט מהיר, בטון חם וענייני.";
 
 /** The voices OpenAI actually accepts. An unknown one is a 400 mid-turn. */
 export const TTS_VOICES = [
@@ -127,32 +139,50 @@ export function ttsVoice(): TtsVoice {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The models worth pointing at Hebrew, most expressive first.
+ * The ElevenLabs models that speak Hebrew — and there are only two.
  *
  * ---------------------------------------------------------------------------
- * **`eleven_v3` is the default, and it is the slow one.** Measured warm against
- * this account, three runs each on a full sentence: v3 **2962ms**,
- * `multilingual_v2` **1196ms**, `turbo_v2_5` **570ms**. So the default trades
- * roughly 1.8 seconds of every turn for v3's delivery — a deliberate choice
- * about how ליבי sounds, not an oversight, and the one line to change if a shop
- * would rather have the speed.
+ * **`eleven_v3_conversational` is the default because it is the fast one.**
+ * Measured warm against this account, the configured voice, two of ליבי's
+ * sentences, median of two runs each on the streaming endpoint:
  *
- * All three are verified against the real endpoint rather than assumed from a
+ * | model | first byte | whole clip |
+ * | --- | --- | --- |
+ * | `eleven_v3_conversational` | **212ms** | **1033ms** |
+ * | `eleven_v3` | 837ms | 2871ms |
+ *
+ * Nearly two seconds off every sentence ליבי says. Read back through the
+ * transcriber both are intelligible Hebrew; v3 is the more careful reader of a
+ * long number, and remains available for a shop that prefers it.
+ *
+ * **`eleven_multilingual_v2` and `eleven_turbo_v2_5` are gone from this list.**
+ * They were here as the faster options, and ElevenLabs lists neither as
+ * speaking Hebrew (turbo is also deprecated): they answer a Hebrew request
+ * with a 200 and a foreign reading of it. Only the v3 pair lists Hebrew.
+ *
+ * Both are verified against the real endpoint rather than assumed from a
  * changelog: an unsupported `model_id` comes back a 422, and since this list is
  * also what `elevenLabsModel()` coerces *to*, a wrong default would mean every
- * turn failing over to OpenAI — the accent the switch existed to remove,
- * restored silently and by default.
+ * turn failing over to OpenAI.
  * ---------------------------------------------------------------------------
  */
 export const ELEVENLABS_MODELS = [
+  "eleven_v3_conversational",
   "eleven_v3",
-  "eleven_multilingual_v2",
-  "eleven_turbo_v2_5",
 ] as const;
 
 export type ElevenLabsModel = (typeof ELEVENLABS_MODELS)[number];
 
-export const DEFAULT_ELEVENLABS_MODEL: ElevenLabsModel = "eleven_v3";
+export const DEFAULT_ELEVENLABS_MODEL: ElevenLabsModel =
+  "eleven_v3_conversational";
+
+/**
+ * MP3 at 22kHz and 32kbps: a voice needs nothing more, and a sentence is ~19KB
+ * instead of ~71KB — measured on the same clips, at the same latency. Every
+ * byte of it crosses the owner's mobile connection as base64 inside the
+ * stream, and is decoded on their phone before a word is heard.
+ */
+export const ELEVENLABS_OUTPUT_FORMAT = "mp3_22050_32";
 
 export function elevenLabsModel(): ElevenLabsModel {
   const configured = process.env.ELEVENLABS_MODEL_ID?.trim();

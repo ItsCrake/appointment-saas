@@ -78,15 +78,49 @@ const SENTENCE_END = /(?<=[.!?:])\s+/;
  * whitespace at the seams — nothing is dropped, so a bug here cannot silently
  * lose half an answer.
  */
+/**
+ * A first sentence longer than this is cut at its first comma.
+ *
+ * ---------------------------------------------------------------------------
+ * **The first piece is the one the owner is waiting on**, and a piece is
+ * played only once it is whole — so its length is the wait. With the fast
+ * voice model a sentence takes about a second to produce; half of one takes
+ * about half. Most of ליבי's one-sentence answers have a comma in exactly the
+ * place a speaker pauses — "מצאתי תור אחד לדני, בשעה שלוש" — so the cut costs
+ * nothing a listener notices and buys the first word early.
+ *
+ * Only the first sentence, only at the first comma far enough in to leave a
+ * real phrase on each side, and only a comma followed by a space, which keeps
+ * "1,500" whole.
+ * ---------------------------------------------------------------------------
+ */
+export const EARLY_CUT_CHARS = 45;
+
+function cutOpening(sentence: string): string[] {
+  if (sentence.length < EARLY_CUT_CHARS) return [sentence];
+  const comma = /,\s+/g;
+  for (let match = comma.exec(sentence); match; match = comma.exec(sentence)) {
+    const head = sentence.slice(0, match.index + 1);
+    const tail = sentence.slice(match.index + match[0].length);
+    if (head.length >= MIN_CHUNK_CHARS && tail.length >= MIN_CHUNK_CHARS) {
+      return [head, tail];
+    }
+  }
+  return [sentence];
+}
+
 export function splitForSpeech(
   text: string,
   maxChunks = MAX_CHUNKS,
 ): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
-  if (trimmed.length < MIN_SPLIT_CHARS || maxChunks < 2) return [trimmed];
+  if (trimmed.length < MIN_SPLIT_CHARS || maxChunks < 2) {
+    return maxChunks < 2 ? [trimmed] : cutOpening(trimmed);
+  }
 
-  const sentences = trimmed.split(SENTENCE_END).filter(Boolean);
+  const [opening, ...rest] = trimmed.split(SENTENCE_END).filter(Boolean);
+  const sentences = [...cutOpening(opening), ...rest];
   if (sentences.length < 2) return [trimmed];
 
   /**

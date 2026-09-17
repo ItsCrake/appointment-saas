@@ -173,5 +173,11 @@ export function spokenSearch(
     return `מצאתי תור אחד ל${first.clientName}, ${when} (${first.serviceName}).`;
   }
 
+  // Several people can answer to one spoken name — "דני" is דני כהן and דני
+  // לוי — and naming only the first would pass them off as one client.
+  if (matches.some((row) => row.clientName !== first.clientName)) {
+    return `מצאתי ${matches.length} תורים על השם ${query}. הקרוב ל${first.clientName}, ${when} (${first.serviceName}).`;
+  }
+
   return `מצאתי ${matches.length} תורים ל${first.clientName}. הקרוב ${when} (${first.serviceName}).`;
 }
