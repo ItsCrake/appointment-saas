@@ -478,125 +478,122 @@ native `title` so the same summary survives without a pointer. The card itself
 is `pointer-events-none` except for the call and WhatsApp links — otherwise
 moving the cursor toward it would leave the trigger and close it before arriving.
 
-## "ליבי" — booking by Hebrew voice command
+## "ליבי" — the voice assistant
 
-A microphone beside "תור ידני" on `/dashboard`. The owner speaks —
-*"היי ליבי, תוסיפי תור מחר בעשר לדני לתספורת"* — and Libi extracts the fields,
-asks in Hebrew for whatever is missing, and books through the existing manual
-path.
+A microphone on every dashboard page. The owner speaks Hebrew; ליבי answers
+out loud, reads the diary, books, and proposes moves and cancellations that land
+only after a spoken or tapped "yes". One turn is one request to
+`/api/voice/process`, and the endpoint holds no conversation state — the pending
+question and the last few exchanges ride along with each recording.
 
-**Speech recognition is the browser's, the parsing is Claude's, and the split is
-the point.** `webkitSpeechRecognition` locked to `he-IL` does the audio: no
-recording leaves the device for a transcription service, there is no per-minute
-cost, and the only thing that reaches the server is a short string. What crosses
-the wire to Anthropic is one sentence plus the tenant's service catalogue. The
-cost of that choice is browser support — Chromium and Safari have the API,
-Firefox does not — so the control removes itself rather than failing on click.
+```
+browser                    /api/voice/process                          providers
+───────                    ──────────────────                          ─────────
+getUserMedia (once per     parse pending + history
+  conversation)            services · staff · upcoming clients  ──┐
+MediaRecorder webm/opus    (three reads, in parallel)             │
+32kbps ──────────────────▶ transcribe ───────────────────────────────▶ OpenAI gpt-transcribe
+libi-vad ends the turn                                                   (whisper-1 on failure)
+                           decide: word list for yes/no, else
+                             roster + prompt + history ─────────────▶ OpenAI gpt-4o-mini (tools)
+                             → one tool → SQL → a Hebrew sentence
+◀── NDJSON line 1 (card) ─ speakChunks: ≤3 sentences in parallel ───▶ ElevenLabs eleven_v3
+◀── NDJSON audio lines ───                                             (OpenAI tts-1 on failure)
+decodeAudioData, in order;
+last clip → listen again
+```
 
-### It writes nothing
+### Hearing: the transcriber is told what to expect
 
-`parseVoiceAppointment` resolves the tenant, reads the catalogue and returns a
-**draft**. Creating the appointment is `createManualBookingAction`, unchanged.
-That keeps voice from becoming a second path into `appointments`: the exclusion
-constraint, `getDefaultStaff`, the notification enqueue and the inline dispatch
-all stay in exactly one place, and a bug fixed in manual booking is fixed here
-for free.
+`gpt-transcribe`, measured rather than assumed: on 64 Hebrew clips — two voices,
+eight commands built from `demo-barber`'s real client names, clean and under
+synthetic clippers and music — it recognised **208 of 224** names, verbs and
+times against `whisper-1`'s **149**, at a median **735ms** against **1404ms**.
+What made the difference is its two context fields:
 
-It still calls `requireWritable()` rather than `requireBusiness()`. It writes
-nothing, but it spends money on the tenant's behalf and exists only to produce a
-write, so a frozen tenant has no business reaching it.
+- **`keywords`** — the diary's own words, spelled as the diary spells them:
+  staff, services, a handful of command verbs, and **the clients the owner is
+  about to name** (`upcomingClientNames`: the shop's fortnight from midnight,
+  nearest first, capped at 150, never the voice placeholder). The old prompt
+  carried services and staff only, while nearly every command that changes the
+  diary turns on a client's name — and the tools then look that name up as
+  written.
+- **`prompt`** — one descriptive sentence about the conversation, plus the last
+  thing ליבי said. "כן" is a hard word to hear over clippers and an easy one
+  right after "לבטל אותו?".
 
-### The conversation is multi-turn because the phone number forces it
+Each alone was worse than both (keywords 202, context 177). `whisper-1` is the
+fallback **on a failed request only** — never on an empty transcript, which is
+the new model's honest answer to noise (the old one answered it with "תודה").
+An empty transcript hands the pending question back unchanged and the browser
+listens again, at most twice in a row.
 
-`appointments.client_phone` is NOT NULL, and it is the identity everything else
-is keyed on — the clients list, `client_profiles`, the win-back campaign,
-`/[slug]/my-appointments`. A spoken booking almost never contains one.
+`gpt-4o-mini-transcribe` was ~80ms faster and is not used: with names in its
+prompt it answered noisy clips with the prompt itself, word for word.
 
-Three options were considered and two rejected. A **placeholder number** would
-merge distinct people in the clients directory and silently corrupt the win-back
-pool — the exact duplication `0022` exists to prevent. **Dropping NOT NULL**
-would push the same problem into every consumer. So Libi asks, in Hebrew, for
-the first missing field and waits to be pressed again.
+### Listening: the room is learned, not assumed
 
-The draft lives in the client component and travels to the server on each turn;
-**the server holds no conversation state**. Two rules make that work:
+The recording loop lives in `libi-assistant.tsx`; what the samples mean lives in
+`libi-vad.ts`, which is pure.
 
-- **A null never overwrites a value.** The second utterance ("לתספורת")
-  mentions nothing else, so every other field comes back null — treating that as
-  a retraction would make the flow unable to ever finish. The model can add or
-  replace, never clear.
-- **Libi never reopens the microphone by herself.** She asks and stops; the next
-  turn needs a press. An assistant that reopens the mic on its own is listening
-  to a room the owner did not agree to have listened to, and in a shop that room
-  has clients in it.
+- **One microphone per conversation.** `getUserMedia` runs once, with echo
+  cancellation, noise suppression and gain control asked for by name, and the
+  stream is released when the conversation ends, the page is hidden, or the
+  component unmounts. Re-opening it per turn clipped the owner's first
+  syllable — the verb.
+- **The end of a turn is measured in the speech band** (250–3800Hz, an FFT of
+  the newest ~20ms), against **the room**: the median of recent 100ms buckets.
+  A steady clipper becomes the room within two seconds instead of passing for a
+  voice forever. Onset needs the level ×1.4 above the room for 80ms of
+  voice-shaped (low spectral flatness) frames; the turn ends after 1.8s below
+  ×1.4 of the room *or* 18dB under the owner's own peak.
+- **Calibrated on the same clips.** The fixed RMS threshold this replaced ran
+  **64 of 64** noisy turns to the twenty-second cap. The detector ends 53 of
+  them after the words — 46 of the 48 where the voice stands at least 3dB
+  above the noise. Music as loud as the voice is the case it cannot separate,
+  and holding the button is the answer there.
+- **A held button overrules the detector**; letting go ends the turn after a
+  500ms tail, because people let go on the last syllable. A turn the owner
+  pressed waits 8s for a voice and then *sends*; a turn that re-opened by itself
+  waits 4.5s and discards when nothing at all happened. Caps are 15s and 10s.
 
-### What the model is not trusted with
+### Deciding: tools first, the diary second
 
-| Returned | What the server does with it |
-| -------- | ---------------------------- |
-| `serviceId` | Re-matched against the tenant's own catalogue; anything else becomes null and a question |
-| `missingFields` | Ignored; recomputed from the fields actually present |
-| `startLocal` | Kept as a **wall clock**, resolved by `fromZonedTime` like every other input |
-| `feedbackMessage` | Used, unless it claims a completeness the recomputation disagrees with |
+`decide` answers a pending yes/no from a **word list** (`libi-confirm`), never
+the model — it is the gate in front of every destructive write. Otherwise the
+model gets the shop's date and time, a bounded roster, the rules, and up to four
+earlier exchanges, and may call one tool. The tool's own Hebrew sentence is what
+is spoken; the model's text is used only when it calls nothing.
 
-The timezone rule is the one worth dwelling on. The schema rejects an ISO
-instant with an offset, so the model reports what the owner *said* and the
-server decides what instant that is — asking a language model to do timezone
-arithmetic across a DST boundary is asking it to be wrong twice a year in a way
-nobody notices until somebody misses an appointment.
+Writes follow one line: **booking runs on the first sentence** (it takes an
+empty slot and is undone with one tap); **moves and cancellations return a
+pending action** that changes nothing until confirmed, and `executePending`
+re-reads the row — tenant, status and start time — before writing. A frozen
+tenant is offered the reading tools only.
 
-Re-matching `serviceId` closes a subtler hole than hallucination:
-`createManualBookingAction` resolves the service *through the business*, so a
-foreign uuid would have been refused there anyway — late, as an error. Here it
-becomes a question Libi can ask.
+### Speaking
 
-### Model, effort, and where the cost lever is
+`normalizeForSpeech` turns times, dates and counts into Hebrew words, and the
+reply is cut into at most three sentences requested in parallel, so the first is
+playing while the rest are generated. ElevenLabs when both its key and voice id
+are set, OpenAI on absence *or* failure. The stream notices a cancelled request
+— an owner who closed the card mid-answer — and stops writing rather than
+reporting it as a speech failure.
 
-`claude-opus-5`, at **`low` effort**. The model is not downgraded for cost: a
-mis-parsed utterance books the wrong person at the wrong time and the owner
-finds out when somebody turns up. Effort is the right lever instead — the task
-is single-turn extraction against a supplied list, and the call sits between an
-owner speaking and a spinner stopping, so latency is the felt cost.
+### Keys and gates
 
-Thinking is left **on** (adaptive is Opus 5's default). Disabling it is the
-documented cause of two failure modes — tool calls emitted as plain text, and
-`<thinking>` tags leaking into output — and buys nothing that low effort does
-not already buy. `max_tokens` is generous for the same reason: on Opus 5 it caps
-thinking *plus* response, and a tight cap truncates mid-JSON, which structured
-outputs surface as a parse failure that names nothing useful.
+Pro-gated (`canAccessLibi`) and gated again on `OPENAI_API_KEY`: without it the
+microphone is not rendered. `libi-config.ts` and `libi-voice.ts` carry a
+`typeof window` throw, and `voice-isolation.test.ts` fails if a client module
+imports either; `libi-capture.ts` and `libi-vad.ts` are the client-safe halves.
 
-Output shape is a **structured output** (`zodOutputFormat` over the same Zod
-schema the server validates with), so the model's grammar, the server's
-validator and the client's type are one object rather than three that drift.
-
-### Pro-gated, and gated again on a key
-
-`voiceAssistant` joins `clientRetention` as a Pro entitlement, and for the same
-reason: it costs per tenant on every use. It is the **fourth** thing Pro sells
-and the first whose cost scales with how much a tenant *likes* it — worth
-remembering when 8e prices the cost model.
-
-Both halves are resolved on the server. The entitlement is re-checked **inside
-the action**, not only where the button renders: a Server Action is a plain POST
-endpoint, a hidden microphone proves nothing about who can call it, and this one
-spends money. With no `ANTHROPIC_API_KEY` the control is not rendered at all —
-no console fallback, because a fake parse would either invent an appointment or
-refuse every sentence.
-
-> **The key is kept out of the browser the way the service-role key is.**
-> `lib/voice/libi.ts` carries a `typeof window` throw and
-> `libi-isolation.test.ts` fails the build if a `"use client"` module imports
-> it — the same pair as `lib/supabase/admin.ts`. `libi-schema.ts` is the pure
-> half and *is* imported by the client component, so the test also asserts that
-> file never touches the SDK or the key. Verified by adding the forbidden import
-> and confirming both assertions named the file.
-
-> **Privacy, stated rather than assumed.** A transcript can contain a client's
-> name and phone number, and it is sent to Anthropic to be parsed. No audio is
-> sent, nothing is stored by this app beyond the appointment it produces, and
-> `reportError` still redacts identifiers from logs. `/legal/privacy` does not
-> yet mention a model provider as a processor — it should before this is used
-> with real client data.
+> **Privacy, stated rather than assumed.** The recording is sent to OpenAI for
+> transcription, together with this shop's upcoming client names as keywords;
+> the transcript, the week's roster (names, services, times — never a phone
+> number) and the last few exchanges go to OpenAI to decide; the spoken reply
+> goes to ElevenLabs. Nothing is stored by this app beyond what a tool writes.
+> `/legal/privacy` should name both processors before this is used with real
+> client data.
 
 ## Analytics (`/dashboard/analytics`)
 

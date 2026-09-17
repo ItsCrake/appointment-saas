@@ -11,6 +11,7 @@ import {
   inArray,
   lt,
   ne,
+  sql,
 } from "drizzle-orm";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
@@ -1179,6 +1180,55 @@ export async function upcomingRoster(
     )
     .orderBy(asc(appointments.startsAt))
     .limit(limit);
+}
+
+/**
+ * The clients the owner is likely to name, nearest appointment first.
+ *
+ * ---------------------------------------------------------------------------
+ * **The transcriber's most valuable hint, and the one it never had.** Almost
+ * every command that changes the diary turns on a client's name, and a general
+ * model has no reason to spell "ג'בארין" or "אדמסו" the way this shop's diary
+ * does — which matters twice, because the tools then look the name up as
+ * written. Handed over as `keywords`, see `libi-vocabulary`.
+ *
+ * **From the shop's midnight, for a fortnight.** The morning's clients stay in
+ * reach ("מה עם דני מהבוקר?"), next week's are in reach for a move, and the cap
+ * falls on the furthest away because the order is by each client's *nearest*
+ * booking.
+ *
+ * Names only — never a phone number, for the same reason as the roster — and
+ * never the placeholder a voice booking carries, which is a label, not a person.
+ * ---------------------------------------------------------------------------
+ */
+export const CLIENT_NAME_DAYS = 14;
+
+export async function upcomingClientNames(
+  ctx: Pick<ToolContext, "db" | "businessId" | "timezone" | "now">,
+  limit: number,
+  days = CLIENT_NAME_DAYS,
+): Promise<string[]> {
+  const day = todayInTimezone(ctx.timezone, ctx.now);
+  const from = fromZonedTime(`${day}T00:00:00`, ctx.timezone);
+  const to = new Date(from.getTime() + days * 86_400_000);
+
+  const rows = await ctx.db
+    .select({ name: appointments.clientName })
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, ctx.businessId),
+        gte(appointments.startsAt, from),
+        lt(appointments.startsAt, to),
+        inArray(appointments.status, [...BLOCKING_STATUSES]),
+        ne(appointments.clientName, PLACEHOLDER_NAME),
+      ),
+    )
+    .groupBy(appointments.clientName)
+    .orderBy(sql`min(${appointments.startsAt})`, asc(appointments.clientName))
+    .limit(limit);
+
+  return rows.map((row) => row.name);
 }
 
 /** Re-exported so the route need not know where the speech lives. */

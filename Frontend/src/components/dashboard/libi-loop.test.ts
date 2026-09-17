@@ -47,7 +47,8 @@ describe("the auto-listen loop", () => {
   it("keeps the rendered phase and the ref written by one function", () => {
     // Two copies of one fact, and the only thing stopping them drifting is
     // that nothing else may write either.
-    const assignments = SOURCE.match(/phaseRef\.current =/g) ?? [];
+    // Assignments only: the handlers compare it with `===`, which is reading.
+    const assignments = SOURCE.match(/phaseRef\.current =(?!=)/g) ?? [];
     expect(assignments).toHaveLength(1);
     expect(SOURCE).toContain("setPhaseState(next);");
   });
@@ -68,11 +69,48 @@ describe("the auto-listen loop", () => {
     expect(SOURCE).toContain("if (message.last) {");
 
     const guarded = SOURCE.slice(SOURCE.indexOf("if (message.last) {"));
-    expect(guarded.slice(0, 400)).toContain("startRef.current?.(true)");
+    expect(guarded.slice(0, 200)).toContain("continueConversation()");
 
-    // And it is the only place a turn is continued.
+    // One function starts a turn from a turn…
     const continued = SOURCE.match(/startRef\.current\?\.\(true\)/g) ?? [];
     expect(continued).toHaveLength(1);
+    const helper = SOURCE.slice(SOURCE.indexOf("const continueConversation"));
+    expect(helper.slice(0, 200)).toContain("startRef.current?.(true)");
+
+    // …the text line never calls it…
+    const text = SOURCE.slice(
+      SOURCE.indexOf('if (message.type === "text") {'),
+      SOURCE.indexOf("One clip of the reply"),
+    );
+    expect(text).not.toContain("continueConversation()");
+
+    // …and it has exactly two callers: the last clip, and an unheard turn.
+    expect(SOURCE.match(/continueConversation\(\);/g) ?? []).toHaveLength(2);
+  });
+
+  it("listens again after an unheard turn, a bounded number of times", () => {
+    /**
+     * An empty transcript is the transcriber saying it could not make the
+     * words out over the room. The question it answered is still pending, so
+     * the microphone re-opens — but a room that produces nothing but empty
+     * transcripts must not keep it, and the bill, running forever.
+     */
+    const refusal = SOURCE.slice(SOURCE.indexOf("const refusal ="));
+    const body = refusal.slice(0, refusal.indexOf("return;"));
+    expect(body).toContain('refusal.error === "empty_transcript"');
+    expect(body).toContain("unheardRef.current < MAX_UNHEARD_TURNS");
+    expect(body).toContain("endConversation()");
+  });
+
+  it("never writes idle over the next turn when the stream ends", () => {
+    /**
+     * After the last clip the phase may already belong to the next turn. The
+     * old fallback set "idle" after the loop whenever nothing had been spoken
+     * aloud — over a recording that had just started, with the microphone
+     * still open behind it.
+     */
+    expect(SOURCE).toContain("if (!sawLast) {");
+    expect(SOURCE).not.toMatch(/if \(!spokeAloud\) setPhase\("idle"\)/);
   });
 
   it("waits for each clip to finish before starting the next", () => {
@@ -86,18 +124,74 @@ describe("the auto-listen loop", () => {
 
   it("passes `true` so the continued turn is armed differently", () => {
     /**
-     * `continued` decides three things: the card is left alone, the idle
-     * timeout is armed, and a conversation is not started twice. Calling with
-     * no argument would re-open the microphone with no deadline on it — the
-     * twenty-second cap, then the shop sent to Whisper.
+     * `continued` decides four things: the card is left alone, the short
+     * idle window applies and may discard, the cap is lower, and a
+     * conversation is not started twice. Calling with no argument would
+     * re-open the microphone as if the owner had pressed it.
      */
     expect(SOURCE).not.toMatch(/startRef\.current\?\.\(\s*\)/);
   });
 
-  it("arms the idle timeout only on a continued turn", () => {
-    // A pressed turn has none: the owner meant to speak, and closing the
-    // microphone on somebody who is still thinking is the worst thing here.
-    expect(SOURCE).toContain("continued ? closeQuietly : undefined");
+  it("gives a pressed turn the patient idle rule, and never a discard", () => {
+    /**
+     * A turn that opened by itself gets the short window and may be thrown
+     * away when nothing happened in it. A pressed one waits longer and then
+     * *sends*: the owner meant to speak, and a voice too buried in the room
+     * to detect is still worth transcribing.
+     */
+    expect(SOURCE).toContain("idleMs: continued ? IDLE_MS : PRESSED_IDLE_MS");
+    expect(SOURCE).toMatch(
+      /onIdle: continued\s*\?[\s\S]{0,120}closeQuietly\(\)\)\s*:\s*stop,/,
+    );
+  });
+
+  it("keeps one microphone for the whole conversation", () => {
+    /**
+     * The stream used to be released after every recording and opened again
+     * for the next, and the owner's first syllable — the verb that picks the
+     * tool — went into a device that was still starting. It is opened in one
+     * place, with the voice-processing constraints, and released only when
+     * the conversation ends.
+     */
+    expect(SOURCE.match(/mediaDevices\.getUserMedia\(\{/g) ?? []).toHaveLength(
+      1,
+    );
+    expect(SOURCE).toMatch(
+      /getUserMedia\(\{\s*audio: AUDIO_CONSTRAINTS,?\s*\}\)/,
+    );
+
+    const onstop = SOURCE.slice(SOURCE.indexOf("recorder.onstop = () => {"));
+    const stopBody = onstop.slice(0, onstop.indexOf("void send(blob);"));
+    expect(stopBody).not.toContain("releaseStream()");
+
+    const end = SOURCE.slice(SOURCE.indexOf("const endConversation"));
+    expect(end.slice(0, end.indexOf("}, ["))).toContain("releaseStream()");
+  });
+
+  it("lets a held button overrule the silence detector", () => {
+    // While the owner holds the button, letting go ends the turn — not a
+    // pause the detector heard in the middle of a sentence.
+    const tick = SOURCE.slice(SOURCE.indexOf("const tick = () => {"));
+    const body = tick.slice(
+      0,
+      tick.indexOf("frame = requestAnimationFrame(tick);"),
+    );
+    expect(body).toContain("if (!holdingRef.current) {");
+    expect(body.indexOf("if (!holdingRef.current) {")).toBeLessThan(
+      body.indexOf("onSilent()"),
+    );
+  });
+
+  it("keeps the last syllable when the owner stops by hand", () => {
+    /**
+     * People let go on the last syllable, and the last syllable of a Hebrew
+     * command is the name or the time. Every manual stop goes through the
+     * half-second tail; none calls `stop()` directly.
+     */
+    const button = SOURCE.slice(SOURCE.indexOf("onPointerDown="));
+    const handlers = button.slice(0, button.indexOf("disabled="));
+    expect(handlers).toContain("finishSoon()");
+    expect(handlers).not.toMatch(/[^.\w]stop\(\)/);
   });
 
   it("discards rather than sends when a turn is abandoned", () => {
@@ -108,5 +202,21 @@ describe("the auto-listen loop", () => {
     expect(body.indexOf("discardRef.current = true")).toBeLessThan(
       body.indexOf("stop()"),
     );
+  });
+
+  it("arms the discard only when something is recording", () => {
+    /**
+     * Closing the card while ליבי was speaking used to set the flag with
+     * nothing to discard — and the next question the owner asked, a minute
+     * later, was the thing thrown away.
+     */
+    const close = SOURCE.slice(SOURCE.indexOf("const closeQuietly"));
+    const body = close.slice(0, close.indexOf("}, ["));
+    expect(body).toContain(
+      'if (recorderRef.current?.state === "recording") discardRef.current = true;',
+    );
+    // And every new turn starts with it clear.
+    const start = SOURCE.slice(SOURCE.indexOf("const start = useCallback"));
+    expect(start.slice(0, 2500)).toContain("discardRef.current = false;");
   });
 });

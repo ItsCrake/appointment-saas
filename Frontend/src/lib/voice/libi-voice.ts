@@ -4,7 +4,9 @@ import {
   assertVoiceServer,
   elevenLabsConfig,
   INTENT_MODEL,
+  STT_FALLBACK_MODEL,
   STT_MODEL,
+  STT_TIMEOUT_MS,
   TTS_MODEL,
   ttsVoice,
   voiceApiKey,
@@ -22,10 +24,7 @@ import {
 } from "./libi-tools";
 import { classifyConfirmation } from "./libi-confirm";
 import { normalizeForSpeech } from "./libi-hebrew";
-import {
-  correctHearing,
-  transcriptionPrompt,
-} from "./libi-vocabulary";
+import { correctHearing, whisperPrompt } from "./libi-vocabulary";
 import { splitForSpeech } from "./libi-chunks";
 import { historyMessages, type Turn } from "./libi-history";
 import { buildPromptContext } from "./libi-context";
@@ -35,8 +34,8 @@ import { buildPromptContext } from "./libi-context";
  *
  * ---------------------------------------------------------------------------
  * **Plain `fetch`, no SDK.** These are three HTTP calls, and the one with any
- * subtlety — Whisper's multipart upload — is handled by the runtime's own
- * `FormData` rather than by hand. That matters: the last hand-rolled multipart
+ * subtlety — the transcription's multipart upload — is handled by the
+ * runtime's own `FormData` rather than by hand. That matters: the last hand-rolled multipart
  * body in this repository copied the fields and forgot the headers, and every
  * upload since has been stored uncacheable. Letting `fetch` encode it is how
  * that does not happen twice. The cost of the dependency is also real — the
@@ -91,62 +90,103 @@ async function openai(
   return response;
 }
 
-/** Step 1 — speech to Hebrew text. */
+/** What the transcriber is told before it listens — see `libi-vocabulary`. */
+export type TranscriptionHints = {
+  /** One sentence about the conversation, plus ליבי's last question. */
+  context: string;
+  /** The shop's names and the command verbs, spelled as the diary spells them. */
+  keywords: readonly string[];
+};
+
+/**
+ * Step 1 — speech to Hebrew text.
+ *
+ * ---------------------------------------------------------------------------
+ * **`gpt-transcribe` first, `whisper-1` only if the request fails.** See
+ * `STT_MODEL` for the measurement. The fallback is on failure — a 4xx, a 5xx,
+ * a timeout — and never on an empty transcript: empty is an answer, and asking
+ * a weaker model the same question turns "I heard nothing" into a guess.
+ *
+ * **The transcript is post-processed the same way whichever model spoke**, so
+ * nothing downstream needs to know which one did.
+ * ---------------------------------------------------------------------------
+ */
 export async function transcribe(
   audio: Blob,
   filename: string,
-  /**
-   * This shop's service and staff names, biasing the decoder toward them.
-   *
-   * Optional so a caller without them still works, but the route always has
-   * them — and they are the half that matters. A general model knows "תור";
-   * it has never had reason to learn "מילוי באקריליק" or "ניר בלאק".
-   */
-  names: readonly string[] = [],
+  hints: TranscriptionHints,
 ): Promise<string> {
-  const form = new FormData();
-  form.append("file", audio, filename);
-  form.append("model", STT_MODEL);
-  /**
-   * Hebrew, stated rather than detected.
-   *
-   * Whisper guesses a language from the first seconds, and a short Hebrew
-   * utterance with an English loanword in it — "יש לי תור ב-Zoom" — is
-   * routinely guessed as English and transcribed as nonsense. The shop's
-   * language is known, so it is not a guess worth making.
-   */
-  form.append("language", "he");
-  /**
-   * **The only place in this pipeline where a mis-heard word can still be**
-   * **fixed.** By the time the intent model sees "כהלי" the audio is gone, and
-   * no instruction downstream recovers which word was said — it can only guess,
-   * which is how a booking lands under a name nobody has. See `libi-vocabulary`.
-   */
-  form.append("prompt", transcriptionPrompt(names));
-  form.append("response_format", "json");
+  let text: string;
 
-  const response = await openai("/audio/transcriptions", {
-    method: "POST",
-    body: form,
-  });
-
-  const { text } = (await response.json()) as { text?: string };
+  try {
+    text = await transcribeWith(audio, filename, (form) => {
+      form.append("model", STT_MODEL);
+      /**
+       * Hebrew, stated rather than detected. A short Hebrew utterance with a
+       * loanword in it is exactly what a detector gets wrong, and the shop's
+       * language is known. `languages` is plural on this model — it takes a
+       * list, for recordings that switch language — and the singular field is
+       * the older models' spelling.
+       */
+      form.append("languages[]", "he");
+      form.append("prompt", hints.context);
+      for (const keyword of hints.keywords) form.append("keywords[]", keyword);
+    });
+  } catch (error) {
+    reportWarning(
+      "voice.stt.fallback",
+      "gpt-transcribe failed; falling back to whisper-1",
+      { message: error instanceof Error ? error.message : String(error) },
+    );
+    text = await transcribeWith(audio, filename, (form) => {
+      form.append("model", STT_FALLBACK_MODEL);
+      form.append("language", "he");
+      form.append("prompt", whisperPrompt(hints.context, hints.keywords));
+    });
+  }
 
   /**
-   * **Bidi control characters, stripped.** Whisper prefixes a Hebrew
+   * **Bidi control characters, stripped.** Transcribers prefix a Hebrew
    * transcript with U+202B often enough to matter — it came back as
    * "‫ומה יש לי מחר?" on a live run — and those characters are invisible in
    * every log and every diff. They reach the model as tokens, they reach a
    * word list as a character that is not a letter, and nobody looking at the
    * transcript can see why the turn behaved oddly.
    */
-  const clean = (text ?? "")
-    .replace(/[‎‏‪-‮⁦-⁩]/g, "")
+  const clean = text
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "")
     .trim();
 
-  // The net under the bias: a short list of mangles this product has actually
+  // The net under the hints: a short list of mangles this product has actually
   // seen, corrected as whole words only.
   return correctHearing(clean);
+}
+
+/**
+ * One transcription request, with the fields every model shares.
+ *
+ * The body is rebuilt per attempt rather than reused: a `FormData` holding a
+ * `Blob` is safe to read twice, but a fallback that inherited the first
+ * attempt's `keywords[]` would be sending a field `whisper-1` rejects.
+ */
+async function transcribeWith(
+  audio: Blob,
+  filename: string,
+  configure: (form: FormData) => void,
+): Promise<string> {
+  const form = new FormData();
+  form.append("file", audio, filename);
+  form.append("response_format", "json");
+  configure(form);
+
+  const response = await openai(
+    "/audio/transcriptions",
+    { method: "POST", body: form },
+    STT_TIMEOUT_MS,
+  );
+
+  const { text } = (await response.json()) as { text?: string };
+  return text ?? "";
 }
 
 /**

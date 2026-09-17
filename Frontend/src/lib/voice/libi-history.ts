@@ -29,7 +29,7 @@
 
 /** One exchange: what the owner said, and what ליבי answered. */
 export type Turn = {
-  /** The transcript, as Whisper heard it. */
+  /** The transcript, as the transcriber heard it. */
   said: string;
   /** The sentence she spoke back. */
   replied: string;
@@ -72,8 +72,8 @@ export const MAX_IDLE_MS = 45 * 1000;
  * A hard ceiling on what one turn can carry, whatever the counts say.
  *
  * The list above bounds *turns*; this bounds bytes, because a turn is only
- * short by convention — the transcript is whatever Whisper returned for twenty
- * seconds of audio, and a crafted request is not bound by convention at all.
+ * short by convention — the transcript is whatever the transcriber returned for
+ * a long recording, and a crafted request is not bound by convention at all.
  */
 const MAX_CHARS = 300;
 

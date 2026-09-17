@@ -10,7 +10,7 @@
  * `voice-isolation.test.ts`.
  *
  * **A second provider, and that is a real cost worth naming.** This product
- * already talks to Anthropic for Libi. Whisper and TTS have no Anthropic
+ * already talks to Anthropic for Libi. Transcription and TTS have no Anthropic
  * equivalent, so speech in and speech out have to come from somewhere else —
  * but the *middle* step, turning a Hebrew sentence into an intent, is the one
  * thing already solved here and already paid for. Routing it through
@@ -26,8 +26,53 @@ export function assertVoiceServer(): void {
   }
 }
 
-/** Speech in. The only OpenAI model here with no alternative. */
-export const STT_MODEL = "whisper-1";
+/**
+ * Speech in.
+ *
+ * ---------------------------------------------------------------------------
+ * **`gpt-transcribe`, because it was measured rather than assumed.** On 64
+ * Hebrew clips — two voices, eight owner commands built from `demo-barber`'s
+ * real client names, clean and under synthetic clippers and music — it
+ * recognised **208 of 224** names, verbs and times where `whisper-1` managed
+ * **149**, at a median **735ms** against **1404ms**. It is also the model
+ * OpenAI now recommends for file transcription; `whisper-1` is legacy.
+ *
+ * What made the difference is the two fields `whisper-1` does not have:
+ * `keywords` (the shop's real client, staff and service names, spelled as the
+ * diary spells them) and a free-form `prompt` that describes the conversation
+ * instead of pretending to be its transcript. Each on its own was worse than
+ * both: keywords alone 202, context alone 177.
+ *
+ * **Noise fails quietly now, not creatively.** Under clippers 3dB below the
+ * voice it returns an empty string for a word it cannot hear, where
+ * `whisper-1` returned "תודה" — a sentence nobody said, handed to a model that
+ * then acts on it.
+ *
+ * `gpt-4o-mini-transcribe-2025-12-15` was faster by ~80ms and is not used: with
+ * names in its prompt it answered noise with the prompt itself, verbatim, and
+ * twice with English.
+ * ---------------------------------------------------------------------------
+ */
+export const STT_MODEL = "gpt-transcribe";
+
+/**
+ * The floor under it, used only when the request itself fails.
+ *
+ * Not on an empty transcript — empty is an answer ("nothing intelligible was
+ * said") and asking a weaker model the same question would turn it into a
+ * guess. On a 4xx/5xx or a timeout the turn still gets heard, slower and less
+ * accurately, rather than not at all.
+ */
+export const STT_FALLBACK_MODEL = "whisper-1";
+
+/**
+ * How long transcription may take before the fallback is tried.
+ *
+ * The measured median is under a second; eight is far past any healthy
+ * response and still leaves the fallback time to answer inside the route's
+ * budget.
+ */
+export const STT_TIMEOUT_MS = 8_000;
 
 /**
  * Intent and tool selection.
@@ -162,8 +207,9 @@ export function isElevenLabsConfigured(): boolean {
 export function isVoiceConfigured(): boolean {
   /**
    * Still the OpenAI key, and only that one. ElevenLabs replaces the *speech
-   * out* leg alone — Whisper still hears the question and `gpt-4o-mini` still
-   * decides what it means, so an ElevenLabs key on its own is not an assistant.
+   * out* leg alone — `gpt-transcribe` still hears the question and
+   * `gpt-4o-mini` still decides what it means, so an ElevenLabs key on its own
+   * is not an assistant.
    */
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
@@ -198,4 +244,27 @@ export function isAcceptedAudioType(value: string | undefined): boolean {
   if (!value) return false;
   const base = value.split(";")[0].trim().toLowerCase();
   return (ACCEPTED_AUDIO_TYPES as readonly string[]).includes(base);
+}
+
+/**
+ * The file extension OpenAI should see for an upload of this type.
+ *
+ * **The API dispatches on the filename, not the MIME type**, and the MIME
+ * subtype is not always an extension it knows: `audio/x-m4a` became
+ * `speech.x-m4a` and `audio/mpeg` became `speech.mpeg` — the first is refused
+ * outright. Mapped explicitly, with `webm` as the answer for anything
+ * unrecognised because it is what every Chromium browser records.
+ */
+const EXTENSIONS: Record<string, string> = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mp4": "mp4",
+  "audio/x-m4a": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+};
+
+export function audioExtension(type: string | undefined): string {
+  const base = (type ?? "").split(";")[0].trim().toLowerCase();
+  return EXTENSIONS[base] ?? "webm";
 }

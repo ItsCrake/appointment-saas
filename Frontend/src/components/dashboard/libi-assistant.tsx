@@ -18,10 +18,23 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
-  decideIdle,
+  AUDIO_CONSTRAINTS,
+  MAX_CONTINUED_TURN_MS,
+  MAX_PRESSED_TURN_MS,
+  MAX_UNHEARD_TURNS,
+  pickRecorderMimeType,
+  RECORDER_BITS_PER_SECOND,
+  RELEASE_TAIL_MS,
+  ROOM_SEED_MAX_AGE_MS,
+} from "@/lib/voice/libi-capture";
+import {
   decideSilence,
-  frameLevel,
-  INITIAL_SILENCE_STATE,
+  frameFeatures,
+  IDLE_MS,
+  idleOutcome,
+  initialSilenceState,
+  PRESSED_IDLE_MS,
+  type IdleOutcome,
 } from "@/lib/voice/libi-vad";
 
 /**
@@ -63,9 +76,19 @@ import {
  *
  * **A turn nobody asked for gets a deadline.** `decideSilence`'s latch never
  * stops a recording before somebody has spoken — right for a pressed turn,
- * wrong for one that opened by itself, where it would hold the microphone to
- * the twenty-second cap and then send the shop to Whisper. `decideIdle` closes
- * the conversation instead, and only ever on a continued turn.
+ * wrong for one that opened by itself. `idleOutcome` closes the conversation
+ * instead when nothing was heard, and sends the turn when something was.
+ *
+ * **The microphone stays open for the whole conversation.** It used to be
+ * released after every recording and opened again for the next one, and the
+ * owner's first syllable — the verb, the word that picks the tool — was spoken
+ * into a device that was still starting. One stream now serves every turn and
+ * is released when the conversation ends, the page is hidden, or the
+ * component goes away.
+ *
+ * **Holding the button means the owner decides.** While it is held the
+ * silence detector may not end the turn; letting go ends it half a second
+ * later, because people let go on the last syllable.
  * ---------------------------------------------------------------------------
  */
 type Phase = "idle" | "recording" | "processing" | "speaking";
@@ -131,9 +154,6 @@ type Result = {
  */
 const DISMISS_AFTER_MS = 4000;
 
-/** Past this, stop on our own: a pocket recording is a bill, not a question. */
-const MAX_RECORDING_MS = 20_000;
-
 /**
  * How many exchanges the client bothers to keep.
  *
@@ -195,8 +215,27 @@ export function LibiAssistant() {
   const phaseRef = useRef<Phase>("idle");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
+  /**
+   * The microphone, held for the whole conversation — see the header. Every
+   * turn records from it; only the end of the conversation releases it.
+   */
+  const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The half-second after a manual stop, so the last syllable is kept. */
+  const tailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Whether the button is being held right now. While it is, the owner — not
+   * the silence detector — decides when the turn ends.
+   */
+  const holdingRef = useRef(false);
+  /**
+   * The room the last turn measured, so the next one starts calibrated rather
+   * than mistaking an owner who speaks at once for the background.
+   */
+  const roomRef = useRef<{ level: number; at: number } | null>(null);
+  /** Turns in a row that came back with nothing heard — see `MAX_UNHEARD_TURNS`. */
+  const unheardRef = useRef(0);
   /** When the current press began, so a tap and a hold can be told apart. */
   const pressedAtRef = useRef(0);
   /** Kept across turns: closing it would need another gesture to unlock. */
@@ -294,9 +333,18 @@ export function LibiAssistant() {
    * cancelled. The server also expires them, at fifteen minutes; this is the
    * near end of the same rule.
    */
+  /** Releases the microphone. The browser's recording indicator is a promise. */
+  const releaseStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }, []);
+
   const endConversation = useCallback(() => {
     setConversing(false);
     historyRef.current = [];
+    unheardRef.current = 0;
+    // The conversation owned the microphone; nothing else may keep it.
+    releaseStream();
 
     /**
      * **The card goes on its own once the conversation is over.**
@@ -320,7 +368,7 @@ export function LibiAssistant() {
       setResult(null);
       pendingRef.current = null;
     }, DISMISS_AFTER_MS);
-  }, [cancelDismiss, setConversing]);
+  }, [cancelDismiss, releaseStream, setConversing]);
 
   /**
    * Whether this browser can record at all.
@@ -412,58 +460,71 @@ export function LibiAssistant() {
   );
 
   /**
-   * Stops the recording once the speaking stops.
+   * Ends the recording once the speaking ends.
    *
-   * An `AnalyserNode` on the live stream, sampled per animation frame, reduced
-   * to one RMS number. Two rules: the level has to cross {@link SPEECH_RMS} at
-   * least once before anything can auto-stop — otherwise a quiet room ends the
-   * recording before the owner has drawn breath — and after that, a continuous
-   * {@link SILENCE_MS} below the line ends it.
+   * An `AnalyserNode` on the live stream, sampled per animation frame as
+   * float samples and reduced to two numbers — the speech band's level and how
+   * voice-like its spectrum is. What those mean lives in `libi-vad`, which is
+   * pure and calibrated against real commands under noise; this loop only
+   * supplies frames and a clock.
    *
    * `requestAnimationFrame` rather than a timer: it is already the browser's
    * paint clock, it pauses with a backgrounded tab, and it gives roughly 60
    * samples a second, which is far finer than the 1.8s it is measuring.
+   *
+   * **A held button overrules it.** While the owner is holding, neither the
+   * silence nor the idle rule may end the turn — letting go does.
    */
   const listenForSilence = useCallback(
     (
       ctx: AudioContext,
       stream: MediaStream,
-      onSilent: () => void,
-      /**
-       * Called when nobody spoke at all. Only supplied for a turn the
-       * microphone opened by itself — see {@link decideIdle}.
-       */
-      onIdle?: () => void,
+      {
+        onSilent,
+        onIdle,
+        idleMs,
+        seed,
+      }: {
+        onSilent: () => void;
+        /** Nobody audibly spoke within `idleMs` — see {@link idleOutcome}. */
+        onIdle: (outcome: Exclude<IdleOutcome, "wait">) => void;
+        idleMs: number;
+        /** The room as the previous turn measured it, if recent. */
+        seed?: number;
+      },
     ) => {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
 
-      const samples = new Uint8Array(analyser.fftSize);
-      let state = INITIAL_SILENCE_STATE;
+      const samples = new Float32Array(analyser.fftSize);
+      let state = initialSilenceState(seed);
       let frame = 0;
       const openedAt = performance.now();
 
       const tick = () => {
-        analyser.getByteTimeDomainData(samples);
+        analyser.getFloatTimeDomainData(samples);
         const now = performance.now();
 
-        // The maths and the latch live in `libi-vad`, which is tested; this
-        // loop only supplies frames and a clock.
-        const outcome = decideSilence(state, frameLevel(samples), now);
+        const outcome = decideSilence(
+          state,
+          frameFeatures(samples, ctx.sampleRate),
+          now,
+        );
         state = outcome.state;
 
-        if (outcome.stop) {
-          onSilent();
-          return;
-        }
+        if (!holdingRef.current) {
+          if (outcome.stop) {
+            onSilent();
+            return;
+          }
 
-        // Nobody spoke into a turn nobody asked for. Ends the conversation
-        // rather than sending seven seconds of shop to Whisper.
-        if (onIdle && decideIdle(state, now - openedAt)) {
-          onIdle();
-          return;
+          const idle = idleOutcome(state, now - openedAt, idleMs);
+          if (idle !== "wait") {
+            onIdle(idle);
+            return;
+          }
         }
 
         frame = requestAnimationFrame(tick);
@@ -476,21 +537,18 @@ export function LibiAssistant() {
           cancelAnimationFrame(frame);
           source.disconnect();
           analyser.disconnect();
+          // The next turn starts from the room this one measured.
+          roomRef.current = { level: state.room, at: Date.now() };
         },
       };
     },
     [],
   );
 
-  /** Releases the microphone. The browser's recording indicator is a promise. */
-  const releaseStream = useCallback(() => {
-    recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
-    recorderRef.current = null;
-  }, []);
-
   useEffect(() => {
     return () => {
       if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      if (tailTimerRef.current) clearTimeout(tailTimerRef.current);
       if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
       analyserRef.current?.stop();
       // Navigating away ends the conversation; without this the ref would stay
@@ -500,13 +558,26 @@ export function LibiAssistant() {
     };
   }, [releaseStream]);
 
+  /**
+   * Hands the conversation back to the microphone — the one place a turn
+   * starts another, and only while a conversation is open.
+   *
+   * `startRef` rather than `start`: a turn starts a turn, so one side of the
+   * recursion has to be late-bound. And always `true`, because a continued
+   * turn is armed differently from a pressed one — see `start`.
+   */
+  const continueConversation = useCallback(() => {
+    if (conversingRef.current) void startRef.current?.(true);
+  }, []);
+
   const send = useCallback(
     async (audio: Blob) => {
       setPhase("processing");
 
       const form = new FormData();
-      // The extension is decided server-side from the MIME type — Whisper
-      // dispatches on the filename, and the container differs by browser.
+      // The extension is decided server-side from the MIME type — the
+      // transcription API dispatches on the filename, and the container
+      // differs by browser.
       form.append("audio", audio, "speech");
 
       /**
@@ -541,15 +612,37 @@ export function LibiAssistant() {
           ?.includes("ndjson");
 
         if (!isStream || !response.body) {
-          showResult((await response.json()) as Result);
+          const refusal = (await response.json()) as Result;
+          showResult(refusal);
           setPhase("idle");
+
+          /**
+           * **Nothing heard is a reason to listen again, not to stop.** The
+           * transcriber returns an empty string for a word it could not make
+           * out over the clippers, and any question it was answering is still
+           * pending — the server hands it back. So the microphone re-opens and
+           * the owner simply says it again, a bounded number of times in a
+           * row. Anything else ends the conversation and frees the microphone.
+           */
+          if (
+            refusal.error === "empty_transcript" &&
+            conversingRef.current &&
+            unheardRef.current < MAX_UNHEARD_TURNS
+          ) {
+            unheardRef.current += 1;
+            continueConversation();
+          } else {
+            endConversation();
+          }
           return;
         }
+
+        unheardRef.current = 0;
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffered = "";
-        let spokeAloud = false;
+        let sawLast = false;
 
         for (;;) {
           const { value, done } = await reader.read();
@@ -577,7 +670,7 @@ export function LibiAssistant() {
                *
                * The *transcript* is stored rather than what was actually said
                * into the microphone, because that is what the model saw — if
-               * Whisper heard "דנאי" then "אותו" has to resolve against
+               * the transcriber heard "דנאי" then "אותו" has to resolve against
                * "דנאי", and storing the truth would leave the two out of step.
                */
               /**
@@ -609,7 +702,6 @@ export function LibiAssistant() {
                * in pieces.
                */
               if (message.audioBase64) {
-                spokeAloud = true;
                 await play(message.audioBase64).catch(() => {});
               }
 
@@ -620,21 +712,29 @@ export function LibiAssistant() {
                * seconds before it finishes being spoken, and the analyser
                * would hear her through the speaker, latch, and cut the owner
                * off before they had said anything.
-               *
-               * `startRef` rather than `start` — a turn starts a turn, so one
-               * side of the recursion has to be late-bound.
                */
               if (message.last) {
+                sawLast = true;
                 setPhase("idle");
-                if (conversingRef.current) void startRef.current?.(true);
+                continueConversation();
               }
             }
           }
         }
 
-        // No audio line, or one that carried nothing: the answer is on screen
-        // and there is nothing left to wait for.
-        if (!spokeAloud) setPhase("idle");
+        /**
+         * A stream that ended without its closing line — the server died
+         * mid-answer. The answer on screen is all there is, and a conversation
+         * with nothing to continue from must not keep the microphone.
+         *
+         * Only then: after `last` the phase may already belong to the *next*
+         * turn, and writing "idle" over a live recording is how two recorders
+         * end up running at once.
+         */
+        if (!sawLast) {
+          setPhase("idle");
+          endConversation();
+        }
       } catch {
         showResult({
           transcribedText: "",
@@ -644,15 +744,20 @@ export function LibiAssistant() {
           error: "network",
         });
         setPhase("idle");
+        endConversation();
       }
     },
-    [play, router, setPhase, showResult],
+    [continueConversation, endConversation, play, router, setPhase, showResult],
   );
 
   const stop = useCallback(() => {
     if (stopTimerRef.current) {
       clearTimeout(stopTimerRef.current);
       stopTimerRef.current = null;
+    }
+    if (tailTimerRef.current) {
+      clearTimeout(tailTimerRef.current);
+      tailTimerRef.current = null;
     }
     analyserRef.current?.stop();
     analyserRef.current = null;
@@ -662,26 +767,63 @@ export function LibiAssistant() {
   }, []);
 
   /**
+   * Stops a turn the owner ended by hand — half a second from now.
+   *
+   * People let go of the button, or tap it, on the last syllable, and the last
+   * syllable of a Hebrew command is the name or the time. The recorder keeps
+   * that half second; a second call while it runs changes nothing.
+   */
+  const finishSoon = useCallback(() => {
+    if (tailTimerRef.current) return;
+    tailTimerRef.current = setTimeout(() => {
+      tailTimerRef.current = null;
+      stop();
+    }, RELEASE_TAIL_MS);
+  }, [stop]);
+
+  /**
    * Ends the conversation without sending what is in the buffer.
    *
-   * Both ways out land here: the owner pressing סגור, and nobody speaking into
-   * a microphone that opened by itself. The discard flag is set *before* the
-   * recorder stops, because `onstop` is where the decision to send is made and
-   * it fires on the next tick.
+   * Every way out lands here: the owner pressing סגור, nobody speaking into a
+   * microphone that opened by itself, and the page being hidden. The discard
+   * flag is set *before* the recorder stops, because `onstop` is where the
+   * decision to send is made and it fires on the next tick — and the
+   * microphone is released last, once nothing is recording from it.
    */
   const closeQuietly = useCallback(() => {
-    discardRef.current = true;
-    endConversation();
+    // Only a live recording has anything to discard. Setting the flag with
+    // nothing recording — closing while she speaks — used to leave it armed,
+    // and the *next* question the owner asked was thrown away unheard.
+    if (recorderRef.current?.state === "recording") discardRef.current = true;
     stop();
+    endConversation();
   }, [endConversation, stop]);
 
   /**
-   * Opens the microphone.
+   * The microphone, opened once per conversation.
+   *
+   * A live stream is reused as it is; one whose track has ended — a headset
+   * unplugged, the permission revoked mid-conversation — is replaced.
+   */
+  const acquireStream = useCallback(async () => {
+    const held = streamRef.current;
+    if (held?.getAudioTracks().some((track) => track.readyState === "live")) {
+      return held;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: AUDIO_CONSTRAINTS,
+    });
+    streamRef.current = stream;
+    return stream;
+  }, []);
+
+  /**
+   * Opens a turn.
    *
    * `continued` is true when the conversation re-opened it rather than the
-   * owner. That changes three things and nothing else: the card is left alone,
-   * the idle timeout is armed, and a conversation is already in progress so it
-   * is not started again.
+   * owner. That changes four things and nothing else: the card is left alone,
+   * the idle window is the short one and may discard, the cap is lower, and a
+   * conversation is already in progress so it is not started again.
    */
   const start = useCallback(async (continued = false) => {
     // `phaseRef`, never `phase` — see the ref's own note. Reading state
@@ -697,18 +839,35 @@ export function LibiAssistant() {
     const audioCtx = unlockAudio();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const stream = await acquireStream();
+
+      // The conversation was closed while the microphone was opening; the
+      // stream that just opened belongs to nobody.
+      if (continued && !conversingRef.current) {
+        releaseStream();
+        return;
+      }
+
+      const mimeType = pickRecorderMimeType(
+        MediaRecorder.isTypeSupported?.bind(MediaRecorder),
+      );
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: RECORDER_BITS_PER_SECOND,
+      });
       recorderRef.current = recorder;
       chunksRef.current = [];
+      discardRef.current = false;
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        releaseStream();
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || mimeType || "audio/webm",
+        });
+        if (recorderRef.current === recorder) recorderRef.current = null;
 
         // Abandoned rather than finished: nobody spoke, or the owner closed
         // the conversation mid-turn. Either way there is nothing to send.
@@ -718,10 +877,12 @@ export function LibiAssistant() {
           return;
         }
 
-        // A tap that lands and lifts in the same instant produces a few bytes
-        // of silence; sending it costs a model call to be told nothing.
+        // A recording with nothing in it costs a model call to be told
+        // nothing. The half-second tail makes this rare; it ends the
+        // conversation rather than leaving the microphone held and idle.
         if (blob.size < 1024) {
           setPhase("idle");
+          endConversation();
           return;
         }
         void send(blob);
@@ -742,23 +903,36 @@ export function LibiAssistant() {
       setPhase("recording");
 
       /**
-       * The cap is now a backstop rather than the way a turn normally ends.
-       * Silence stops it after {@link SILENCE_MS}; twenty seconds is what
-       * catches a pocket, a stuck threshold, or a browser with no AudioContext.
+       * The cap is a backstop rather than the way a turn normally ends: the
+       * silence detector ends it, or the owner does. It catches a pocket, a
+       * radio the detector could not tell from a voice, and a browser with no
+       * AudioContext.
        */
-      stopTimerRef.current = setTimeout(stop, MAX_RECORDING_MS);
+      stopTimerRef.current = setTimeout(
+        stop,
+        continued ? MAX_CONTINUED_TURN_MS : MAX_PRESSED_TURN_MS,
+      );
+
       if (audioCtx) {
-        analyserRef.current = listenForSilence(
-          audioCtx,
-          stream,
-          stop,
+        const room = roomRef.current;
+        analyserRef.current = listenForSilence(audioCtx, stream, {
+          onSilent: stop,
           /**
-           * Armed only on a continued turn. A pressed one has no idle timeout
-           * at all — the owner meant to speak, and closing the microphone on
-           * somebody who is still thinking is the worst thing this can do.
+           * **Who asked for the turn decides what silence means.** A pressed
+           * turn waits longer and then *sends*: the owner meant to speak, and
+           * a voice too buried to detect is still worth transcribing. A turn
+           * that opened by itself discards when nothing at all happened — and
+           * sends when something did.
            */
-          continued ? closeQuietly : undefined,
-        );
+          onIdle: continued
+            ? (outcome) => (outcome === "send" ? stop() : closeQuietly())
+            : stop,
+          idleMs: continued ? IDLE_MS : PRESSED_IDLE_MS,
+          seed:
+            room && Date.now() - room.at < ROOM_SEED_MAX_AGE_MS
+              ? room.level
+              : undefined,
+        });
       }
 
       // A pressed turn is what opens a conversation; a continued one is
@@ -772,6 +946,7 @@ export function LibiAssistant() {
       setPhase("idle");
     }
   }, [
+    acquireStream,
     cancelDismiss,
     closeQuietly,
     endConversation,
@@ -785,6 +960,23 @@ export function LibiAssistant() {
     toast,
     unlockAudio,
   ]);
+
+  /**
+   * A hidden page ends the conversation.
+   *
+   * The animation frame the detector runs on stops with a backgrounded tab,
+   * so a turn left open would run to its cap unobserved — and a microphone
+   * held behind a tab the owner cannot see is not one they agreed to.
+   */
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden" && conversingRef.current) {
+        closeQuietly();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [closeQuietly]);
 
   /**
    * Published for `play`'s `onended`, which cannot close over `start` itself.
@@ -1029,19 +1221,32 @@ export function LibiAssistant() {
          * only if the press was long enough to have been a hold. A quick tap
          * leaves it recording, and the next press stops it.
          */
-        onPointerDown={() => {
-          if (phase === "recording") {
+        onPointerDown={(event) => {
+          if (phaseRef.current === "recording") {
             // Stopping by hand sends what was said; it does not close the
             // conversation, so her answer still hands back to the microphone.
-            stop();
+            finishSoon();
             return;
           }
           pressedAtRef.current = Date.now();
+          holdingRef.current = true;
+          // The release must reach this button even if the finger slides off
+          // it, or a hold would silently become a tap.
+          event.currentTarget.setPointerCapture(event.pointerId);
           void start();
         }}
         onPointerUp={() => {
+          const wasHolding = holdingRef.current;
+          holdingRef.current = false;
           const held = Date.now() - pressedAtRef.current;
-          if (phase === "recording" && held > TAP_MS) stop();
+          if (wasHolding && phaseRef.current === "recording" && held > TAP_MS) {
+            finishSoon();
+          }
+        }}
+        onPointerCancel={() => {
+          // The browser took the gesture (a scroll, a system sheet). The
+          // detector gets the turn back rather than it being held forever.
+          holdingRef.current = false;
         }}
         /**
          * Keyboard only. A pointer-driven click reports `detail >= 1`; Enter
@@ -1050,7 +1255,7 @@ export function LibiAssistant() {
          */
         onClick={(event) => {
           if (event.detail !== 0) return;
-          if (phase === "recording") stop();
+          if (phaseRef.current === "recording") finishSoon();
           else void start();
         }}
         disabled={phase === "processing" || phase === "speaking"}

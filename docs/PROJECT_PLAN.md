@@ -1587,6 +1587,93 @@ the short version:
   write a real appointment and queue its messages; the owner paths are held by
   the guard test instead.
 
+### ליבי in a loud shop: hearing, capture and the end of a turn ✅
+
+An audit of the voice pipeline found the transcript failing for reasons that
+had little to do with Hebrew: a legacy transcriber, client names that never
+reached it, a microphone that clipped the first syllable, and a fixed loudness
+threshold that any barbershop crossed. This round replaces all four. The map of
+the pipeline as it now stands is in [ARCHITECTURE.md](ARCHITECTURE.md#ליבי--the-voice-assistant).
+
+- **Measured before it was chosen.** 64 Hebrew clips — the configured
+  ElevenLabs voice and an OpenAI voice, eight commands built from
+  `demo-barber`'s real client names (ג'ורג' ג'בארין, ארטיום לבדב, ברהנו אדמסו…),
+  clean, under synthetic clippers at 10dB and 3dB, and under music with a
+  melody at 6dB — scored on the names, verbs and times the diary needs:
+
+  | transcriber | recognised | median |
+  | --- | --- | --- |
+  | `whisper-1`, the production prompt | 149/224 | 1404ms |
+  | `gpt-transcribe`, keywords + context | **208/224** | **735ms** |
+  | `gpt-transcribe`, keywords only | 202/224 | 867ms |
+  | `gpt-transcribe`, context only | 177/224 | 798ms |
+  | `gpt-4o-mini-transcribe-2025-12-15`, names in the prompt | 157/224 | 655ms |
+
+  The mini model repeated its prompt verbatim on three noisy clips and answered
+  two in English, which is why a faster model is not the one used.
+- **`gpt-transcribe` with `keywords[]` and `languages[]`**, both confirmed
+  against the live API: repeated multipart fields, a JSON string for either is
+  refused, ~1000 fields is refused ("Could not parse multipart form") and 500
+  are not. Keywords are staff, services, five command verbs and up to 150
+  upcoming clients from `upcomingClientNames` (the fortnight from the shop's
+  midnight, nearest first, never the voice placeholder). The `prompt` is one
+  sentence describing the conversation plus ליבי's last line — the pending
+  question, where there is one. `whisper-1` is the fallback on a failed request
+  only.
+- **An empty transcript keeps the question.** It used to drop the pending
+  action, so a repeated "כן" answered nothing; the route now hands it back and
+  the browser listens again, at most twice in a row. `gpt-transcribe` returns
+  empty for a word it cannot hear under clippers; `whisper-1` returned "תודה".
+- **`correctHearing` lost two entries that were real words**: "קלי" is a given
+  name and "קולה" is Hebrew, and both were being rewritten to "קולי". "תבדלי" →
+  "תבטלי" was added, from a noisy clip. **`audio/x-m4a`** became
+  `speech.x-m4a`, which the API refuses; `audioExtension` maps it.
+- **One microphone per conversation**, opened with `echoCancellation`,
+  `noiseSuppression`, `autoGainControl` and `channelCount: 1`, recorded as
+  WebM/Opus at 32kbps where the browser can, and released when the
+  conversation ends, the page is hidden, or the component unmounts.
+- **The end of a turn is `libi-vad.ts`, rewritten.** Speech-band level from an
+  FFT, the room as the median of recent buckets, a voice-shaped onset, and an
+  end relative to the room or to the owner's own peak. Calibrated frame by
+  frame on the same 16 commands with six more seconds of noise after each:
+  the old detector ran **64 of 64** noisy turns to its twenty-second cap; the
+  new one ends **46 of the 48** where the voice is at least 3dB above the noise
+  within a second or two of the words, and 7 of 16 where music is as loud as
+  the voice. Same results at 44.1kHz and 16kHz. A ratcheting room estimate
+  (only learning from buckets under the sustain line) was found by the
+  calibration, not in review, and is pinned by a test.
+- **A held button overrules the detector**, and letting go keeps a 500ms tail.
+  A pressed turn waits 8s for a voice and then sends; a re-opened turn waits
+  4.5s and discards only when nothing at all happened. Caps are 15s and 10s,
+  down from 20s.
+- **Two older bugs fixed on the way.** Closing the card while ליבי spoke armed
+  the discard flag with nothing recording, and the owner's *next* question was
+  thrown away. And the stream kept writing to a request the owner had left,
+  which surfaced as `voice.tts` errors — seen in the dev server's log during
+  the browser run below, gone after the fix.
+- **Verified in a real browser**, Chromium playing WAV files as the
+  microphone against the dev server, production data, and the real
+  transcription, intent and speech providers — read-only turns and one
+  cancellation proposed and never confirmed:
+  - a clean question transcribed exactly, the turn ended ~1.8s after the words,
+    the answer spoken, the microphone re-opened by itself and closed 4.4s later
+    with nothing heard; one `getUserMedia` for the whole conversation, its
+    track `ended` afterwards;
+  - clippers running to the end of a 12.7s file: the turn ended at 4.9s, and
+    "תבטלי את התור של ג'ורג' ג'בארין" came back exactly;
+  - music running to the end of an 11.9s file: ended at 4.4s, exact;
+  - holding the button through the silence: stopped 131ms after release (the
+    detector already knew); letting go mid-word: stopped 842ms after release,
+    tail kept. The browser reported the constraints as applied and the
+    recorder as `audio/webm;codecs=opus` at 32000.
+- **What the run showed next, and is not in this round:** asked to cancel
+  ג'ורג' ג'בארין, the model answered "אני לא רואה תור" without calling the tool
+  — his booking sits outside the 25 roster rows the prompt calls complete.
+  That is the roster and prompt work that follows.
+- **Not verified here:** an iPhone. Holding the microphone open across a
+  conversation is what the brief asked for; whether iOS lowers playback volume
+  while a capture is live needs a real device.
+
 ---
 
 ## 5. Where things stand
@@ -1595,7 +1682,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1639 tests across 105 files**; Playwright
+**Green:** `npm run verify` at **1693 tests across 107 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 36 migrations
 (0000–0035) are applied to production** — 0035 (`bookings_paused`) on
 2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -1993,9 +2080,9 @@ optional. What follows from that:
   conversation rides with the recording, exactly as the pending action does,
   because a server-side store for something that lives ninety seconds is a
   second lifetime to manage and a second thing to get wrong on a deploy where
-  the next turn is a different instance. Bounded on the way in — six
-  exchanges, fifteen minutes, 300 characters a side — and the age rule is the
-  one that matters: a tab picked up after lunch is a new conversation, and a
+  the next turn is a different instance. Bounded on the way in — four
+  exchanges, 45 seconds of inactivity, 300 characters a side — and the age rule
+  is the one that matters: a tab picked up after lunch is a new conversation, and a
   pronoun reaching back across that gap is how the wrong appointment gets
   cancelled. A malformed history is dropped **whole** rather than repaired,
   since a gap in the conversation is precisely where a reference goes wrong.
@@ -2019,8 +2106,9 @@ optional. What follows from that:
   stops a recording before somebody has spoken — right for a pressed turn,
   wrong for one that opened by itself, where it would hold the microphone to
   the twenty-second cap and then send seven seconds of shop to Whisper.
-  `decideIdle` closes the conversation instead, at seven seconds, and is armed
-  **only** on a continued turn. סגור ends it by hand, and closing either
+  `idleOutcome` closes the conversation instead — after 4.5 seconds with nothing
+  heard on a turn that re-opened by itself; a pressed turn waits 8 and then
+  sends (see *ליבי in a loud shop*). סגור ends it by hand, and closing either
   control forgets the history with it.
   **The reply is spoken in pieces, because the owner waits for the first word
   and not the last one.** `eleven_v3` charges roughly linearly: measured warm
@@ -2081,13 +2169,11 @@ optional. What follows from that:
   **A mis-heard word is fixed in the decoder or not at all.** By the time the
   intent model sees "כהלי" the audio is gone — no instruction downstream
   recovers which word was said, it can only guess, and a guess is how a
-  booking lands under a name nobody has. Whisper takes a `prompt` that biases
-  decoding, and `libi-vocabulary` builds one per turn from the domain terms
-  **and this shop's own service and staff names**. That second half is the
-  valuable one: a general model knows "תור" and has never had reason to learn
-  "מילוי באקריליק". The names go *last*, because Whisper reads roughly the
-  final 224 tokens and the half most likely to be truncated has to be the half
-  that matters least. A small correction map runs after, whole words only —
+  booking lands under a name nobody has. The transcriber is now told what to
+  expect — `keywords` carrying the shop's upcoming clients, staff and services,
+  and a context sentence with ליבי's last line; the word-list prompt this
+  paragraph used to describe is gone, and *ליבי in a loud shop* has the
+  measurement. A small correction map runs after, whole words only —
   and written out rather than with `\b`, which JavaScript defines against
   `[A-Za-z0-9_]` and which therefore does nothing beside Hebrew.
   **The buffer rule went in the prompt because the code already allowed it.**
@@ -2396,7 +2482,9 @@ optional. What follows from that:
   after the speech ended. The latch in `libi-vad.ts` is the load-bearing part —
   nothing may stop before the level has crossed the threshold once, or a quiet
   room closes the microphone before the owner has drawn breath. The 20s cap is
-  now a backstop rather than how a turn normally ends.
+  now a backstop rather than how a turn normally ends. *(Superseded: the fixed
+  RMS threshold ran every noisy turn to that cap. The detector is now
+  room-relative and the caps are 15s and 10s — see* ליבי in a loud shop*.)*
   **Audio output is unlocked on the press**, not on arrival. A reply lands six
   to nine seconds after the tap, by which time the gesture no longer counts for
   an autoplay policy — which is why the `<Audio>` element this replaces was

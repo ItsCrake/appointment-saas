@@ -1,64 +1,191 @@
 import { describe, expect, it } from "vitest";
 
-import { correctHearing, transcriptionPrompt } from "./libi-vocabulary";
+import {
+  COMMAND_WORDS,
+  correctHearing,
+  MAX_CLIENT_KEYWORDS,
+  MAX_KEYWORD_CHARS,
+  transcriptionContext,
+  transcriptionKeywords,
+  whisperPrompt,
+} from "./libi-vocabulary";
 
 /**
  * Teaching the transcriber this shop's words.
  *
  * ---------------------------------------------------------------------------
- * **The prompt is the only place a mis-heard word can still be fixed**, so the
- * property that matters is that the shop's own nouns actually reach it. A
- * truncation bug here is silent in the worst way: the transcript still comes
- * back fluent, still looks like Hebrew, and simply has the wrong service name
- * in it.
+ * **The transcriber is the only step that still has the audio**, so the
+ * property that matters is that the diary's own words actually reach it — the
+ * client names above all, which the old prompt never carried. A bug here is
+ * silent in the worst way: the transcript still comes back fluent, still reads
+ * as Hebrew, and simply has somebody else's name in it.
+ *
+ * Measured on 64 clips before this shape was chosen: keywords and context
+ * together recognised 208 of 224 names, verbs and times; keywords alone 202,
+ * context alone 177, and the old `whisper-1` prompt 149.
  * ---------------------------------------------------------------------------
  */
 
-describe("transcriptionPrompt", () => {
-  it("carries the shop's own names, which are the half that matters", () => {
-    // A general model knows "תור". It has never had reason to learn these.
-    const prompt = transcriptionPrompt(["מילוי באקריליק", "ניר בלאק"]);
+const shop = {
+  clients: ["ג'ורג' ג'בארין", "ארטיום לבדב", "ברהנו אדמסו"],
+  staff: ["ניר בלאק"],
+  services: ["תספורת גבר", "עיצוב זקן"],
+};
 
-    expect(prompt).toContain("מילוי באקריליק");
-    expect(prompt).toContain("ניר בלאק");
+describe("transcriptionKeywords", () => {
+  it("carries the clients, the staff and the price list", () => {
+    const keywords = transcriptionKeywords(shop);
+
+    for (const word of [...shop.clients, ...shop.staff, ...shop.services]) {
+      expect(keywords).toContain(word);
+    }
   });
 
-  it("carries the domain words even with no names", () => {
-    const prompt = transcriptionPrompt([]);
-
-    expect(prompt).toContain("תור קולי");
-    expect(prompt).toContain("ביטול");
-    expect(prompt).not.toContain("שירותים ונותני שירות");
+  it("carries the verbs every change begins with", () => {
+    const keywords = transcriptionKeywords(shop);
+    for (const verb of COMMAND_WORDS) expect(keywords).toContain(verb);
   });
 
-  it("puts the shop's names last, where truncation cannot reach them", () => {
+  it("does not carry her own name", () => {
     /**
-     * Whisper reads roughly the *last* 224 tokens of a prompt, so an over-long
-     * one loses its beginning. The half most likely to be cut has to be the
-     * half that matters least — and a general Hebrew model already knows "תור"
-     * while it has never seen this shop's price list.
+     * Measured, not assumed: as a keyword "ליבי" was written into a noisy
+     * transcript *in place of* the verb — the one word that picks the tool.
      */
-    const prompt = transcriptionPrompt(["מילוי באקריליק"]);
+    expect(transcriptionKeywords(shop)).not.toContain("ליבי");
+  });
 
-    expect(prompt.indexOf("מילוי באקריליק")).toBeGreaterThan(
-      prompt.indexOf("ביטול"),
+  it("caps the clients and keeps the nearest", () => {
+    // The list arrives nearest-first, so the cap falls on next fortnight's
+    // clients rather than this afternoon's.
+    const clients = Array.from(
+      { length: MAX_CLIENT_KEYWORDS + 40 },
+      (_, i) => `לקוח ${i}`,
+    );
+    const keywords = transcriptionKeywords({ ...shop, clients });
+
+    expect(keywords).toContain("לקוח 0");
+    expect(keywords).toContain(`לקוח ${MAX_CLIENT_KEYWORDS - 1}`);
+    expect(keywords).not.toContain(`לקוח ${MAX_CLIENT_KEYWORDS}`);
+  });
+
+  it("never lets the cap trim the staff or the services", () => {
+    const clients = Array.from({ length: 500 }, (_, i) => `לקוח ${i}`);
+    const keywords = transcriptionKeywords({ ...shop, clients });
+
+    expect(keywords).toContain("ניר בלאק");
+    expect(keywords).toContain("עיצוב זקן");
+  });
+
+  it("drops blanks, repeats and anything too long to be a name", () => {
+    // A keyword list containing junk biases toward junk.
+    const keywords = transcriptionKeywords({
+      clients: ["דנה", "  ", "דנה", "ד", "א".repeat(MAX_KEYWORD_CHARS + 1)],
+      staff: ["Dana", "dana"],
+      services: [],
+    });
+
+    expect(keywords.filter((k) => k === "דנה")).toHaveLength(1);
+    expect(keywords.filter((k) => k.toLowerCase() === "dana")).toHaveLength(1);
+    expect(keywords).not.toContain("ד");
+    expect(keywords.every((k) => k.length <= MAX_KEYWORD_CHARS)).toBe(true);
+    expect(keywords.every((k) => k.trim() === k && k.length > 1)).toBe(true);
+  });
+
+  it("treats a name typed with two spaces as the same name", () => {
+    const keywords = transcriptionKeywords({
+      clients: ["ניר  כהן", "ניר כהן"],
+      staff: [],
+      services: [],
+    });
+    expect(keywords.filter((k) => k === "ניר כהן")).toHaveLength(1);
+  });
+
+  it("stays well inside what the API accepts", () => {
+    // ~1000 fields was refused outright; the whole list must stay far below.
+    const clients = Array.from({ length: 5000 }, (_, i) => `לקוח ${i}`);
+    const services = Array.from({ length: 60 }, (_, i) => `שירות ${i}`);
+    const keywords = transcriptionKeywords({ clients, staff: [], services });
+    expect(keywords.length).toBeLessThan(300);
+  });
+});
+
+describe("transcriptionContext", () => {
+  it("describes the conversation rather than instructing the model", () => {
+    const context = transcriptionContext();
+
+    expect(context).toContain("ליבי");
+    expect(context).toContain("תורים");
+    // Guidance for this field is context, never a restated task.
+    expect(context).not.toMatch(/תמלל|transcrib/i);
+  });
+
+  it("carries the question she just asked", () => {
+    /**
+     * A one-word "כן" is nearly impossible to hear in a loud room with nothing
+     * to go on, and trivially likely right after "לבטל אותו?".
+     */
+    const context = transcriptionContext({
+      question: "מצאתי תור של דני מחר ב-14:00. לבטל אותו?",
+    });
+    expect(context).toContain("לבטל אותו?");
+  });
+
+  it("flattens and bounds a question that arrived from the browser", () => {
+    const context = transcriptionContext({
+      question: `שורה ראשונה\n"ציטוט" ${"מילה ".repeat(200)}`,
+    });
+
+    expect(context).not.toContain("\n");
+    // Only the quote marks the sentence adds itself.
+    expect(context.match(/"/g)).toHaveLength(2);
+    expect(context.length).toBeLessThan(400);
+  });
+
+  it("speaks about the owner in the owner's own form", () => {
+    expect(transcriptionContext({ gender: "female" })).toContain("בעלת העסק");
+    expect(transcriptionContext({ gender: "male" })).toContain("בעל העסק");
+  });
+
+  it("adds nothing when there is no question", () => {
+    expect(transcriptionContext({ question: "   " })).toBe(
+      transcriptionContext(),
     );
   });
+});
 
-  it("stops before the prompt grows past what is read", () => {
-    // A shop with sixty services must not push the domain terms off the front.
-    const many = Array.from({ length: 60 }, (_, i) => `שירות ארוך מאוד מספר ${i}`);
-    const prompt = transcriptionPrompt(many);
+describe("whisperPrompt", () => {
+  it("carries the context and the names, names last", () => {
+    /**
+     * The fallback model reads roughly the *last* 224 tokens of its prompt, so
+     * the names go last where truncation cannot reach them.
+     */
+    const context = transcriptionContext();
+    const prompt = whisperPrompt(context, transcriptionKeywords(shop));
 
-    expect(prompt.length).toBeLessThan(900);
-    expect(prompt).toContain("תור קולי");
+    expect(prompt.startsWith(context)).toBe(true);
+    expect(prompt).toContain("ג'ורג' ג'בארין");
+    expect(prompt.indexOf("ג'ורג' ג'בארין")).toBeGreaterThan(context.length);
   });
 
-  it("drops blanks and repeats rather than passing them on", () => {
-    // A prompt containing junk biases toward junk.
-    const prompt = transcriptionPrompt(["תספורת", "  ", "תספורת", ""]);
+  it("leaves the verbs out of the name list", () => {
+    const prompt = whisperPrompt("", transcriptionKeywords(shop));
+    for (const verb of COMMAND_WORDS) expect(prompt).not.toContain(verb);
+  });
 
-    expect(prompt.match(/תספורת/g)).toHaveLength(1);
+  it("stops before it grows past what is read", () => {
+    const clients = Array.from(
+      { length: 150 },
+      (_, i) => `לקוח ארוך במיוחד ${i}`,
+    );
+    const prompt = whisperPrompt(
+      transcriptionContext(),
+      transcriptionKeywords({ ...shop, clients }),
+    );
+    expect(prompt.length).toBeLessThanOrEqual(500);
+  });
+
+  it("is only the context when there are no names", () => {
+    expect(whisperPrompt("הקשר.", [])).toBe("הקשר.");
   });
 });
 
@@ -68,15 +195,32 @@ describe("correctHearing", () => {
     expect(correctHearing("תקבעי תור כהלי לדני")).toBe("תקבעי תור קולי לדני");
   });
 
+  it("fixes the verb the transcriber voiced in noise", () => {
+    // "תבטלי" came back as "תבדלי" on a clip under clippers.
+    expect(correctHearing("תבדלי את התור של ג'ורג'")).toBe(
+      "תבטלי את התור של ג'ורג'",
+    );
+  });
+
+  it("leaves real words and real names alone", () => {
+    /**
+     * **Why two entries were removed.** "קלי" is a given name and "קולה" is
+     * Hebrew; rewriting either into "קולי" renamed a client on the way to the
+     * diary. A correction may only ever target a string that is not a word.
+     */
+    expect(correctHearing("תבטלי את התור של קלי")).toBe("תבטלי את התור של קלי");
+    expect(correctHearing("שמעתי את קולה")).toBe("שמעתי את קולה");
+  });
+
   it("leaves a longer word that merely contains one alone", () => {
     /**
      * **The trap this file exists to avoid.** JavaScript defines `\b` against
      * `[A-Za-z0-9_]`, so the obvious boundary does nothing next to Hebrew — a
-     * naive replace would rewrite the middle of unrelated words and corrupt
-     * legitimate Hebrew into something that still reads as a word.
+     * naive replace would rewrite the middle of unrelated words.
      */
     expect(correctHearing("הקליט")).toBe("הקליט");
     expect(correctHearing("תוורדים")).toBe("תוורדים");
+    expect(correctHearing("שתבדלים")).toBe("שתבדלים");
   });
 
   it("fixes a word split into two by the transcriber", () => {

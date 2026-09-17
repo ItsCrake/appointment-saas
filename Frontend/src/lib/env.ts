@@ -171,7 +171,7 @@ export const ENV_VARS: EnvVar[] = [
     requirement: "optional",
     group: "Voice assistant",
     description:
-      "OpenAI key for ליבי — Whisper transcription, intent, and speech. Without it the dashboard microphone is hidden.",
+      "OpenAI key for ליבי — transcription (gpt-transcribe, whisper-1 as fallback), intent, and fallback speech. Without it the dashboard microphone is hidden.",
     howTo: "platform.openai.com → API keys.",
     validate: (value) =>
       value.startsWith("sk-")

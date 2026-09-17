@@ -12,10 +12,12 @@ import {
 import { createTestDb } from "@/test/pglite";
 
 import {
+  CLIENT_NAME_DAYS,
   executePending,
   PLACEHOLDER_NAME,
   READ_ONLY_TOOLS,
   runVoiceTool,
+  upcomingClientNames,
   upcomingRoster,
   ROSTER_LIMIT,
   VOICE_TOOLS,
@@ -945,5 +947,68 @@ describe("upcomingRoster", () => {
     const roster = await upcomingRoster(s.ctx);
     expect(roster.length).toBeLessThanOrEqual(ROSTER_LIMIT);
     expect(roster.some((r) => r.clientName === "מחוץ לחלון")).toBe(false);
+  });
+});
+
+describe("upcomingClientNames", () => {
+  it("lists each client once, nearest booking first", async () => {
+    /**
+     * The transcriber's keywords. Nearest first, so a cap trims next
+     * fortnight's clients rather than this afternoon's — and once each,
+     * because a regular with three bookings is still one name to hear.
+     */
+    const s = await shop();
+    await book(s, "2026-09-10T08:00:00Z", "ברהנו אדמסו");
+    await book(s, "2026-09-03T13:00:00Z", "ג'ורג' ג'בארין");
+    await book(s, "2026-09-04T08:00:00Z", "ארטיום לבדב");
+    await book(s, "2026-09-05T08:00:00Z", "ג'ורג' ג'בארין");
+
+    expect(await upcomingClientNames(s.ctx, 10)).toEqual([
+      "ג'ורג' ג'בארין",
+      "ארטיום לבדב",
+      "ברהנו אדמסו",
+    ]);
+  });
+
+  it("includes this morning, and stops at the fortnight", async () => {
+    // "מה עם דני מהבוקר?" is a question about somebody already seen today.
+    const s = await shop();
+    await book(s, "2026-09-03T05:00:00Z", "מהבוקר");
+    await book(s, "2026-09-02T10:00:00Z", "אתמול");
+    const beyond = String(3 + CLIENT_NAME_DAYS).padStart(2, "0");
+    await book(s, `2026-09-${beyond}T08:00:00Z`, "רחוק מדי");
+
+    const names = await upcomingClientNames(s.ctx, 10);
+    expect(names).toContain("מהבוקר");
+    expect(names).not.toContain("אתמול");
+    expect(names).not.toContain("רחוק מדי");
+  });
+
+  it("leaves out cancellations and the voice placeholder", async () => {
+    // A cancelled client is not about to be named; "תור קולי" is a label on a
+    // slot, not a person, and as a keyword it would only bias toward itself.
+    const s = await shop();
+    await book(s, "2026-09-03T10:00:00Z", "ביטל", { status: "cancelled" });
+    await book(s, "2026-09-03T11:00:00Z", PLACEHOLDER_NAME);
+    await book(s, "2026-09-03T12:00:00Z", "מגיע");
+
+    expect(await upcomingClientNames(s.ctx, 10)).toEqual(["מגיע"]);
+  });
+
+  it("stops at the limit it is given", async () => {
+    const s = await shop();
+    for (let i = 0; i < 6; i++) {
+      const hour = String(6 + i).padStart(2, "0");
+      await book(s, `2026-09-0${4 + (i % 5)}T${hour}:00:00Z`, `לקוח ${i}`);
+    }
+    expect(await upcomingClientNames(s.ctx, 3)).toHaveLength(3);
+  });
+
+  it("stays inside the tenant", async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    await book(theirs, "2026-09-03T10:00:00Z", "של מישהו אחר");
+
+    expect(await upcomingClientNames(mine.ctx, 10)).toEqual([]);
   });
 });

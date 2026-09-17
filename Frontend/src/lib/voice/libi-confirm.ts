@@ -28,9 +28,9 @@ export type Confirmation = "confirm" | "deny" | "unclear";
 /**
  * Hebrew as it is actually spoken to a phone, not as it is written.
  *
- * Whisper returns "כן" for the bare word but routinely returns it inside a
- * sentence — "כן, תזיזי", "בטח, קדימה" — so these are matched as words within
- * the utterance rather than against the whole string.
+ * The transcriber returns "כן" for the bare word but routinely returns it
+ * inside a sentence — "כן, תזיזי", "בטח, קדימה" — so these are matched as
+ * words within the utterance rather than against the whole string.
  */
 const CONFIRM_WORDS = [
   "כן",
@@ -62,11 +62,11 @@ const CONFIRM_WORDS = [
 ];
 
 /**
- * What Whisper returns when somebody says "כן".
+ * What a transcriber returns when somebody says "כן".
  *
  * ---------------------------------------------------------------------------
  * **"כאן" is not a synonym for yes; it is a mishearing of one**, and a live run
- * caught it on the first try: asked "להזיז אותו להיום ב-17:30?" the owner said
+ * on `whisper-1` caught it on the first try: asked "להזיז אותו להיום ב-17:30?" the owner said
  * "כן" and the transcript came back "כאן". They are near-homophones, this is a
  * one-syllable word answered in a noisy room, and the failure is invisible —
  * she simply asks the same question again, and the owner says the same word,

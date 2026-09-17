@@ -5,16 +5,24 @@ import { listServices } from "@/db/queries/services";
 import { listActiveStaff } from "@/db/queries/staff";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
+import { addressGender } from "@/lib/voice/libi-address";
 import {
+  audioExtension,
   isAcceptedAudioType,
   isVoiceConfigured,
   MAX_AUDIO_BYTES,
 } from "@/lib/voice/libi-config";
 import { parseHistory } from "@/lib/voice/libi-history";
-import type {
-  PendingAction,
-  VoiceNavigation,
+import {
+  upcomingClientNames,
+  type PendingAction,
+  type VoiceNavigation,
 } from "@/lib/voice/libi-tools";
+import {
+  MAX_CLIENT_KEYWORDS,
+  transcriptionContext,
+  transcriptionKeywords,
+} from "@/lib/voice/libi-vocabulary";
 import { decide, speakChunks, transcribe } from "@/lib/voice/libi-voice";
 
 /**
@@ -118,6 +126,20 @@ function parsePending(raw: unknown): PendingAction | undefined {
 }
 
 /**
+ * The question a pending action was asked with, for a turn that has no
+ * history to read it from.
+ *
+ * The history's last reply is the exact sentence ליבי spoke and is preferred;
+ * this is the fallback, rebuilt from the same fields the card shows.
+ */
+function pendingQuestion(pending: PendingAction | undefined): string | null {
+  if (!pending) return null;
+  return pending.kind === "cancel"
+    ? `לבטל את התור של ${pending.clientName} ב-${pending.when}?`
+    : `להזיז את ${pending.clientName} מ-${pending.when} ל-${pending.toWhen}?`;
+}
+
+/**
  * A refusal is one JSON object, not a stream.
  *
  * There is nothing to wait for — no audio is coming — and a client that has to
@@ -175,40 +197,12 @@ export async function POST(request: Request) {
     }
 
     /**
-     * The extension has to match the container or Whisper rejects the upload —
-     * it dispatches on the filename, not on the MIME type. `MediaRecorder`
+     * The extension has to match the container or the upload is refused — the
+     * API dispatches on the filename, not on the MIME type. `MediaRecorder`
      * gives webm on Chrome and mp4 on Safari, so the name is derived rather
-     * than fixed.
+     * than fixed, through a map rather than the raw subtype.
      */
-    const extension = audio.type.split(";")[0].split("/")[1] ?? "webm";
-
-    /**
-     * **The shop's own nouns, handed to the transcriber before it guesses.**
-     *
-     * A general model knows "תור" and has never had reason to learn "מילוי
-     * באקריליק" or the name of the person holding the scissors. These are the
-     * words it gets wrong, and the decoder is the only place left where a
-     * wrong one can still be reconsidered — see `libi-vocabulary`.
-     *
-     * Read on every turn rather than cached: a service renamed this morning
-     * should be heard correctly this afternoon, and the two queries cost less
-     * than the transcription they precede.
-     */
-    const [shopServices, shopStaff] = await Promise.all([
-      listServices(db, business.id),
-      listActiveStaff(db, business.id),
-    ]);
-
-    transcribedText = await transcribe(audio, `speech.${extension}`, [
-      ...shopServices.map((row) => row.name),
-      ...shopStaff.map((row) => row.name),
-    ]);
-
-    if (!transcribedText) {
-      return fail(200, "לא שמעתי כלום. אפשר לנסות שוב?", {
-        error: "empty_transcript",
-      });
-    }
+    const filename = `speech.${audioExtension(audio.type)}`;
 
     const pending = parsePending(form.get("pending"));
 
@@ -225,8 +219,64 @@ export async function POST(request: Request) {
      *
      * Bounded and shape-checked on the way in — see `libi-history`, which also
      * explains why untrusted history is safe here and what it cannot reach.
+     * Read *before* transcribing now, because ליבי's last sentence is the
+     * transcriber's best context: "כן" is a hard word to hear in a loud room
+     * and an easy one after "לבטל אותו?".
      */
     const history = parseHistory(form.get("history"), Date.now());
+    const gender = addressGender(business.libiAddressGender);
+
+    /**
+     * **The shop's own words, handed to the transcriber before it guesses.**
+     *
+     * Services, staff, and — the half that was missing — the clients the
+     * owner is about to name, nearest first. A general model has never had
+     * reason to spell this diary's names the way the diary does, and the
+     * tools look them up as written. See `libi-vocabulary`.
+     *
+     * Read on every turn rather than cached: a client booked a minute ago
+     * should be heard correctly now, and three indexed reads in parallel cost
+     * far less than the transcription they precede.
+     */
+    const [shopServices, shopStaff, clients] = await Promise.all([
+      listServices(db, business.id),
+      listActiveStaff(db, business.id),
+      upcomingClientNames(
+        {
+          db,
+          businessId: business.id,
+          timezone: business.timezone,
+          now: new Date(),
+        },
+        MAX_CLIENT_KEYWORDS,
+      ),
+    ]);
+
+    transcribedText = await transcribe(audio, filename, {
+      context: transcriptionContext({
+        question: history.at(-1)?.replied ?? pendingQuestion(pending),
+        gender,
+      }),
+      keywords: transcriptionKeywords({
+        clients,
+        staff: shopStaff.map((row) => row.name),
+        services: shopServices.map((row) => row.name),
+      }),
+    });
+
+    if (!transcribedText) {
+      /**
+       * **Nothing intelligible is not an answer to the question.** The
+       * transcriber returns an empty string for a word it could not hear over
+       * the clippers, and dropping the pending action here would make the
+       * owner's repeated "כן" a yes to nothing. So it is handed back unchanged
+       * and the question stays open for one more try.
+       */
+      return fail(200, "לא שמעתי. אפשר לחזור על זה?", {
+        error: "empty_transcript",
+        ...(pending ? { pending } : {}),
+      });
+    }
 
     const outcome = await decide(
       transcribedText,
@@ -237,7 +287,7 @@ export async function POST(request: Request) {
         now: new Date(),
       },
       writable ? pending : undefined,
-      { writable, history, gender: business.libiAddressGender },
+      { writable, history, gender },
     );
 
     const spoken = outcome.spoken;
@@ -245,21 +295,35 @@ export async function POST(request: Request) {
     /** NDJSON is newline-delimited; naming it keeps the escape out of a template. */
     const NEWLINE = String.fromCharCode(10);
 
+    /**
+     * **The owner may leave mid-answer**, and the stream must notice. Closing
+     * the card, navigating away or losing the network cancels it; writing to
+     * a cancelled stream throws, and that throw used to be caught by the
+     * speech handler and reported as a *speech* failure — twice, since the
+     * handler wrote again. Every write now goes through `write`, which knows.
+     */
+    let cancelled = false;
+
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        const write = (line: object) => {
+          if (cancelled) return;
+          try {
+            controller.enqueue(encoder.encode(JSON.stringify(line) + NEWLINE));
+          } catch {
+            cancelled = true;
+          }
+        };
+
         // Line one, immediately: everything the card needs.
-        controller.enqueue(
-          encoder.encode(
-            JSON.stringify({
-              type: "text",
-              transcribedText,
-              textResult: spoken,
-              actionTaken: outcome.actionTaken,
-              ...(outcome.pending ? { pending: outcome.pending } : {}),
-              ...(outcome.navigate ? { navigate: outcome.navigate } : {}),
-            }) + NEWLINE,
-          ),
-        );
+        write({
+          type: "text",
+          transcribedText,
+          textResult: spoken,
+          actionTaken: outcome.actionTaken,
+          ...(outcome.pending ? { pending: outcome.pending } : {}),
+          ...(outcome.navigate ? { navigate: outcome.navigate } : {}),
+        });
 
         /**
          * The voice, in the pieces it can be spoken in.
@@ -274,38 +338,30 @@ export async function POST(request: Request) {
          * stays as it is. `last` is what tells the client the queue is closed —
          * without it there is no moment at which the microphone may reopen.
          */
-        const pending = speakChunks(spoken);
+        const clips = speakChunks(spoken);
+        // A clip nobody reads any more — the owner left — must not surface
+        // as an unhandled rejection. The loop below still sees each failure.
+        for (const clip of clips) clip.catch(() => {});
 
-        if (pending.length === 0) {
-          controller.enqueue(
-            encoder.encode(
-              JSON.stringify({ type: "audio", audioBase64: null, last: true }) +
-                NEWLINE,
-            ),
-          );
+        if (clips.length === 0) {
+          write({ type: "audio", audioBase64: null, last: true });
         }
 
-        for (const [index, chunk] of pending.entries()) {
-          const last = index === pending.length - 1;
+        for (const [index, clip] of clips.entries()) {
+          if (cancelled) break;
+          const last = index === clips.length - 1;
           try {
-            const audioBase64 = await chunk;
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({ type: "audio", audioBase64, last }) + NEWLINE,
-              ),
-            );
+            write({ type: "audio", audioBase64: await clip, last });
           } catch (error) {
             reportError("voice.tts", error, { businessId: business.id });
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({ type: "audio", audioBase64: null, last }) +
-                  NEWLINE,
-              ),
-            );
+            write({ type: "audio", audioBase64: null, last });
           }
         }
 
-        controller.close();
+        if (!cancelled) controller.close();
+      },
+      cancel() {
+        cancelled = true;
       },
     });
 
@@ -319,6 +375,14 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    // The owner left before the upload finished. Nobody is waiting for an
+    // answer, and it is not a failure worth an alert.
+    const disconnected =
+      request.signal.aborted ||
+      (error instanceof Error &&
+        error.message === "aborted" &&
+        (error as { code?: string }).code === "ECONNRESET");
+    if (disconnected) return new Response(null, { status: 499 });
     reportError("voice.process", error, { businessId: business.id });
     return fail(500, "לא הצלחתי לעבד את ההקלטה. כדאי לנסות שוב.", {
       transcribedText,
