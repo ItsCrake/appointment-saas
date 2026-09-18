@@ -1,38 +1,52 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useOptimistic,
+  useRef,
   useState,
   useSyncExternalStore,
   useTransition,
   type CSSProperties,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowLeftRight,
   CalendarPlus,
   Check,
   ChevronLeft,
   ChevronRight,
   Columns3,
   FileText,
+  FoldVertical,
   Grid2x2,
   Hourglass,
+  Loader2,
   MessageCircle,
   Mic,
+  Move,
   Phone,
   Rows3,
   Scissors,
   Tag,
   Trash2,
+  TriangleAlert,
   UserRound,
   UserX,
   X,
   type LucideIcon,
 } from "lucide-react";
 
+import {
+  previewSwapAction,
+  rescheduleAppointmentAction,
+  swapAppointmentsAction,
+} from "@/app/dashboard/actions";
 import {
   createStaffTimeOffAction,
   deleteStaffTimeOffAction,
@@ -57,20 +71,40 @@ import {
   placeItem,
   type CalendarItem,
   type CardMode,
+  type GridBounds,
 } from "@/lib/calendar-layout";
 import {
   FOCUS_RING_MS,
   CALENDAR_DENSITIES,
   chooseDensity,
+  chooseFitHours,
   DAY_HEADER_ROW,
   densityServerSnapshot,
   densitySnapshot,
   DENSITY,
+  fitHoursServerSnapshot,
+  fitHoursSnapshot,
   subscribeDensity,
+  subscribeFitHours,
   SUMMARY_HOUR_ROW,
   type CalendarDensity,
 } from "@/lib/calendar-density";
-import { formatPrice } from "@/lib/format";
+import type { SwapPreview } from "@/lib/appointment-swap";
+import {
+  canMove,
+  dropConflict,
+  dropStart,
+  minutesAt,
+  movedEntry,
+  SNAP_MINUTES,
+  timeToMinutes,
+  type DropConflict,
+  type EntryMove,
+} from "@/lib/calendar-edit";
+import type { CalendarWeekData } from "@/lib/calendar-week-data";
+import { dayLabel, shiftDays, weekOf } from "@/lib/calendar-week";
+import { formatPrice, weekdayLabel } from "@/lib/format";
+import { createRangeCache, fetchDashboardJson } from "@/lib/range-cache";
 import { staffSwatch } from "@/lib/staff-colors";
 import {
   staffToneClass,
@@ -110,6 +144,9 @@ const DENSITY_ICON: Record<CalendarDensity, typeof Rows3> = {
   compact: Columns3,
   summary: Grid2x2,
 };
+
+/** The crop toggle's name — its accessible label and its tooltip. */
+const FIT_HOURS_LABEL = "הצגת השעות עם תורים בלבד";
 
 export type CalendarEntry = CalendarItem & {
   /**
@@ -240,31 +277,202 @@ export type CalendarDay = {
  */
 export type CalendarView = "day" | "week";
 
+/**
+ * Every week this tab has drawn, keyed by tenant and week — see
+ * `range-cache`. Module scope so it outlives the component: leaving the
+ * calendar for the agenda and coming back finds the weeks already there.
+ */
+const weekCache = createRangeCache<CalendarWeekData>((key) =>
+  fetchDashboardJson<CalendarWeekData>(
+    `/api/dashboard/week?week=${encodeURIComponent(key.split("|")[1] ?? "")}`,
+  ),
+);
+
+/**
+ * How old a week may be and still be shown without asking again.
+ *
+ * Ten seconds when the owner steps onto it — a week they look at is refreshed
+ * behind them unless it was fetched a moment ago — and a minute for a prefetch,
+ * which is a guess about where they go next and should not keep the server
+ * busy with weeks nobody is looking at. The delay lets the week on screen
+ * finish drawing before its neighbours are asked for.
+ */
+const SHOWN_MAX_AGE_MS = 10_000;
+const PREFETCH_MAX_AGE_MS = 60_000;
+const PREFETCH_DELAY_MS = 250;
+
+/**
+ * The week the owner stepped onto, before its bookings have arrived.
+ *
+ * **The optimistic half of stepping.** The dates, the column heads and the
+ * shop's hours are known without asking anybody — the hours are the same every
+ * week — so the grid moves the moment the arrow is pressed and only the cards
+ * wait. A week drawn from memory never needs this.
+ */
+function placeholderWeek(
+  weekStart: string,
+  reference: CalendarWeekData,
+  today: string,
+): CalendarWeekData {
+  return {
+    weekStart,
+    days: weekOf(weekStart).map((date) => {
+      const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+      return {
+        date,
+        label: dayLabel(date),
+        weekday,
+        isToday: date === today,
+        open: reference.days.find((day) => day.weekday === weekday)?.open ?? [],
+      };
+    }),
+    entries: [],
+  };
+}
+
+/**
+ * A move shown before the server has answered — see `useOptimistic` in
+ * `WeekCalendar`. A swap moves the provider with the slot, so it carries the
+ * other card's provider; a drag never changes who holds the booking.
+ */
+type OptimisticMove = EntryMove & {
+  staff?: Pick<CalendarEntry, "staffId" | "staffName" | "staffColor">;
+};
+type MoveMap = Readonly<Record<string, OptimisticMove>>;
+const NO_MOVES: MoveMap = {};
+
+/** Where a picked-up booking would land, and what is in the way — the ghost. */
+type DragView = {
+  entryId: string;
+  appointmentId: string;
+  dayIndex: number;
+  startMinutes: number;
+  endMinutes: number;
+  conflict: DropConflict | null;
+  via: "pointer" | "keyboard";
+};
+
+/** A pointer drag in progress: handler state, never rendered. */
+type DragSession = {
+  entry: CalendarEntry;
+  pointerId: number;
+  originX: number;
+  originY: number;
+  lastX: number;
+  lastY: number;
+  /** Minutes between the card's start and the point it was picked up by. */
+  grabOffset: number;
+  /** Past the threshold — a drag rather than a tap. */
+  active: boolean;
+  raf: number;
+  detach: () => void;
+};
+
+/** What a card calls in edit mode. One stable object, or null outside it. */
+type EditHandlers = {
+  pointerDown: (entry: CalendarEntry, event: React.PointerEvent<HTMLElement>) => void;
+  keyDown: (entry: CalendarEntry, event: React.KeyboardEvent<HTMLElement>) => void;
+  blur: (entry: CalendarEntry) => void;
+};
+
+/**
+ * How far a press travels before it is a drag rather than a tap. A tap picks
+ * the card for a swap, so a thumb that wobbles must not move a client.
+ */
+const DRAG_THRESHOLD_PX = 6;
+/** How close to the frame's edge a drag starts scrolling it, and how fast. */
+const EDGE_PX = 44;
+const EDGE_SPEED_PX = 14;
+/** The pinned day header — the top edge zone starts below it. */
+const DAY_HEADER_PX = 48;
+
+function noHover() {}
+
+/**
+ * The day column under a point, or the nearest one — the drag's hit test.
+ *
+ * Measured when the pointer moves, not when the grid renders: the grid itself
+ * still measures nothing (see `WeekCalendar`), and a drag is the one moment
+ * the question "where on screen is 10:35 on Tuesday" genuinely has to be
+ * asked of the browser. The column's own drawn height makes it right at every
+ * density, the overview included.
+ */
+function columnAt(grid: HTMLElement, x: number, y: number) {
+  let best: HTMLElement | null = null;
+  let bestDistance = Infinity;
+  for (const column of grid.querySelectorAll<HTMLElement>("[data-day-column]")) {
+    const rect = column.getBoundingClientRect();
+    const distance =
+      x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+    if (distance < bestDistance) {
+      best = column;
+      bestDistance = distance;
+    }
+  }
+  if (!best) return null;
+  const rect = best.getBoundingClientRect();
+  return {
+    dayIndex: Number(best.dataset.dayColumn),
+    offsetY: y - rect.top,
+    height: rect.height,
+  };
+}
+
+/** A short shake on a card whose move was refused. Still for reduced motion. */
+function refuse(appointmentId: string) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.getElementById(`entry-${appointmentId}`)?.animate(
+    [
+      { transform: "translateX(0)" },
+      { transform: "translateX(-4px)" },
+      { transform: "translateX(4px)" },
+      { transform: "translateX(-2px)" },
+      { transform: "translateX(0)" },
+    ],
+    { duration: 320, easing: "ease-out" },
+  );
+}
+
+/** "ליום שלישי, 10:35" or "ל-10:35" — the day only when it changed. */
+function landingPhrase(from: string, to: { date: string; time: string }) {
+  return from === to.date
+    ? `ל-${to.time}`
+    : `ליום ${weekdayLabel(to.date)}, ${to.time}`;
+}
+
 export function WeekCalendar({
   initialView,
   initialDate,
-  days: weekDays,
-  entries,
-  weekStart,
-  previousWeek,
-  nextWeek,
+  days: serverDays,
+  entries: serverEntries,
+  weekStart: serverWeekStart,
   thisWeek,
   staff,
   timezone,
+  scope,
   focusAppointmentId,
 }: {
   initialView: CalendarView;
   /** The focused day, "YYYY-MM-DD". Only meaningful in the day view. */
   initialDate: string;
-  /** Always the full week, whichever view is showing. */
+  /**
+   * The week the server rendered — the one in the address bar. Always the full
+   * week, whichever view is showing. Every other week is fetched by the
+   * component itself: see `weekCache`.
+   */
   days: CalendarDay[];
   entries: CalendarEntry[];
   weekStart: string;
-  previousWeek: string;
-  nextWeek: string;
+  /** Today in the shop's zone. */
   thisWeek: string;
   staff: { id: string; name: string; color: string }[];
   timezone: string;
+  /**
+   * Whose weeks these are — the tenant's id — so the cache never shows one
+   * shop's week to another. An administrator can support two shops in one
+   * tab; the key is what keeps their calendars apart.
+   */
+  scope: string;
   /**
    * An appointment to scroll to and ring, from `?focus=` (0033).
    *
@@ -360,6 +568,198 @@ export function WeekCalendar({
   const [focusedDate, setFocusedDate] = useState(initialDate);
 
   /**
+   * **The week on screen is client state too, now.** Stepping a week used to
+   * be a navigation — a server render of the whole route behind a skeleton,
+   * 2.1–2.2s measured — for data one small query could answer. The week the
+   * server rendered seeds the cache; every other week comes from
+   * `/api/dashboard/week`, is drawn from memory when it was seen or prefetched,
+   * and is refreshed behind the owner when it is old. See `range-cache`.
+   */
+  const [shownWeek, setShownWeek] = useState(serverWeekStart);
+
+  /**
+   * **A navigation wins over whatever the owner had stepped to** — ליבי's
+   * "תראי לי", the dock, the address bar.
+   *
+   * Detected on the URL rather than the server's props: every step here
+   * writes the view and week into the address bar (`syncUrl`), so the URL only
+   * disagrees with the screen when somebody else changed it — and a
+   * navigation back to the week the page first drew can be answered from the
+   * router's cache with the very same props, which no comparison of them
+   * would notice. The focused day is kept when it is still inside the week,
+   * so the day view opens where the owner left it. Adjusted during render,
+   * React's documented way of resetting state on a changed input.
+   */
+  const searchParams = useSearchParams();
+  const requestedWeek = searchParams.get("week");
+  const urlView: CalendarView =
+    searchParams.get("view") === "day" ? "day" : "week";
+  const urlAnchor =
+    requestedWeek && /^\d{4}-\d{2}-\d{2}$/.test(requestedWeek)
+      ? requestedWeek
+      : thisWeek;
+  const urlKey = `${urlView}|${urlAnchor}`;
+  const [seenUrl, setSeenUrl] = useState(urlKey);
+  if (seenUrl !== urlKey) {
+    setSeenUrl(urlKey);
+    const start = weekOf(urlAnchor)[0];
+    if (start !== shownWeek) setShownWeek(start);
+    if (urlView !== view) setView(urlView);
+    const keepsFocus =
+      urlView === "day"
+        ? focusedDate === urlAnchor
+        : weekOf(focusedDate)[0] === start;
+    if (!keepsFocus) setFocusedDate(urlAnchor);
+  }
+
+  const serverWeek = useMemo<CalendarWeekData>(
+    () => ({
+      weekStart: serverWeekStart,
+      days: serverDays,
+      entries: serverEntries,
+    }),
+    [serverWeekStart, serverDays, serverEntries],
+  );
+
+  const keyFor = useCallback((week: string) => `${scope}|${week}`, [scope]);
+  useSyncExternalStore(
+    weekCache.subscribe,
+    weekCache.version,
+    weekCache.version,
+  );
+
+  /**
+   * **The server's render is the freshest copy there is.** It arrives after
+   * `router.refresh()` — a write here, ליבי's own `changed`, an approved
+   * request — and whatever made the server render again may have changed
+   * other weeks too, so everything held is marked stale first and refreshed
+   * the next time it is shown. A layout effect, so the fresh week replaces the
+   * held one before the browser paints.
+   */
+  useLayoutEffect(() => {
+    weekCache.invalidate();
+    weekCache.put(keyFor(serverWeek.weekStart), serverWeek);
+  }, [serverWeek, keyFor]);
+
+  const heldWeek =
+    weekCache.peek(keyFor(shownWeek)) ??
+    (shownWeek === serverWeek.weekStart ? serverWeek : undefined);
+  const fetchingWeek = weekCache.isLoading(keyFor(shownWeek));
+  const week = useMemo(
+    () => heldWeek ?? placeholderWeek(shownWeek, serverWeek, thisWeek),
+    [heldWeek, shownWeek, serverWeek, thisWeek],
+  );
+  const weekDays = week.days;
+  const entries = week.entries;
+  const weekStart = week.weekStart;
+
+  const { toast } = useToast();
+
+  /**
+   * **Edit mode — moving bookings by hand.**
+   *
+   * ---------------------------------------------------------------------------
+   * Off by default, so an ordinary tap on a card still opens it: dragging is
+   * a mode the owner enters on purpose, not something a scrolling thumb can
+   * set off. Inside it:
+   *
+   * - **drag** a booking to another time or day — snapped to five minutes, the
+   *   ghost red where the same provider is already booked and amber where the
+   *   shop's own rules say closed or blocked (see `calendar-edit`);
+   * - **tap two** bookings to swap them — the plan comes from the server first
+   *   (`previewSwapAction`, the same planner as ליבי's swap) and nothing is
+   *   written until the owner confirms it;
+   * - or, from the keyboard, Enter to pick a booking up, the arrows to move
+   *   it, Enter to put it down — and Space to pick it for a swap.
+   *
+   * A move lands on screen the moment it is dropped (`useOptimistic`) and
+   * the server's answer replaces it; a refusal puts the card back.
+   * ---------------------------------------------------------------------------
+   */
+  const [editing, setEditing] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [swap, setSwap] = useState<SwapPreview | null>(null);
+  const [drag, setDrag] = useState<DragView | null>(null);
+  /**
+   * A move stepping outside the shop's rules, waiting on the owner's yes. The
+   * card waits *where it was dropped*, ringed in amber — see `shownEntries` —
+   * rather than jumping home and leaving a ghost behind while the question
+   * is open.
+   */
+  const [asking, setAsking] = useState<{
+    entry: CalendarEntry;
+    move: EntryMove;
+    message: string;
+  } | null>(null);
+  const [saving, startSaving] = useTransition();
+  const [planning, startPlanning] = useTransition();
+  const [moves, addMoves] = useOptimistic(
+    NO_MOVES,
+    (current: MoveMap, next: OptimisticMove[]): MoveMap => {
+      const merged = { ...current };
+      for (const move of next) merged[move.appointmentId] = move;
+      return merged;
+    },
+  );
+
+  /**
+   * The week as drawn: the held copy, with any move still being saved — and
+   * the one waiting on the owner's yes, which stays where it was dropped.
+   */
+  const shownEntries = useMemo(() => {
+    const held: MoveMap = asking
+      ? { ...moves, [asking.move.appointmentId]: asking.move }
+      : moves;
+    if (held === NO_MOVES) return entries;
+    return entries.map((entry) => {
+      const move = entry.appointmentId ? held[entry.appointmentId] : undefined;
+      if (!move) return entry;
+      const moved = movedEntry(entry, move);
+      return move.staff ? { ...moved, ...move.staff } : moved;
+    });
+  }, [entries, moves, asking]);
+
+  /**
+   * The week on screen is always on its way to being fresh. A step already
+   * asked for it (`goToWeek`), and a load already in flight or answered in
+   * the last few seconds is shared rather than repeated — so this only ever
+   * does work for a week that arrived some other way: a navigation the
+   * router answered from its cache, or a copy held since before a write.
+   */
+  useEffect(() => {
+    weekCache.load(keyFor(shownWeek), SHOWN_MAX_AGE_MS).catch(() => {});
+  }, [shownWeek, keyFor]);
+
+  // The neighbours, fetched once the week on screen has drawn, so the next
+  // step is usually already in memory.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      weekCache.prefetch(keyFor(shiftDays(shownWeek, -7)), PREFETCH_MAX_AGE_MS);
+      weekCache.prefetch(keyFor(shiftDays(shownWeek, 7)), PREFETCH_MAX_AGE_MS);
+    }, PREFETCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [shownWeek, keyFor]);
+
+  /**
+   * After any write from this calendar: everything held is suspect, and the
+   * server renders the week in the address bar again.
+   */
+  const refreshDiary = useCallback(() => {
+    weekCache.invalidate();
+    router.refresh();
+  }, [router]);
+
+  /**
+   * Hides cropped hours — see `fitHoursSnapshot`. Read like the density, as an
+   * external store, so the server renders the default and hydration matches.
+   */
+  const fitHours = useSyncExternalStore(
+    subscribeFitHours,
+    fitHoursSnapshot,
+    fitHoursServerSnapshot,
+  );
+
+  /**
    * How much of the week to fit on screen — see `lib/calendar-density.ts`.
    *
    * Subscribed to rather than held here: the preference lives in
@@ -395,7 +795,7 @@ export function WeekCalendar({
    */
   const shortestMinutes = useMemo(() => {
     let shortest: number | null = null;
-    for (const entry of entries) {
+    for (const entry of shownEntries) {
       if (entry.kind !== "appointment") continue;
       const minutes = entry.endMinutes - entry.startMinutes;
       if (minutes > 0 && (shortest === null || minutes < shortest)) {
@@ -403,7 +803,7 @@ export function WeekCalendar({
       }
     }
     return shortest;
-  }, [entries]);
+  }, [shownEntries]);
 
   const rowPx = hourRowPx(dayView ? "day" : "week", cardMode, shortestMinutes);
 
@@ -411,9 +811,13 @@ export function WeekCalendar({
    * One hour of grid, as the rail and every column draw it. A pixel height
    * everywhere but the overview, whose row the stylesheet fits to the frame.
    */
-  const hourRow = summaryCards
-    ? { className: SUMMARY_HOUR_ROW }
-    : { style: { height: rowPx } };
+  const hourRow = useMemo(
+    () =>
+      summaryCards
+        ? { className: SUMMARY_HOUR_ROW }
+        : { style: { height: rowPx } },
+    [summaryCards, rowPx],
+  );
 
   const focusedIndex = Math.max(
     0,
@@ -429,15 +833,15 @@ export function WeekCalendar({
    * that does not exist.
    */
   const { days, visibleEntries } = useMemo(() => {
-    if (!dayView) return { days: weekDays, visibleEntries: entries };
+    if (!dayView) return { days: weekDays, visibleEntries: shownEntries };
 
     return {
       days: weekDays.slice(focusedIndex, focusedIndex + 1),
-      visibleEntries: entries
+      visibleEntries: shownEntries
         .filter((entry) => entry.dayIndex === focusedIndex)
         .map((entry) => ({ ...entry, dayIndex: 0 })),
     };
-  }, [dayView, weekDays, entries, focusedIndex]);
+  }, [dayView, weekDays, shownEntries, focusedIndex]);
 
   // Tailwind cannot build a class from a runtime value, so the template is an
   // inline style — the same reason `data-accent` exists on the booking page.
@@ -468,8 +872,12 @@ export function WeekCalendar({
         // The overview fits the working day to the screen, so it spends no row
         // on the empty hour either side.
         summaryCards ? 0 : 1,
+        // The owner's "crop empty hours" — see `gridBounds`. Not while
+        // editing: an hour cropped away is an hour a booking cannot be
+        // dragged into.
+        { fitToItems: fitHours && !editing },
       ),
-    [visibleEntries, days, summaryCards],
+    [visibleEntries, days, summaryCards, fitHours, editing],
   );
   const rows = useMemo(() => hourRows(bounds), [bounds]);
 
@@ -522,6 +930,566 @@ export function WeekCalendar({
   );
 
   /**
+   * Each card's box and floor, worked out once per layout rather than on every
+   * render.
+   *
+   * A hover sets state at the root, and every card used to be rebuilt with it —
+   * new style objects, new closures — for a pointer crossing one of them. Built
+   * here, each card receives the very same objects until the layout itself
+   * changes, and `EntryCard`'s `memo` lets all the others skip.
+   */
+  const layoutByDay = useMemo(
+    () =>
+      placedByDay.map((placed, dayIndex) =>
+        placed.map((entry) => {
+          const toNext = gapsByDay[dayIndex].get(entry.id) ?? null;
+          return {
+            entry,
+            // The gap is what stops the minimum height drawing this card over
+            // the one after it — see `placeItem`.
+            style: cardBox(placeItem(entry, bounds, undefined, toNext)),
+            /**
+             * Every mode's floor, capped by the room to the next card below
+             * and less the gap that keeps them apart — measured on the grid
+             * this card is actually drawn on. In pixels on the grown hour; as a
+             * percentage of the grid in the overview, whose hour only the
+             * stylesheet knows.
+             */
+            minHeight: summaryCards
+              ? blockMinHeight(toNext, bounds)
+              : cardHeightPx(
+                  entry.endMinutes - entry.startMinutes,
+                  dayView ? "day" : "week",
+                  toNext,
+                  cardMode,
+                  rowPx,
+                ),
+          };
+        }),
+      ),
+    [placedByDay, gapsByDay, bounds, summaryCards, dayView, cardMode, rowPx],
+  );
+
+  // The hover card is supplementary detail about what is under the cursor.
+  // Once the dialog is up it is stale and floating over a modal, so it goes.
+  const openEntry = useCallback((target: CalendarEntry) => {
+    setHovered(null);
+    setOpened(target);
+  }, []);
+
+  /** The blocks in the week on screen, for the list under the grid. */
+  const weekBlocks = useMemo(
+    () => shownEntries.filter((entry) => entry.kind === "block"),
+    [shownEntries],
+  );
+
+  /* ------------------------------------------------------------ edit mode */
+
+  const frameRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const session = useRef<DragSession | null>(null);
+  /** Which pair a swap preview is being fetched for — a stale answer is dropped. */
+  const planFor = useRef<string | null>(null);
+
+  /** The grid as last drawn, for handlers that outlive the render they came from. */
+  const live = useRef({
+    bounds,
+    entries: shownEntries,
+    weekDays,
+    dayView,
+    focusedIndex,
+  });
+  useLayoutEffect(() => {
+    live.current = {
+      bounds,
+      entries: shownEntries,
+      weekDays,
+      dayView,
+      focusedIndex,
+    };
+  });
+
+  /** Where `entry` would land at `startMinutes` on `dayIndex`, and what is in the way. */
+  const landing = (
+    entry: CalendarEntry,
+    dayIndex: number,
+    startMinutes: number,
+    via: DragView["via"],
+  ): DragView => {
+    const facts = live.current;
+    const endMinutes = startMinutes + (entry.endMinutes - entry.startMinutes);
+    return {
+      entryId: entry.id,
+      appointmentId: entry.appointmentId ?? "",
+      dayIndex,
+      startMinutes,
+      endMinutes,
+      via,
+      conflict: dropConflict(
+        facts.entries,
+        {
+          appointmentId: entry.appointmentId ?? "",
+          staffId: entry.staffId,
+          dayIndex,
+          startMinutes,
+          endMinutes,
+        },
+        facts.weekDays[dayIndex]?.open ?? [],
+      ),
+    };
+  };
+
+  /** The landing under a pointer at (x, y). */
+  const aim = (drag: DragSession, x: number, y: number) => {
+    const grid = gridRef.current;
+    const spot = grid ? columnAt(grid, x, y) : null;
+    if (!spot) return null;
+    const limits = live.current.bounds;
+    return landing(
+      drag.entry,
+      spot.dayIndex,
+      dropStart({
+        pointerMinutes: minutesAt(spot.offsetY, spot.height, limits),
+        grabOffset: drag.grabOffset,
+        duration: drag.entry.endMinutes - drag.entry.startMinutes,
+        bounds: limits,
+      }),
+      "pointer",
+    );
+  };
+
+  /** Re-renders only when the landing changes — every five minutes, not every pixel. */
+  const showLanding = (next: DragView | null) => {
+    setDrag((current) =>
+      current &&
+      next &&
+      current.via === next.via &&
+      current.dayIndex === next.dayIndex &&
+      current.startMinutes === next.startMinutes
+        ? current
+        : next,
+    );
+  };
+
+  const follow = (x: number, y: number) => {
+    const drag = session.current;
+    if (!drag) return;
+    drag.lastX = x;
+    drag.lastY = y;
+    if (!drag.active) {
+      if (Math.hypot(x - drag.originX, y - drag.originY) < DRAG_THRESHOLD_PX) {
+        return;
+      }
+      drag.active = true;
+    }
+    showLanding(aim(drag, x, y));
+    if (!drag.raf) {
+      drag.raf = requestAnimationFrame(() => handlers.current?.scrollEdges());
+    }
+  };
+
+  /**
+   * Scrolls the frame while a drag is held near its edge, so a booking can be
+   * carried to an hour — or, on a phone, a day — that is not on screen.
+   */
+  const scrollEdges = () => {
+    const drag = session.current;
+    const frame = frameRef.current;
+    if (!drag || !frame) return;
+    drag.raf = 0;
+    if (!drag.active) return;
+
+    const rect = frame.getBoundingClientRect();
+    const speed = (distance: number) =>
+      Math.round(EDGE_SPEED_PX * Math.min(1, Math.max(0, 1 - distance / EDGE_PX)));
+    const top = rect.top + DAY_HEADER_PX;
+    const dy =
+      drag.lastY < top + EDGE_PX
+        ? -speed(drag.lastY - top)
+        : drag.lastY > rect.bottom - EDGE_PX
+          ? speed(rect.bottom - drag.lastY)
+          : 0;
+    const dx =
+      drag.lastX < rect.left + EDGE_PX
+        ? -speed(drag.lastX - rect.left)
+        : drag.lastX > rect.right - EDGE_PX
+          ? speed(rect.right - drag.lastX)
+          : 0;
+    if (dx === 0 && dy === 0) return;
+
+    frame.scrollBy(dx, dy);
+    showLanding(aim(drag, drag.lastX, drag.lastY));
+    drag.raf = requestAnimationFrame(() => handlers.current?.scrollEdges());
+  };
+
+  const beginDrag = (
+    entry: CalendarEntry,
+    event: React.PointerEvent<HTMLElement>,
+  ) => {
+    // One decision at a time: a question in the tray is answered first, and
+    // a write in flight lands before the next is planned against it.
+    if (event.button !== 0 || session.current || !entry.appointmentId) return;
+    if (asking || saving) return;
+    const grid = gridRef.current;
+    const spot = grid ? columnAt(grid, event.clientX, event.clientY) : null;
+    if (!spot) return;
+
+    const facts = live.current;
+    // The week's own span, not the day view's copy remapped onto column 0.
+    const own = facts.entries.find((each) => each.id === entry.id) ?? entry;
+    const { pointerId } = event;
+
+    const onMove = (move: PointerEvent) => {
+      if (move.pointerId === pointerId) {
+        handlers.current?.follow(move.clientX, move.clientY);
+      }
+    };
+    const onEnd = (end: PointerEvent) => {
+      if (end.pointerId === pointerId) {
+        handlers.current?.finishDrag(end.type === "pointerup");
+      }
+    };
+    const onKey = (key: KeyboardEvent) => {
+      if (key.key !== "Escape") return;
+      key.preventDefault();
+      handlers.current?.finishDrag(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    window.addEventListener("keydown", onKey);
+
+    session.current = {
+      entry: own,
+      pointerId,
+      originX: event.clientX,
+      originY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      grabOffset:
+        minutesAt(spot.offsetY, spot.height, facts.bounds) - own.startMinutes,
+      active: false,
+      raf: 0,
+      detach: () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        window.removeEventListener("keydown", onKey);
+      },
+    };
+  };
+
+  /** Lets go: a tap picks the card for a swap; a drag asks to move it. */
+  const finishDrag = (commit: boolean) => {
+    const drag = session.current;
+    if (!drag) return;
+    session.current = null;
+    drag.detach();
+    if (drag.raf) cancelAnimationFrame(drag.raf);
+
+    if (!drag.active) {
+      setDrag(null);
+      if (commit) toggleSelect(drag.entry);
+      return;
+    }
+
+    const target = commit ? aim(drag, drag.lastX, drag.lastY) : null;
+    setDrag(null);
+    if (target) commitMove(drag.entry, target);
+  };
+
+  const planSwap = (firstId: string, secondId: string) => {
+    const pair = `${firstId}|${secondId}`;
+    planFor.current = pair;
+    startPlanning(async () => {
+      const result = await previewSwapAction({ firstId, secondId });
+      // The owner changed their pick while the plan was on its way.
+      if (planFor.current !== pair) return;
+      if (result.ok) {
+        setSwap(result.preview);
+      } else {
+        toast(result.error, "error");
+        setSelected([firstId]);
+        refuse(secondId);
+      }
+    });
+  };
+
+  const toggleSelect = (entry: CalendarEntry) => {
+    const id = entry.appointmentId;
+    if (!id || asking || saving) return;
+    setSwap(null);
+    planFor.current = null;
+    if (selected.includes(id)) {
+      setSelected(selected.filter((other) => other !== id));
+      return;
+    }
+    const next = selected.length >= 2 ? [id] : [...selected, id];
+    setSelected(next);
+    if (next.length === 2) planSwap(next[0], next[1]);
+  };
+
+  const saveMove = (entry: CalendarEntry, move: EntryMove, force: boolean) => {
+    setAsking(null);
+    startSaving(async () => {
+      addMoves([move]);
+      const time = minutesToLabel(move.startMinutes);
+      const result = await rescheduleAppointmentAction({
+        appointmentId: move.appointmentId,
+        date: move.date,
+        time,
+        force,
+      });
+      if (result.ok) {
+        toast(
+          `התור של ${entry.title} הועבר ${landingPhrase(entry.date, { date: move.date, time })}`,
+          "success",
+        );
+        refreshDiary();
+      } else if ("confirm" in result) {
+        // A rule only the server knows — a notice period, the booking
+        // lattice. Asked, as the dialog asks.
+        setAsking({ entry, move, message: result.message });
+      } else {
+        toast(result.error, "error");
+        refuse(move.appointmentId);
+      }
+    });
+  };
+
+  const commitMove = (entry: CalendarEntry, target: DragView) => {
+    if (
+      target.dayIndex === entry.dayIndex &&
+      target.startMinutes === entry.startMinutes
+    ) {
+      return;
+    }
+    const day = live.current.weekDays[target.dayIndex];
+    if (!day || !entry.appointmentId) return;
+
+    if (target.conflict?.kind === "clash") {
+      // The database would refuse it anyway — `appointments_no_overlap_staff`.
+      toast(
+        `ב-${minutesToLabel(target.conflict.startMinutes)} כבר משובץ ${target.conflict.title} אצל אותו נותן שירות. התור נשאר במקומו.`,
+        "error",
+      );
+      refuse(entry.appointmentId);
+      return;
+    }
+
+    const move: EntryMove = {
+      appointmentId: entry.appointmentId,
+      dayIndex: target.dayIndex,
+      date: day.date,
+      startMinutes: target.startMinutes,
+    };
+
+    if (target.conflict) {
+      // The shop's own rules: asked before anything moves.
+      setAsking({
+        entry,
+        move,
+        message:
+          target.conflict.kind === "blocked"
+            ? `המועד חסום ביומן (${target.conflict.title}). לשבץ בכל זאת?`
+            : "המועד מחוץ לשעות הפעילות. לשבץ בכל זאת?",
+      });
+      return;
+    }
+
+    saveMove(entry, move, false);
+  };
+
+  const confirmSwap = () => {
+    const preview = swap;
+    if (!preview) return;
+    const facts = live.current;
+    const find = (id: string) =>
+      facts.entries.find((entry) => entry.appointmentId === id);
+    const first = find(preview.first.appointmentId);
+    const second = find(preview.second.appointmentId);
+
+    const optimistic: OptimisticMove[] = [];
+    for (const [leg, other] of [
+      [preview.first, second],
+      [preview.second, first],
+    ] as const) {
+      const dayIndex = facts.weekDays.findIndex((day) => day.date === leg.date);
+      if (dayIndex < 0) continue;
+      optimistic.push({
+        appointmentId: leg.appointmentId,
+        dayIndex,
+        date: leg.date,
+        startMinutes: timeToMinutes(leg.time),
+        staff:
+          other && other.staffId === leg.staffId
+            ? {
+                staffId: other.staffId,
+                staffName: other.staffName,
+                staffColor: other.staffColor,
+              }
+            : undefined,
+      });
+    }
+
+    setSwap(null);
+    setSelected([]);
+    planFor.current = null;
+    startSaving(async () => {
+      addMoves(optimistic);
+      const result = await swapAppointmentsAction(preview.request);
+      if (result.ok) {
+        toast(
+          `התורים של ${preview.first.clientName} ו${preview.second.clientName} הוחלפו`,
+          "success",
+        );
+        refreshDiary();
+      } else {
+        toast(result.error, "error");
+      }
+    });
+  };
+
+  const cancelEdit = () => {
+    setSelected([]);
+    setSwap(null);
+    setAsking(null);
+    planFor.current = null;
+  };
+
+  /** Enter picks up and puts down, the arrows carry it, Space picks it for a swap. */
+  const keyMove = (
+    entry: CalendarEntry,
+    event: React.KeyboardEvent<HTMLElement>,
+  ) => {
+    const facts = live.current;
+    const own = facts.entries.find((each) => each.id === entry.id) ?? entry;
+    if (!canMove(own) || asking || saving) return;
+    const lifted =
+      drag?.via === "keyboard" && drag.entryId === own.id ? drag : null;
+
+    switch (event.key) {
+      case "Enter": {
+        event.preventDefault();
+        if (lifted) {
+          setDrag(null);
+          commitMove(own, lifted);
+        } else {
+          setDrag(landing(own, own.dayIndex, own.startMinutes, "keyboard"));
+        }
+        return;
+      }
+      case " ": {
+        event.preventDefault();
+        toggleSelect(own);
+        return;
+      }
+      case "Escape": {
+        if (lifted) {
+          event.preventDefault();
+          setDrag(null);
+        }
+        return;
+      }
+      case "ArrowUp":
+      case "ArrowDown": {
+        if (!lifted) return;
+        event.preventDefault();
+        const step =
+          (event.shiftKey ? 60 : SNAP_MINUTES) *
+          (event.key === "ArrowUp" ? -1 : 1);
+        setDrag(
+          landing(
+            own,
+            lifted.dayIndex,
+            dropStart({
+              pointerMinutes: lifted.startMinutes + step,
+              grabOffset: 0,
+              duration: own.endMinutes - own.startMinutes,
+              bounds: facts.bounds,
+            }),
+            "keyboard",
+          ),
+        );
+        return;
+      }
+      case "ArrowLeft":
+      case "ArrowRight": {
+        if (!lifted || facts.dayView) return;
+        event.preventDefault();
+        // Right to left: tomorrow is to the left.
+        const dayIndex = lifted.dayIndex + (event.key === "ArrowLeft" ? 1 : -1);
+        if (dayIndex < 0 || dayIndex >= facts.weekDays.length) return;
+        setDrag(landing(own, dayIndex, lifted.startMinutes, "keyboard"));
+      }
+    }
+  };
+
+  /** A booking picked up from the keyboard is put back when focus leaves it. */
+  const dropKeyboardLift = (entry: CalendarEntry) => {
+    if (drag?.via === "keyboard" && drag.entryId === entry.id) setDrag(null);
+  };
+
+  const handlers = useRef<{
+    beginDrag: typeof beginDrag;
+    follow: typeof follow;
+    scrollEdges: typeof scrollEdges;
+    finishDrag: typeof finishDrag;
+    keyMove: typeof keyMove;
+    dropKeyboardLift: typeof dropKeyboardLift;
+  } | null>(null);
+  useLayoutEffect(() => {
+    handlers.current = {
+      beginDrag,
+      follow,
+      scrollEdges,
+      finishDrag,
+      keyMove,
+      dropKeyboardLift,
+    };
+  });
+
+  /**
+   * What every card is handed in edit mode — one object for the life of the
+   * calendar, so `memo` still lets the cards skip; each call reaches the
+   * handlers of the latest render.
+   */
+  const editHandlers = useMemo<EditHandlers>(
+    () => ({
+      pointerDown: (entry, event) => handlers.current?.beginDrag(entry, event),
+      keyDown: (entry, event) => handlers.current?.keyMove(entry, event),
+      blur: (entry) => handlers.current?.dropKeyboardLift(entry),
+    }),
+    [],
+  );
+
+  // A drag that is still held when the calendar goes away lets go of the window.
+  useEffect(
+    () => () => {
+      const held = session.current;
+      if (!held) return;
+      held.detach();
+      if (held.raf) cancelAnimationFrame(held.raf);
+    },
+    [],
+  );
+
+  const toggleEditing = () => {
+    const next = !editing;
+    setEditing(next);
+    setHovered(null);
+    setDrag(null);
+    cancelEdit();
+    if (!next) handlers.current?.finishDrag(false);
+  };
+
+  /** Where the ghost is drawn: its column, if that column is on screen. */
+  const ghost = drag;
+  const ghostEntry = ghost
+    ? shownEntries.find((entry) => entry.id === ghost.entryId)
+    : undefined;
+
+  /**
    * Keeps the address bar in step without navigating.
    *
    * `replaceState` rather than `router.replace`: the latter re-runs the server
@@ -544,17 +1512,68 @@ export function WeekCalendar({
     [focusedDate, weekStart, syncUrl],
   );
 
-  /** Steps within the loaded week; returns false when it would leave it. */
-  const stepDay = useCallback(
-    (delta: number) => {
-      const next = weekDays[focusedIndex + delta];
-      if (!next) return false;
-      setFocusedDate(next.date);
-      syncUrl("day", next.date);
-      return true;
+  /**
+   * Steps to another week without a navigation — see `weekCache`.
+   *
+   * The grid moves at once: from memory when the week was seen or prefetched,
+   * or as its dates and hours with the cards to follow when it was not. A week
+   * held from earlier is shown as it was and refreshed behind the owner. If
+   * the fetch fails — a session that ended, a network that went away — the
+   * step becomes a real navigation, which lands on the week or on the login
+   * page, either of which says more than a grid that never fills.
+   */
+  const goToWeek = useCallback(
+    (target: string, nextFocus: string) => {
+      const start = weekOf(target)[0];
+      const anchor = view === "day" ? nextFocus : start;
+      setShownWeek(start);
+      setFocusedDate(nextFocus);
+      // A swap is between two cards on screen; picks from another week go.
+      setSelected([]);
+      setSwap(null);
+      syncUrl(view, anchor);
+      weekCache.load(keyFor(start), SHOWN_MAX_AGE_MS).catch(() => {
+        window.location.assign(`?view=${view}&week=${anchor}`);
+      });
     },
-    [weekDays, focusedIndex, syncUrl],
+    [view, keyFor, syncUrl],
   );
+
+  /**
+   * One day on, or one day back, in the day view. Inside the week it is a
+   * change of column; across the edge it is `goToWeek`, so Saturday's "next"
+   * lands on Sunday rather than on a page load.
+   */
+  const stepDay = useCallback(
+    (delta: 1 | -1) => {
+      const next = weekDays[focusedIndex + delta];
+      if (next) {
+        setFocusedDate(next.date);
+        syncUrl("day", next.date);
+        return;
+      }
+      const date = shiftDays(weekDays[focusedIndex]?.date ?? focusedDate, delta);
+      goToWeek(date, date);
+    },
+    [weekDays, focusedIndex, focusedDate, syncUrl, goToWeek],
+  );
+
+  /**
+   * A week on, or back, in the week view — the focused day moves with it, so
+   * switching to the day view afterwards opens the same weekday there.
+   */
+  const stepWeek = useCallback(
+    (delta: 1 | -1) => {
+      const target = shiftDays(weekStart, delta * 7);
+      goToWeek(
+        target,
+        shiftDays(weekDays[focusedIndex]?.date ?? weekStart, delta * 7),
+      );
+    },
+    [weekStart, weekDays, focusedIndex, goToWeek],
+  );
+
+  const step = (delta: 1 | -1) => (dayView ? stepDay(delta) : stepWeek(delta));
 
   return (
     <div>
@@ -570,16 +1589,20 @@ export function WeekCalendar({
         <div className="flex items-center gap-1">
           <ArrowButton
             label={dayView ? "היום הקודם" : "השבוע הקודם"}
-            href={`?view=${view}&week=${previousWeek}`}
-            // In the day view a step usually stays inside the week already in
-            // memory, so it is instant; only crossing the boundary navigates.
-            onStep={dayView ? () => stepDay(-1) : undefined}
+            href={`?view=${view}&week=${dayView ? shiftDays(focusedDate, -1) : shiftDays(weekStart, -7)}`}
+            onStep={() => step(-1)}
           >
             <ChevronRight className="size-4" aria-hidden />
           </ArrowButton>
 
           <Link
             href={`?view=${view}&week=${thisWeek}`}
+            onClick={(event) => {
+              // A modified click is a request for another tab.
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+              event.preventDefault();
+              goToWeek(thisWeek, thisWeek);
+            }}
             className={cn(
               "glass-control inline-flex h-9 items-center rounded-full px-4 text-xs font-semibold text-zinc-900 dark:text-zinc-100",
               focusRing,
@@ -590,11 +1613,12 @@ export function WeekCalendar({
 
           <ArrowButton
             label={dayView ? "היום הבא" : "השבוע הבא"}
-            href={`?view=${view}&week=${nextWeek}`}
-            onStep={dayView ? () => stepDay(1) : undefined}
+            href={`?view=${view}&week=${dayView ? shiftDays(focusedDate, 1) : shiftDays(weekStart, 7)}`}
+            onStep={() => step(1)}
           >
             <ChevronLeft className="size-4" aria-hidden />
           </ArrowButton>
+
         </div>
 
         {/**
@@ -610,6 +1634,35 @@ export function WeekCalendar({
          * three. The pressed state is the same white-on-zinc pill the toggle
          * beside it uses, so the two read as one family of controls.
          */}
+        {/**
+         * **Only the hours that hold something.** The grid normally spans the
+         * opening hours and an hour either side; cropped, it runs from the
+         * first booking to the last — see `gridBounds`. Offered in both views,
+         * because an empty morning is scrolled past in a day as much as in a
+         * week, and kept as a preference beside the density.
+         *
+         * A pressed toggle rather than two options: the label says what it
+         * does, `aria-pressed` says whether it is doing it.
+         */}
+        <div className="glass-inset flex items-center rounded-full p-1">
+          <button
+            type="button"
+            onClick={() => chooseFitHours(!fitHours)}
+            aria-pressed={fitHours}
+            aria-label={FIT_HOURS_LABEL}
+            title={FIT_HOURS_LABEL}
+            className={cn(
+              "flex size-9 items-center justify-center rounded-full transition-colors",
+              focusRing,
+              fitHours
+                ? "glass-control text-zinc-950 dark:text-zinc-50"
+                : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100",
+            )}
+          >
+            <FoldVertical className="size-4" aria-hidden />
+          </button>
+        </div>
+
         {dayView ? null : (
           <div
             role="group"
@@ -681,6 +1734,24 @@ export function WeekCalendar({
           ))}
         </div>
 
+        {/* Edit mode: a pressed toggle, ink when on so the mode is never in
+            doubt — the dashboard's own "this is active" colour. */}
+        <button
+          type="button"
+          onClick={toggleEditing}
+          aria-pressed={editing}
+          className={cn(
+            "inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-xs font-bold transition-colors",
+            focusRing,
+            editing
+              ? "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+              : "glass-control text-zinc-900 dark:text-zinc-100",
+          )}
+        >
+          <Move className="size-4" aria-hidden />
+          עריכה
+        </button>
+
         <button
           type="button"
           onClick={() => setAdding(days[0]?.date ?? weekStart)}
@@ -690,6 +1761,29 @@ export function WeekCalendar({
           אירוע חדש
         </button>
       </div>
+
+      {editing ? (
+        <div className="glass-inset mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl px-3.5 py-2.5 text-xs text-zinc-700 dark:text-zinc-300">
+          <Move className="size-4 shrink-0 text-zinc-500" aria-hidden />
+          <p className="min-w-0 flex-1 leading-relaxed">
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+              מצב עריכה.
+            </span>{" "}
+            גררו תור כדי להזיז אותו — בקפיצות של 5 דקות. הקישו על שני תורים כדי
+            להחליף ביניהם. הלקוחות לא מקבלים הודעה על שינוי — כדאי לעדכן אותם.
+          </p>
+          <button
+            type="button"
+            onClick={toggleEditing}
+            className={cn(
+              "h-8 shrink-0 rounded-full bg-zinc-900 px-3.5 text-xs font-bold text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white",
+              focusRing,
+            )}
+          >
+            סיום
+          </button>
+        </div>
+      ) : null}
 
       {staff.length > 1 ? (
         <ul className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -740,10 +1834,16 @@ export function WeekCalendar({
        * ---------------------------------------------------------------------
        */}
       <div
+        ref={frameRef}
+        // A week whose bookings have not arrived yet: its dates and hours are
+        // drawn — see `placeholderWeek` — and the frame says the rest is coming.
+        aria-busy={!heldWeek}
         className={cn(
           cardClass,
           "glass-frame overflow-auto overscroll-x-contain",
           "max-h-[68dvh] sm:max-h-[76dvh]",
+          "transition-opacity duration-200",
+          !heldWeek && "opacity-60",
         )}
       >
         {/**
@@ -782,7 +1882,20 @@ export function WeekCalendar({
             )}
             style={{ gridTemplateColumns: gridTemplate }}
           >
-            <div />
+            {/* The step has already happened; this only says the cards are on
+                their way. In the rail's empty corner, where the eye is when
+                the week changes, and where it costs the toolbar no room — on
+                a phone that room is a whole row. */}
+            <div className="flex items-center justify-center text-zinc-500 dark:text-zinc-400">
+              <span role="status">
+                {fetchingWeek ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    <span className="sr-only">טוען את השבוע…</span>
+                  </>
+                ) : null}
+              </span>
+            </div>
             {days.map((day) => (
               <div
                 key={day.date}
@@ -816,6 +1929,7 @@ export function WeekCalendar({
           </div>
 
           <div
+            ref={gridRef}
             className="grid"
             style={
               {
@@ -846,6 +1960,8 @@ export function WeekCalendar({
             {days.map((day, dayIndex) => (
               <div
                 key={day.date}
+                // The column's day in the week — what a drag lands on.
+                data-day-column={dayView ? focusedIndex : dayIndex}
                 className={cn(
                   "relative border-s border-zinc-100 dark:border-zinc-800/60",
                   day.isToday && "bg-(--accent-soft)/40",
@@ -879,51 +1995,47 @@ export function WeekCalendar({
                   );
                 })}
 
-                {placedByDay[dayIndex].map((entry) => {
-                  const toNext = gapsByDay[dayIndex].get(entry.id) ?? null;
-                  // The gap is what stops the minimum height drawing this card
-                  // over the one after it — see `placeItem`.
-                  const box = placeItem(entry, bounds, undefined, toNext);
-                  return (
-                    <EntryCard
-                      key={entry.id}
-                      entry={entry}
-                      focused={entry.appointmentId === focused}
-                      dayView={dayView}
-                      variant={
-                        entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
-                      }
-                      card={cardMode}
-                      /**
-                       * Every mode's floor, capped by the room to the next card
-                       * below and less the gap that keeps them apart — measured
-                       * on the grid this card is actually drawn on. In pixels on
-                       * the grown hour; as a percentage of the grid in the
-                       * overview, whose hour only the stylesheet knows.
-                       */
-                      minHeight={
-                        summaryCards
-                          ? blockMinHeight(toNext, bounds)
-                          : cardHeightPx(
-                              entry.endMinutes - entry.startMinutes,
-                              dayView ? "day" : "week",
-                              toNext,
-                              cardMode,
-                              rowPx,
-                            )
-                      }
-                      onHoverChange={setHovered}
-                      onOpen={(target) => {
-                        // The hover card is supplementary detail about what is
-                        // under the cursor. Once the dialog is up it is stale
-                        // and floating over a modal, so it goes.
-                        setHovered(null);
-                        setOpened(target);
-                      }}
-                      style={cardBox(box)}
-                    />
-                  );
-                })}
+                {layoutByDay[dayIndex].map(({ entry, style, minHeight }) => (
+                  <EntryCard
+                    key={entry.id}
+                    entry={entry}
+                    focused={entry.appointmentId === focused}
+                    dayView={dayView}
+                    variant={
+                      entry.staffId ? (variants.get(entry.staffId) ?? 0) : 0
+                    }
+                    card={cardMode}
+                    minHeight={minHeight}
+                    onHoverChange={editing ? noHover : setHovered}
+                    onOpen={openEntry}
+                    edit={editing ? editHandlers : null}
+                    selected={
+                      entry.appointmentId !== null &&
+                      selected.includes(entry.appointmentId)
+                    }
+                    lifted={ghost?.entryId === entry.id}
+                    awaiting={
+                      asking !== null &&
+                      entry.appointmentId === asking.move.appointmentId
+                    }
+                    saving={
+                      entry.appointmentId !== null &&
+                      moves[entry.appointmentId] !== undefined
+                    }
+                    style={style}
+                  />
+                ))}
+
+                {ghost &&
+                ghostEntry &&
+                ghost.dayIndex === (dayView ? focusedIndex : dayIndex) ? (
+                  <DragGhost
+                    ghost={ghost}
+                    title={ghostEntry.title}
+                    bounds={bounds}
+                    dayView={dayView}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
@@ -934,37 +2046,86 @@ export function WeekCalendar({
           appointment, and the tooltip would sit on top of the modal. */}
       {hovered && !opened ? <EntryPopover hovered={hovered} /> : null}
 
+      {/* What a screen reader hears while a booking is carried: where it
+          would land, and what is in the way. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {drag && ghostEntry
+          ? `${ghostEntry.title}: יום ${weekdayLabel(weekDays[drag.dayIndex]?.date ?? weekStart)}, ${minutesToLabel(drag.startMinutes)}${
+              drag.conflict?.kind === "clash"
+                ? ` — חופף ל${drag.conflict.title}`
+                : drag.conflict
+                  ? " — מחוץ לשעות או חסום"
+                  : ""
+            }`
+          : ""}
+      </p>
+
+      {editing && (selected.length > 0 || asking) ? (
+        <EditTray
+          asking={asking?.message ?? null}
+          firstName={
+            shownEntries.find((entry) => entry.appointmentId === selected[0])
+              ?.title ?? null
+          }
+          swapLines={
+            swap
+              ? [swap.first, swap.second].map((leg) => ({
+                  id: leg.appointmentId,
+                  name: leg.clientName,
+                  // Each against its own day: the day is named only for the
+                  // booking whose day actually changes.
+                  where: landingPhrase(
+                    shownEntries.find(
+                      (entry) => entry.appointmentId === leg.appointmentId,
+                    )?.date ?? leg.date,
+                    { date: leg.date, time: leg.time },
+                  ),
+                }))
+              : null
+          }
+          repacked={swap?.repacked ?? false}
+          planning={planning}
+          saving={saving}
+          onConfirmMove={() =>
+            asking ? saveMove(asking.entry, asking.move, true) : undefined
+          }
+          onConfirmSwap={confirmSwap}
+          onCancel={cancelEdit}
+        />
+      ) : null}
+
       {opened ? (
         <AppointmentDialog
           entry={opened}
           staff={staff}
           timezone={timezone}
           onClose={() => setOpened(null)}
-          onChanged={() => router.refresh()}
+          onChanged={refreshDiary}
         />
       ) : null}
 
       {adding ? (
         <BlockDialog
-          days={days}
+          days={weekDays}
           staff={staff}
           initialDate={adding}
           timezone={timezone}
           onClose={() => setAdding(null)}
+          onSaved={refreshDiary}
         />
       ) : null}
+
+      <BlockList blocks={weekBlocks} onChanged={refreshDiary} />
     </div>
   );
 }
 
 /**
- * A step through time that only touches the network when it has to.
+ * A step through time, taken in memory.
  *
- * `onStep` is the in-memory move — the next day of the week already loaded —
- * and returns false when the step would leave that week. Only then does this
- * fall through to the link, which is a real navigation for data the browser
- * does not have. A week-view arrow always navigates, so it has no `onStep` and
- * stays a plain link, keeping middle-click and "open in new tab" working.
+ * `onStep` moves the calendar in its own state — see `goToWeek`. It is still a
+ * link underneath, with the step's real address, so middle-click, a modified
+ * click and "open in new tab" keep working and land on the same place.
  */
 function ArrowButton({
   href,
@@ -974,7 +2135,7 @@ function ArrowButton({
 }: {
   href: string;
   label: string;
-  onStep?: () => boolean;
+  onStep: () => void;
   children: React.ReactNode;
 }) {
   const className = cn(
@@ -988,9 +2149,10 @@ function ArrowButton({
       aria-label={label}
       className={className}
       onClick={(event) => {
-        if (!onStep) return;
-        // Handled in memory — stop the navigation the href would otherwise do.
-        if (onStep()) event.preventDefault();
+        // A modified click is a request for another tab — leave it to the link.
+        if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+        event.preventDefault();
+        onStep();
       }}
     >
       {children}
@@ -1097,7 +2259,14 @@ function cardRadius(dayView: boolean, card: CardMode): string {
   return "rounded-md";
 }
 
-function EntryCard({
+/**
+ * One booking or block on the grid.
+ *
+ * `memo`, with every prop it takes held stable by the grid — see
+ * `layoutByDay` — so the root's hover state repaints the hover card and
+ * nothing else.
+ */
+const EntryCard = memo(function EntryCard({
   entry,
   style,
   dayView,
@@ -1107,6 +2276,11 @@ function EntryCard({
   focused,
   onHoverChange,
   onOpen,
+  edit,
+  selected,
+  lifted,
+  awaiting,
+  saving,
 }: {
   entry: CalendarEntry;
   style: CSSProperties;
@@ -1133,8 +2307,23 @@ function EntryCard({
   focused: boolean;
   onHoverChange: (hover: HoveredEntry | null) => void;
   onOpen: (entry: CalendarEntry) => void;
+  /**
+   * Edit mode's handlers, or null outside it. In edit mode a card is picked up
+   * rather than opened: dragged to move it, tapped to pick it for a swap.
+   */
+  edit: EditHandlers | null;
+  /** Picked for a swap. */
+  selected: boolean;
+  /** Being carried — the ghost shows where it would land. */
+  lifted: boolean;
+  /** Dropped outside the shop's rules, waiting on the owner's yes. */
+  awaiting: boolean;
+  /** Moved on screen, waiting on the server. */
+  saving: boolean;
 }) {
   const status = entry.kind === "appointment" ? entry.status : null;
+  /** Can be picked up in edit mode — see `canMove`. */
+  const movable = edit !== null && canMove(entry);
   /**
    * A booking the owner has not answered yet.
    *
@@ -1277,6 +2466,24 @@ function EntryCard({
      */
     focused &&
       "z-20 ring-2 ring-violet-500 ring-offset-1 ring-offset-white shadow-lg dark:ring-violet-400 dark:ring-offset-zinc-950",
+    /**
+     * **Edit mode.** A card that can move says so with the cursor and gives
+     * the pointer to the drag — `touch-none`, so a finger on it carries the
+     * booking instead of scrolling the week; the grid between cards still
+     * scrolls. What cannot move — a block, a settled booking, half of one that
+     * crosses midnight — steps back rather than pretending.
+     */
+    edit &&
+      (movable
+        ? "cursor-grab touch-none select-none active:cursor-grabbing"
+        : "cursor-not-allowed opacity-45"),
+    selected &&
+      "z-20 ring-2 ring-zinc-900 ring-offset-1 ring-offset-white shadow-lg dark:ring-zinc-100 dark:ring-offset-zinc-950",
+    lifted && "opacity-35",
+    // Amber, the colour of a rule being asked about — as in the tray below.
+    awaiting &&
+      "z-20 ring-2 ring-amber-500 ring-offset-1 ring-offset-white shadow-lg dark:ring-amber-400 dark:ring-offset-zinc-950",
+    saving && "animate-pulse",
   );
 
   /**
@@ -1449,7 +2656,7 @@ function EntryCard({
     return (
       <div
         style={boxStyle}
-        tabIndex={0}
+        tabIndex={edit ? -1 : 0}
         id={`entry-${entry.appointmentId}`}
         title={description}
         onMouseEnter={show}
@@ -1460,6 +2667,45 @@ function EntryCard({
       >
         {body}
       </div>
+    );
+  }
+
+  if (edit) {
+    /**
+     * The same card, as something to carry. `aria-pressed` is the swap pick;
+     * the description says how to move it, since a drag is not something a
+     * keyboard or a screen reader can see.
+     */
+    return (
+      <button
+        type="button"
+        style={boxStyle}
+        id={`entry-${entry.appointmentId}`}
+        aria-pressed={movable ? selected : undefined}
+        aria-disabled={!movable}
+        aria-label={description}
+        aria-roledescription={movable ? "תור להזזה" : undefined}
+        aria-keyshortcuts={movable ? "Enter Space" : undefined}
+        title={
+          movable
+            ? `${description} — גררו להזזה, הקישו לבחירה להחלפה`
+            : description
+        }
+        onPointerDown={movable ? (event) => edit.pointerDown(entry, event) : undefined}
+        onKeyDown={movable ? (event) => edit.keyDown(entry, event) : undefined}
+        onBlur={() => edit.blur(entry)}
+        className={className}
+      >
+        {body}
+        {selected ? (
+          <span
+            aria-hidden
+            className="absolute end-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-zinc-900 text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            <Check className="size-2.5" strokeWidth={3} />
+          </span>
+        ) : null}
+      </button>
     );
   }
 
@@ -1492,7 +2738,7 @@ function EntryCard({
       {body}
     </button>
   );
-}
+});
 
 /**
  * "There is something written here" — and *which* something.
@@ -1520,6 +2766,213 @@ function NoteMark({ kind }: { kind: "appointment" | "client" }) {
       aria-label={kind === "appointment" ? "הערה לתור" : "הערות על הלקוח"}
       className="size-3 shrink-0 opacity-70"
     />
+  );
+}
+
+/**
+ * Where a carried booking would land — dashed, with its time, and coloured by
+ * what is in the way.
+ *
+ * Neutral when the slot is free; **red** where the same provider is already
+ * booked, because that drop will be refused; **amber** where it steps outside
+ * the shop's hours or onto a block, because that one will be asked about. The
+ * same amber-for-a-rule, red-for-a-refusal split as the dialog's reschedule.
+ */
+function DragGhost({
+  ghost,
+  title,
+  bounds,
+  dayView,
+}: {
+  ghost: DragView;
+  title: string;
+  bounds: GridBounds;
+  dayView: boolean;
+}) {
+  const box = placeItem(
+    {
+      id: ghost.entryId,
+      dayIndex: 0,
+      startMinutes: ghost.startMinutes,
+      endMinutes: ghost.endMinutes,
+      lane: 0,
+      lanes: 1,
+    },
+    bounds,
+  );
+  const clash = ghost.conflict?.kind === "clash";
+  const rule = ghost.conflict !== null && !clash;
+
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute z-30 flex min-h-7 flex-col justify-start overflow-hidden border-2 border-dashed px-1.5 py-0.5 shadow-lg backdrop-blur-sm",
+        dayView ? "rounded-2xl" : "rounded-xl",
+        clash
+          ? "border-rose-600 bg-rose-50/90 text-rose-900 dark:border-rose-400 dark:bg-rose-950/80 dark:text-rose-100"
+          : rule
+            ? "border-amber-600 bg-amber-50/90 text-amber-900 dark:border-amber-400 dark:bg-amber-950/80 dark:text-amber-100"
+            : "border-zinc-900/70 bg-white/85 text-zinc-900 dark:border-zinc-100/70 dark:bg-zinc-900/85 dark:text-zinc-50",
+      )}
+      style={cardBox(box)}
+    >
+      <span className="truncate text-[11px]/4 font-bold tabular-nums">
+        {minutesToLabel(ghost.startMinutes)}–{minutesToLabel(ghost.endMinutes)}
+      </span>
+      <span className="truncate text-[10px]/4 font-medium opacity-90">
+        {ghost.conflict?.kind === "clash"
+          ? `תפוס · ${ghost.conflict.title}`
+          : ghost.conflict?.kind === "blocked"
+            ? `חסום · ${ghost.conflict.title}`
+            : ghost.conflict?.kind === "closed"
+              ? "מחוץ לשעות"
+              : title}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The decision edit mode is waiting on, above the dock: a swap to confirm, a
+ * rule to step outside of, or the second card still to pick.
+ *
+ * One tray rather than a modal, because edit mode is a sequence of small
+ * decisions made while looking at the calendar — covering it to ask would hide
+ * the very thing being decided about. Fixed above the phone's dock and the
+ * safe area, like the ליבי card, and centred on a wide screen.
+ */
+function EditTray({
+  asking,
+  firstName,
+  swapLines,
+  repacked,
+  planning,
+  saving,
+  onConfirmMove,
+  onConfirmSwap,
+  onCancel,
+}: {
+  /** The rule a move steps outside of, waiting on a yes. */
+  asking: string | null;
+  /** The first card picked for a swap. */
+  firstName: string | null;
+  /** The planned swap, one line a booking — null until it is planned. */
+  swapLines: { id: string; name: string; where: string }[] | null;
+  repacked: boolean;
+  planning: boolean;
+  saving: boolean;
+  onConfirmMove: () => void;
+  onConfirmSwap: () => void;
+  onCancel: () => void;
+}) {
+  const quietButton = cn(
+    "h-9 rounded-full px-3.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10",
+    focusRing,
+  );
+
+  return (
+    <div
+      role="region"
+      aria-label="עריכת היומן"
+      aria-live="polite"
+      className={cn(
+        "glass-float animate-fade fixed inset-x-3 z-40 mx-auto max-w-md rounded-2xl p-3",
+        "bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_5.25rem)] md:bottom-8",
+      )}
+    >
+      {asking ? (
+        <div className="flex flex-col gap-2.5">
+          <p className="flex items-start gap-2 text-xs leading-relaxed font-medium text-amber-900 dark:text-amber-100">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {asking}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirmMove}
+              disabled={saving}
+              className={cn(
+                "inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-amber-600 px-3 text-xs font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-60",
+                focusRing,
+              )}
+            >
+              {saving ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : null}
+              לשבץ בכל זאת
+            </button>
+            <button type="button" onClick={onCancel} className={quietButton}>
+              ביטול
+            </button>
+          </div>
+        </div>
+      ) : swapLines ? (
+        <div className="flex flex-col gap-2.5">
+          <p className="flex items-center gap-2 text-sm font-bold text-zinc-950 dark:text-zinc-50">
+            <ArrowLeftRight className="size-4 shrink-0" aria-hidden />
+            להחליף בין שני התורים?
+          </p>
+          <ul className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+            {swapLines.map((line) => (
+              <li key={line.id} className="tabular-nums">
+                {/* "התור" agrees with the verb, so the line never has to guess
+                    the client's gender. */}
+                התור של{" "}
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {line.name}
+                </span>{" "}
+                יעבור {line.where}
+              </li>
+            ))}
+          </ul>
+          {repacked ? (
+            <p className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+              התורים צמודים ובאורך שונה, אז הם מחליפים סדר בתוך אותו רצף — כל אחד
+              שומר על האורך שלו.
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirmSwap}
+              disabled={saving}
+              className={cn(btnPrimary, "h-9 flex-1 text-xs")}
+            >
+              <ArrowLeftRight className="size-3.5" aria-hidden />
+              החלפה
+            </button>
+            <button type="button" onClick={onCancel} className={quietButton}>
+              ביטול
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          {planning ? (
+            <Loader2
+              className="size-4 shrink-0 animate-spin text-zinc-500"
+              aria-hidden
+            />
+          ) : (
+            <ArrowLeftRight
+              className="size-4 shrink-0 text-zinc-500"
+              aria-hidden
+            />
+          )}
+          <p className="min-w-0 flex-1 text-xs text-zinc-700 dark:text-zinc-300">
+            {planning
+              ? "בודקים את ההחלפה…"
+              : firstName
+                ? `נבחר התור של ${firstName} — הקישו על תור נוסף כדי להחליף ביניהם.`
+                : "הקישו על תור נוסף כדי להחליף ביניהם."}
+          </p>
+          <button type="button" onClick={onCancel} className={quietButton}>
+            ביטול
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1745,12 +3198,15 @@ function BlockDialog({
   initialDate,
   timezone,
   onClose,
+  onSaved,
 }: {
   days: CalendarDay[];
   staff: { id: string; name: string; color: string }[];
   initialDate: string;
   timezone: string;
   onClose: () => void;
+  /** After the row is written — the calendar refreshes what it holds. */
+  onSaved: () => void;
 }) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -1768,6 +3224,7 @@ function BlockDialog({
       if (result.ok) {
         toast(result.message ?? "החסימה נשמרה", "success");
         onClose();
+        onSaved();
       } else {
         toast(result.error, "error");
       }
@@ -1906,8 +3363,18 @@ function BlockDialog({
   );
 }
 
-/** The blocks in view, listed below the grid so they can be removed. */
-export function BlockList({ blocks }: { blocks: CalendarEntry[] }) {
+/**
+ * The blocks in the week on screen, listed below the grid so they can be
+ * removed. Inside the calendar rather than beside it on the page, so it lists
+ * the week the owner has stepped to rather than the one the page first drew.
+ */
+function BlockList({
+  blocks,
+  onChanged,
+}: {
+  blocks: CalendarEntry[];
+  onChanged: () => void;
+}) {
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
 
@@ -1916,8 +3383,12 @@ export function BlockList({ blocks }: { blocks: CalendarEntry[] }) {
   function remove(id: string) {
     startTransition(async () => {
       const result = await deleteStaffTimeOffAction(id);
-      if (result.ok) toast(result.message ?? "החסימה הוסרה", "success");
-      else toast(result.error, "error");
+      if (result.ok) {
+        toast(result.message ?? "החסימה הוסרה", "success");
+        onChanged();
+      } else {
+        toast(result.error, "error");
+      }
     });
   }
 

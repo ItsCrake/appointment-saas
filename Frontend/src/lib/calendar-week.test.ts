@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { shiftWeeks, toDaySpans, weekOf } from "@/lib/calendar-week";
+import {
+  dayLabel,
+  shiftDays,
+  shiftWeeks,
+  toDaySpans,
+  weekOf,
+} from "@/lib/calendar-week";
 
 const TZ = "Asia/Jerusalem";
 /** 2026-08-09 is a Sunday. */
@@ -154,5 +160,32 @@ describe("toDaySpans", () => {
         [],
       ),
     ).toEqual([]);
+  });
+});
+
+describe("dayLabel", () => {
+  it("writes the column head the way the page always has — day, then month", () => {
+    // The client builds this for a week it steps to without the server, so it
+    // has to match the server's own `d.M` exactly or the heads would change
+    // format between one week and the next.
+    expect(dayLabel("2026-09-06")).toBe("6.9");
+    expect(dayLabel("2026-12-31")).toBe("31.12");
+  });
+
+  it("does not drift a day in any browser timezone", () => {
+    // UTC arithmetic on a plain date: the label is the date, not an instant.
+    for (const date of weekOf("2026-03-27")) {
+      const [, month, day] = date.split("-").map(Number);
+      expect(dayLabel(date)).toBe(`${day}.${month}`);
+    }
+  });
+});
+
+describe("shiftDays across a week's edge", () => {
+  it("steps from Saturday into the next week's Sunday", () => {
+    // The day view's "next" on the last column — what `goToWeek` is handed.
+    expect(shiftDays("2026-09-19", 1)).toBe("2026-09-20");
+    expect(weekOf(shiftDays("2026-09-19", 1))[0]).toBe("2026-09-20");
+    expect(weekOf(shiftDays("2026-09-13", -1))[0]).toBe("2026-09-06");
   });
 });

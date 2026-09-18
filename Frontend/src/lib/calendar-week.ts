@@ -129,3 +129,13 @@ export function shiftDays(date: string, days: number): string {
 export function shiftWeeks(date: string, weeks: number): string {
   return shiftDays(date, weeks * 7);
 }
+
+/**
+ * "20.9" — a column head. From the date string itself, which is already the
+ * shop's calendar day, so no zone is involved — which is also what lets the
+ * browser draw the heads of a week it is still fetching.
+ */
+export function dayLabel(date: string): string {
+  const stamp = new Date(`${date}T00:00:00Z`);
+  return `${stamp.getUTCDate()}.${stamp.getUTCMonth() + 1}`;
+}

@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, lt, notInArray } from "drizzle-orm";
+import { formatInTimeZone } from "date-fns-tz";
 
 import {
   BLOCKING_STATUSES,
@@ -385,4 +386,112 @@ export async function confirmSwap(
   ]);
 
   return rows ? { ok: true, rows } : { ok: false, reason: "stale" };
+}
+
+/** Where one of the two lands, as the owner reads it. */
+export type SwapPreviewLeg = {
+  appointmentId: string;
+  clientName: string;
+  /** Business-local date and time the booking moves to. */
+  date: string;
+  time: string;
+  /** Who holds it afterwards — the provider travels with the slot. */
+  staffId: string;
+};
+
+export type SwapPreview = {
+  /**
+   * Exactly what `confirmSwap` takes, so whatever confirms this preview can
+   * only ever perform this swap — if the diary changes before the tap, the
+   * re-plan differs and the confirmation is refused rather than improvised.
+   */
+  request: SwapRequest;
+  first: SwapPreviewLeg;
+  second: SwapPreviewLeg;
+  /** They were back to back and swapped order inside their block. */
+  repacked: boolean;
+};
+
+export type SwapPreviewOutcome =
+  | { ok: true; preview: SwapPreview }
+  | { ok: false; reason: "same" | "missing" | "settled" }
+  | {
+      ok: false;
+      reason: "clash";
+      clash: SwapClash;
+      firstName: string;
+      secondName: string;
+    };
+
+/**
+ * What swapping two bookings would do, planned from the rows as they are now
+ * and written nowhere.
+ *
+ * The calendar's quick swap — two cards picked in edit mode — asks this first
+ * and shows the answer; the owner's tap then goes through {@link confirmSwap}
+ * with the `request` it returns. The same `planSwapFor` ליבי's spoken swap
+ * uses, so the two ways of asking cannot disagree about what a swap of two
+ * different lengths means.
+ */
+export async function previewSwap(
+  db: Database,
+  business: { id: string; timezone: string },
+  firstId: string,
+  secondId: string,
+): Promise<SwapPreviewOutcome> {
+  if (firstId === secondId) return { ok: false, reason: "same" };
+
+  const [first, second] = await Promise.all([
+    getAppointment(db, business.id, firstId),
+    getAppointment(db, business.id, secondId),
+  ]);
+  if (!first || !second) return { ok: false, reason: "missing" };
+
+  if (
+    !BLOCKING_STATUSES.includes(first.status) ||
+    !BLOCKING_STATUSES.includes(second.status)
+  ) {
+    return { ok: false, reason: "settled" };
+  }
+
+  const result = await planSwapFor(db, business.id, first, second);
+  if (!result.ok) {
+    return {
+      ok: false,
+      reason: "clash",
+      clash: result.clash,
+      firstName: first.clientName,
+      secondName: second.clientName,
+    };
+  }
+
+  const { plan } = result;
+  const leg = (row: SwapRow, to: SwapLeg): SwapPreviewLeg => ({
+    appointmentId: row.id,
+    clientName: row.clientName,
+    date: formatInTimeZone(to.startsAt, business.timezone, "yyyy-MM-dd"),
+    time: formatInTimeZone(to.startsAt, business.timezone, "HH:mm"),
+    staffId: to.staffId,
+  });
+
+  return {
+    ok: true,
+    preview: {
+      request: {
+        first: {
+          appointmentId: first.id,
+          startsAtIso: first.startsAt.toISOString(),
+          targetStartsAtIso: plan.first.startsAt.toISOString(),
+        },
+        second: {
+          appointmentId: second.id,
+          startsAtIso: second.startsAt.toISOString(),
+          targetStartsAtIso: plan.second.startsAt.toISOString(),
+        },
+      },
+      first: leg(first, plan.first),
+      second: leg(second, plan.second),
+      repacked: plan.repacked,
+    },
+  };
 }

@@ -60,22 +60,36 @@ export function gridBounds(
    * nobody works is height taken from the cards' start times.
    */
   padHours = 1,
+  {
+    fitToItems = false,
+  }: {
+    /**
+     * **Only the hours something is booked in** — the owner's "crop empty
+     * hours" switch. The working day is what a grid normally spans, so an
+     * owner who opens at nine but whose first client is at eleven scrolls past
+     * two empty rows to reach them; with this on, the grid starts at eleven.
+     * The working day still bounds a week with nothing in it, so an empty week
+     * draws the shop's hours rather than nothing. No padding hour either side:
+     * the padding is exactly the dead time being cropped.
+     */
+    fitToItems?: boolean;
+  } = {},
 ): GridBounds {
-  const spans = [
-    ...items.map((item) => ({
-      startMinutes: item.startMinutes,
-      endMinutes: item.endMinutes,
-    })),
-    ...openMinutes,
-  ];
+  const itemSpans = items.map((item) => ({
+    startMinutes: item.startMinutes,
+    endMinutes: item.endMinutes,
+  }));
+  const cropped = fitToItems && itemSpans.length > 0;
+  const spans = cropped ? itemSpans : [...itemSpans, ...openMinutes];
+  const pad = fitToItems ? 0 : padHours;
 
   if (spans.length === 0) return { startHour: 8, endHour: 20 };
 
   const earliest = Math.min(...spans.map((span) => span.startMinutes));
   const latest = Math.max(...spans.map((span) => span.endMinutes));
 
-  let startHour = Math.max(0, Math.floor(earliest / 60) - padHours);
-  let endHour = Math.min(24, Math.ceil(latest / 60) + padHours);
+  let startHour = Math.max(0, Math.floor(earliest / 60) - pad);
+  let endHour = Math.min(24, Math.ceil(latest / 60) + pad);
 
   // A single 30-minute booking would otherwise produce a two-row grid whose
   // rows are taller than the card inside them.

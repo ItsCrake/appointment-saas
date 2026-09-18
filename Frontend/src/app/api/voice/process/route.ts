@@ -61,11 +61,19 @@ import { decide, speakChunks, transcribe } from "@/lib/voice/libi-voice";
  * **The transcript is returned even when a later step fails.** "It thought I
  * said Dana" is something an owner can act on; "it did not work" is not.
  *
- * **Two lines of NDJSON, not one JSON object.** The answer is known about two
- * seconds before it can be spoken, and holding it back until the audio is
- * encoded made the whole turn feel as slow as its slowest step. The first line
+ * **NDJSON, not one JSON object.** The answer is known about two seconds
+ * before it can be spoken, and holding it back until the audio is encoded
+ * made the whole turn feel as slow as its slowest step. The `text` line
  * carries the transcript, the sentence and any proposal — the card renders off
- * that — and the second carries the audio when it arrives.
+ * that — and the `audio` lines carry the voice as it arrives.
+ *
+ * **And the stream opens as soon as she has heard.** The model's second of
+ * thinking used to be a blank spinner. The stream now starts the moment the
+ * transcript exists: a `stage` line with what she heard, then one as each step
+ * of `decide` finishes (`roster`, `llm`, `tool`), so the status on screen says
+ * what is actually happening rather than cycling through words on a timer.
+ * The transcript, and the refusal for an empty one, still come before it —
+ * a turn with nothing heard stays one JSON object, as every refusal is.
  *
  * A stream rather than a second endpoint, deliberately. Splitting TTS into its
  * own route would mean shipping the sentence back to the server to be spoken,
@@ -348,38 +356,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const outcome = await decide(
-      transcribedText,
-      toolContext,
-      writable ? pending : undefined,
-      {
-        writable,
-        history,
-        gender,
-        roster,
-        draft: writable ? draft : undefined,
-        onStage: (stage) => timing.mark(stage),
-      },
-    );
-
     /**
-     * **What the write still owes, once the owner has their answer.** A moved
-     * appointment's reminder is re-planned, a cancelled client is told, a
-     * freed slot is offered to the waitlist — several round trips to a
-     * database a continent away, none of which changes what ליבי says. So it
-     * runs after the response rather than in front of her voice. `after` is
-     * the platform's promise that it still runs; `settleAftermath` swallows
-     * and reports its own failures, since the change it follows has already
-     * been written.
+     * Only the steps finished before the stream opens fit in the header — a
+     * header cannot change once the body has started. The whole breakdown,
+     * model and tools included, follows as the `timing` line.
      */
-    if (outcome.aftermath?.length) {
-      const owed = outcome.aftermath;
-      after(() =>
-        settleAftermath({ db, business, source: "voice", owed }),
-      );
-    }
-
-    const spoken = outcome.spoken;
+    const heardTiming = timing.header();
     const encoder = new TextEncoder();
     /** NDJSON is newline-delimited; naming it keeps the escape out of a template. */
     const NEWLINE = String.fromCharCode(10);
@@ -404,11 +386,72 @@ export async function POST(request: Request) {
           }
         };
 
+        // What she heard, before she has decided anything about it.
+        write({ type: "stage", stage: "heard", transcribedText });
+
+        let outcome: Awaited<ReturnType<typeof decide>>;
+        try {
+          outcome = await decide(
+            transcribedText,
+            toolContext,
+            writable ? pending : undefined,
+            {
+              writable,
+              history,
+              gender,
+              roster,
+              draft: writable ? draft : undefined,
+              onStage: (stage) => {
+                timing.mark(stage);
+                write({ type: "stage", stage });
+              },
+            },
+          );
+        } catch (error) {
+          /**
+           * The stream is already open, so a failure is a line rather than a
+           * status: a `text` line carrying `error`, with the transcript kept —
+           * "it thought I said Dana" is still worth reading. No audio follows,
+           * and a stream that ends without `last` is how the client knows the
+           * conversation cannot continue from here.
+           */
+          reportError("voice.process", error, { businessId: business.id });
+          write({
+            type: "text",
+            transcribedText,
+            textResult: "לא הצלחתי לעבד את ההקלטה. כדאי לנסות שוב.",
+            actionTaken: "none",
+            error: "internal",
+          });
+          write({ type: "timing", serverTiming: timing.header() });
+          if (!cancelled) controller.close();
+          return;
+        }
+
         /**
-         * Line one, immediately: everything the card needs — and `changed`,
-         * which is what puts a booking she just took on the calendar behind
-         * the card before she has finished saying so. Named fields only:
-         * `aftermath` holds whole appointment rows and stays on this side.
+         * **What the write still owes, once the owner has their answer.** A
+         * moved appointment's reminder is re-planned, a cancelled client is
+         * told, a freed slot is offered to the waitlist — several round trips
+         * to a database a continent away, none of which changes what ליבי
+         * says. So it runs after the response rather than in front of her
+         * voice. `after` is the platform's promise that it still runs;
+         * `settleAftermath` swallows and reports its own failures, since the
+         * change it follows has already been written.
+         */
+        if (outcome.aftermath?.length) {
+          const owed = outcome.aftermath;
+          after(() =>
+            settleAftermath({ db, business, source: "voice", owed }),
+          );
+        }
+
+        const spoken = outcome.spoken;
+
+        /**
+         * Then everything the card needs — and `changed`, which is what puts
+         * a booking she just took on the calendar behind the card before she
+         * has finished saying so. Named fields only: `aftermath` holds whole
+         * appointment rows and stays on this side.
          */
         write({
           type: "text",
@@ -420,6 +463,9 @@ export async function POST(request: Request) {
           ...(outcome.navigate ? { navigate: outcome.navigate } : {}),
           ...(outcome.changed ? { changed: outcome.changed } : {}),
         });
+
+        // Where the turn's time went, now that all of it is known.
+        write({ type: "timing", serverTiming: timing.header() });
 
         /**
          * The voice, in the pieces it can be spoken in.
@@ -465,10 +511,10 @@ export async function POST(request: Request) {
       headers: {
         "Content-Type": "application/x-ndjson; charset=utf-8",
         "Cache-Control": "private, no-store",
-        // Tells a proxy that buffers by default not to. Without it the two
-        // lines arrive together and the split buys nothing.
+        // Tells a proxy that buffers by default not to. Without it the lines
+        // arrive together and the stages say nothing.
         "X-Accel-Buffering": "no",
-        "Server-Timing": timing.header(),
+        "Server-Timing": heardTiming,
       },
     });
   } catch (error) {

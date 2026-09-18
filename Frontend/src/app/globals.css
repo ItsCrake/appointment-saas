@@ -1470,6 +1470,44 @@ body {
     var(--tw-shadow, 0 0 #0000);
 }
 
+/* ---------------------------------------------------------------------------
+   The phone's dock, floating over a page that scrolls under it.
+
+   **One object, not five.** The rail and the dock share `.glass-dock`, and on a
+   desktop the rail stands on the page's own ground where 24px of frost is
+   plenty. The phone's dock floats over whatever is scrolling — on the agenda,
+   rows of cards with buttons on them — and at that strength their red and
+   green labels read straight through it. So the floating dock frosts at
+   `backdrop-blur-2xl` (40px), is filled more densely, takes a hairline edge
+   that holds on both themes — a dark hairline on light, `white/20` on dark —
+   and a `shadow-2xl` lift, so the page visibly passes *under* the dock
+   instead of between its tabs.
+
+   Through the shadow variables, like everything in LIQUID GLASS: the edge is a
+   ring in `--tw-inset-shadow`, never a bare `box-shadow`.
+--------------------------------------------------------------------------- */
+.glass-dock.glass-dock-float {
+  background-color: rgb(255 255 255 / 0.74);
+  -webkit-backdrop-filter: blur(40px) saturate(1.9);
+  backdrop-filter: blur(40px) saturate(1.9);
+  border-color: rgb(255 255 255 / 0.9);
+  --tw-inset-shadow:
+    inset 0 1px 0 rgb(255 255 255), inset 0 0 0 1px rgb(9 9 11 / 0.07);
+  --tw-shadow:
+    0 2px 6px -1px rgb(9 9 11 / 0.1), 0 25px 50px -12px rgb(9 9 11 / 0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  .glass-dock.glass-dock-float {
+    background-color: rgb(24 24 27 / 0.72);
+    border-color: rgb(255 255 255 / 0.2);
+    --tw-inset-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.14), inset 0 -1px 0 rgb(0 0 0 / 0.35);
+    --tw-shadow:
+      0 2px 6px -1px rgb(0 0 0 / 0.5), 0 25px 50px -12px rgb(0 0 0 / 0.8);
+  }
+}
+
 /* A tab that is not the current one: a small sphere of the same glass. */
 .glass-bubble {
   background-color: rgb(255 255 255 / 0.55);
@@ -1648,11 +1686,13 @@ body {
   (-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))
 ) {
   .glass-dock,
+  .glass-dock.glass-dock-float,
   .glass-row {
     background-color: rgb(255 255 255);
   }
   @media (prefers-color-scheme: dark) {
     .glass-dock,
+    .glass-dock.glass-dock-float,
     .glass-row {
       background-color: rgb(24 24 27);
     }
@@ -1661,6 +1701,7 @@ body {
 
 @media (prefers-reduced-transparency: reduce) {
   .glass-dock,
+  .glass-dock.glass-dock-float,
   .glass-row {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -1673,6 +1714,7 @@ body {
 
 @media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
   .glass-dock,
+  .glass-dock.glass-dock-float,
   .glass-row {
     background-color: rgb(24 24 27);
   }
@@ -1799,104 +1841,49 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   BAZMAN VOICE — the glow around the viewport while it is listening.
+   ליבי's status words, shimmering while she works — see `LibiStatusLine`.
 
-   A gradient *border*, drawn the only way CSS draws one: paint the gradient
-   over the whole box, then mask out everything but the rim. Two layers, because
-   they do different jobs — a sharp ring that reads as an edge, and a blurred
-   copy behind it that reads as light coming off it.
+   The glow that used to live here, a conic ring swept around the viewport, is
+   now `voice-glow`'s `VoiceBeam`, which answers the voice instead of sweeping
+   at one speed whatever was said. What stays in CSS is the text.
 
-   `@property` is what makes the angle animatable at all: a plain custom
-   property is a string to the interpolator and would jump between keyframes
-   rather than sweep. Where it is unsupported the gradient simply holds still,
-   which is a static ring rather than a broken one.
-
-   Fixed, `pointer-events: none`, and painted above the app but below any
-   dialog — it is an ambient state, and it must never intercept the tap that
-   stops the recording.
-
-   Transform and opacity only on the blurred layer, so the sweep composites on
-   the GPU instead of repainting a full-viewport element sixty times a second —
-   the same rule the booking page's ambient blobs follow, and for the same
-   five-year-old phone.
+   The light runs across the words in the direction Hebrew reads, right to
+   left, over ink that is the words' own colour — a frame caught mid-sweep is
+   still readable text, not a gradient with letters in it. Clipped to the
+   text rather than masked: one layer, and a browser without
+   `background-clip: text` keeps the plain `color` underneath.
 --------------------------------------------------------------------------- */
-@property --voice-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes voice-sweep {
+@keyframes libi-shimmer {
+  from {
+    background-position: -50% 0;
+  }
   to {
-    --voice-angle: 360deg;
+    background-position: 150% 0;
   }
 }
 
-@keyframes voice-breathe {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-
-.voice-glow {
-  position: fixed;
-  inset: 0;
-  z-index: 45;
-  pointer-events: none;
-  border-radius: 1.25rem;
-  padding: 3px;
-  background: conic-gradient(
-    from var(--voice-angle),
-    oklch(62% 0.23 292),
-    oklch(70% 0.19 233),
-    oklch(72% 0.2 165),
-    oklch(75% 0.2 85),
-    oklch(66% 0.24 12),
-    oklch(62% 0.23 292)
+.libi-shimmer {
+  --libi-ink: oklch(37% 0.013 286);
+  --libi-shine: oklch(54% 0.28 293);
+  color: var(--libi-ink);
+  background-image: linear-gradient(
+    90deg,
+    var(--libi-ink) 40%,
+    var(--libi-shine) 50%,
+    var(--libi-ink) 60%
   );
-  /* Cuts the middle out, leaving only the padding box: two identical masks,
-     one clipped to the content box, combined so that what they share is
-     removed. What is left is the 3px rim.
-
-     **The two spellings are not interchangeable and the order matters.** The
-     standard property takes `exclude`; the WebKit one takes `xor`. Written the
-     other way round — webkit last — Chromium applied the `-webkit-` pair,
-     found `xor` invalid for it, dropped the composite, and painted the gradient
-     across the entire viewport. It looked like a rainbow screensaver, and no
-     unit test could have seen it. Standard last, so it wins where both are
-     understood. */
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: voice-sweep 4s linear infinite;
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: libi-shimmer 2s linear infinite;
 }
 
-/* The light, not the edge. Blurred and behind, and never masked — a blurred
-   ring with a hole in it looks like a hole. */
-.voice-glow::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: inherit;
-  filter: blur(18px);
-  opacity: 0.55;
-  animation: voice-breathe 2.4s ease-in-out infinite;
-}
-
-/* Processing reads as a slower, cooler sweep: the difference between "I am
-   listening to you" and "I am thinking", without a second colour language. */
-.voice-glow[data-phase="processing"] {
-  animation-duration: 1.6s;
+@media (prefers-color-scheme: dark) {
+  .libi-shimmer {
+    --libi-ink: oklch(87% 0.006 286);
+    --libi-shine: oklch(81% 0.11 294);
+  }
 }
 
 /* Motion is decoration here; the layout and content are identical without it. */
@@ -1916,13 +1903,16 @@ body {
   .animate-pending,
   /* Parked at the leading edge rather than hidden: a still bar is a quieter
      signal than a moving one, but it is still the signal. */
-  .route-progress,
-  /* The ring stays — it is the only thing on screen saying the microphone is
-     open, and removing it would remove the state rather than the motion. Only
-     the sweep and the breath stop. */
-  .voice-glow,
-  .voice-glow::before {
+  .route-progress {
     animation: none;
+  }
+
+  /* Plain words: the sweep was the motion, and a gradient frozen mid-word
+     would read as a smudge. */
+  .libi-shimmer {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
   }
 }
 

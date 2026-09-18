@@ -8,7 +8,9 @@ import {
   useSyncExternalStore,
   useTransition,
 } from "react";
-import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
+import { usePathname, useRouter } from "next/navigation";
 import { AlertCircle, Check, Loader2, Mic, Square, X } from "lucide-react";
 
 import {
@@ -16,6 +18,7 @@ import {
   setAppointmentStatusAction,
   swapAppointmentsAction,
 } from "@/app/dashboard/actions";
+import { LIBI_DOCK_SLOT_ID } from "@/components/dashboard/dashboard-nav";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -28,6 +31,12 @@ import {
   RELEASE_TAIL_MS,
   ROOM_SEED_MAX_AGE_MS,
 } from "@/lib/voice/libi-capture";
+import {
+  libiStatus,
+  toStage,
+  type LibiStage,
+  type LibiStatus,
+} from "@/lib/voice/libi-status";
 import { SPEECH_RATE, timeStretch } from "@/lib/voice/libi-stretch";
 import {
   decideSilence,
@@ -42,16 +51,23 @@ import {
 } from "@/lib/voice/libi-vad";
 
 /**
- * ליבי — the microphone, the ring, and the card.
+ * ליבי — the microphone, the glow, the status, and the card.
  *
  * ---------------------------------------------------------------------------
- * **The ring is CSS, not a motion library.** A conic gradient masked to the rim,
- * swept by an `@property` angle — see `.voice-glow` in `globals.css`. Framer
- * Motion would have been about fifty kilobytes of JavaScript on a dashboard
- * that currently ships nineteen, to animate one border that the compositor can
- * animate on its own. It is also the wrong tool for a full-viewport element on
- * the phones this runs on: a JS-driven paint of that area is exactly what the
- * booking page's ambient blobs were rewritten to avoid.
+ * **The glow answers the voice.** A colourful light along the bottom of the
+ * screen (`voice-glow`'s `VoiceBeam`) that rises with the owner's voice while
+ * they speak, gathers into a travelling beam while she thinks, and follows
+ * her voice while she answers. It replaced a CSS ring that swept at the same
+ * speed whatever was said, which looked busy and meant nothing. What it costs
+ * was the ring's whole argument, so it is paid carefully: the package is
+ * loaded only once she is used, it drives CSS custom properties from one
+ * shared frame loop — the browser does the painting — rasterises its soft
+ * layers at half resolution on a phone, and it is fed the level the silence
+ * detector already measures rather than opening a second audio graph.
+ *
+ * **The status says what is happening.** An orb and a few words, driven by
+ * the `stage` lines the route streams as each step of a turn finishes — see
+ * `libi-status`. Never a timer cycling through plausible words.
  *
  * **Hold to talk, or tap to toggle.** A held button is the gesture people
  * already know from every messaging app, and it makes the stop unmissable. Tap
@@ -202,6 +218,76 @@ const MAX_CLIENT_TURNS = 4;
 const NEWLINE = String.fromCharCode(10);
 
 /**
+ * The glow and the orb, loaded the first time she is needed.
+ *
+ * Neither belongs in the first paint of a dashboard page that may never hear
+ * her, and both are motion that only means something once a conversation has
+ * begun — see the preload in `LibiAssistant`. Client-only: one draws through
+ * Web Audio and CSS it generates at runtime, the other on a canvas.
+ */
+const VoiceBeam = dynamic(
+  () => import("voice-glow").then((module) => module.VoiceBeam),
+  { ssr: false },
+);
+const ThinkingOrb = dynamic(
+  () => import("thinking-orbs").then((module) => module.ThinkingOrb),
+  { ssr: false },
+);
+
+/**
+ * How bright the glow is for a loudness.
+ *
+ * Both sources are an RMS and the glow wants 0–1. A square root lifts the
+ * quiet end so an ordinary voice visibly moves it, and the cap keeps a shout
+ * from pinning it. The gain differs by source: the microphone's speech band
+ * sits around 0.01–0.1 for somebody talking across a counter with the
+ * browser's processing off (`AUDIO_CONSTRAINTS`), her own clips play at full
+ * digital level and need far less.
+ */
+const MIC_GLOW_GAIN = 2.6;
+const VOICE_GLOW_GAIN = 1.6;
+
+function glowOf(level: number, gain: number): number {
+  return Math.min(1, Math.sqrt(Math.max(0, level)) * gain);
+}
+
+/**
+ * The orb and the words — see `libiStatus`. The words shimmer while she works
+ * (`.libi-shimmer`); what she heard follows them while she thinks, so the
+ * owner can see a misheard name before she acts on it.
+ *
+ * Hidden from a screen reader: a label that changes four times in two seconds
+ * is noise in a live region, so the places this is drawn keep their own quiet
+ * announcement of the phase.
+ */
+function LibiStatusLine({
+  status,
+  heard,
+}: {
+  status: LibiStatus;
+  heard: string | null;
+}) {
+  return (
+    <span aria-hidden className="flex min-w-0 items-center gap-2">
+      <ThinkingOrb
+        state={status.orb}
+        size={20}
+        theme="auto"
+        className="size-5 shrink-0"
+      />
+      <span className="libi-shimmer shrink-0 text-xs font-semibold">
+        {status.label}
+      </span>
+      {heard ? (
+        <span className="min-w-0 truncate text-[11px] text-zinc-600 dark:text-zinc-400">
+          &laquo;{heard}&raquo;
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * Shorter than this and the press was a tap, not a hold — so releasing does not
  * end the recording. Long enough to survive a slow finger, short enough that a
  * deliberate hold is never mistaken for one.
@@ -242,6 +328,37 @@ async function decodeSpeech(
   return ctx.decodeAudioData(data);
 }
 
+/**
+ * Where her button lives: on the phone's dock row, or in the corner.
+ *
+ * ---------------------------------------------------------------------------
+ * **On a phone she docks beside the navigation**, in the slot `DashboardNav`
+ * keeps for her — the row the page's padding is already sized to clear. She
+ * used to float 5rem above the bottom edge, over the dock's last bubble and
+ * over whatever card was scrolling past. From `md` there is no dock and she
+ * floats in the corner as before.
+ *
+ * An external store rather than state: which one applies is a fact about the
+ * viewport and the DOM, and reading it through `useSyncExternalStore` means no
+ * effect has to copy it into state. React checks the snapshot again right
+ * after mounting, which is what finds the slot the nav renders in the same
+ * commit. Null on the server, where the button is not rendered at all.
+ * ---------------------------------------------------------------------------
+ */
+const DOCK_QUERY = "(max-width: 767.98px)";
+
+function subscribeDock(onChange: () => void) {
+  const media = window.matchMedia(DOCK_QUERY);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function dockSlotSnapshot(): HTMLElement | null {
+  return window.matchMedia(DOCK_QUERY).matches
+    ? document.getElementById(LIBI_DOCK_SLOT_ID)
+    : null;
+}
+
 /** The clip, `SPEECH_RATE` times faster at the same pitch. */
 function faster(ctx: AudioContext, decoded: AudioBuffer): AudioBuffer {
   if (SPEECH_RATE === 1) return decoded;
@@ -258,6 +375,17 @@ function faster(ctx: AudioContext, decoded: AudioBuffer): AudioBuffer {
 export function LibiAssistant() {
   const { toast } = useToast();
   const router = useRouter();
+  /**
+   * Read so a navigation re-renders this component, which re-reads the dock
+   * slot — the onboarding routes draw no dock, and a slot that has left the
+   * page must not keep her button.
+   */
+  usePathname();
+  const dockSlot = useSyncExternalStore(
+    subscribeDock,
+    dockSlotSnapshot,
+    () => null,
+  );
 
   const [phase, setPhaseState] = useState<Phase>("idle");
   const [result, setResult] = useState<Result | null>(null);
@@ -272,6 +400,21 @@ export function LibiAssistant() {
   const [conversing, setConversingState] = useState(false);
   /** Drives the fade; the card is removed when the timer lands. */
   const [dismissing, setDismissing] = useState(false);
+  /**
+   * Where the turn being processed has got to — see `libi-status`. Written by
+   * the stream's `stage` lines and cleared as each turn is sent.
+   */
+  const [stage, setStage] = useState<LibiStage | null>(null);
+  /** What she heard this turn, shown beside the status before the answer. */
+  const [heard, setHeard] = useState<string | null>(null);
+  /**
+   * Whether the glow has been needed yet. Mounted from then on, so a quiet
+   * moment fades it out rather than cutting it off — and a page where she is
+   * never used never loads it. Adjusted during render, the documented way of
+   * deriving state from a changed input.
+   */
+  const [glowUsed, setGlowUsed] = useState(false);
+  if (phase !== "idle" && !glowUsed) setGlowUsed(true);
 
   /**
    * The phase as it is *now*, not as it was when a callback was built.
@@ -326,6 +469,11 @@ export function LibiAssistant() {
   /** Kept across turns: closing it would need another gesture to unlock. */
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<{ stop: () => void } | null>(null);
+  /** The microphone's loudness, written by the silence detector each frame. */
+  const micLevelRef = useRef(0);
+  /** A tap on her voice as it plays, so the glow can follow it too. */
+  const meterRef = useRef<AnalyserNode | null>(null);
+  const meterSamplesRef = useRef<Float32Array<ArrayBuffer> | null>(null);
   /**
    * The change awaiting an answer, mirrored out of state.
    *
@@ -553,6 +701,10 @@ export function LibiAssistant() {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(ctx.destination);
+        // A tap for the glow, not a link in the chain: the voice still goes
+        // straight out, and the meter only listens.
+        meterRef.current ??= ctx.createAnalyser();
+        source.connect(meterRef.current);
         source.onended = () => {
           if (sourceRef.current === source) sourceRef.current = null;
           resolve();
@@ -639,9 +791,12 @@ export function LibiAssistant() {
         analyser.getFloatTimeDomainData(samples);
         const now = performance.now();
 
+        const features = frameFeatures(samples, ctx.sampleRate);
+        // The glow follows the very measurement the detector decides on.
+        micLevelRef.current = features.level;
         const outcome = decideSilence(
           state,
-          frameFeatures(samples, ctx.sampleRate),
+          features,
           now,
           SILENCE_MS,
           undefined,
@@ -680,6 +835,39 @@ export function LibiAssistant() {
     [],
   );
 
+  /**
+   * The glow's brightness, sampled by it once a frame without a render: the
+   * owner's voice while they speak, hers while she answers, and nothing in
+   * between — the glow's own travelling beam carries the thinking.
+   */
+  const glowLevel = useCallback(() => {
+    if (phaseRef.current === "recording") {
+      return glowOf(micLevelRef.current, MIC_GLOW_GAIN);
+    }
+    const meter = meterRef.current;
+    if (phaseRef.current !== "speaking" || !meter) return 0;
+    const samples = (meterSamplesRef.current ??= new Float32Array(
+      meter.fftSize,
+    ));
+    meter.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const sample of samples) sum += sample * sample;
+    return glowOf(Math.sqrt(sum / samples.length), VOICE_GLOW_GAIN);
+  }, []);
+
+  /**
+   * The glow and the orb, fetched once the page has settled, so the first
+   * press does not wait on a chunk — a few kilobytes, on the one component
+   * every dashboard page carries.
+   */
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void import("voice-glow").catch(() => {});
+      void import("thinking-orbs").catch(() => {});
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
@@ -709,6 +897,8 @@ export function LibiAssistant() {
     async (audio: Blob) => {
       const turn = ++turnRef.current;
       setPhase("processing");
+      setStage(null);
+      setHeard(null);
 
       const form = new FormData();
       // The extension is decided server-side from the MIME type — the
@@ -802,7 +992,22 @@ export function LibiAssistant() {
 
             const message = JSON.parse(line) as
               | (Result & { type: "text" })
-              | { type: "audio"; audioBase64: string | null; last?: boolean };
+              | { type: "audio"; audioBase64: string | null; last?: boolean }
+              | { type: "stage"; stage: unknown; transcribedText?: string }
+              | { type: "timing"; serverTiming: string };
+
+            /**
+             * Where she has got to, before the answer — see `libi-status`.
+             * Shown, never waited on: nothing below depends on a stage having
+             * arrived, and one this client does not know shows as none.
+             */
+            if (message.type === "stage") {
+              setStage(toStage(message.stage));
+              if (message.transcribedText) setHeard(message.transcribedText);
+              continue;
+            }
+            // Where the turn's time went, for whoever is measuring.
+            if (message.type === "timing") continue;
 
             if (message.type === "text") {
               // The card, about two seconds before she can say it.
@@ -843,7 +1048,12 @@ export function LibiAssistant() {
                */
               if (message.changed) router.refresh();
 
-              if (message.transcribedText && message.textResult) {
+              // A failure after the stream opened is not her reply to keep.
+              if (
+                message.transcribedText &&
+                message.textResult &&
+                !message.error
+              ) {
                 historyRef.current = [
                   ...historyRef.current,
                   {
@@ -1236,12 +1446,51 @@ export function LibiAssistant() {
   // to work and does not is how trust in every other control goes.
   if (!supported) return null;
 
-  const active = phase === "recording" || phase === "processing";
+  const status = libiStatus(phase, stage);
+
+  /** Her button, into the dock's slot on a phone — see `dockSlotSnapshot`. */
+  const placeMic = (button: React.ReactNode) =>
+    dockSlot ? createPortal(button, dockSlot) : button;
 
   return (
     <>
-      {active ? (
-        <div aria-hidden className="voice-glow" data-phase={phase} />
+      {/**
+       * **The glow along the bottom of the screen** — see the header. Behind
+       * her controls (46) and every sheet (50), above the page and its dock,
+       * and never in the way of a tap.
+       */}
+      {glowUsed ? (
+        /* The frame is ours: the beam's own stylesheet makes its root
+           `position: relative`, and lands after Tailwind's, so a `fixed`
+           class on the beam itself loses and the glow collapses to nothing. */
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-[45]">
+          <VoiceBeam
+            type="mobile"
+            theme="auto"
+            level={glowLevel}
+            processing={phase === "processing"}
+            active={phase !== "idle"}
+            className="h-full"
+          >
+            <div className="h-full" />
+          </VoiceBeam>
+        </div>
+      ) : null}
+
+      {/**
+       * **Where she is, while there is no card to say it** — the first turn
+       * of a conversation, before her answer exists. Once there is a card,
+       * its own status row says the same thing in the same words.
+       */}
+      {status && !result ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_4.75rem)] z-[46] flex justify-center px-4 md:bottom-8">
+          <div className="glass-float animate-fade flex max-w-full min-w-0 items-center rounded-full py-1.5 ps-2 pe-4">
+            <LibiStatusLine
+              status={status}
+              heard={phase === "processing" ? heard : null}
+            />
+          </div>
+        </div>
       ) : null}
 
       {/* One live region for the whole exchange, so a screen reader hears the
@@ -1274,8 +1523,10 @@ export function LibiAssistant() {
              */
             "motion-safe:transition-opacity motion-safe:duration-700",
             dismissing && "motion-safe:opacity-0",
-            // Clears the mobile bottom bar and the microphone above it.
-            "bottom-[calc(9rem_+_env(safe-area-inset-bottom))] md:bottom-24",
+            // Above the phone's dock row, which carries her button too — the
+            // row's 60px plus a gap, lifted as the dock is. On a desktop, above
+            // her button in the corner.
+            "bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_4.75rem)] md:bottom-24",
           )}
           role="status"
         >
@@ -1316,19 +1567,27 @@ export function LibiAssistant() {
               className="mt-2.5 flex items-center justify-between gap-2"
               aria-live="polite"
             >
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+              <span className="flex min-w-0 items-center">
+                {status ? (
+                  <LibiStatusLine
+                    status={status}
+                    heard={phase === "processing" ? heard : null}
+                  />
+                ) : null}
+                {/* The quiet version for a screen reader: the phase, not
+                    every step inside it. */}
                 <span
                   className={cn(
-                    "size-1.5 rounded-full bg-current",
-                    phase === "recording" && "motion-safe:animate-pulse",
+                    "text-[11px] font-semibold text-zinc-600 dark:text-zinc-400",
+                    status && "sr-only",
                   )}
-                  aria-hidden
-                />
-                {phase === "recording"
-                  ? "מקשיבה — אפשר לדבר"
-                  : phase === "speaking"
-                    ? "מדברת — אפשר לקטוע"
-                    : "רגע…"}
+                >
+                  {phase === "recording"
+                    ? "מקשיבה — אפשר לדבר"
+                    : phase === "speaking"
+                      ? "מדברת — אפשר לקטוע"
+                      : "רגע…"}
+                </span>
               </span>
               <button
                 type="button"
@@ -1405,6 +1664,7 @@ export function LibiAssistant() {
         </div>
       ) : null}
 
+      {placeMic(
       <button
         type="button"
         /**
@@ -1478,8 +1738,16 @@ export function LibiAssistant() {
            * nav 20, cookie banner 40, her ring 45, her controls 46, modals and
            * toasts 50.
            */
-          "fixed end-4 z-[46] flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",
-          "bottom-[calc(5rem_+_env(safe-area-inset-bottom))] md:bottom-8",
+          "flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",
+          /**
+           * **Docked on a phone, floating on a desktop.** In the dock's slot
+           * she is an ordinary flex item on the navigation's row. Without one —
+           * a desktop, or a route that draws no dock — she floats: above the
+           * row where the row would be, and in the corner from `md`.
+           */
+          dockSlot
+            ? "relative"
+            : "fixed end-4 z-[46] bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_4.75rem)] md:bottom-8",
           "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
           "disabled:opacity-70 motion-safe:active:scale-95",
           phase === "recording"
@@ -1494,7 +1762,8 @@ export function LibiAssistant() {
         ) : (
           <Mic className="size-6" aria-hidden />
         )}
-      </button>
+      </button>,
+      )}
     </>
   );
 }

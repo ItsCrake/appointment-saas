@@ -440,15 +440,101 @@ buy an instant toggle plus instant movement between days inside the week.
 Measured with Playwright: a day toggle, a day step and a return to the week
 issue **zero requests** to the route.
 
-Stepping *out* of the loaded week still navigates, because that is genuinely
-different data. The arrow is a `<Link>` whose click handler cancels the
-navigation when the step can be served from memory — so middle-click and
-"open in new tab" keep working, and the fallback is a real URL rather than a
-button that does nothing without JavaScript.
+Stepping *out* of the loaded week no longer navigates either — see below.
+The arrows are still `<Link>`s with the step's real address, and their click
+handler takes the step in memory, so middle-click and "open in new tab" keep
+working and a modified click lands on the same place.
 
 `history.replaceState` keeps the address bar in step without re-running the
 server component. `router.replace` would have re-run it, which is exactly the
 round trip being removed; the URL here is a bookmark, not the data source.
+
+### Weeks and days are held in memory, and fetched ahead
+
+Stepping a week used to be a navigation: the layout, the session and the whole
+page again, behind a full-page skeleton — **2.1–2.2s a week and 2.5–2.9s a
+day** on a production build, the agenda re-running its stats, requests,
+services and staff for a change of date that touches none of them. Both views
+now move in their own state and read the range from `lib/range-cache.ts`:
+
+```
+page render ──put──▶ ┌──────────────────────┐ ◀──load── step (shown ≤10s old: from memory)
+                     │ range cache           │ ◀─prefetch─ neighbours, 250ms after drawing
+router.refresh() ──▶ │ key: tenant|range     │
+  (a write, ליבי)     │ 12 ranges, LRU        │ ──fetch──▶ /api/dashboard/week?week=
+  invalidate + put   └──────────────────────┘            /api/dashboard/day?date=
+```
+
+- **One loader per range, shared by the page and the endpoint** —
+  `loadCalendarWeek` and `loadAgendaDay` — so the week a refresh draws and the
+  week an arrow steps to cannot disagree. The endpoints are reads gated like
+  the page (`requireBusiness`), `force-dynamic` and `no-store`; without a
+  session they redirect, which the client's `fetchDashboardJson` refuses as
+  "not JSON" and turns into a real navigation.
+- **Shown from memory, refreshed behind it.** A held week is drawn at once and
+  fetched again if it is older than ten seconds; a week never seen is drawn as
+  its dates and opening hours (`placeholderWeek`) with the cards to follow, the
+  frame `aria-busy` and a spinner in the rail's corner.
+- **A write makes everything suspect.** Every write from the calendar, and
+  every server render (which is what `router.refresh()` after ליבי's `changed`
+  produces), marks every held range stale and bumps a generation, so a prefetch
+  that was already in flight lands as stale rather than passing itself off as
+  the week after the write.
+- **A navigation wins, detected on the URL.** Every step writes its range into
+  the address bar, so the URL only disagrees with the screen when somebody else
+  changed it — the dock, ליבי's "תראי לי". Comparing the server's props could
+  not see it: a navigation back to the range the page first drew can be served
+  from the router's cache with the very same objects.
+- **Client notes are read for the week's clients only** — `mapClientNotes`
+  takes a range and filters by the phones booked in it, inside the week's
+  parallel queries, where it used to read the tenant's whole annotated list.
+
+`EntryCard` is `memo`'d, and every prop it takes is held stable — the boxes and
+floors come from one `layoutByDay` memo, the handlers are stable — so a hover,
+which sets state at the calendar root, repaints the hover card and no card.
+
+### Edit mode: moving bookings by hand
+
+A toggle in the toolbar, off by default, so an ordinary tap still opens a card.
+Inside it (`lib/calendar-edit.ts` for every rule, pointer work in
+`WeekCalendar`):
+
+- **Drag** a live booking to another time or day. The start snaps to five
+  minutes, the pointer keeps its grip on the card (`grabOffset`), the frame
+  scrolls when a drag is held at its edge, and the ghost says where it would
+  land: **red** where another live booking of the same provider is — refused on
+  drop, because `appointments_no_overlap_staff` would refuse it anyway —
+  **amber** on a block or outside opening hours, which is asked about before
+  anything moves and then sent with `force` (the shop's own rules, as in the
+  dialog). The drop goes through `rescheduleAppointmentAction` and is shown at
+  once with `useOptimistic`; the action's `revalidatePath` returns the redrawn
+  page in the same round trip, so the optimistic card hands straight over to
+  the real one. **The server asks more often than the ghost warns:** the
+  booking page's slots follow the free windows between bookings, so an
+  arbitrary five-minute mark inside open hours is often not one a client
+  would be offered, and the action answers `confirm`. The card then waits
+  where it was dropped, ringed amber, with the question in the tray — it does
+  not jump home and leave a ghost behind — and new picks and drags wait until
+  the question is answered and any write in flight has landed.
+- **Tap two** bookings to swap them. `previewSwapAction` plans it from the rows
+  as they are — `previewSwap`, the same `planSwapFor` as ליבי's spoken swap —
+  and the tray shows where each lands; nothing is written until the tap, which
+  sends the preview's own `SwapRequest` to `swapAppointmentsAction`, so a diary
+  that changed in between is refused rather than improvised.
+- **Keyboard:** Enter picks a booking up and puts it down, the arrows carry it
+  (Shift for an hour; left is tomorrow, right to left), Escape puts it back,
+  Space picks it for a swap. A live region reads where it would land.
+- What cannot move — a block, a settled booking, half of one that crosses
+  midnight — steps back visually; the crop is lifted while editing, since an
+  hour cropped away is an hour nothing can be dragged into.
+
+### Cropping the empty hours
+
+A toggle beside the density, kept the same way (`calendar-density.ts`, a
+`localStorage` external store). Off, the grid spans the opening hours and an
+hour either side; on, it runs from the first booking's hour to the last one's
+with no padding, and a range with nothing booked falls back to the opening
+hours rather than to an empty strip (`gridBounds({ fitToItems })`).
 
 `gridBounds`, `hourRows` and lane assignment are memoised. Lane assignment is
 O(n²) within a day, and the hover card sets state at the calendar root — so
@@ -494,13 +580,15 @@ getUserMedia (once per     parse pending + draft + history;
 MediaRecorder webm/opus    services · staff · upcoming clients        │
 32kbps ──────────────────▶ (cached 30s per shop) → transcribe ───────▶ OpenAI gpt-transcribe
 libi-vad ends the turn                                                   (whisper-1 on failure)
+◀── stage "heard" + the ─── the stream opens here; Server-Timing
+    transcript (pill)        carries auth · upload · ctx · stt
                            decide: word list for yes/no, the shop's ◀─┘
-                             lists for a draft's bare answer, else
-                             roster + prompt + history ─────────────▶ OpenAI gpt-4o-mini (tools)
+◀── stage roster/llm/tool    lists for a draft's bare answer, else
+    as each step finishes    roster + prompt + history ─────────────▶ OpenAI gpt-4o-mini (tools)
                              → one tool → SQL → a Hebrew sentence
-◀── NDJSON line 1 (card) ─ speakChunks: ≤3 pieces in parallel ──────▶ ElevenLabs eleven_v3_conversational
-    + Server-Timing                                                      (OpenAI gpt-4o-mini-tts on failure)
-    `changed` → router.refresh()
+◀── NDJSON text (card) ──── speakChunks: ≤3 pieces in parallel ──────▶ ElevenLabs eleven_v3_conversational
+    `changed` → router.refresh()                                         (OpenAI gpt-4o-mini-tts on failure)
+◀── timing (the whole breakdown)
 ◀── NDJSON audio lines ───
 decode at 22kHz, stretch ×1.1,  after(): what the write owes — reminder,
 play in order; last clip →        notice, waitlist (appointment-aftermath)
@@ -674,10 +762,33 @@ rather than reporting it as a speech failure.
   WSOLA (`libi-stretch`), which keeps her pitch where `playbackRate` would
   raise it — about 20ms of work for a long sentence.
 
+### What she shows while she works
+
+The stream opens as soon as the transcript exists: a `stage` line with what
+she heard, then one as each step of `decide` finishes (`roster`, `llm`,
+`tool`), then the text, a `timing` line, and the audio. An empty transcript is
+still a one-object refusal *before* the stream — the client's bounded "listen
+again" lives on that path — and a failure inside `decide` is a `text` line
+with `error` and no audio. The client shows the stages as an orb
+(`thinking-orbs`) and a few words (`lib/voice/libi-status.ts`: שומעת → בודקת
+ביומן → חושבת → מטפלת בזה → מנסחת תשובה), each naming the step that is
+actually running, with what she heard beside it — a pill on the first turn,
+the card's status row after.
+
+The glow along the bottom of the screen is `voice-glow`'s `VoiceBeam`, loaded
+only once she is used (and preloaded three seconds after a page settles). It
+follows the level the silence detector already measures while the owner
+speaks, gathers into a travelling beam while she thinks, and follows a meter
+tapped off her playback while she answers — one audio graph, not two. Its
+injected stylesheet makes its root `position: relative`, so it sits inside a
+fixed frame of ours.
+
 ### Where a turn's time goes
 
-Every response carries `Server-Timing` — `auth`, `upload`, `ctx`, `stt`,
-`roster`, `llm`, `tool` — so a slow turn can be read off the network panel.
+The whole breakdown — `auth`, `upload`, `ctx`, `stt`, `roster`, `llm`, `tool`
+— arrives as the stream's `timing` line; the `Server-Timing` header carries
+only the part known before the stream opened (up to `stt`), since a header
+cannot change once the body has started.
 Measured from this machine against production data: auth ~0.9s, vocabulary
 ~0.6s on a conversation's first turn and ~0 after (cached 30s per shop),
 transcription 0.7–1.5s, the model ~1.0–1.5s, a tool ~0.6s, first audio ~0.85s

@@ -1865,6 +1865,102 @@ not have. The map of the pipeline as it now stands is in
   account owns the single-chair `demo-barber` only. Unit-tested.
 - `npm run verify` green at **1841 across 112 files**.
 
+### The calendar you can edit, and a dashboard that no longer waits ✅
+
+Five requests from one review of the phone agenda, the week grid and ליבי:
+the dock, editing the week by hand, cropping empty hours, a status and a glow
+for ליבי, and the lag stepping between days and weeks. The maps are in
+[ARCHITECTURE.md](ARCHITECTURE.md#weeks-and-days-are-held-in-memory-and-fetched-ahead).
+
+- **The dock stops covering the page.** `main` reserves the dock's own height
+  plus the safe area at the bottom, so the last card always scrolls clear of
+  it; the dock itself is denser glass (`.glass-dock-float`: 40px blur, a
+  `white/20` edge in dark, a two-layer `shadow-2xl`) written through the
+  `--tw-shadow` composition so focus rings survive. **ליבי's button docks into
+  the navigation's row on a phone** (a portal into `LIBI_DOCK_SLOT_ID`) instead
+  of floating 5rem above the bottom over the dock's last bubble, and the active
+  tab's label folds away under a 25.5rem container so the row still fits.
+  Measured at 390 and 430px: the lowest content ends above the dock's top edge,
+  no horizontal overflow.
+- **Stepping days and weeks no longer navigates.** Both views hold the range on
+  screen in their own state and read it from `lib/range-cache.ts` — from memory
+  when it was seen or fetched ahead (the neighbours are prefetched 250ms after
+  a range draws), from `/api/dashboard/day` or `/week` when it is new, drawn as
+  its dates and hours with the cards to follow. The endpoints and the pages
+  share one loader each (`loadAgendaDay`, `loadCalendarWeek`), so a refresh and
+  a step cannot draw different ranges. A write, or any server render, marks
+  every held range stale; a prefetch in flight across a write lands stale.
+  Client notes are now read for the week's clients only. `EntryCard` is
+  `memo`'d with every prop held stable, so a hover repaints no card.
+  **Measured on a production build at 390px against the Seoul database**, where the baseline was a full navigation — 2.5–2.9s a day and 2.1–2.2s a week, the date and the bookings arriving together behind a skeleton: the date now changes in **2–14ms**, and the bookings follow in **0.004–0.55s** when the owner has read the range for a second and a half, **1.5–1.85s** at worst — a step tapped the instant the page loaded, before its neighbours had arrived — with no page skeleton either way.
+- **Edit mode** (`lib/calendar-edit.ts`): a toolbar toggle, off by default.
+  Drag a booking to another time or day — **five-minute snap**, the ghost red on
+  the same provider's booking (refused: the constraint would refuse it anyway),
+  amber on a block or closed hours (asked, then sent with `force`), the frame
+  scrolling under a held drag. Drop is `rescheduleAppointmentAction`, shown at
+  once through `useOptimistic`. The server asks more often than the ghost
+  warns — the booking page's slots follow the free windows, so a five-minute
+  mark is often not one a client would be offered — and the card then waits
+  where it was dropped, ringed amber, for the owner's "לשבץ בכל זאת"; nothing
+  else can be picked or dragged until the question is answered and a write
+  in flight has landed. **Tap two to swap**: `previewSwapAction` plans it
+  with `previewSwap` — ליבי's `planSwapFor`, the same answer for two lengths —
+  the tray shows where each lands, and the tap sends the preview's own
+  `SwapRequest` to `swapAppointmentsAction`, which refuses if the diary moved
+  underneath. Keyboard: Enter lifts and drops, arrows carry, Space picks for a
+  swap, a live region reads the landing. A test feeds a preview straight into
+  `confirmSwap` to prove the two cannot disagree.
+- **Crop empty hours** — a toggle beside the density, remembered per device.
+  The grid runs from the first booking's hour to the last one's, falls back to
+  the opening hours on an empty range, and is lifted while editing.
+- **ליבי says where she is.** The voice route now opens its stream the moment
+  the transcript exists: a `stage` line with what she heard, then `roster`,
+  `llm`, `tool` as each step of `decide` finishes, then the text, a `timing`
+  line and the audio. The client shows an orb (`thinking-orbs`) and the step
+  actually running — שומעת → בודקת ביומן → חושבת → מטפלת בזה → מנסחת תשובה
+  (`lib/voice/libi-status.ts`) — with what she heard beside it, a pill on the
+  first turn and the card's row after. The empty-transcript refusal still comes
+  before the stream, so every `libi-loop` pin held unchanged. `Server-Timing`
+  now carries only what is known before the stream opens (to `stt`); the full
+  breakdown is the `timing` line.
+- **And a glow that answers the voice.** `voice-glow`'s `VoiceBeam` along the
+  bottom of the screen replaced the CSS ring: it rises with the owner's voice
+  (fed the silence detector's own level — no second audio graph), gathers into
+  a travelling beam while she thinks, and follows a meter tapped off her
+  playback while she answers. Both packages load only once she is used, and are
+  preloaded three seconds after a page settles.
+- **Found in the browser, not by the tests:**
+  - The dock's "היומן" left the agenda on Saturday: a navigation back to the
+    day the page first drew was served from the router's cache with the *same*
+    props, so neither a date nor an identity comparison saw it. Navigations are
+    now detected on the URL, which every in-memory step keeps in step.
+  - The loading spinner's reserved square pushed the calendar's toolbar to
+    three rows on a phone; it lives in the rail's empty corner now.
+  - The glow rendered as nothing: its injected stylesheet makes its root
+    `position: relative`, after Tailwind's, so a `fixed` class on it lost. It
+    sits in a fixed frame of ours.
+  - A drop the server questioned bounced: the card jumped home and left a
+    ghost while the owner was asked. It now waits where it was dropped.
+  - A pick made while a move was still saving planned the swap against the
+    old positions — `confirmSwap` would have refused it as stale, so safe, but
+    a question about the wrong times. Picks and drags now wait for the write.
+  - A dev server with a stray lockfile a directory up (the root
+    `package.json`/`package-lock.json`/`node_modules` from an `npm install` run
+    at the repo root) picked the wrong workspace root and 500'd on every page;
+    `turbopack.root` now pins it.
+- **Verified in a browser against production data, read-only** (every Server
+  Action POST aborted during the drags, only the swap preview let through):
+  week steps drawn in 21–114ms, from memory when held; the crop 13 → 11 rows
+  and back; 82 movable cards; a drag's ghost with a live time turning red
+  "תפוס · עומר מזרחי" on a clash; Escape and the keyboard lift putting it back;
+  a swap preview of two back-to-back 20-minute bookings reading 09:00 ↔ 09:25;
+  zero console errors — at 1280 and 390px, light and dark. ליבי on one spoken
+  "מה יש לי בשבוע הבא?": the stream's lines in order (`heard`, `roster`, `llm`,
+  `tool`, text, timing, two clips), the pill walking שומעת → חושבת → מנסחת
+  תשובה → מדברת, the glow rising, sweeping and following her voice.
+  **With the owner's approval, one test wrote**, on a production build: two no-contact placeholders (`is_voice_placeholder`, empty phone) on Tue 29.9 at 10:00 and 11:00. A dragged to 12:00 was drawn there 8ms after release; the server answered 5.5s later with its question (12:00 is not a slot the booking page offers), the card waiting in place ringed amber meanwhile; confirmed, it held 12:00 in every sampled frame through the ~6s forced save. The swap preview read 11:00 ↔ 12:00, both cards moved 74ms after the tap and never jumped back, and a reload read the same from the server. Four actions, zero console errors, zero notifications queued. Both rows were then deleted by id, so `demo-barber` is as it was.
+- `npm run verify` green at **1897 across 115 files**.
+
 ---
 
 ## 5. Where things stand
@@ -1873,7 +1969,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1841 tests across 112 files**; Playwright
+**Green:** `npm run verify` at **1897 tests across 115 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 36 migrations
 (0000–0035) are applied to production** — 0035 (`bookings_paused`) on
 2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -2101,6 +2197,11 @@ the served tier plus the reason.
 | **A `Date` in a raw `sql` template throws — after everything before it committed** | Through Drizzle's postgres-js driver a `Date` parameter inside `` sql`…` `` reaches postgres.js unserialised and fails with `ERR_INVALID_ARG_TYPE` at runtime; typecheck is happy. The load-test runner's read-back hit it *after* its insert had committed, so the error read like a failed run. Query-builder comparisons (`lt(column, date)`) encode fine. In raw SQL pass `date.toISOString()` with `::timestamptz`. | `seed-load-test.ts` |
 | **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
+| **A lockfile above `Frontend/` breaks the dev server** | Next infers the workspace root from the outermost lockfile. An `npm install` run at the repo root left `package.json`, `package-lock.json` and `node_modules/` there, and `next dev` then 500'd on every page ("Could not find the module … in the React Client Manifest"). `turbopack.root` in `next.config.ts` pins the root now; a stale cache after it needs `.next/dev` deleted once. The root files are untracked and can simply be removed. | `next.config.ts` |
+| **A navigation can arrive with the same props** | The router may answer a navigation back to the range a page first rendered from its cache, with the very same prop objects — so state that follows "the server's range" by comparing props (dates *or* identity) silently misses it. The agenda stayed on Saturday after the dock's "היומן". The calendar and the agenda detect navigations on the URL, which every in-memory step keeps in step through `replaceState`. | `agenda-view.tsx`, `week-calendar.tsx` |
+| **`VoiceBeam`'s root is `position: relative`, and wins** | The package injects its stylesheet into the body, after Tailwind's, and its root rule sets `position: relative` at the same specificity as `.fixed` — so a `fixed inset-0` class on the beam loses and the glow collapses to zero height in normal flow. It sits inside a fixed frame of ours. | `libi-assistant.tsx` |
+| **Repeated Playwright sign-ins trip the login limiter** | Each run of a temporary spec signs in afresh, and the fifth or so in a few minutes answers "נשלחו יותר מדי בקשות" — the spec then times out on `waitForURL`, which reads like a broken login. Wait two minutes. And hide `nextjs-portal` in a spec that presses ליבי's docked button: under `next dev` the tools badge sits exactly on it and swallows the click. | `e2e/helpers.ts` `signInAsOwner` |
+| **`next dev` prints Server Action arguments** | Next 16 logs every server-function call in development *with its arguments* — the sign-in action's included, the E2E password in plain text. Local only, but a dev log pasted anywhere carries it. `logging.serverFunctions: false` in `next.config.ts` turns it off; left on for now, pending a decision. | `next.config.ts` |
 | **Two moves cannot swap two bookings** | `appointments_no_overlap_staff` is not deferrable, so it is checked per statement: whichever booking moves first lands on the other while that one is still there, and a swap that is valid as a whole fails halfway every time the two share a provider. `swapAppointments` parks the first on an empty range (`ends_at = starts_at` — the empty `tstzrange` overlaps nothing), moves the second, then the first, in one transaction, each write a compare-and-swap on the start it was planned against. Making the constraint deferrable would need a migration and buys nothing this does not. | `db/queries/appointments.ts` `swapAppointments` |
 
 ### The guarantee everything else leans on
@@ -2888,6 +2989,16 @@ fixes this** — `preload="auto"` was tried and measured within noise (4.14s →
 migration), or a smaller file. `MAX_VIDEO_BYTES` currently permits **25MB**,
 eight times the demo, on the product's most-shared page.
 
+**Stepping days and weeks, 2026-09-19**, production build at 390px against the
+Seoul database: the old full navigation took **2.5–2.9s a day and 2.1–2.2s a
+week**, date and bookings together behind a skeleton. In memory, the date
+changes in **2–14ms**; the bookings arrive in **0.004–0.55s** when the owner
+reads for a second and a half before stepping, and **1.5–1.85s** at worst, a
+step tapped the instant the page loaded. A write from the calendar is drawn in
+8–74ms and confirmed by the server some seconds later — the forced move took
+~6s and the swap over 7s, nearly all of it round trips from here to Seoul. The
+region decision in §5 is what shortens those; nothing in the page would.
+
 ### What it deliberately does not do
 
 - **The client is never told an appointment moved.** No notification kind exists
@@ -2964,7 +3075,9 @@ cost time here:
 conversation (2026-09-17). Chromium with a WAV file as the microphone
 verified the loop, the noise handling, talking over her and the faster voice;
 whether iOS Safari lowers her volume or routes it to the earpiece while a
-capture is live needs a real device.
+capture is live needs a real device. So does the new glow: `voice-glow` turns
+its distortion off on a phone-sized host in WebKit by design, and the rest of it
+has only been seen in Chromium.
 
 **No longer blocked on data.** The calendar carrying real appointments and the
 appointment dialog as a bottom sheet were parked here because both demo tenants

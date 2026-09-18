@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone } from "date-fns-tz";
 import { CalendarRange, ExternalLink } from "lucide-react";
 
 import { AgendaView } from "@/components/dashboard/agenda-view";
@@ -11,11 +11,11 @@ import { db } from "@/db";
 import {
   getDashboardStats,
   getNextUpcomingAppointment,
-  listAppointmentsInRange,
   listPendingRequests,
   listServices,
 } from "@/db/queries";
 import { listActiveStaff } from "@/db/queries/staff";
+import { loadAgendaDay } from "@/lib/agenda-day-data";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { todayInTimezone } from "@/lib/format";
 import { getStatsWindows, toPercent } from "@/lib/stats";
@@ -47,20 +47,13 @@ export default async function AgendaPage({ searchParams }: PageProps) {
   const today = todayInTimezone(business.timezone);
   const day = date && DATE_PATTERN.test(date) ? date : today;
 
-  // One query for the day on screen, converted from a local day to UTC.
-  const rangeStart = fromZonedTime(`${day}T00:00:00`, business.timezone);
-  const rangeEnd = new Date(rangeStart.getTime() + 86_400_000);
-
   const windows = getStatsWindows(business.timezone);
 
   const [appointments, services, stats, nextUpcoming, requests, team] =
     await Promise.all([
-      listAppointmentsInRange(db, business.id, rangeStart, rangeEnd, [
-        "pending",
-        "confirmed",
-        "completed",
-        "no_show",
-      ]),
+      // The day in the address bar. Every other day the owner steps to comes
+      // from `/api/dashboard/day` through the same function — see `AgendaView`.
+      loadAgendaDay(db, business, day),
       listServices(db, business.id),
       getDashboardStats(db, business.id, windows),
       getNextUpcomingAppointment(db, business.id, windows.now),
@@ -160,7 +153,7 @@ export default async function AgendaPage({ searchParams }: PageProps) {
         />
 
         <AgendaView
-            upcomingCount={stats.upcomingCount}
+          upcomingCount={stats.upcomingCount}
           nextUpcoming={
             nextUpcoming
               ? {
@@ -187,17 +180,8 @@ export default async function AgendaPage({ searchParams }: PageProps) {
             durationMin: s.durationMin,
           }))}
           staff={team.map((member) => ({ id: member.id, name: member.name }))}
-          appointments={appointments.map((a) => ({
-            id: a.id,
-            startsAt: a.startsAt.toISOString(),
-            endsAt: a.endsAt.toISOString(),
-            status: a.status,
-            clientName: a.clientName,
-            clientPhone: a.clientPhone,
-            serviceName: a.serviceName,
-            priceCents: a.priceCents,
-            notes: a.notes,
-          }))}
+          appointments={appointments}
+          scope={business.id}
         />
       </AppointmentStatusProvider>
     </div>

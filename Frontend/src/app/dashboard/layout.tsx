@@ -155,12 +155,14 @@ export default async function DashboardLayout({
           everything, so the glass rail, the dock and the agenda rows have
           something real to frost — see the rule in `globals.css`. */}
       <div className="dashboard-ambient flex min-h-full flex-1 flex-col bg-zinc-50 md:flex-row dark:bg-zinc-950">
-        <DashboardNav bookingsPaused={bookingsPaused} />
-        {/* Clears the mobile dock, which floats 3.25rem of bubbles above
-            whatever the home indicator claims — 6rem alone left the last row of
-            a long page tucked under the old bar on an iPhone once the inset
-            became real. `md` restores normal padding, where there is no dock. */}
-        <main className="flex-1 px-4 pt-6 pb-[calc(6rem_+_env(safe-area-inset-bottom))] md:px-8 md:pb-10">
+        <DashboardNav bookingsPaused={bookingsPaused} voice={voiceReady} />
+        {/* Clears the mobile dock's row — the 60px band, and ליבי beside it —
+            lifted by the same `max(inset, 0.75rem)` the dock itself uses, so on
+            a phone with no home indicator the padding and the dock agree too.
+            Then 2rem of air, so the last card's buttons sit clear of the glass
+            rather than touching it. `md` restores normal padding, where there
+            is no dock. */}
+        <main className="flex-1 px-4 pt-6 pb-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_5.75rem)] md:px-8 md:pb-10">
           <div className="mx-auto w-full max-w-4xl">
             {/* In the content column rather than across the top of the page:
                 a full-width strip pushed the full-height glass rail down by its

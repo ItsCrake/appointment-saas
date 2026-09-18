@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import { appointments, clientProfiles } from "../schema";
 import type { Database } from "../types";
@@ -67,6 +67,15 @@ export async function getClientProfile(
 export async function mapClientNotes(
   db: Database,
   businessId: string,
+  /**
+   * Only the clients with a booking overlapping this window.
+   *
+   * The calendar labels a week of cards, and without this it read every
+   * annotated client the shop has ever had — a table that only grows — on
+   * every week it drew. A subquery rather than a list of phones, so it still
+   * runs in parallel with the query that finds those bookings.
+   */
+  range?: { from: Date; to: Date },
 ): Promise<Map<string, string>> {
   const rows = await db
     .select({
@@ -74,7 +83,26 @@ export async function mapClientNotes(
       notes: clientProfiles.notes,
     })
     .from(clientProfiles)
-    .where(eq(clientProfiles.businessId, businessId));
+    .where(
+      and(
+        eq(clientProfiles.businessId, businessId),
+        range
+          ? inArray(
+              clientProfiles.clientPhone,
+              db
+                .select({ phone: appointments.clientPhone })
+                .from(appointments)
+                .where(
+                  and(
+                    eq(appointments.businessId, businessId),
+                    lt(appointments.startsAt, range.to),
+                    gt(appointments.endsAt, range.from),
+                  ),
+                ),
+            )
+          : undefined,
+      ),
+    );
 
   return new Map(
     rows

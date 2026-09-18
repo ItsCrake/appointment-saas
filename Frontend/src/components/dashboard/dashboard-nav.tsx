@@ -50,6 +50,33 @@ const LINKS = [
 const MOBILE_LINKS = LINKS.slice(0, 4);
 
 /**
+ * When the current tab's name gives way to ליבי.
+ *
+ * ---------------------------------------------------------------------------
+ * **She sits on the dock's row now, not above it.** Her button used to float
+ * `5rem` over the bottom edge at the end of the screen — directly over the
+ * dock's last bubble and, while the owner scrolled, over whatever card was
+ * passing: in the agenda that was a card's "הושלם". On the row beside the dock
+ * nothing floats over the page but that one row, which the page's padding is
+ * sized to clear.
+ *
+ * The row is the dock (four 48px spheres, the lit pill with its name, the
+ * gaps and the band's own padding — 340px with the longest name) plus her 56px
+ * and a 10px gap: 406px, inside a nav that keeps 12px each side. Narrower than
+ * that, the current tab drops its name and becomes a lit sphere like the
+ * others. A container query rather than a viewport one, so the arithmetic is
+ * against the width the row actually has.
+ * ---------------------------------------------------------------------------
+ */
+const DOCK_ROW_COMPACT = {
+  tab: "@max-[25.5rem]/dock:gap-0 @max-[25.5rem]/dock:pe-1",
+  label: "@max-[25.5rem]/dock:sr-only",
+} as const;
+
+/** Where ליבי's button docks on a phone — see `LibiAssistant`. */
+export const LIBI_DOCK_SLOT_ID = "libi-dock-slot";
+
+/**
  * Everything the bottom bar could not take, **derived rather than listed**.
  *
  * That is the point. These two constants used to be a slice and a sidebar, and
@@ -95,10 +122,13 @@ function LinkSpinner() {
 function MoreSheet({
   isActive,
   bookingsPaused,
+  compact,
 }: {
   isActive: (href: string) => boolean;
   /** Null where there is no switch to offer — see the layout. */
   bookingsPaused: boolean | null;
+  /** The dock shares its row with ליבי — see `DOCK_ROW_COMPACT`. */
+  compact: boolean;
 }) {
   const pathname = usePathname();
   const titleId = useId();
@@ -162,6 +192,7 @@ function MoreSheet({
         label="עוד"
         icon={MoreHorizontal}
         active={holdsCurrentPage}
+        compact={compact}
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -294,6 +325,7 @@ function DockTab({
   icon: Icon,
   active,
   onClick,
+  compact = false,
   ...rest
 }: {
   as: "link" | "button";
@@ -302,15 +334,24 @@ function DockTab({
   icon: LucideIcon;
   active: boolean;
   onClick?: () => void;
+  /**
+   * ליבי shares the row, so the current tab gives up its name when the row is
+   * too narrow for both — see `DOCK_ROW_COMPACT`. The name stays for a screen
+   * reader, and the page's own title says the same thing on screen.
+   */
+  compact?: boolean;
   "aria-haspopup"?: "dialog";
   "aria-expanded"?: boolean;
 }) {
   const className = cn(
-    "flex h-13 items-center justify-center rounded-full",
+    "flex h-12 items-center justify-center rounded-full",
     focusRing,
     active
-      ? "glass-bubble-active gap-2 ps-1.5 pe-4 text-[13px] font-semibold text-zinc-950"
-      : "glass-bubble size-13 text-zinc-700 dark:text-zinc-200",
+      ? cn(
+          "glass-bubble-active gap-2 ps-1 pe-4 text-[13px] font-semibold text-zinc-950",
+          compact && DOCK_ROW_COMPACT.tab,
+        )
+      : "glass-bubble size-12 text-zinc-700 dark:text-zinc-200",
   );
 
   const content = active ? (
@@ -318,7 +359,7 @@ function DockTab({
       <span className="glass-dock-glow flex size-10 shrink-0 items-center justify-center rounded-full text-white">
         <Icon className="size-5" aria-hidden />
       </span>
-      {label}
+      <span className={cn(compact && DOCK_ROW_COMPACT.label)}>{label}</span>
     </>
   ) : (
     <Icon className="size-5" aria-hidden />
@@ -403,12 +444,15 @@ function RailLink({
 
 export function DashboardNav({
   bookingsPaused = null,
+  voice = false,
 }: {
   /**
    * Whether online bookings are paused (0035), resolved by the layout. Null
    * where the switch has nothing to control: no business yet, or a frozen one.
    */
   bookingsPaused?: boolean | null;
+  /** ליבי is on this dashboard, so the phone's dock keeps a place for her. */
+  voice?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -500,12 +544,19 @@ export function DashboardNav({
 
           `pointer-events-none` on the full-width strip and `auto` on the dock
           itself, so the gutters either side of it never swallow a tap meant for
-          the page underneath. */}
+          the page underneath.
+
+          **The band is taller than its bubbles now.** It was 48px under 52px
+          spheres, so the glass only showed in the 4px between them — on a busy
+          agenda the dock read as five loose bubbles with the cards' buttons
+          showing through the gaps. At 60px round 48px spheres the band is a
+          visible capsule the tabs sit *in*, frosted harder and edged and lifted
+          by `.glass-dock-float`, so the page passes behind one object. */}
       <nav
         aria-label="ניווט ראשי"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pr-[max(env(safe-area-inset-right),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:hidden"
+        className="@container/dock pointer-events-none fixed inset-x-0 bottom-0 z-20 flex items-center justify-center gap-2.5 px-3 pr-[max(env(safe-area-inset-right),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:hidden"
       >
-        <ul className="glass-dock pointer-events-auto flex h-12 items-center gap-1 rounded-full px-0.5">
+        <ul className="glass-dock glass-dock-float pointer-events-auto flex h-15 items-center gap-1 rounded-full px-1.5">
           {MOBILE_LINKS.map(({ href, label, icon }) => (
             <li key={href}>
               <DockTab
@@ -514,6 +565,7 @@ export function DashboardNav({
                 label={label}
                 icon={icon}
                 active={isActive(href)}
+                compact={voice}
               />
             </li>
           ))}
@@ -521,9 +573,26 @@ export function DashboardNav({
               destructive action one stray thumb away from the tabs is not
               where it belongs. */}
           <li>
-            <MoreSheet isActive={isActive} bookingsPaused={bookingsPaused} />
+            <MoreSheet
+              isActive={isActive}
+              bookingsPaused={bookingsPaused}
+              compact={voice}
+            />
           </li>
         </ul>
+
+        {/* ליבי's place on the row. Her button is portalled in by
+            `LibiAssistant`, which owns it — it lives in the layout, beside this
+            nav rather than inside it, so a conversation survives navigation.
+            Outside the glass band on purpose: an element with a backdrop
+            filter would become the containing block of anything `fixed` she
+            renders. */}
+        {voice ? (
+          <div
+            id={LIBI_DOCK_SLOT_ID}
+            className="pointer-events-auto flex shrink-0 empty:hidden"
+          />
+        ) : null}
       </nav>
     </>
   );

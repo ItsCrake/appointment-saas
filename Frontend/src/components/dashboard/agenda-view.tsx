@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import Link, { useLinkStatus } from "next/link";
-import { useRouter } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import {
   ArrowLeft,
@@ -18,7 +24,9 @@ import {
 import { AgendaList, type AgendaAppointment } from "./agenda-list";
 import { ManualBookingDialog } from "./manual-booking-dialog";
 import { btnPrimary, focusRing } from "./ui";
+import { shiftDays } from "@/lib/calendar-week";
 import { dayOfMonth, weekdayLabel } from "@/lib/format";
+import { createRangeCache, fetchDashboardJson } from "@/lib/range-cache";
 import { cn } from "@/lib/utils";
 
 type ServiceOption = { id: string; name: string; durationMin: number };
@@ -29,6 +37,31 @@ export type NextUpcoming = {
   time: string;
   clientName: string;
 };
+
+/** What `/api/dashboard/day` answers — see `loadAgendaDay`. */
+type AgendaDay = { date: string; appointments: AgendaAppointment[] };
+
+/**
+ * Every day this tab has shown, keyed by tenant and date — see `range-cache`.
+ * Module scope, so the days survive a visit to another dashboard page.
+ */
+const dayCache = createRangeCache<AgendaDay>((key) =>
+  fetchDashboardJson<AgendaDay>(
+    `/api/dashboard/day?date=${encodeURIComponent(key.split("|")[1] ?? "")}`,
+  ),
+);
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The calendar's timings, for the same reasons — see `WeekCalendar`. */
+const SHOWN_MAX_AGE_MS = 10_000;
+const PREFETCH_MAX_AGE_MS = 60_000;
+const PREFETCH_DELAY_MS = 250;
+
+/** The agenda's own address for a day: bare for today, `?date=` otherwise. */
+function dayHref(date: string, today: string) {
+  return date === today ? "/dashboard" : `/dashboard?date=${date}`;
+}
 
 /**
  * The dashboard agenda: **one day, always.**
@@ -43,6 +76,15 @@ export type NextUpcoming = {
  * So this route is now what its title says: today, and the arrows either side of
  * it. The week is one tap away through the header's own link to the full
  * calendar, which is the view built to answer it.
+ *
+ * **Stepping a day is a change of state, not a navigation.** It used to be a
+ * link to `?date=`, and every step re-ran the whole page on the server — the
+ * stats, the requests, the services and the staff, none of which depend on the
+ * day — behind a full-page skeleton: 2.5–2.9s a step on a production build.
+ * The day on screen is now held here, its appointments come from
+ * `/api/dashboard/day` (or from memory, when the day was seen or fetched ahead
+ * of the tap), and the address bar follows along so a refresh lands in the
+ * same place.
  * ---------------------------------------------------------------------------
  */
 export function AgendaView({
@@ -54,23 +96,112 @@ export function AgendaView({
   appointments,
   upcomingCount,
   nextUpcoming,
+  scope,
 }: {
   today: string;
+  /** The day the server rendered — the one in the address bar. */
   selectedDate: string;
   timezone: string;
   services: ServiceOption[];
   /** Who a manual booking may be assigned to. Active providers, in roster order. */
   staff: StaffOption[];
+  /** The server's day. Every other day is fetched by the component. */
   appointments: AgendaAppointment[];
   /** Everything still ahead, across all days. */
   upcomingCount: number;
   nextUpcoming: NextUpcoming | null;
+  /** Whose days these are — the tenant's id — so the cache never mixes shops. */
+  scope: string;
 }) {
   const [dialogDate, setDialogDate] = useState<string | null>(null);
   const router = useRouter();
 
-  const prev = shift(selectedDate, -1);
-  const next = shift(selectedDate, 1);
+  const [shownDate, setShownDate] = useState(selectedDate);
+
+  /**
+   * **A navigation wins over wherever the owner had stepped** — the dock's own
+   * "היומן", ליבי, a link from elsewhere.
+   *
+   * Detected on the address bar, not on the server's props. Every step here
+   * writes its day into the URL, so the URL only ever disagrees with the day
+   * on screen when somebody else changed it. The props cannot say that: a
+   * navigation back to the day the page first drew can be answered from the
+   * router's cache with the very same objects, and neither a date nor an
+   * identity comparison sees it — the agenda stayed on Saturday after a tap
+   * that asked for today. Adjusted during render, React's documented way of
+   * resetting state on a changed input.
+   */
+  const searchParams = useSearchParams();
+  const requested = searchParams.get("date");
+  const urlDate =
+    requested && DATE_PATTERN.test(requested) ? requested : today;
+  const [seenUrlDate, setSeenUrlDate] = useState(urlDate);
+  if (seenUrlDate !== urlDate) {
+    setSeenUrlDate(urlDate);
+    if (urlDate !== shownDate) setShownDate(urlDate);
+  }
+
+  const keyFor = useCallback((date: string) => `${scope}|${date}`, [scope]);
+  useSyncExternalStore(dayCache.subscribe, dayCache.version, dayCache.version);
+
+  const serverDay = useMemo<AgendaDay>(
+    () => ({ date: selectedDate, appointments }),
+    [selectedDate, appointments],
+  );
+
+  /**
+   * The server's render is the freshest copy there is, and whatever made it
+   * render again — a booking made here, a status changed in the list, ליבי —
+   * may have changed other days too. Everything held is marked stale, and
+   * this day replaces its held copy before the browser paints.
+   */
+  useLayoutEffect(() => {
+    dayCache.invalidate();
+    dayCache.put(keyFor(serverDay.date), serverDay);
+  }, [serverDay, keyFor]);
+
+  const held =
+    dayCache.peek(keyFor(shownDate)) ??
+    (shownDate === serverDay.date ? serverDay : undefined);
+  const loading = dayCache.isLoading(keyFor(shownDate));
+
+  /**
+   * The day on screen is always on its way to being fresh — shared with the
+   * step that already asked for it, so this only works for a day that arrived
+   * some other way, like a navigation the router answered from its cache.
+   */
+  useEffect(() => {
+    dayCache.load(keyFor(shownDate), SHOWN_MAX_AGE_MS).catch(() => {});
+  }, [shownDate, keyFor]);
+
+  // The days either side, fetched once this one has drawn.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      dayCache.prefetch(keyFor(shiftDays(shownDate, -1)), PREFETCH_MAX_AGE_MS);
+      dayCache.prefetch(keyFor(shiftDays(shownDate, 1)), PREFETCH_MAX_AGE_MS);
+    }, PREFETCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [shownDate, keyFor]);
+
+  /**
+   * Moves the agenda to `date` at once: the heading changes on the tap, and
+   * the list is either already in memory or on its way. A failed fetch — an
+   * ended session, a dropped network — becomes a real navigation, which says
+   * more than a list that never arrives.
+   */
+  const goToDay = useCallback(
+    (date: string) => {
+      setShownDate(date);
+      window.history.replaceState(null, "", dayHref(date, today));
+      dayCache.load(keyFor(date), SHOWN_MAX_AGE_MS).catch(() => {
+        window.location.assign(dayHref(date, today));
+      });
+    },
+    [keyFor, today],
+  );
+
+  const prev = shiftDays(shownDate, -1);
+  const next = shiftDays(shownDate, 1);
 
   /**
    * The day's appointments, matched on the *business-local* date.
@@ -79,13 +210,17 @@ export function AgendaView({
    * a UTC range, and an appointment at 23:30 in a +03 shop belongs to a
    * different calendar day than the one its instant falls on in UTC.
    */
-  const dayAppointments = appointments.filter(
-    (appointment) =>
-      formatInTimeZone(
-        new Date(appointment.startsAt),
-        timezone,
-        "yyyy-MM-dd",
-      ) === selectedDate,
+  const dayAppointments = useMemo(
+    () =>
+      (held?.appointments ?? []).filter(
+        (appointment) =>
+          formatInTimeZone(
+            new Date(appointment.startsAt),
+            timezone,
+            "yyyy-MM-dd",
+          ) === shownDate,
+      ),
+    [held, timezone, shownDate],
   );
 
   return (
@@ -104,14 +239,21 @@ export function AgendaView({
           aria-label="ניווט בתאריכים"
         >
           {/* RTL: "previous" sits on the right, so the chevron points that way. */}
-          <ArrowLink
-            href={`/dashboard?date=${prev}`}
+          <DayLink
+            href={dayHref(prev, today)}
             label="הקודם"
-            icon={<ChevronRight className="size-4" aria-hidden />}
-          />
-          <Link
+            onGo={() => goToDay(prev)}
+            className={cn(
+              "glass-control flex size-9 items-center justify-center rounded-full text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50",
+              focusRing,
+            )}
+          >
+            <ChevronRight className="size-4" aria-hidden />
+          </DayLink>
+          <DayLink
             href="/dashboard"
-            aria-current={selectedDate === today ? "date" : undefined}
+            onGo={() => goToDay(today)}
+            current={shownDate === today}
             className={cn(
               "flex h-9 items-center rounded-full px-4 text-xs font-semibold transition-colors",
               focusRing,
@@ -127,24 +269,30 @@ export function AgendaView({
                * the gradient is reserved for what is active or recommended, and
                * this is an ordinary primary action.
                */
-              selectedDate === today
+              shownDate === today
                 ? "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
                 : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white",
             )}
           >
             היום
-          </Link>
-          <ArrowLink
-            href={`/dashboard?date=${next}`}
+          </DayLink>
+          <DayLink
+            href={dayHref(next, today)}
             label="הבא"
-            icon={<ChevronLeft className="size-4" aria-hidden />}
-          />
+            onGo={() => goToDay(next)}
+            className={cn(
+              "glass-control flex size-9 items-center justify-center rounded-full text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50",
+              focusRing,
+            )}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </DayLink>
         </nav>
 
         <div className="ms-auto flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setDialogDate(selectedDate)}
+            onClick={() => setDialogDate(shownDate)}
             className={cn(btnPrimary, "h-10 px-4 text-xs")}
           >
             <Plus className="size-4" aria-hidden />
@@ -174,19 +322,28 @@ export function AgendaView({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-baseline gap-2">
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-              {selectedDate === today
-                ? "היום"
-                : `יום ${weekdayLabel(selectedDate)}`}
+              {shownDate === today ? "היום" : `יום ${weekdayLabel(shownDate)}`}
             </h2>
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
-                selectedDate === today
+                shownDate === today
                   ? "bg-(--accent-soft) text-(--accent-on-soft)"
                   : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
               )}
             >
-              {dayOfMonth(selectedDate)}/{month(selectedDate)}
+              {dayOfMonth(shownDate)}/{month(shownDate)}
+            </span>
+            {/* The day already changed; this says its list is on the way —
+                whether it is being fetched for the first time or refreshed
+                behind a copy from memory. */}
+            <span role="status" className="self-center text-zinc-500">
+              {loading ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  <span className="sr-only">טוען את התורים…</span>
+                </>
+              ) : null}
             </span>
           </div>
 
@@ -200,7 +357,15 @@ export function AgendaView({
           ) : null}
         </div>
 
-        {dayAppointments.length === 0 ? (
+        {!held ? (
+          /* A day nobody has seen yet: rows the shape of the list, so it swaps
+             in without the page moving. */
+          <div aria-hidden className="space-y-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="animate-shimmer h-20 rounded-2xl" />
+            ))}
+          </div>
+        ) : dayAppointments.length === 0 ? (
           <div className="glass-row flex flex-col items-center gap-2 rounded-3xl px-4 py-8 text-center">
             <span className="glass-bubble flex size-10 items-center justify-center rounded-full">
               <CalendarOff className="size-5 text-zinc-500" aria-hidden />
@@ -213,9 +378,10 @@ export function AgendaView({
               Without this an owner whose bookings are all days away sees
               an empty today and assumes the booking was lost.
             */}
-            {nextUpcoming && nextUpcoming.date !== selectedDate ? (
-              <Link
-                href={`/dashboard?date=${nextUpcoming.date}`}
+            {nextUpcoming && nextUpcoming.date !== shownDate ? (
+              <DayLink
+                href={dayHref(nextUpcoming.date, today)}
+                onGo={() => goToDay(nextUpcoming.date)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200"
               >
                 <CalendarClock className="size-3.5" aria-hidden />
@@ -227,12 +393,12 @@ export function AgendaView({
                   {nextUpcoming.time}
                 </span>
                 <ArrowLeft className="size-3.5" aria-hidden />
-              </Link>
+              </DayLink>
             ) : null}
 
             <button
               type="button"
-              onClick={() => setDialogDate(selectedDate)}
+              onClick={() => setDialogDate(shownDate)}
               className="text-xs font-semibold text-zinc-900 underline underline-offset-4 dark:text-zinc-100"
             >
               הוספת תור ידני
@@ -251,6 +417,8 @@ export function AgendaView({
           onClose={() => setDialogDate(null)}
           onCreated={() => {
             setDialogDate(null);
+            // Every day held is suspect now; the server redraws this one.
+            dayCache.invalidate();
             router.refresh();
           }}
         />
@@ -259,54 +427,48 @@ export function AgendaView({
   );
 }
 
-function ArrowLink({
+/**
+ * A move to another day, taken in memory.
+ *
+ * A plain anchor with the day's real address underneath, so a modified click,
+ * middle-click and "open in new tab" still work and land in the same place;
+ * an ordinary click is `onGo` — see `goToDay`. A plain `<a>` rather than
+ * `<Link>`, because the one thing `<Link>` adds is the navigation this
+ * replaces, and prefetching a whole route for it would be wasted.
+ */
+function DayLink({
   href,
   label,
-  icon,
+  current,
+  onGo,
+  className,
+  children,
 }: {
   href: string;
-  label: string;
-  icon: React.ReactNode;
+  label?: string;
+  /** Marks today's control while today is on screen. */
+  current?: boolean;
+  onGo: () => void;
+  className: string;
+  children: React.ReactNode;
 }) {
   return (
-    <Link
+    <a
       href={href}
       aria-label={label}
-      className={cn(
-        "glass-control flex size-9 items-center justify-center rounded-full text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-zinc-50",
-        focusRing,
-      )}
+      aria-current={current ? "date" : undefined}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+          return;
+        }
+        event.preventDefault();
+        onGo();
+      }}
+      className={className}
     >
-      <NavIcon>{icon}</NavIcon>
-    </Link>
+      {children}
+    </a>
   );
-}
-
-/**
- * Swaps the arrow for a spinner while its navigation is in flight.
- *
- * Changing the day is a server round trip — the agenda is per-tenant, live, and
- * cannot be cached without risking a stale calendar — so some wait is real. What
- * was missing was any sign it had started: the owner tapped, nothing moved for a
- * few hundred milliseconds, and tapped again.
- *
- * Must be a descendant of the `<Link>` it reports on, which is why it is its own
- * component. It replaces the glyph in place rather than adding anything, so the
- * control does not resize and the tap target stays where the thumb left it —
- * the same rule the toolbar's always-rendered "היום" follows.
- */
-function NavIcon({ children }: { children: React.ReactNode }) {
-  const { pending } = useLinkStatus();
-  return pending ? (
-    <Loader2 className="size-4 animate-spin" aria-hidden />
-  ) : (
-    children
-  );
-}
-
-function shift(date: string, days: number) {
-  const d = new Date(`${date}T00:00:00Z`);
-  return new Date(d.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 function month(date: string) {

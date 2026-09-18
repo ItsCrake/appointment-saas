@@ -21,6 +21,7 @@ import {
   confirmSwap,
   planSwap,
   planSwapFor,
+  previewSwap,
   type SwapSide,
 } from "./appointment-swap";
 
@@ -374,5 +375,100 @@ describe("confirmSwap", () => {
       request(a, a, day("10:00"), day("10:00")),
     );
     expect(result).toEqual({ ok: false, reason: "stale" });
+  });
+});
+
+describe("previewSwap", () => {
+  /**
+   * The full calendar's quick swap: two cards picked, the plan shown, and only
+   * then a tap. What is shown has to be exactly what the tap performs — so
+   * the preview's `request` is fed straight to `confirmSwap` here.
+   */
+  it("shows a swap without writing it, and confirms to exactly that", async () => {
+    const s = await shop();
+    const a = await s.put("10:00", 30, "דנה");
+    const b = await s.put("14:00", 30, "רונית");
+
+    const outcome = await previewSwap(db, s.business, a.id, b.id);
+    if (!outcome.ok) throw new Error(`expected a preview, got ${outcome.reason}`);
+
+    expect(outcome.preview.first).toMatchObject({
+      appointmentId: a.id,
+      clientName: "דנה",
+      date: "2026-09-04",
+      time: "14:00",
+    });
+    expect(outcome.preview.second).toMatchObject({
+      appointmentId: b.id,
+      time: "10:00",
+    });
+    // Nothing moved yet.
+    expect(await startOf(a.id)).toEqual({ from: "10:00", to: "10:30" });
+
+    const confirmed = await confirmSwap(db, s.business.id, outcome.preview.request);
+    expect(confirmed.ok).toBe(true);
+    expect(await startOf(a.id)).toEqual({ from: "14:00", to: "14:30" });
+    expect(await startOf(b.id)).toEqual({ from: "10:00", to: "10:30" });
+  });
+
+  it("previews two back-to-back bookings of different lengths as a reorder", async () => {
+    const s = await shop();
+    const colour = await s.put("10:00", 60, "דנה");
+    const cut = await s.put("11:00", 30, "רונית");
+
+    const outcome = await previewSwap(db, s.business, colour.id, cut.id);
+    if (!outcome.ok) throw new Error(`expected a preview, got ${outcome.reason}`);
+
+    expect(outcome.preview.repacked).toBe(true);
+    expect(outcome.preview.second.time).toBe("10:00");
+    expect(outcome.preview.first.time).toBe("10:30");
+  });
+
+  it("names who is in the way, and writes nothing", async () => {
+    const s = await shop();
+    const colour = await s.put("10:00", 60, "דנה");
+    const cut = await s.put("14:00", 30, "רונית");
+    await s.put("14:30", 30, "יוסי");
+
+    const outcome = await previewSwap(db, s.business, colour.id, cut.id);
+    expect(outcome).toMatchObject({
+      ok: false,
+      reason: "clash",
+      firstName: "דנה",
+      secondName: "רונית",
+      clash: { leg: "first", needsMinutes: 60, clientName: "יוסי" },
+    });
+    expect(await startOf(colour.id)).toEqual({ from: "10:00", to: "11:00" });
+  });
+
+  it("refuses a booking that no longer holds its slot", async () => {
+    const s = await shop();
+    const a = await s.put("10:00", 30, "דנה");
+    const [cancelled] = await db
+      .update(appointments)
+      .set({ status: "cancelled" })
+      .where(eq(appointments.id, (await s.put("12:00", 30, "רונית")).id))
+      .returning();
+
+    expect(await previewSwap(db, s.business, a.id, cancelled.id)).toEqual({
+      ok: false,
+      reason: "settled",
+    });
+  });
+
+  it("refuses the same card twice, and another shop's booking", async () => {
+    const s = await shop();
+    const other = await shop();
+    const a = await s.put("10:00", 30, "דנה");
+    const theirs = await other.put("11:00", 30, "זרה");
+
+    expect(await previewSwap(db, s.business, a.id, a.id)).toEqual({
+      ok: false,
+      reason: "same",
+    });
+    expect(await previewSwap(db, s.business, a.id, theirs.id)).toEqual({
+      ok: false,
+      reason: "missing",
+    });
   });
 });

@@ -106,6 +106,46 @@ describe("gridBounds", () => {
       gridBounds([], [{ startMinutes: at(9), endMinutes: at(19) }], 0),
     ).toEqual({ startHour: 9, endHour: 19 });
   });
+
+  describe("cropped to the bookings", () => {
+    const OPEN = [{ startMinutes: at(8), endMinutes: at(20) }];
+
+    it("runs from the first booking's hour to the last one's", () => {
+      // Open 08–20, booked 11:00–15:30: the owner's empty morning and evening
+      // are gone, and so is the padding hour either side.
+      expect(
+        gridBounds(
+          [item("a", at(11), at(12)), item("b", at(14, 30), at(15, 30))],
+          OPEN,
+          1,
+          { fitToItems: true },
+        ),
+      ).toEqual({ startHour: 11, endHour: 16 });
+    });
+
+    it("falls back to the opening hours on a week with nothing booked", () => {
+      expect(gridBounds([], OPEN, 1, { fitToItems: true })).toEqual({
+        startHour: 8,
+        endHour: 20,
+      });
+    });
+
+    it("still never draws a sliver", () => {
+      const bounds = gridBounds([item("a", at(12), at(12, 30))], OPEN, 1, {
+        fitToItems: true,
+      });
+      expect(bounds.endHour - bounds.startHour).toBeGreaterThanOrEqual(3);
+      expect(bounds.startHour).toBeLessThanOrEqual(12);
+      expect(bounds.endHour).toBeGreaterThanOrEqual(13);
+    });
+
+    it("changes nothing when it is off", () => {
+      const items = [item("a", at(11), at(12))];
+      expect(gridBounds(items, OPEN, 1, { fitToItems: false })).toEqual(
+        gridBounds(items, OPEN, 1),
+      );
+    });
+  });
 });
 
 describe("assignLanes", () => {

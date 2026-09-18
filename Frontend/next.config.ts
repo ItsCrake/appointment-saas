@@ -42,6 +42,23 @@ const PRIVATE_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  /**
+   * **The app is this directory, whatever sits above it.**
+   *
+   * Next infers the project root from the outermost lockfile it can find, and
+   * an `npm install` run one level up — at the repository root, which holds
+   * the docs and not the app — left a `package-lock.json` there. Turbopack
+   * then took `D:\AppointmentSaaS` as the root and resolved `next` along two
+   * paths at once; every page of the dev server answered 500 with "Could not
+   * find the module … global-error.js in the React Client Manifest". Pinned
+   * here, a stray lockfile above the app is a warning nobody sees rather than
+   * a dead dev server. `__dirname` is this file's own directory — the config
+   * compiles to CommonJS, the package declaring no module type — so it holds
+   * however Next is launched.
+   */
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     /**
      * **Without this, `quality={90}` was silently delivered as 75.**

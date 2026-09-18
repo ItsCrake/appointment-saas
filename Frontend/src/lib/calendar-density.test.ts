@@ -6,6 +6,11 @@ import { describe, expect, it } from "vitest";
 import {
   CALENDAR_DENSITIES,
   chooseDensity,
+  chooseFitHours,
+  fitHoursServerSnapshot,
+  fitHoursSnapshot,
+  readStoredFitHours,
+  subscribeFitHours,
   DAY_HEADER_ROW,
   DEFAULT_DENSITY,
   densityServerSnapshot,
@@ -298,5 +303,56 @@ describe("the density store", () => {
     unsubscribe();
     chooseDensity(DEFAULT_DENSITY);
     expect(calls).toBe(1);
+  });
+});
+
+describe("the crop-empty-hours preference", () => {
+  it("is off on the server and wherever storage cannot be reached", () => {
+    // The same bargain as the density: the server cannot know, and a guess
+    // would draw one grid height into markup the client is about to replace.
+    expect(fitHoursServerSnapshot()).toBe(false);
+    expect(readStoredFitHours()).toBe(false);
+  });
+
+  it("reads back only an explicit yes", () => {
+    const store = new Map<string, string>();
+    const win = globalThis as { window?: unknown };
+    const original = win.window;
+    win.window = {
+      localStorage: { getItem: (k: string) => store.get(k) ?? null },
+    };
+
+    try {
+      store.set("bazman.calendar-fit-hours", "1");
+      expect(readStoredFitHours()).toBe(true);
+      // Anything hand-edited or left by an older release is simply "off".
+      store.set("bazman.calendar-fit-hours", "yes");
+      expect(readStoredFitHours()).toBe(false);
+    } finally {
+      if (original === undefined) delete win.window;
+      else win.window = original;
+    }
+  });
+
+  it("returns a stable snapshot and tells every subscriber once per change", () => {
+    let calls = 0;
+    const unsubscribe = subscribeFitHours(() => {
+      calls += 1;
+    });
+    const first = fitHoursSnapshot();
+    expect(fitHoursSnapshot()).toBe(first);
+
+    chooseFitHours(!first);
+    expect(fitHoursSnapshot()).toBe(!first);
+    expect(calls).toBe(1);
+
+    // The same answer again is not a change.
+    chooseFitHours(!first);
+    expect(calls).toBe(1);
+
+    unsubscribe();
+    chooseFitHours(first);
+    expect(calls).toBe(1);
+    expect(fitHoursSnapshot()).toBe(first);
   });
 });
