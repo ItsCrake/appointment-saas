@@ -46,7 +46,32 @@ export const COMMAND_WORDS = [
   "תזיזי",
   "תקבעי",
   "תרשמי",
+  "תחליפי",
   "תראי לי",
+] as const;
+
+/**
+ * What owners say to her that is not a command — and came back as nonsense.
+ *
+ * ---------------------------------------------------------------------------
+ * **"מעולה, את אלופה" was transcribed as "תלופה מעולה".** Said quickly, the
+ * glottal stop of "את אלופה" disappears and the two words run together, and a
+ * transcriber primed only for names and verbs wrote the one word it could
+ * make of them — which is not Hebrew. The model then treated "תלופה" as a
+ * client to look up.
+ *
+ * Praise and thanks are the most common thing said to her after an answer
+ * she got right, so they are keywords like the verbs: short, fixed, spelled
+ * as they are spoken. Kept to phrases, not single common words — "תודה" alone
+ * is the word `whisper-1` used to invent out of silence, and priming for it
+ * would invite the same thing here.
+ * ---------------------------------------------------------------------------
+ */
+export const COURTESY_PHRASES = [
+  "את אלופה",
+  "מעולה",
+  "תודה רבה",
+  "כל הכבוד",
 ] as const;
 
 /**
@@ -74,12 +99,12 @@ const tidy = (value: string) => value.replace(/\s+/g, " ").trim();
 /**
  * The `keywords` for one shop's transcription.
  *
- * Staff and services first, then the verbs, then the clients — the short
- * fixed lists before the long variable one, so the cap only ever trims
- * clients, and trims the furthest away. De-duplicated case-insensitively,
- * because a Latin-script name typed twice is still one name, and anything too
- * short or too long to be a name is dropped: a keyword list containing junk
- * biases toward junk.
+ * Staff and services first, then the verbs and the courtesy phrases, then the
+ * clients — the short fixed lists before the long variable one, so the cap
+ * only ever trims clients, and trims the furthest away. De-duplicated
+ * case-insensitively, because a Latin-script name typed twice is still one
+ * name, and anything too short or too long to be a name is dropped: a keyword
+ * list containing junk biases toward junk.
  */
 export function transcriptionKeywords({
   clients,
@@ -102,6 +127,7 @@ export function transcriptionKeywords({
   for (const name of staff) add(name);
   for (const name of services) add(name);
   for (const word of COMMAND_WORDS) add(word);
+  for (const phrase of COURTESY_PHRASES) add(phrase);
 
   let clientCount = 0;
   for (const name of clients) {
@@ -148,7 +174,11 @@ export function transcriptionContext({
       ? "בעלת העסק מדברת בעברית עם ליבי, העוזרת הקולית של יומן התורים שלה"
       : "בעל העסק מדבר בעברית עם ליבי, העוזרת הקולית של יומן התורים שלו";
 
-  const sentence = `${who}, על תורים של לקוחות: קביעה, הזזה, ביטול ובדיקה.`;
+  // The thanks at the end is what makes "את אלופה" expected rather than a
+  // sound to be forced into the nearest word — see `COURTESY_PHRASES`.
+  const thanks =
+    gender === "female" ? "מודה לה או מחמיאה לה" : "מודה לה או מחמיא לה";
+  const sentence = `${who}, על תורים של לקוחות: קביעה, הזזה, החלפה, ביטול ובדיקה — ולפעמים גם ${thanks}.`;
 
   const asked = tidy((question ?? "").replace(/["״”“]/g, "")).slice(
     0,
@@ -183,7 +213,10 @@ export function whisperPrompt(
   let budget = MAX_WHISPER_PROMPT_CHARS - context.length - 20;
 
   for (const word of keywords) {
+    // Names only: the verbs and the thanks are not "שמות ביומן", and the
+    // fallback is the model that turned silence into "תודה".
     if ((COMMAND_WORDS as readonly string[]).includes(word)) continue;
+    if ((COURTESY_PHRASES as readonly string[]).includes(word)) continue;
     if (word.length + 2 > budget) break;
     names.push(word);
     budget -= word.length + 2;
@@ -219,6 +252,9 @@ const HEARD_AS: Record<string, string> = {
   "תיבט לי": "תבטלי",
   // "תבטלי" with the ט voiced — returned on a noisy clip by `gpt-transcribe`.
   תבדלי: "תבטלי",
+  // "את אלופה" said quickly, the two words run into one that Hebrew does not
+  // have — returned for "מעולה את אלופה" as "תלופה מעולה".
+  תלופה: "את אלופה",
 };
 
 const HEBREW = "\\u0590-\\u05FF";

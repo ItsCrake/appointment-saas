@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   COMMAND_WORDS,
+  COURTESY_PHRASES,
   correctHearing,
   MAX_CLIENT_KEYWORDS,
   MAX_KEYWORD_CHARS,
@@ -44,6 +45,30 @@ describe("transcriptionKeywords", () => {
   it("carries the verbs every change begins with", () => {
     const keywords = transcriptionKeywords(shop);
     for (const verb of COMMAND_WORDS) expect(keywords).toContain(verb);
+  });
+
+  it("carries the thanks and praise owners say to her", () => {
+    /**
+     * "מעולה את אלופה" came back as "תלופה מעולה" — two words run into one
+     * Hebrew does not have, which the model then looked up as a client. The
+     * phrases are keywords now, spelled as they are said.
+     */
+    const keywords = transcriptionKeywords(shop);
+    for (const phrase of ["את אלופה", "מעולה", "תודה רבה"]) {
+      expect(keywords).toContain(phrase);
+    }
+    for (const phrase of COURTESY_PHRASES) expect(keywords).toContain(phrase);
+  });
+
+  it("does not prime for a bare 'תודה'", () => {
+    // The word the old transcriber invented out of silence. A phrase is a
+    // hint; the single common word would be an invitation.
+    expect(transcriptionKeywords(shop)).not.toContain("תודה");
+  });
+
+  it("never lets the cap trim the thanks", () => {
+    const clients = Array.from({ length: 500 }, (_, i) => `לקוח ${i}`);
+    expect(transcriptionKeywords({ ...shop, clients })).toContain("את אלופה");
   });
 
   it("does not carry her own name", () => {
@@ -144,6 +169,14 @@ describe("transcriptionContext", () => {
   it("speaks about the owner in the owner's own form", () => {
     expect(transcriptionContext({ gender: "female" })).toContain("בעלת העסק");
     expect(transcriptionContext({ gender: "male" })).toContain("בעל העסק");
+    expect(transcriptionContext({ gender: "female" })).toContain("מחמיאה לה");
+    expect(transcriptionContext({ gender: "male" })).toContain("מחמיא לה");
+  });
+
+  it("tells the transcriber she is sometimes thanked", () => {
+    // Expected speech is heard as itself; unexpected speech is forced into the
+    // nearest word the transcriber was primed for.
+    expect(transcriptionContext()).toContain("מודה לה");
   });
 
   it("adds nothing when there is no question", () => {
@@ -165,6 +198,12 @@ describe("whisperPrompt", () => {
     expect(prompt.startsWith(context)).toBe(true);
     expect(prompt).toContain("ג'ורג' ג'בארין");
     expect(prompt.indexOf("ג'ורג' ג'בארין")).toBeGreaterThan(context.length);
+  });
+
+  it("leaves the thanks out of the name list", () => {
+    const prompt = whisperPrompt("הקשר.", transcriptionKeywords(shop));
+    expect(prompt).not.toContain("את אלופה");
+    expect(prompt).not.toContain("תודה רבה");
   });
 
   it("leaves the verbs out of the name list", () => {
@@ -193,6 +232,11 @@ describe("correctHearing", () => {
   it("fixes the mis-hearing the brief named", () => {
     // "קולי" is the word in "תור קולי", and the one this came in about.
     expect(correctHearing("תקבעי תור כהלי לדני")).toBe("תקבעי תור קולי לדני");
+  });
+
+  it("fixes the praise the transcriber ran into one word", () => {
+    expect(correctHearing("תלופה מעולה")).toBe("את אלופה מעולה");
+    expect(correctHearing("מעולה, תלופה!")).toBe("מעולה, את אלופה!");
   });
 
   it("fixes the verb the transcriber voiced in noise", () => {

@@ -489,19 +489,23 @@ question and the last few exchanges ride along with each recording.
 ```
 browser                    /api/voice/process                          providers
 ───────                    ──────────────────                          ─────────
-getUserMedia (once per     parse pending + history; roster read starts ─┐
-  conversation)            services · staff · upcoming clients        │
-MediaRecorder webm/opus    (cached 30s per shop)                       │
-32kbps ──────────────────▶ transcribe ───────────────────────────────▶ OpenAI gpt-transcribe
+getUserMedia (once per     parse pending + draft + history;
+  conversation)            roster read starts ────────────────────────┐
+MediaRecorder webm/opus    services · staff · upcoming clients        │
+32kbps ──────────────────▶ (cached 30s per shop) → transcribe ───────▶ OpenAI gpt-transcribe
 libi-vad ends the turn                                                   (whisper-1 on failure)
-                           decide: word list for yes/no, else ◀────────┘
+                           decide: word list for yes/no, the shop's ◀─┘
+                             lists for a draft's bare answer, else
                              roster + prompt + history ─────────────▶ OpenAI gpt-4o-mini (tools)
                              → one tool → SQL → a Hebrew sentence
 ◀── NDJSON line 1 (card) ─ speakChunks: ≤3 pieces in parallel ──────▶ ElevenLabs eleven_v3_conversational
     + Server-Timing                                                      (OpenAI gpt-4o-mini-tts on failure)
+    `changed` → router.refresh()
 ◀── NDJSON audio lines ───
-decode at 22kHz, stretch ×1.1, play in order;
-last clip → listen again · a press mid-answer stops her
+decode at 22kHz, stretch ×1.1,  after(): what the write owes — reminder,
+play in order; last clip →        notice, waitlist (appointment-aftermath)
+listen again · a press
+mid-answer stops her
 ```
 
 ### Hearing: the transcriber is told what to expect
@@ -531,6 +535,16 @@ listens again, at most twice in a row.
 
 `gpt-4o-mini-transcribe` was ~80ms faster and is not used: with names in its
 prompt it answered noisy clips with the prompt itself, word for word.
+
+**Thanks is expected too.** "מעולה, את אלופה" came back as "תלופה מעולה": said
+quickly, "את אלופה" runs into one word, and a transcriber primed only for
+names and verbs wrote the one it could make — which the model then looked up
+as a client. Courtesy phrases ("את אלופה", "מעולה", "תודה רבה", "כל הכבוד") ride
+as keywords, the context sentence says she is sometimes thanked, and
+`correctHearing` maps "תלופה" back. A bare "תודה" is deliberately *not* a
+keyword — it is what the old model invented out of silence. Measured in the
+browser afterwards, the same phrase transcribed exactly and was answered
+"תודה!" with no tool.
 
 ### Listening: the room is learned, not assumed
 
@@ -575,26 +589,70 @@ model gets the shop's date and time, the diary, the rules, and up to four
 earlier exchanges, and may call one tool. The tool's own Hebrew sentence is what
 is spoken; the model's text is used only when it calls nothing.
 
-- **The diary is detailed for today and tomorrow and summarised for the
-  rest** — one line per day, a count and its first and last time, no names.
-  It used to be the first 25 rows, called "the complete list": on a full week
-  the model answered Monday with nothing and a Sunday client with "I don't see
-  him", without calling a tool. The prompt now says which days are detailed,
-  says when the read reached its cap, and forbids declaring a client absent
-  without the tool.
+- **The diary is detailed for today and tomorrow and summarised to the end of
+  next week** — one line per day, a count and its first and last time, no
+  names. It used to be the first 25 rows, called "the complete list": on a full
+  week the model answered Monday with nothing and a Sunday client with "I don't
+  see him", without calling a tool. Then it was seven days, and next Tuesday
+  asked about on a Thursday fell off the end and was read as empty. The window
+  now runs to the Saturday that ends next week (`rosterDays`), the header names
+  this week's and next week's dates, and "days not shown are empty" stops at
+  the last day actually read. A question about a whole week goes to
+  `get_week_summary`, a query and a tested sentence rather than a model adding
+  seven lines.
 - **The input is a transcript and the model is told so**, and the tools meet it
   halfway: a name that finds nothing exactly is compared against every upcoming
   client by `libi-names` — vowel points, geresh and quotes stripped, final
   letters folded, vowel letters ignored, one or two letters of slack on longer
   tokens, never on names of three letters or fewer. Ties are read back as a
-  question; every match speaks the diary's own name; services get the same
-  treatment, unambiguous matches only.
+  question — naming the days when the choices fall on different ones — and
+  the proposals take the booking's current date and time as a hint, so "של
+  שתיים" answers it; before that hint the answer resolved to the same bookings
+  and she asked again. Every match speaks the diary's own name; services are
+  compared the same way with the definite article stripped, and a service
+  that fits several is a question, never a pick.
+- **A missing detail is the tool's question, never its default.** A move with
+  no destination finds the booking and asks where to; a booking asks for the
+  hour, then the service when the shop sells more than one, then "אצל מי?" in
+  a team shop — among the people free for the whole service at that hour. The
+  half-finished request comes back as a **`DraftAction`**, kept apart from the
+  pending action because it waits for a detail rather than a yes. A bare answer
+  ("זקן", "אצל שירן") is matched against the shop's own lists with no model
+  call; anything else, every hour included, goes to the model with the draft
+  stated in the prompt as data.
+- **The verb decides a move** (`routeByVerb`). A transcript carrying a move
+  verb that the model sent to the client lookup is sent to the move proposal
+  instead — only that direction, which cannot write, and never for a frozen
+  tenant. Found in the browser, where a perfectly transcribed "תזיזי את התור של
+  רפאל שטרן" came back as a reading of the booking.
 
 Writes follow one line: **booking runs on the first sentence** (it takes an
-empty slot and is undone with one tap); **moves and cancellations return a
-pending action** that changes nothing until confirmed, and `executePending`
-re-reads the row — tenant, status and start time — before writing. A frozen
-tenant is offered the reading tools only.
+empty slot and is undone with one tap); **moves, swaps and cancellations
+return a pending action** that changes nothing until confirmed, and
+`executePending` re-reads the row — tenant, status and start time — before
+writing. A frozen tenant is offered the reading tools only.
+
+**A swap is one proposal and one transaction** (`lib/appointment-swap.ts`).
+Each client takes the other's slot, provider included and said aloud when it
+changes; the length stays with the appointment. Back to back on one provider
+(a gap of up to 15 minutes, nothing between) the two swap order inside the
+block they share, which fills it exactly; anywhere else they exchange start
+times if that fits, and the refusal names who is in the way before anyone is
+asked to confirm. `confirmSwap` re-plans from the rows as they are and refuses
+unless the plan lands where the question said. The write parks one booking on
+an empty range first, because `appointments_no_overlap_staff` is not
+deferrable and two plain moves fail halfway whenever the two share a provider.
+
+**Every write says what it changed, and what it still owes.** A `DiaryChange`
+rides on the text line and the client calls `router.refresh()`: the calendar
+is server-rendered, a route handler cannot refresh the client the way a server
+action does, and a booking she took used to appear only after a reload.
+Measured in the browser: on the calendar ~2.5–2.8s after the text line, with
+the conversation carrying on through it. The follow-up the change owes — a
+moved booking's reminder re-planned, a cancelled client told, the freed slot
+offered to the waitlist — is `appointment-aftermath`, the same module the
+dashboard's buttons use, run in `after()` once the answer has been sent. It
+used to be skipped on the spoken path entirely.
 
 ### Speaking
 

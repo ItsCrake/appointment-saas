@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizeForSpeech } from "./libi-hebrew";
 import {
+  MAX_SPOKEN_CHOICES,
+  spokenChoice,
   spokenCount,
   spokenDay,
+  spokenDuration,
   spokenNext,
   spokenSearch,
   spokenTime,
   spokenToday,
+  spokenWeek,
+  toward,
   type SpokenAppointment,
 } from "./libi-speech";
 
@@ -241,5 +247,122 @@ describe("every spoken string is fit to be heard", () => {
     // Siri reads roughly 15 characters a second in Hebrew; past ~140 the owner
     // has stopped listening and the useful part was at the start.
     expect(spoken.length).toBeLessThan(140);
+  });
+});
+
+describe("spokenChoice", () => {
+  it("puts 'או' before the last option only", () => {
+    expect(spokenChoice(["זקן"])).toBe("זקן");
+    expect(spokenChoice(["שירן", "מאיה"])).toBe("שירן או מאיה");
+    expect(spokenChoice(["זקן", "צבע", "תספורת"])).toBe("זקן, צבע או תספורת");
+  });
+
+  it("offers a long list as examples, so it is still true", () => {
+    const many = ["א", "ב", "ג", "ד", "ה", "ו"];
+    const said = spokenChoice(many);
+    expect(said.startsWith("למשל ")).toBe(true);
+    expect(said).toContain(many[MAX_SPOKEN_CHOICES - 1]);
+    expect(said).not.toContain(many[MAX_SPOKEN_CHOICES]);
+  });
+});
+
+describe("spokenDuration", () => {
+  it("says a length the way a barber would", () => {
+    expect(spokenDuration(30)).toBe("חצי שעה");
+    expect(spokenDuration(45)).toBe("45 דקות");
+    expect(spokenDuration(60)).toBe("שעה");
+    expect(spokenDuration(75)).toBe("שעה ורבע");
+    expect(spokenDuration(90)).toBe("שעה וחצי");
+    expect(spokenDuration(120)).toBe("שעתיים");
+    expect(spokenDuration(100)).toBe("שעה ו-40 דקות");
+  });
+
+  it("leaves minutes for the speech pass to spell, in the feminine", () => {
+    expect(normalizeForSpeech(`צריך ${spokenDuration(45)}`)).toBe(
+      "צריך ארבעים וחמש דקות",
+    );
+  });
+});
+
+describe("toward", () => {
+  it("fuses 'to' onto the destination the way Hebrew does", () => {
+    expect(toward("15:00")).toBe("ל-15:00");
+    expect(toward("מחר ב-15:00")).toBe("למחר ב-15:00");
+    expect(toward("היום ב-15:00")).toBe("להיום ב-15:00");
+    // Never "לביום שלישי", which is what gluing the letter on produced.
+    expect(toward("ביום שלישי ב-15:00")).toBe("ליום שלישי ב-15:00");
+  });
+});
+
+describe("spokenWeek", () => {
+  // Thursday 2026-09-03, 12:00 in Jerusalem.
+  const NOW = at("2026-09-03T09:00:00Z");
+
+  it("says an empty week in the week's own words", () => {
+    expect(spokenWeek("next", [], NOW, TZ)).toBe("אין לך תורים בשבוע הבא.");
+    expect(spokenWeek("this", [], NOW, TZ)).toBe("לא נשארו לך תורים השבוע.");
+  });
+
+  it("names one or two bookings with their day and hour", () => {
+    expect(
+      spokenWeek("next", [booking("2026-09-08T07:00:00Z", "דנה")], NOW, TZ),
+    ).toBe("בשבוע הבא יש לך תור אחד: דנה ביום שלישי ב-10:00.");
+
+    expect(
+      spokenWeek(
+        "this",
+        [
+          booking("2026-09-03T13:00:00Z", "דנה"),
+          booking("2026-09-04T07:00:00Z", "רונית"),
+        ],
+        NOW,
+        TZ,
+      ),
+    ).toBe("השבוע נשארו לך 2 תורים: דנה היום ב-16:00, ורונית מחר ב-10:00.");
+  });
+
+  it("counts more than two, with the days and the busiest one", () => {
+    const rows = [
+      booking("2026-09-06T06:00:00Z"),
+      booking("2026-09-08T06:00:00Z"),
+      booking("2026-09-08T07:00:00Z"),
+      booking("2026-09-10T06:00:00Z"),
+    ];
+    expect(spokenWeek("next", rows, NOW, TZ)).toBe(
+      "בשבוע הבא יש לך 4 תורים ב-3 ימים. הכי עמוס ביום שלישי, עם 2 תורים.",
+    );
+  });
+
+  it("gives a tie for busiest to the earlier day, every time", () => {
+    const rows = [
+      booking("2026-09-10T06:00:00Z"),
+      booking("2026-09-10T07:00:00Z"),
+      booking("2026-09-07T06:00:00Z"),
+      booking("2026-09-07T07:00:00Z"),
+    ].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    expect(spokenWeek("next", rows, NOW, TZ)).toContain("הכי עמוס ביום שני");
+  });
+
+  it("says 'all of them' when the week is one day", () => {
+    const rows = [
+      booking("2026-09-08T06:00:00Z"),
+      booking("2026-09-08T07:00:00Z"),
+      booking("2026-09-08T08:00:00Z"),
+    ];
+    expect(spokenWeek("next", rows, NOW, TZ)).toBe(
+      "בשבוע הבא יש לך 3 תורים, כולם ביום שלישי.",
+    );
+  });
+
+  it("reads as Hebrew once the numbers are spelled", () => {
+    const rows = Array.from({ length: 7 }, (_, i) =>
+      booking(
+        `2026-09-0${6 + (i % 3)}T${String(6 + i).padStart(2, "0")}:00:00Z`,
+      ),
+    );
+    const heard = normalizeForSpeech(spokenWeek("next", rows, NOW, TZ));
+    expect(heard).toContain("שבעה תורים");
+    expect(heard).toContain("שלושה ימים");
+    expect(heard).not.toMatch(/\d/);
   });
 });

@@ -2,28 +2,33 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { BLOCKING_STATUSES } from "@/db/queries/appointments";
-import { appointments } from "@/db/schema";
+import { appointments, businesses, staff } from "@/db/schema";
 import type { Database } from "@/db/types";
 import {
   createAppointment,
   createBusiness,
   createService,
+  createStaff,
 } from "@/test/factories";
 import { createTestDb } from "@/test/pglite";
 
 import {
+  answerDraft,
   CLIENT_NAME_DAYS,
   executePending,
   PLACEHOLDER_NAME,
   READ_ONLY_TOOLS,
+  routeByVerb,
   runVoiceTool,
   upcomingClientNames,
   upcomingRoster,
-  ROSTER_DAYS,
   ROSTER_LIMIT,
   VOICE_TOOLS,
+  type DraftAction,
+  type PendingAction,
   type ToolContext,
 } from "./libi-tools";
+import { rosterDays } from "./libi-context";
 
 /**
  * What the assistant is allowed to do to a calendar.
@@ -62,6 +67,7 @@ async function shop() {
     businessId: business.id,
     timezone: TZ,
     now: NOW,
+    hasMultipleStaff: false,
   };
   return { business, service, ctx };
 }
@@ -99,7 +105,7 @@ describe("the tool surface", () => {
      */
     for (const tool of VOICE_TOOLS) {
       const name = tool.function.name;
-      if (/cancel|delete|remove|update|reschedule|move/.test(name)) {
+      if (/cancel|delete|remove|update|reschedule|move|swap/.test(name)) {
         expect(name, `${name} must be a proposal`).toMatch(/^propose_/);
       }
     }
@@ -210,9 +216,11 @@ describe("propose_cancel_appointment", () => {
     );
 
     expect(out.actionTaken).toBe("propose_cancel_appointment");
-    expect(out.pending?.kind).toBe("cancel");
-    expect(out.pending?.clientName).toBe("דנה כהן");
-    expect(out.pending?.when).toBe("10:00");
+    expect(out.pending).toMatchObject({
+      kind: "cancel",
+      clientName: "דנה כהן",
+      when: "10:00",
+    });
     expect(out.spoken).toContain("לבטל אותו?");
 
     // Still there, still bookable — nothing was written.
@@ -864,6 +872,9 @@ describe("the frozen-tenant tool set", () => {
     expect(names).not.toContain("create_appointment");
     expect(names).not.toContain("propose_cancel_appointment");
     expect(names).not.toContain("propose_reschedule_appointment");
+    expect(names).not.toContain("propose_swap_appointments");
+    // Reading the week is a read, like reading the day.
+    expect(names).toContain("get_week_summary");
     expect(READ_ONLY_TOOLS.length).toBeLessThan(VOICE_TOOLS.length);
   });
 });
@@ -945,7 +956,7 @@ describe("upcomingRoster", () => {
       await book(s, `2026-09-${day}T${hour}:0${i % 6}:00Z`, `לקוח ${i}`);
     }
 
-    const capped = await upcomingRoster(s.ctx, ROSTER_DAYS, 10);
+    const capped = await upcomingRoster(s.ctx, rosterDays("2026-09-03"), 10);
     expect(capped).toHaveLength(10);
     expect(capped.some((r) => r.clientName === "מחוץ לחלון")).toBe(false);
 
@@ -1048,8 +1059,10 @@ describe("a name the transcriber spelled its own way", () => {
       { name: "גורג גבארין" },
       s.ctx,
     );
-    expect(out.pending?.kind).toBe("cancel");
-    expect(out.pending?.clientName).toBe("ג'ורג' ג'בארין");
+    expect(out.pending).toMatchObject({
+      kind: "cancel",
+      clientName: "ג'ורג' ג'בארין",
+    });
     expect(out.spoken).toContain("ג'ורג' ג'בארין");
 
     const after = await runVoiceTool("get_next_appointment", {}, s.ctx);
@@ -1065,8 +1078,10 @@ describe("a name the transcriber spelled its own way", () => {
       { name: "ארטיום לוודאב", time: "15:30" },
       s.ctx,
     );
-    expect(out.pending?.kind).toBe("reschedule");
-    expect(out.pending?.clientName).toBe("ארטיום לבדב");
+    expect(out.pending).toMatchObject({
+      kind: "reschedule",
+      clientName: "ארטיום לבדב",
+    });
   });
 
   it("asks which, by name, when a near match fits two people", async () => {
@@ -1129,6 +1144,7 @@ describe("a name the transcriber spelled its own way", () => {
       },
       s.ctx,
     );
+
     await runVoiceTool(
       "create_appointment",
       { name: "רון", date: "2026-09-04", time: "17:00", service: "עיצוב הזקן" },
@@ -1146,9 +1162,12 @@ describe("a name the transcriber spelled its own way", () => {
     expect(rows).toContainEqual({ client: "רון", service: "עיצוב זקן" });
   });
 
-  it("falls back to the shop's first service rather than guessing between two", async () => {
-    // "תספורות" is equally near to both haircuts. A guess between them is not
-    // an answer; the owner's own first service is, as it always was.
+  it("asks which of two services it could be, rather than guessing", async () => {
+    /**
+     * "תספורות" is equally near to both haircuts. This used to fall back to
+     * the shop's first service — צבע, here — which is a booking at a length
+     * nobody chose. It is now a question naming the two it could be.
+     */
     const s = await shop();
     await createService(db, s.business.id, {
       name: "תספורת ילד",
@@ -1160,16 +1179,1073 @@ describe("a name the transcriber spelled its own way", () => {
       sortOrder: -1,
     });
 
-    await runVoiceTool(
+    const out = await runVoiceTool(
       "create_appointment",
       { name: "דני", date: "2026-09-04", time: "15:00", service: "תספורות" },
       s.ctx,
     );
 
-    const [row] = await db
-      .select({ service: appointments.serviceName })
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("תספורת גבר");
+    expect(out.spoken).toContain("תספורת ילד");
+    expect(out.spoken).not.toContain("צבע");
+    expect(out.draft).toMatchObject({ kind: "book", awaiting: "service" });
+
+    const rows = await db
+      .select()
       .from(appointments)
       .where(eq(appointments.businessId, s.business.id));
-    expect(row.service).toBe("צבע");
+    expect(rows).toHaveLength(0);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Slot-filling: a missing detail is a question, never a default.             */
+/* -------------------------------------------------------------------------- */
+
+/** Every row this shop holds — the check that a question wrote nothing. */
+async function rowsOf(businessId: string) {
+  return db
+    .select()
+    .from(appointments)
+    .where(eq(appointments.businessId, businessId));
+}
+
+/**
+ * A two-chair shop: the factory's provider renamed שירן, and מאיה beside her.
+ * The flag is set on the row as the route would read it, and on the context
+ * the tools actually take.
+ */
+async function teamShop() {
+  const s = await shop();
+  await db
+    .update(businesses)
+    .set({ hasMultipleStaff: true })
+    .where(eq(businesses.id, s.business.id));
+  const [shiran] = await db
+    .update(staff)
+    .set({ name: "שירן" })
+    .where(eq(staff.businessId, s.business.id))
+    .returning();
+  const maya = await createStaff(db, s.business.id, {
+    name: "מאיה",
+    sortOrder: 1,
+  });
+  return { ...s, shiran, maya, ctx: { ...s.ctx, hasMultipleStaff: true } };
+}
+
+describe("create_appointment asks for what it was not told", () => {
+  it("asks for the hour rather than guessing it, and holds the rest", async () => {
+    const s = await shop();
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe("לאיזו שעה לקבוע את התור לדני?");
+    expect(out.actionTaken).toBe("none");
+    expect(out.draft).toEqual({
+      kind: "book",
+      awaiting: "time",
+      name: "דני",
+      date: "2026-09-04",
+    });
+    expect(await rowsOf(s.business.id)).toHaveLength(0);
+  });
+
+  it("asks which service when the shop sells several and none was said", async () => {
+    /**
+     * The service sets how long the slot is held. Defaulting to the shop's
+     * first one was a booking at a length nobody chose — the requirement this
+     * replaced it with is that she asks, naming what the shop sells.
+     */
+    const s = await shop();
+    await createService(db, s.business.id, { name: "זקן", durationMin: 15 });
+    await createService(db, s.business.id, { name: "צבע", durationMin: 60 });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe("איזה שירות לדני — זקן, צבע או תספורת גבר?");
+    expect(out.draft).toEqual({
+      kind: "book",
+      awaiting: "service",
+      name: "דני",
+      date: "2026-09-04",
+      time: "15:00",
+    });
+    expect(await rowsOf(s.business.id)).toHaveLength(0);
+  });
+
+  it("offers a long price list as examples rather than reading all of it", async () => {
+    const s = await shop();
+    for (const name of ["א1", "א2", "א3", "א4", "א5"]) {
+      await createService(db, s.business.id, { name });
+    }
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toContain("למשל");
+    expect(out.spoken).not.toContain("תספורת גבר");
+  });
+
+  it("says it did not find a service nothing matches, then lists the shop's", async () => {
+    const s = await shop();
+    await createService(db, s.business.id, { name: "זקן", durationMin: 15 });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", time: "15:00", service: "מניקור" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe(
+      "לא מצאתי שירות בשם מניקור. איזה שירות לדני — זקן או תספורת גבר?",
+    );
+    expect(out.draft).toMatchObject({ awaiting: "service" });
+  });
+
+  it("books the only service there is without asking, and does not name it", async () => {
+    const s = await shop();
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("create_appointment");
+    expect(out.draft).toBeUndefined();
+    expect(out.spoken).not.toContain("תספורת גבר");
+  });
+
+  it("says which service it booked when there was a choice", async () => {
+    const s = await shop();
+    await createService(db, s.business.id, { name: "זקן", durationMin: 15 });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00", service: "זקן" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toContain("מחר ב-15:00, זקן.");
+    const [row] = await rowsOf(s.business.id);
+    expect(row.serviceName).toBe("זקן");
+    expect(row.endsAt.getTime() - row.startsAt.getTime()).toBe(15 * 60_000);
+  });
+});
+
+describe("create_appointment in a shop with more than one chair", () => {
+  it("asks who, among the people free for the whole service", async () => {
+    const s = await teamShop();
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe("אצל מי לדנה — שירן או מאיה?");
+    expect(out.draft).toEqual({
+      kind: "book",
+      awaiting: "staff",
+      name: "דנה",
+      date: "2026-09-04",
+      time: "15:00",
+      serviceId: s.service.id,
+      service: "תספורת גבר",
+    });
+    expect(await rowsOf(s.business.id)).toHaveLength(0);
+  });
+
+  it("books the one person who is free, and says who", async () => {
+    // מאיה's 14:45–15:15 overlaps a 15:00 haircut; שירן is free.
+    const s = await teamShop();
+    await book(s, "2026-09-04T11:45:00Z", "תפוסה", { staffId: s.maya.id });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("create_appointment");
+    expect(out.spoken).toContain("אצל שירן");
+    const mine = (await rowsOf(s.business.id)).find(
+      (row) => row.clientName === "דנה",
+    );
+    expect(mine?.staffId).toBe(s.shiran.id);
+  });
+
+  it("says so when nobody is free, and writes nothing", async () => {
+    const s = await teamShop();
+    await book(s, "2026-09-04T12:00:00Z", "אצל שירן", { staffId: s.shiran.id });
+    await book(s, "2026-09-04T12:00:00Z", "אצל מאיה", { staffId: s.maya.id });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toContain("כל נותני השירות תפוסים");
+    expect(out.draft).toBeUndefined();
+    expect(await rowsOf(s.business.id)).toHaveLength(2);
+  });
+
+  it("refuses a named provider who is busy, and names the booking in the way", async () => {
+    const s = await teamShop();
+    await book(s, "2026-09-04T12:00:00Z", "עומר", { staffId: s.maya.id });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00", staff: "מאיה" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("למאיה יש כבר תור");
+    expect(out.spoken).toContain("עומר");
+  });
+
+  it("asks again when the named provider is nobody in this shop", async () => {
+    const s = await teamShop();
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00", staff: "רונית" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe(
+      "לא מצאתי נותן שירות בשם רונית. אצל מי — שירן או מאיה?",
+    );
+    expect(out.draft).toMatchObject({ awaiting: "staff" });
+  });
+
+  it("books whoever was named, prefix and all", async () => {
+    const s = await teamShop();
+
+    await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00", staff: "למאיה" },
+      s.ctx,
+    );
+
+    const [row] = await rowsOf(s.business.id);
+    expect(row.staffId).toBe(s.maya.id);
+  });
+
+  it("never asks who in a single-chair shop, whoever else is on the roster", async () => {
+    // `has_multiple_staff` off means the primary takes every booking — the
+    // booking page's own rule, which a spoken booking must not quietly break.
+    const s = await shop();
+    const extra = await createStaff(db, s.business.id, { name: "מחליף" });
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("create_appointment");
+    expect(out.spoken).not.toContain("אצל");
+    const [row] = await rowsOf(s.business.id);
+    expect(row.staffId).not.toBe(extra.id);
+  });
+});
+
+describe("answerDraft: the answer to her question", () => {
+  it("completes a booking from one word, on the day it was asked about", async () => {
+    /**
+     * "זקן" alone means nothing; after "איזה שירות לדני?" it is the rest of a
+     * booking for tomorrow at three. The draft holds tomorrow — nothing has to
+     * work the date out again.
+     */
+    const s = await shop();
+    await createService(db, s.business.id, { name: "זקן", durationMin: 15 });
+
+    const asked = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+    const done = await answerDraft(asked.draft!, "זקן.", s.ctx);
+
+    expect(done?.actionTaken).toBe("create_appointment");
+    const [row] = await rowsOf(s.business.id);
+    expect(row.clientName).toBe("דני");
+    expect(row.serviceName).toBe("זקן");
+    expect(row.startsAt.toISOString()).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  it("completes a team booking from 'אצל מאיה'", async () => {
+    const s = await teamShop();
+
+    const asked = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+    const done = await answerDraft(asked.draft!, "אצל מאיה", s.ctx);
+
+    expect(done?.spoken).toContain("אצל מאיה");
+    const [row] = await rowsOf(s.business.id);
+    expect(row.staffId).toBe(s.maya.id);
+  });
+
+  it("does not take one provider for another whose name contains it", async () => {
+    // "דני" is inside "דנית". A substring test would give דנית's booking to דני.
+    const s = await teamShop();
+    await db.update(staff).set({ name: "דני" }).where(eq(staff.id, s.shiran.id));
+    await db.update(staff).set({ name: "דנית" }).where(eq(staff.id, s.maya.id));
+
+    const asked = await runVoiceTool(
+      "create_appointment",
+      { name: "רון", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+    await answerDraft(asked.draft!, "דנית", s.ctx);
+
+    const [row] = await rowsOf(s.business.id);
+    expect(row.staffId).toBe(s.maya.id);
+  });
+
+  it("leaves to the model what a list cannot read", async () => {
+    const s = await shop();
+    await createService(db, s.business.id, { name: "זקן", durationMin: 15 });
+
+    const asked = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+    const draft = asked.draft!;
+
+    expect(await answerDraft(draft, "משהו קצר", s.ctx)).toBeNull();
+    // An answer that runs on is a new instruction, not an answer.
+    expect(
+      await answerDraft(draft, "זקן ואחר כך תגידי לי מה יש לי מחר בבוקר", s.ctx),
+    ).toBeNull();
+
+    // The hour is always the model's to read.
+    const hour: DraftAction = {
+      kind: "book",
+      awaiting: "time",
+      name: "דני",
+      date: "2026-09-04",
+    };
+    expect(await answerDraft(hour, "בשלוש", s.ctx)).toBeNull();
+    expect(await rowsOf(s.business.id)).toHaveLength(0);
+  });
+
+  it("lends the chosen service to the same booking finished in other words", async () => {
+    // The model completes "אצל מי?" itself, naming the provider but not the
+    // service it was never asked about — which the draft already holds.
+    const s = await teamShop();
+    const beard = await createService(db, s.business.id, {
+      name: "זקן",
+      durationMin: 15,
+    });
+    const draft: DraftAction = {
+      kind: "book",
+      awaiting: "staff",
+      name: "דנה",
+      date: "2026-09-04",
+      time: "15:00",
+      serviceId: beard.id,
+      service: "זקן",
+    };
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "דנה", date: "2026-09-04", time: "15:00", staff: "מאיה" },
+      s.ctx,
+      { draft },
+    );
+
+    expect(out.actionTaken).toBe("create_appointment");
+    const [row] = await rowsOf(s.business.id);
+    expect(row.serviceName).toBe("זקן");
+  });
+
+  it("lends nothing to a different booking made instead of answering", async () => {
+    const s = await teamShop();
+    const beard = await createService(db, s.business.id, { name: "זקן" });
+    const draft: DraftAction = {
+      kind: "book",
+      awaiting: "staff",
+      name: "דנה",
+      date: "2026-09-04",
+      time: "15:00",
+      serviceId: beard.id,
+    };
+
+    const out = await runVoiceTool(
+      "create_appointment",
+      { name: "רונית", date: "2026-09-04", time: "17:00", staff: "מאיה" },
+      s.ctx,
+      { draft },
+    );
+
+    // רונית's service was never said, so it is asked — not borrowed.
+    expect(out.draft).toMatchObject({ kind: "book", awaiting: "service" });
+  });
+});
+
+describe("propose_reschedule_appointment with no destination", () => {
+  it("asks where to, naming the booking, and holds on to it", async () => {
+    const s = await shop();
+    const booked = await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe(
+      "מצאתי תור של דנה כהן מחר ב-10:00. לאיזו שעה או לאיזה יום להזיז אותו?",
+    );
+    expect(out.pending).toBeUndefined();
+    expect(out.draft).toEqual({
+      kind: "move",
+      appointmentId: booked.id,
+      clientName: "דנה כהן",
+      when: "מחר ב-10:00",
+      startsAtIso: "2026-09-04T07:00:00.000Z",
+    });
+
+    const [row] = await rowsOf(s.business.id);
+    expect(row.startsAt.toISOString()).toBe("2026-09-04T07:00:00.000Z");
+  });
+
+  it("asks only for the hour when the day was said", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", date: "2026-09-06" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toContain("לאיזו שעה ביום ראשון להזיז אותו?");
+    expect(out.draft).toMatchObject({ kind: "move", date: "2026-09-06" });
+  });
+
+  it("moves the booking it asked about, even when the name fits two", async () => {
+    const s = await shop();
+    const cohen = await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(s, "2026-09-05T07:00:00Z", "דנה לוי");
+
+    const asked = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה כהן" },
+      s.ctx,
+    );
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה", time: "17:00" },
+      s.ctx,
+      { draft: asked.draft },
+    );
+
+    expect(out.pending).toMatchObject({
+      kind: "reschedule",
+      appointmentId: cohen.id,
+      targetDate: "2026-09-04",
+      targetTime: "17:00",
+    });
+  });
+
+  it("takes the client from the draft when the answer is only an hour", async () => {
+    // "לחמש" has no name in it. The draft is what it answers.
+    const s = await shop();
+    const booked = await book(s, "2026-09-05T07:00:00Z", "דנה כהן");
+
+    const asked = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+    const out = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { time: "17:00" },
+      s.ctx,
+      { draft: asked.draft },
+    );
+
+    expect(out.pending).toMatchObject({
+      kind: "reschedule",
+      appointmentId: booked.id,
+      // The booking's own day: Saturday, not today.
+      targetDate: "2026-09-05",
+    });
+  });
+});
+
+describe("which of a client's bookings", () => {
+  it("picks the one the owner named by its time", async () => {
+    // The answer to "איזה מהם?" used to resolve to the same two bookings and
+    // be asked again, for ever.
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    const later = await book(s, "2026-09-04T11:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה", appointment_time: "14:00" },
+      s.ctx,
+    );
+
+    expect(out.pending).toMatchObject({
+      kind: "cancel",
+      appointmentId: later.id,
+      when: "14:00",
+    });
+  });
+
+  it("names the days when the choices fall on different days", async () => {
+    // Two bookings at ten on different days used to be read back as
+    // "ב-10:00 ו-10:00" — a question nobody could answer.
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    await book(s, "2026-09-06T07:00:00Z", "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("מחר ב-10:00");
+    expect(out.spoken).toContain("ביום ראשון ב-10:00");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Swapping two clients' appointments.                                        */
+/* -------------------------------------------------------------------------- */
+
+/** A booking of any length, on any provider. */
+async function bookFor(
+  s: Awaited<ReturnType<typeof shop>>,
+  startsAt: string,
+  minutes: number,
+  clientName: string,
+  overrides: Parameters<typeof createAppointment>[5] = {},
+) {
+  const from = new Date(startsAt);
+  return createAppointment(
+    db,
+    s.business.id,
+    s.service.id,
+    from,
+    new Date(from.getTime() + minutes * 60_000),
+    { clientName, ...overrides },
+  );
+}
+
+describe("propose_swap_appointments", () => {
+  it("proposes an exchange of two equal slots, and writes nothing", async () => {
+    const s = await shop();
+    const dana = await bookFor(s, "2026-09-04T07:00:00Z", 30, "דנה כהן");
+    const ronit = await bookFor(s, "2026-09-04T11:00:00Z", 30, "רונית לוי");
+
+    const out = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+
+    expect(out.actionTaken).toBe("propose_swap_appointments");
+    expect(out.spoken).toBe(
+      "מחר התור של רונית לוי יעבור ל-10:00, והתור של דנה כהן ל-14:00. להחליף?",
+    );
+    expect(out.pending).toMatchObject({
+      kind: "swap",
+      first: {
+        appointmentId: dana.id,
+        targetStartsAtIso: ronit.startsAt.toISOString(),
+      },
+      second: {
+        appointmentId: ronit.id,
+        targetStartsAtIso: dana.startsAt.toISOString(),
+      },
+    });
+
+    const rows = await rowsOf(s.business.id);
+    expect(rows.find((r) => r.id === dana.id)?.startsAt).toEqual(dana.startsAt);
+  });
+
+  it("swaps back-to-back bookings of different lengths inside their block", async () => {
+    /**
+     * A 60-minute colour at 10:00 and a 30-minute cut at 11:00. Exchanging
+     * start times would leave a half-hour hole at 10:30 and run the colour to
+     * 12:00; swapping their order keeps 10:00–11:30 exactly as full as it was.
+     */
+    const s = await shop();
+    const dana = await bookFor(s, "2026-09-04T07:00:00Z", 60, "דנה כהן");
+    await bookFor(s, "2026-09-04T08:00:00Z", 30, "רונית לוי");
+
+    const out = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe(
+      "השירותים באורך שונה, אז מחר התור של רונית לוי יעבור ל-10:00, והתור של דנה כהן ל-10:30. להחליף?",
+    );
+    expect(out.pending).toMatchObject({
+      kind: "swap",
+      first: {
+        appointmentId: dana.id,
+        targetStartsAtIso: "2026-09-04T07:30:00.000Z",
+      },
+      second: { targetStartsAtIso: "2026-09-04T07:00:00.000Z" },
+    });
+  });
+
+  it("refuses a swap the longer one does not fit, and says who is in the way", async () => {
+    const s = await shop();
+    await bookFor(s, "2026-09-04T07:00:00Z", 60, "דנה כהן");
+    await bookFor(s, "2026-09-04T11:00:00Z", 30, "רונית לוי");
+    await bookFor(s, "2026-09-04T11:30:00Z", 30, "עומר");
+
+    const out = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toBe(
+      "אי אפשר להחליף: לתור של דנה כהן צריך שעה, וב-14:30 כבר יש תור לעומר. לא שיניתי כלום.",
+    );
+  });
+
+  it("refuses when both names lead to the same booking", async () => {
+    const s = await shop();
+    await bookFor(s, "2026-09-04T07:00:00Z", 30, "דנה כהן");
+
+    const out = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "דנה כהן" },
+      s.ctx,
+    );
+
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("לאותו תור");
+  });
+
+  it("asks which, when a name fits two bookings — and takes the answer", async () => {
+    const s = await shop();
+    await bookFor(s, "2026-09-04T07:00:00Z", 30, "דנה כהן");
+    await bookFor(s, "2026-09-04T09:00:00Z", 30, "דנה כהן");
+    await bookFor(s, "2026-09-04T11:00:00Z", 30, "רונית לוי");
+
+    const out = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+    expect(out.pending).toBeUndefined();
+    expect(out.spoken).toContain("איזה מהם להחליף?");
+
+    const picked = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", first_time: "12:00", second_name: "רונית" },
+      s.ctx,
+    );
+    expect(picked.pending?.kind).toBe("swap");
+  });
+
+  it("says whom each client will be with when the providers change", async () => {
+    const s = await teamShop();
+    await bookFor(s, "2026-09-04T07:00:00Z", 30, "דנה כהן", {
+      staffId: s.shiran.id,
+    });
+    await bookFor(s, "2026-09-04T11:00:00Z", 30, "רונית לוי", {
+      staffId: s.maya.id,
+    });
+
+    const out = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+
+    expect(out.spoken).toBe(
+      "מחר התור של רונית לוי יעבור ל-10:00 אצל שירן, והתור של דנה כהן ל-14:00 אצל מאיה. להחליף?",
+    );
+  });
+});
+
+describe("executePending: a swap", () => {
+  it("swaps both at once — including back to back, where one move alone would clash", async () => {
+    const s = await shop();
+    const dana = await bookFor(s, "2026-09-04T07:00:00Z", 60, "דנה כהן");
+    const ronit = await bookFor(s, "2026-09-04T08:00:00Z", 30, "רונית לוי");
+
+    const proposed = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+    const done = await executePending(proposed.pending!, s.ctx);
+
+    expect(done.actionTaken).toBe("confirmed");
+    expect(done.spoken).toBe("החלפתי: רונית לוי ב-10:00 ודנה כהן ב-10:30.");
+    expect(done.changed).toEqual({
+      kind: "swapped",
+      appointmentIds: [dana.id, ronit.id],
+    });
+    expect(done.aftermath?.map((item) => item.kind)).toEqual([
+      "moved",
+      "moved",
+    ]);
+
+    const byId = new Map(
+      (await rowsOf(s.business.id)).map((row) => [row.id, row]),
+    );
+    expect(byId.get(ronit.id)?.startsAt.toISOString()).toBe(
+      "2026-09-04T07:00:00.000Z",
+    );
+    expect(byId.get(ronit.id)?.endsAt.toISOString()).toBe(
+      "2026-09-04T07:30:00.000Z",
+    );
+    expect(byId.get(dana.id)?.startsAt.toISOString()).toBe(
+      "2026-09-04T07:30:00.000Z",
+    );
+    expect(byId.get(dana.id)?.endsAt.toISOString()).toBe(
+      "2026-09-04T08:30:00.000Z",
+    );
+  });
+
+  it("refuses when one of them moved since she asked", async () => {
+    const s = await shop();
+    const dana = await bookFor(s, "2026-09-04T07:00:00Z", 30, "דנה כהן");
+    const ronit = await bookFor(s, "2026-09-04T11:00:00Z", 30, "רונית לוי");
+
+    const proposed = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+    await db
+      .update(appointments)
+      .set({
+        startsAt: new Date("2026-09-04T13:00:00Z"),
+        endsAt: new Date("2026-09-04T13:30:00Z"),
+      })
+      .where(eq(appointments.id, ronit.id));
+
+    const out = await executePending(proposed.pending!, s.ctx);
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("השתנו");
+
+    const rows = await rowsOf(s.business.id);
+    expect(rows.find((r) => r.id === dana.id)?.startsAt).toEqual(dana.startsAt);
+  });
+
+  it("leaves both alone when a third booking takes part of a place while she asks", async () => {
+    const s = await shop();
+    const dana = await bookFor(s, "2026-09-04T07:00:00Z", 60, "דנה כהן");
+    const ronit = await bookFor(s, "2026-09-04T11:00:00Z", 30, "רונית לוי");
+
+    const proposed = await runVoiceTool(
+      "propose_swap_appointments",
+      { first_name: "דנה", second_name: "רונית" },
+      s.ctx,
+    );
+    expect(proposed.pending?.kind).toBe("swap");
+
+    // דנה's hour at 14:00 needs 14:30 too, and עומר takes it before the "כן".
+    await bookFor(s, "2026-09-04T11:30:00Z", 30, "עומר");
+
+    const out = await executePending(proposed.pending!, s.ctx);
+    expect(out.actionTaken).toBe("none");
+    expect(out.spoken).toContain("עומר");
+
+    const rows = await rowsOf(s.business.id);
+    expect(rows.find((r) => r.id === dana.id)?.startsAt).toEqual(dana.startsAt);
+    expect(rows.find((r) => r.id === ronit.id)?.startsAt).toEqual(
+      ronit.startsAt,
+    );
+  });
+
+  it("cannot reach another tenant's appointments", async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    const a = await bookFor(theirs, "2026-09-04T07:00:00Z", 30, "א");
+    const b = await bookFor(theirs, "2026-09-04T11:00:00Z", 30, "ב");
+
+    const forged: PendingAction = {
+      kind: "swap",
+      first: {
+        appointmentId: a.id,
+        clientName: "א",
+        when: "10:00",
+        toWhen: "14:00",
+        startsAtIso: a.startsAt.toISOString(),
+        targetStartsAtIso: b.startsAt.toISOString(),
+      },
+      second: {
+        appointmentId: b.id,
+        clientName: "ב",
+        when: "14:00",
+        toWhen: "10:00",
+        startsAtIso: b.startsAt.toISOString(),
+        targetStartsAtIso: a.startsAt.toISOString(),
+      },
+    };
+
+    const out = await executePending(forged, mine.ctx);
+    expect(out.actionTaken).toBe("none");
+    const rows = await rowsOf(theirs.business.id);
+    expect(rows.find((r) => r.id === a.id)?.startsAt).toEqual(a.startsAt);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The week, and next week.                                                   */
+/* -------------------------------------------------------------------------- */
+
+describe("get_week_summary", () => {
+  it("counts next week, Sunday to Saturday, and names the busiest day", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "השבוע");
+    await book(s, "2026-09-06T06:00:00Z", "ראשון 1");
+    await book(s, "2026-09-06T07:00:00Z", "ראשון 2");
+    await book(s, "2026-09-08T06:00:00Z", "שלישי 1");
+    await book(s, "2026-09-08T07:00:00Z", "שלישי 2");
+    await book(s, "2026-09-08T08:00:00Z", "שלישי 3");
+    await book(s, "2026-09-12T15:00:00Z", "שבת בערב");
+    await book(s, "2026-09-13T06:00:00Z", "השבוע שאחרי");
+
+    const out = await runVoiceTool("get_week_summary", { week: "next" }, s.ctx);
+
+    expect(out.actionTaken).toBe("get_week_summary");
+    expect(out.spoken).toBe(
+      "בשבוע הבא יש לך 6 תורים ב-3 ימים. הכי עמוס ביום שלישי, עם 3 תורים.",
+    );
+    expect(out.navigate).toBeUndefined();
+  });
+
+  it("counts what is left of this week, from now", async () => {
+    // It is Thursday at 12:00. This morning is behind; Sunday is next week.
+    const s = await shop();
+    await book(s, "2026-09-03T06:00:00Z", "הבוקר");
+    await book(s, "2026-09-03T13:00:00Z", "דנה");
+    await book(s, "2026-09-05T07:00:00Z", "רונית");
+    await book(s, "2026-09-06T07:00:00Z", "ראשון");
+
+    const out = await runVoiceTool("get_week_summary", { week: "this" }, s.ctx);
+
+    expect(out.spoken).toBe(
+      "השבוע נשארו לך 2 תורים: דנה היום ב-16:00, ורונית ביום שבת ב-10:00.",
+    );
+  });
+
+  it("says an empty week is empty", async () => {
+    const s = await shop();
+    const out = await runVoiceTool("get_week_summary", { week: "next" }, s.ctx);
+    expect(out.spoken).toBe("אין לך תורים בשבוע הבא.");
+  });
+
+  it("opens the calendar on that week when asked to show it", async () => {
+    const s = await shop();
+    const out = await runVoiceTool(
+      "get_week_summary",
+      { week: "next", show: true },
+      s.ctx,
+    );
+    expect(out.navigate?.href).toBe(
+      "/dashboard/agenda/full?week=2026-09-06&view=week",
+    );
+  });
+
+  it("stays inside the tenant", async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    await book(theirs, "2026-09-07T07:00:00Z", "של מישהו אחר");
+
+    const out = await runVoiceTool(
+      "get_week_summary",
+      { week: "next" },
+      mine.ctx,
+    );
+    expect(out.spoken).toBe("אין לך תורים בשבוע הבא.");
+  });
+});
+
+describe("upcomingRoster reaches next week", () => {
+  it("runs to the Saturday that ends next week, and stops there", async () => {
+    // Thursday the 3rd: next week is the 6th to the 12th.
+    const s = await shop();
+    await book(s, "2026-09-12T17:00:00Z", "שבת בערב");
+    await book(s, "2026-09-13T06:00:00Z", "השבוע שאחרי");
+
+    const names = (await upcomingRoster(s.ctx)).map((row) => row.clientName);
+    expect(names).toContain("שבת בערב");
+    expect(names).not.toContain("השבוע שאחרי");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* What a write tells the screen, and what it still owes.                     */
+/* -------------------------------------------------------------------------- */
+
+describe("what a turn changed", () => {
+  it("tells the screen when it booked, and only then", async () => {
+    const s = await shop();
+
+    const created = await runVoiceTool(
+      "create_appointment",
+      { name: "דני", date: "2026-09-04", time: "15:00" },
+      s.ctx,
+    );
+    const [row] = await rowsOf(s.business.id);
+    expect(created.changed).toEqual({
+      kind: "created",
+      appointmentIds: [row.id],
+    });
+
+    // Reads, proposals and questions change nothing on screen.
+    const quiet: [string, Record<string, unknown>][] = [
+      ["get_next_appointment", {}],
+      ["get_week_summary", { week: "next" }],
+      ["find_client_appointments", { name: "דני" }],
+      ["propose_cancel_appointment", { name: "דני" }],
+      ["propose_reschedule_appointment", { name: "דני", time: "17:00" }],
+      ["create_appointment", { name: "אחר" }],
+    ];
+    for (const [name, args] of quiet) {
+      const out = await runVoiceTool(name, args, s.ctx);
+      expect(out.changed, name).toBeUndefined();
+      expect(out.aftermath, name).toBeUndefined();
+    }
+  });
+
+  it("owes the cancelled client a notice, and the moved one a new reminder", async () => {
+    const s = await shop();
+    const dana = await book(s, "2026-09-04T07:00:00Z", "דנה כהן");
+    const ronit = await book(s, "2026-09-05T07:00:00Z", "רונית לוי");
+
+    const cancel = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+    const cancelled = await executePending(cancel.pending!, s.ctx);
+    expect(cancelled.changed).toEqual({
+      kind: "cancelled",
+      appointmentIds: [dana.id],
+    });
+    expect(cancelled.aftermath).toEqual([
+      expect.objectContaining({ kind: "cancelled", wasRequest: false }),
+    ]);
+
+    const move = await runVoiceTool(
+      "propose_reschedule_appointment",
+      { name: "רונית", time: "17:00" },
+      s.ctx,
+    );
+    const moved = await executePending(move.pending!, s.ctx);
+    expect(moved.changed).toEqual({
+      kind: "moved",
+      appointmentIds: [ronit.id],
+    });
+    const [owed] = moved.aftermath ?? [];
+    expect(owed?.kind).toBe("moved");
+    // The row as it is *after* the move — the one a reminder must be planned on.
+    expect(owed?.appointment.startsAt.toISOString()).toBe(
+      "2026-09-05T14:00:00.000Z",
+    );
+  });
+
+  it("tells a turned-down request it was turned down, not cancelled", async () => {
+    const s = await shop();
+    await book(s, "2026-09-04T07:00:00Z", "דנה כהן", { status: "pending" });
+
+    const cancel = await runVoiceTool(
+      "propose_cancel_appointment",
+      { name: "דנה" },
+      s.ctx,
+    );
+    const out = await executePending(cancel.pending!, s.ctx);
+    expect(out.aftermath).toEqual([
+      expect.objectContaining({ kind: "cancelled", wasRequest: true }),
+    ]);
+  });
+});
+
+describe("routeByVerb", () => {
+  /**
+   * Found in the browser: "תזיזי את התור של רפאל שטרן", transcribed
+   * perfectly, went to the lookup and came back as a reading of the booking
+   * instead of the question "לאיזו שעה או לאיזה יום להזיז אותו?".
+   */
+  it("sends a move the model read as a lookup to the move", () => {
+    for (const said of [
+      "תזיזי את התור של רפאל שטרן.",
+      "תדחי את רפאל",
+      "אפשר להזיז את רפאל?",
+      "תקדימי את התור של רפאל",
+      "תעבירי את רפאל",
+    ]) {
+      expect(
+        routeByVerb("find_client_appointments", { name: "רפאל" }, said),
+        said,
+      ).toEqual({
+        tool: "propose_reschedule_appointment",
+        args: { name: "רפאל" },
+      });
+    }
+  });
+
+  it("leaves a real lookup alone", () => {
+    expect(
+      routeByVerb("find_client_appointments", { name: "רפאל" }, "מתי מגיע רפאל?"),
+    ).toEqual({ tool: "find_client_appointments", args: { name: "רפאל" } });
+  });
+
+  it("only ever turns a read into a proposal, never anything else", () => {
+    // A booking with a move verb in it is still a booking; a cancel is still
+    // a cancel. Only the one direction that cannot write is taken.
+    for (const tool of ["create_appointment", "propose_cancel_appointment"]) {
+      expect(routeByVerb(tool, { name: "רפאל" }, "תזיזי את רפאל").tool).toBe(tool);
+    }
+  });
+
+  it("lands on a question, and writes nothing", async () => {
+    const s = await shop();
+    await book(s, "2026-09-06T09:10:00Z", "רפאל שטרן");
+
+    const routed = routeByVerb(
+      "find_client_appointments",
+      { name: "רפאל שטרן" },
+      "תזיזי את התור של רפאל שטרן.",
+    );
+    const out = await runVoiceTool(routed.tool, routed.args, s.ctx);
+
+    expect(out.spoken).toBe(
+      "מצאתי תור של רפאל שטרן ביום ראשון ב-12:10. לאיזו שעה או לאיזה יום להזיז אותו?",
+    );
+    expect(out.draft?.kind).toBe("move");
+    expect(out.pending).toBeUndefined();
   });
 });

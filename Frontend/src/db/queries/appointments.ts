@@ -180,6 +180,90 @@ export async function rescheduleAppointment(
   }
 }
 
+/** One half of a swap: where an appointment is now, and where it is going. */
+export type SwapWrite = {
+  id: string;
+  /** Its start when the swap was planned. The write is refused if it moved. */
+  fromStartsAt: Date;
+  startsAt: Date;
+  endsAt: Date;
+  staffId: string;
+};
+
+/** Raised inside the swap's transaction to roll it back; never escapes it. */
+class SwapStaleError extends Error {}
+
+/**
+ * Moves two appointments into each other's places, in one transaction.
+ *
+ * ---------------------------------------------------------------------------
+ * **Two `rescheduleAppointment` calls cannot do this, because the constraint
+ * is checked per statement.** `appointments_no_overlap_staff` is not
+ * deferrable, and whichever appointment moves first lands on the other one's
+ * range while that one is still sitting there — so a swap that is valid as a
+ * whole fails halfway, every time the two share a provider.
+ *
+ * **So the first one is parked on an empty range first.** `ends_at` is set to
+ * its own `starts_at`, and `tstzrange(x, x, '[)')` is the empty range, which
+ * overlaps nothing — the constraint stops seeing the row without its status
+ * changing, which would be visible to anything reading status. The second
+ * moves, then the first. Nothing outside the transaction ever sees the parked
+ * row, and anything that fails rolls all three statements back.
+ *
+ * **Each write is a compare-and-swap on the start it was planned against**, so
+ * an appointment moved or cancelled after the plan was made refuses the whole
+ * swap rather than being moved from wherever it is now. That returns `null`;
+ * an overlap with a *third* booking raises `SlotTakenError`, as every other
+ * write here does.
+ * ---------------------------------------------------------------------------
+ */
+export async function swapAppointments(
+  db: Database,
+  businessId: string,
+  [first, second]: readonly [SwapWrite, SwapWrite],
+) {
+  const still = (write: SwapWrite) =>
+    and(
+      eq(appointments.businessId, businessId),
+      eq(appointments.id, write.id),
+      eq(appointments.startsAt, write.fromStartsAt),
+      inArray(appointments.status, [...BLOCKING_STATUSES]),
+    );
+
+  try {
+    return await db.transaction(async (tx) => {
+      const parked = await tx
+        .update(appointments)
+        .set({ endsAt: sql`${appointments.startsAt}` })
+        .where(still(first))
+        .returning({ id: appointments.id });
+      if (parked.length === 0) throw new SwapStaleError();
+
+      const moved: (typeof appointments.$inferSelect)[] = [];
+      for (const write of [second, first]) {
+        const [row] = await tx
+          .update(appointments)
+          .set({
+            startsAt: write.startsAt,
+            endsAt: write.endsAt,
+            staffId: write.staffId,
+          })
+          .where(still(write))
+          .returning();
+        if (!row) throw new SwapStaleError();
+        moved.push(row);
+      }
+
+      const [secondRow, firstRow] = moved;
+      return [firstRow, secondRow] as const;
+    });
+  } catch (error) {
+    if (error instanceof SwapStaleError) return null;
+    if (isOverlapViolation(error)) throw new SlotTakenError();
+    throw error;
+  }
+}
+
 /**
  * The correctable parts of a booking: who it is for, how to reach them, and
  * what was asked for.

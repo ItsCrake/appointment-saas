@@ -26,18 +26,31 @@ import {
   updateAppointmentStatus,
 } from "@/db/queries/appointments";
 import { listServices } from "@/db/queries/services";
-import { getDefaultStaff } from "@/db/queries/staff";
+import { getDefaultStaff, listActiveStaff, listAllStaff } from "@/db/queries/staff";
 import type { Database } from "@/db/types";
+import type { Aftermath } from "@/lib/appointment-aftermath";
+import {
+  confirmSwap,
+  planSwapFor,
+  type SwapClash,
+  type SwapLeg,
+} from "@/lib/appointment-swap";
+import { shiftDays, weekOf } from "@/lib/calendar-week";
 import { todayInTimezone } from "@/lib/format";
 import { normalizePhone } from "@/lib/validation";
 
-import { matchNames } from "./libi-names";
+import { rosterDays } from "./libi-context";
+import { matchNames, nameKey } from "./libi-names";
 import {
+  spokenChoice,
   spokenDay,
+  spokenDuration,
   spokenNext,
   spokenSearch,
   spokenToday,
   spokenTime,
+  spokenWeek,
+  toward,
   type SpokenAppointment,
 } from "./libi-speech";
 
@@ -78,8 +91,29 @@ import {
  * shop's day is — and the guard that actually matters,
  * `appointments_no_overlap_staff`, is enforced by the database on the way in
  * and surfaced here as a sentence rather than a stack trace.
+ *
+ * **A missing detail is asked for by the tool, never filled in by it.** A move
+ * with no destination, a booking with no hour, no service in a shop that sells
+ * several, no provider in a shop with more than one free — each returns a
+ * question and a {@link DraftAction} instead of a default. The model is told
+ * the same thing, but the tool is what makes it true: a default here is a
+ * booking the owner did not ask for, at a length nobody chose.
  * ---------------------------------------------------------------------------
  */
+
+/**
+ * Which of a client's bookings is meant, when there is more than one.
+ *
+ * **Without these, "איזה מהם?" could not be answered.** She reads the times
+ * back when a name matches several bookings, and the owner answers "של
+ * שתיים" — but the tools took a name and nothing else, so the answer resolved
+ * to the same several bookings and she asked again, for ever. The hint picks
+ * among the name's matches; it never widens them.
+ */
+const APPOINTMENT_DATE_HINT =
+  "YYYY-MM-DD של התור הקיים — רק כדי לבחור בין כמה תורים של אותו לקוח (למשל אחרי ששאלת 'איזה מהם'). אחרת אל תשלחי.";
+const APPOINTMENT_TIME_HINT =
+  "HH:MM של התור הקיים — רק כדי לבחור בין כמה תורים של אותו לקוח. אחרת אל תשלחי.";
 
 /** The tool schema handed to the model. OpenAI's function-calling shape. */
 export const VOICE_TOOLS = [
@@ -99,6 +133,31 @@ export const VOICE_TOOLS = [
       description:
         "כמה תורים יש **היום** ומה נותר היום. טריגרים: כמה תורים יש לי היום, איך נראה היום, סיכום יומי. אסור למחר, לאתמול או ליום נקוב — לאלה עני מהיומן שלמעלה.",
       parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_week_summary",
+      description:
+        "כמה תורים יש השבוע או בשבוע הבא, בכמה ימים ומה היום העמוס. טריגרים: מה יש לי השבוע, מה יש לי בשבוע הבא, איך נראה השבוע הבא, כמה תורים בשבוע הבא. ביקשו לראות את השבוע ביומן (תראי לי את השבוע הבא) — אותו כלי עם show=true.",
+      parameters: {
+        type: "object",
+        properties: {
+          week: {
+            type: "string",
+            enum: ["this", "next"],
+            description:
+              "this = מעכשיו עד סוף השבוע הזה. next = השבוע הבא, ראשון עד שבת.",
+          },
+          show: {
+            type: "boolean",
+            description:
+              "true רק כשביקשו לראות את השבוע ביומן. אחרת אל תשלחי את השדה.",
+          },
+        },
+        required: ["week"],
+      },
     },
   },
   {
@@ -132,6 +191,14 @@ export const VOICE_TOOLS = [
             type: "string",
             description: "שם הלקוח שאת התור שלו מבטלים",
           },
+          appointment_date: {
+            type: "string",
+            description: APPOINTMENT_DATE_HINT,
+          },
+          appointment_time: {
+            type: "string",
+            description: APPOINTMENT_TIME_HINT,
+          },
         },
         required: ["name"],
       },
@@ -142,7 +209,7 @@ export const VOICE_TOOLS = [
     function: {
       name: "propose_reschedule_appointment",
       description:
-        "מכין הזזה של תור קיים למועד אחר ומחזיר שאלת אישור. אינו מזיז בפועל. טריגרים: תזיזי, הזיזי, תדחי, תקדימי, תעבירי, שני את השעה.",
+        "מכין הזזה של תור קיים ומחזיר שאלת אישור. אינו מזיז בפועל. לא נאמר לאן להזיז? קראי לו בלי time — הוא ישאל לאיזו שעה או לאיזה יום. אסור לך לבחור שעה בעצמך. טריגרים: תזיזי, הזיזי, תדחי, תקדימי, תעבירי, שני את השעה.",
       parameters: {
         type: "object",
         properties: {
@@ -153,14 +220,43 @@ export const VOICE_TOOLS = [
           date: {
             type: "string",
             description:
-              "YYYY-MM-DD, מחושב מהתאריך שלמעלה. לא נאמר תאריך — השאירי ריק ותישמר היום של התור הקיים.",
+              "היום החדש, YYYY-MM-DD, מחושב מהתאריך שלמעלה. לא נאמר יום — אל תשלחי, ויישמר היום של התור הקיים.",
           },
           time: {
             type: "string",
-            description: "HH:MM בשעון העסק",
+            description:
+              "השעה החדשה, HH:MM בשעון העסק — רק אם נאמרה. לא נאמרה — אל תשלחי את השדה.",
+          },
+          appointment_date: {
+            type: "string",
+            description: APPOINTMENT_DATE_HINT,
+          },
+          appointment_time: {
+            type: "string",
+            description: APPOINTMENT_TIME_HINT,
           },
         },
-        required: ["name", "time"],
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "propose_swap_appointments",
+      description:
+        "מכין החלפה בין התורים של שני לקוחות — כל אחד עובר למקום של השני — ובודק שאורכי השירותים מתאימים. מחזיר שאלת אישור ואינו מחליף בפועל. לעולם אל תעשי החלפה כשתי הזזות. טריגרים: תחליפי בין, להחליף בין, שיתחלפו, תחליפי את התורים של X ו-Y.",
+      parameters: {
+        type: "object",
+        properties: {
+          first_name: { type: "string", description: "שם הלקוח הראשון" },
+          second_name: { type: "string", description: "שם הלקוח השני" },
+          first_date: { type: "string", description: APPOINTMENT_DATE_HINT },
+          first_time: { type: "string", description: APPOINTMENT_TIME_HINT },
+          second_date: { type: "string", description: APPOINTMENT_DATE_HINT },
+          second_time: { type: "string", description: APPOINTMENT_TIME_HINT },
+        },
+        required: ["first_name", "second_name"],
       },
     },
   },
@@ -169,7 +265,7 @@ export const VOICE_TOOLS = [
     function: {
       name: "create_appointment",
       description:
-        "קובע תור חדש ותופס את המשבצת. טריגרים: תקבעי, קבעי, תרשמי, רשמי, תוסיפי, שרייני, תכניסי. מותר גם מחוץ לשעות הפעילות. טלפון אינו נדרש.",
+        "קובע תור חדש ותופס את המשבצת. חסרים שעה, שירות או נותן שירות? קראי לו עם מה שנאמר בלבד — הוא ישאל את מה שחסר. לעולם אל תבחרי שירות או נותן שירות בעצמך. מותר גם מחוץ לשעות הפעילות. טלפון אינו נדרש. טריגרים: תקבעי, קבעי, תרשמי, רשמי, תוסיפי, שרייני, תכניסי.",
       parameters: {
         type: "object",
         properties: {
@@ -185,7 +281,8 @@ export const VOICE_TOOLS = [
           },
           time: {
             type: "string",
-            description: "HH:MM בשעון העסק",
+            description:
+              "HH:MM בשעון העסק — רק אם נאמרה שעה. לא נאמרה — אל תשלחי.",
           },
           phone: {
             type: "string",
@@ -195,10 +292,15 @@ export const VOICE_TOOLS = [
           service: {
             type: "string",
             description:
-              "שם השירות אם נאמר. אחרת אל תשלחי את השדה.",
+              "שם השירות רק אם נאמר. אחרת אל תשלחי את השדה.",
+          },
+          staff: {
+            type: "string",
+            description:
+              "שם נותן השירות רק אם נאמר (אצל X). אחרת אל תשלחי את השדה.",
           },
         },
-        required: ["time"],
+        required: [],
       },
     },
   },
@@ -207,7 +309,7 @@ export const VOICE_TOOLS = [
     function: {
       name: "show_appointment_in_calendar",
       description:
-        "פותח את היומן על תור מסוים ומסמן אותו. טריגרים: תראי לי, תפתחי, תציגי, איפה, קפצי ל. משמש כשהמשתמש רוצה לראות תור ביומן ולא רק לשמוע עליו.",
+        "פותח את היומן על תור מסוים ומסמן אותו. טריגרים: תראי לי, תפתחי, תציגי, איפה, קפצי ל. משמש כשהמשתמש רוצה לראות תור ביומן ולא רק לשמוע עליו. לשבוע שלם — get_week_summary עם show=true.",
       parameters: {
         type: "object",
         properties: {
@@ -246,6 +348,7 @@ export type VoiceToolName = (typeof VOICE_TOOLS)[number]["function"]["name"];
 const WRITE_TOOLS: readonly string[] = [
   "propose_cancel_appointment",
   "propose_reschedule_appointment",
+  "propose_swap_appointments",
   "create_appointment",
 ];
 
@@ -307,15 +410,96 @@ export type PendingAction =
        */
       targetDate: string;
       targetTime: string;
+    }
+  | {
+      kind: "swap";
+      /** The client named first, and where the swap puts them. */
+      first: SwapPendingLeg;
+      second: SwapPendingLeg;
     };
 
 /**
- * What a tool call produced.
- *
- * `spoken` is what the assistant says. `pending` is present only when a
- * destructive change has been described and is waiting on an answer; the client
- * never receives a tool that has already changed something without saying so.
+ * One side of a described swap. Re-planned and compared on confirmation, never
+ * applied as written — see `confirmSwap`.
  */
+export type SwapPendingLeg = {
+  appointmentId: string;
+  clientName: string;
+  /** Spoken form of where it is now. */
+  when: string;
+  /** Spoken form of where it is going. */
+  toWhen: string;
+  startsAtIso: string;
+  targetStartsAtIso: string;
+};
+
+/**
+ * A change ליבי has begun and cannot finish without one more detail.
+ *
+ * ---------------------------------------------------------------------------
+ * **Not a pending action, and kept apart from one on purpose.** A pending
+ * action is complete and waits for yes or no, which a word list answers. A
+ * draft is *incomplete* and waits for a detail — an hour, a service, a
+ * provider — which is a different question with a different gate: a yes means
+ * nothing to it, and an answer to it must never be mistaken for a yes.
+ *
+ * **Round-trips through the browser like the pending action, and is trusted no
+ * more.** The ids in it are re-resolved against this tenant's own lists before
+ * they are used, and everything else in it is what the owner said a turn ago
+ * — nothing they could not simply say again.
+ *
+ * **What it buys is the rest of the sentence.** "זקן" is a complete answer to
+ * "איזה שירות?" and a meaningless request on its own; the draft is what turns
+ * it into "a beard trim for דני tomorrow at three" without a model re-reading
+ * the conversation and re-deriving a date it might get wrong on a write that
+ * does not ask for confirmation.
+ * ---------------------------------------------------------------------------
+ */
+export type DraftAction =
+  | {
+      kind: "book";
+      /** What she asked for and is waiting to hear. */
+      awaiting: "time" | "service" | "staff";
+      /** As said; absent books the placeholder name. */
+      name?: string;
+      /** Shop-local YYYY-MM-DD. */
+      date: string;
+      /** Shop-local HH:MM, once known. */
+      time?: string;
+      phone?: string;
+      /** Already chosen — re-resolved against this shop's own list on use. */
+      serviceId?: string;
+      /** The diary's name for it, so the prompt can say it. */
+      service?: string;
+      staffId?: string;
+      staff?: string;
+    }
+  | {
+      kind: "move";
+      appointmentId: string;
+      clientName: string;
+      /** Spoken form of where it is now. */
+      when: string;
+      startsAtIso: string;
+      /** A day already said for the move, when only the hour is missing. */
+      date?: string;
+    };
+
+/**
+ * What a turn changed, for the screen that is showing it.
+ *
+ * **The calendar is rendered on the server, so it cannot see a write it did
+ * not make.** A booking ליבי took used to appear only after the owner
+ * reloaded the page — the one moment they were looking at the diary to see
+ * whether she had understood. The client refreshes the route when this is
+ * present. Ids rather than rows: the refresh re-reads everything, and nothing
+ * about a client belongs in a response that only has to say "look again".
+ */
+export type DiaryChange = {
+  kind: "created" | "moved" | "cancelled" | "swapped";
+  appointmentIds: string[];
+};
+
 /**
  * Somewhere the dashboard should be, because ליבי was asked to show rather
  * than to tell.
@@ -327,11 +511,27 @@ export type PendingAction =
  */
 export type VoiceNavigation = { href: string };
 
+/**
+ * What a tool call produced.
+ *
+ * `spoken` is what the assistant says. `pending` is present only when a
+ * destructive change has been described and is waiting on an answer; `draft`
+ * only when a change is waiting on a detail. The client never receives a tool
+ * that has already changed something without saying so — and `changed` says
+ * so to the screen as well as to the ear.
+ *
+ * `aftermath` never leaves the server: it is what the write still owes the
+ * client (a re-planned reminder, a cancellation notice), run by the route
+ * after the answer has been sent.
+ */
 export type ToolOutcome = {
   spoken: string;
   actionTaken: VoiceToolName | "none" | "confirmed" | "declined";
   pending?: PendingAction;
+  draft?: DraftAction;
   navigate?: VoiceNavigation;
+  changed?: DiaryChange;
+  aftermath?: Aftermath[];
 };
 
 /** Only what a sentence needs. The rest of the row is not the assistant's business. */
@@ -358,6 +558,13 @@ export type ToolContext = {
   businessId: string;
   timezone: string;
   now: Date;
+  /**
+   * The owner's answer to "do several people take bookings here?" — which
+   * decides whether a booking goes to the primary provider or has to be
+   * placed with somebody. The same flag the booking page reads; see
+   * `has_multiple_staff`.
+   */
+  hasMultipleStaff: boolean;
 };
 
 /**
@@ -366,26 +573,67 @@ export type ToolContext = {
  * Unknown names return a spoken refusal rather than throwing: the model chooses
  * these, and a hallucinated tool name should cost the owner a sentence, not a
  * 500 in the middle of a turn.
+ *
+ * `draft` is the change she was waiting to complete, when there is one. It
+ * only ever *narrows*: the appointment a move draft is about wins a tie between
+ * several bookings of the same name, and a booking draft lends the service and
+ * provider already chosen to the same booking completed in other words.
  */
 export async function runVoiceTool(
   name: string,
   args: Record<string, unknown>,
   ctx: ToolContext,
+  { draft }: { draft?: DraftAction } = {},
 ): Promise<ToolOutcome> {
   switch (name) {
     case "get_next_appointment":
       return nextAppointment(ctx);
     case "get_today_summary":
       return todaySummary(ctx);
+    case "get_week_summary":
+      return weekSummary(args.week === "next" ? "next" : "this", args.show === true, ctx);
     case "find_client_appointments":
       return findClient(String(args.name ?? ""), ctx);
     case "propose_cancel_appointment":
-      return proposeCancel(String(args.name ?? ""), ctx);
-    case "propose_reschedule_appointment":
-      return proposeReschedule(
+      return proposeCancel(
         String(args.name ?? ""),
-        optionalString(args.date),
-        optionalString(args.time),
+        {
+          date: optionalString(args.appointment_date),
+          time: optionalString(args.appointment_time),
+        },
+        ctx,
+      );
+    case "propose_reschedule_appointment": {
+      const move = draft?.kind === "move" ? draft : undefined;
+      return proposeReschedule(
+        {
+          // "לחמש" answers the draft's question with no name in it.
+          name: optionalString(args.name) ?? move?.clientName ?? "",
+          date: optionalString(args.date) ?? move?.date,
+          time: optionalString(args.time),
+        },
+        {
+          date: optionalString(args.appointment_date),
+          time: optionalString(args.appointment_time),
+          prefer: move?.appointmentId,
+        },
+        ctx,
+      );
+    }
+    case "propose_swap_appointments":
+      return proposeSwap(
+        {
+          first: String(args.first_name ?? ""),
+          second: String(args.second_name ?? ""),
+          firstHint: {
+            date: optionalString(args.first_date),
+            time: optionalString(args.first_time),
+          },
+          secondHint: {
+            date: optionalString(args.second_date),
+            time: optionalString(args.second_time),
+          },
+        },
         ctx,
       );
     case "show_appointment_in_calendar":
@@ -397,20 +645,107 @@ export async function runVoiceTool(
         },
         ctx,
       );
-    case "create_appointment":
+    case "create_appointment": {
+      const input: BookingInput = {
+        name: optionalString(args.name),
+        date: optionalString(args.date),
+        time: optionalString(args.time),
+        phone: optionalString(args.phone),
+        service: optionalString(args.service),
+        staff: optionalString(args.staff),
+      };
       return createVoiceAppointment(
-        {
-          name: optionalString(args.name),
-          date: optionalString(args.date),
-          time: optionalString(args.time),
-          phone: optionalString(args.phone),
-          service: optionalString(args.service),
-        },
+        draft?.kind === "book" ? lendChoices(input, draft, ctx) : input,
         ctx,
       );
+    }
     default:
       return { spoken: "לא הבנתי מה לבדוק ביומן.", actionTaken: "none" };
   }
+}
+
+/**
+ * A booking completed in the model's own words keeps what was already chosen.
+ *
+ * "תספורת גבר" was picked a turn ago, the hour arrives now, and the model's
+ * call names the client, the day and the hour — but not the service it was
+ * never asked about. Lent only to *the same booking* (same client, same day),
+ * so a new request made instead of answering starts from nothing, as it
+ * should.
+ */
+function lendChoices(
+  input: BookingInput,
+  draft: Extract<DraftAction, { kind: "book" }>,
+  ctx: ToolContext,
+): BookingInput {
+  const day = input.date ?? todayInTimezone(ctx.timezone, ctx.now);
+  const sameClient =
+    nameKey(input.name ?? "") === nameKey(draft.name ?? "");
+  if (!sameClient || day !== draft.date) return input;
+
+  return {
+    ...input,
+    time: input.time ?? draft.time,
+    phone: input.phone ?? draft.phone,
+    ...(input.service ? {} : { serviceId: draft.serviceId }),
+    ...(input.staff ? {} : { staffId: draft.staffId }),
+  };
+}
+
+/**
+ * The beginnings of the words that make a sentence a move.
+ *
+ * Stems rather than words, because Hebrew conjugates at the end and the
+ * transcriber is free to pick any person: "תזיזי", "תזיז", "להזיז", "תדחי",
+ * "תקדימי", "תעבירי"…
+ */
+const MOVE_STEMS = [
+  "תזיז",
+  "הזיז",
+  "להזיז",
+  "הזז",
+  "תדח",
+  "לדחות",
+  "תקדימ",
+  "להקדים",
+  "תעביר",
+  "להעביר",
+] as const;
+
+/**
+ * A move the model read as a lookup, sent where the verb says it belongs.
+ *
+ * ---------------------------------------------------------------------------
+ * **Found in the browser, not in review.** "תזיזי את התור של רפאל שטרן",
+ * transcribed perfectly, went to `find_client_appointments` — the model had a
+ * client and no destination, and chose the tool that needed nothing more. She
+ * read the booking back and stopped, which is exactly the generic answer the
+ * owner asked her never to give: a move with no destination has to be a
+ * *question*.
+ *
+ * So the verb decides, the way a word list decides a yes. Only this one
+ * direction, and only from a read to a proposal: the proposal finds the same
+ * booking the lookup would have, asks where to, and writes nothing until the
+ * owner has answered and then agreed. The worst a false reroute costs is one
+ * question. The caller skips it for a frozen tenant, who is offered no
+ * proposals at all.
+ * ---------------------------------------------------------------------------
+ */
+export function routeByVerb(
+  tool: string,
+  args: Record<string, unknown>,
+  transcript: string,
+): { tool: string; args: Record<string, unknown> } {
+  if (tool !== "find_client_appointments") return { tool, args };
+
+  const words = transcript.replace(/[^\p{L}\s]/gu, " ").split(/\s+/);
+  const moving = words.some((word) =>
+    MOVE_STEMS.some((stem) => word.startsWith(stem)),
+  );
+
+  return moving
+    ? { tool: "propose_reschedule_appointment", args: { name: args.name } }
+    : { tool, args };
 }
 
 /**
@@ -564,10 +899,65 @@ type Resolution =
   | { ok: true; row: SpokenRow }
   | { ok: false; outcome: ToolOutcome };
 
+/** `YYYY-MM-DD`, the only date shape a tool accepts. */
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** `H:MM` or `HH:MM`, the only time shape a tool accepts. */
+const TIME = /^\d{1,2}:\d{2}$/;
+
+/**
+ * What can pick one booking out of several for the same name.
+ *
+ * `date` and `time` are the booking's *current* day and hour — the owner's
+ * answer to "איזה מהם?". `prefer` is the booking a move draft is already
+ * about, which wins outright: she asked about that one a turn ago.
+ */
+type WhichHint = { date?: string; time?: string; prefer?: string };
+
+/**
+ * The matches a hint leaves standing: the day first, then the hour — exactly,
+ * or failing that the single nearest one, because "של אחת" about a 12:45 is
+ * still an answer. A hint that fits nothing leaves the matches as they were
+ * rather than emptying them; the question is asked again, not answered wrong.
+ */
+function narrowByWhen(
+  rows: SpokenRow[],
+  { date, time }: WhichHint,
+  timezone: string,
+): SpokenRow[] {
+  let out = rows;
+
+  if (date && DATE.test(date)) {
+    const onDay = out.filter(
+      (row) => formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd") === date,
+    );
+    if (onDay.length > 0) out = onDay;
+  }
+
+  if (time && TIME.test(time)) {
+    const [hour, minute] = time.split(":").map(Number);
+    const wanted = hour * 60 + minute;
+    const minuteOf = (row: SpokenRow) => {
+      const [h, m] = spokenTime(row.startsAt, timezone).split(":").map(Number);
+      return h * 60 + m;
+    };
+
+    const exact = out.filter((row) => minuteOf(row) === wanted);
+    if (exact.length > 0) return exact;
+
+    const distance = (row: SpokenRow) => Math.abs(minuteOf(row) - wanted);
+    const nearest = Math.min(...out.map(distance));
+    const closest = out.filter((row) => distance(row) === nearest);
+    if (closest.length === 1) return closest;
+  }
+
+  return out;
+}
+
 async function resolveOne(
   name: string,
   ctx: ToolContext,
   verb: string,
+  hint: WhichHint = {},
 ): Promise<Resolution> {
   const trimmed = name.trim();
 
@@ -581,9 +971,9 @@ async function resolveOne(
     };
   }
 
-  const matches = await upcomingFor(trimmed, ctx);
+  const found = await upcomingFor(trimmed, ctx);
 
-  if (matches.length === 0) {
+  if (found.length === 0) {
     return {
       ok: false,
       outcome: {
@@ -593,7 +983,15 @@ async function resolveOne(
     };
   }
 
-  if (matches.length > 1) {
+  if (found.length > 1) {
+    const preferred = hint.prefer
+      ? found.find((row) => row.id === hint.prefer)
+      : undefined;
+    if (preferred) return { ok: true, row: preferred };
+
+    const matches = narrowByWhen(found, hint, ctx.timezone);
+    if (matches.length === 1) return { ok: true, row: matches[0] };
+
     /**
      * The times are read back rather than just counted. "There are two" leaves
      * the owner exactly where they started; "at two and at five, which one"
@@ -602,29 +1000,37 @@ async function resolveOne(
      * **And the names, when they differ.** "דני" finds דני כהן and דני לוי; a
      * near match finds איתן אלקיים for "איתי". Reading back only the name the
      * owner said would hide which people were found.
+     *
+     * **And the days, when they differ.** Two bookings at ten o'clock on
+     * different days used to be read back as "ב-10:00 ו-10:00" — a question
+     * with no possible answer.
      */
+    const dayOf = (row: SpokenRow) =>
+      formatInTimeZone(row.startsAt, ctx.timezone, "yyyy-MM-dd");
+    const oneDay = matches.every((row) => dayOf(row) === dayOf(matches[0]));
+    const at = (row: SpokenRow) =>
+      oneDay
+        ? `ב-${spokenTime(row.startsAt, ctx.timezone)}`
+        : `${spokenDay(row.startsAt, ctx.now, ctx.timezone) || "היום"} ב-${spokenTime(row.startsAt, ctx.timezone)}`;
+
     const sameName = matches.every(
       (row) => row.clientName === matches[0].clientName,
     );
     const choices = matches
-      .map((row) =>
-        sameName
-          ? spokenTime(row.startsAt, ctx.timezone)
-          : `${row.clientName} ב-${spokenTime(row.startsAt, ctx.timezone)}`,
-      )
-      .join(sameName ? " ו-" : " ו");
+      .map((row) => (sameName ? at(row) : `${row.clientName} ${at(row)}`))
+      .join(" ו");
     return {
       ok: false,
       outcome: {
         spoken: sameName
-          ? `יש ${matches.length} תורים על השם ${matches[0].clientName} — ב-${choices}. איזה מהם ${verb}?`
+          ? `יש ${matches.length} תורים על השם ${matches[0].clientName} — ${choices}. איזה מהם ${verb}?`
           : `מצאתי ${matches.length} תורים: ${choices}. איזה מהם ${verb}?`,
         actionTaken: "none",
       },
     };
   }
 
-  return { ok: true, row: matches[0] };
+  return { ok: true, row: found[0] };
 }
 
 /**
@@ -636,9 +1042,10 @@ async function resolveOne(
  */
 async function proposeCancel(
   name: string,
+  hint: WhichHint,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  const found = await resolveOne(name, ctx, "לבטל");
+  const found = await resolveOne(name, ctx, "לבטל", hint);
   if (!found.ok) return found.outcome;
 
   const row = found.row;
@@ -666,31 +1073,54 @@ async function proposeCancel(
  * today: "תזיזי את דניאל לחמש" about a booking that is tomorrow means tomorrow
  * at five, and resolving it to today would quietly propose a move into the
  * past.
+ *
+ * **No destination is a question, not a guess.** "תזיזי את התור של דני" has
+ * a client and nothing else. It used to come back as a generic "לא שמעתי" —
+ * or, worse, as a time the model made up to satisfy a required field. Now the
+ * booking is found first, so the question can name it, and the answer comes
+ * back as a move draft that holds on to *that* booking: "לחמש" on the next
+ * turn moves this דני, not whichever one a fresh lookup finds.
  */
 async function proposeReschedule(
-  name: string,
-  date: string | undefined,
-  time: string | undefined,
+  { name, date, time }: { name: string; date?: string; time?: string },
+  hint: WhichHint,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  if (!time || !/^\d{1,2}:\d{2}$/.test(time)) {
-    return {
-      spoken: "לא שמעתי לאיזו שעה להזיז. אפשר לחזור על זה?",
-      actionTaken: "none",
-    };
-  }
-
-  const found = await resolveOne(name, ctx, "להזיז");
+  const found = await resolveOne(name, ctx, "להזיז", hint);
   if (!found.ok) return found.outcome;
 
   const row = found.row;
+  const currentAt = atPhrase(row.startsAt, ctx);
+
+  /** The same booking, held for the answer to the question she is asking. */
+  const waitFor = (onDay?: string): DraftAction => ({
+    kind: "move",
+    appointmentId: row.id,
+    clientName: row.clientName,
+    when: currentAt,
+    startsAtIso: row.startsAt.toISOString(),
+    ...(onDay ? { date: onDay } : {}),
+  });
+
+  if (!time || !TIME.test(time)) {
+    const onDay = date && DATE.test(date) ? date : undefined;
+    return {
+      spoken: onDay
+        ? `מצאתי תור של ${row.clientName} ${currentAt}. לאיזו שעה ${dayPhrase(onDay, ctx)} להזיז אותו?`
+        : `מצאתי תור של ${row.clientName} ${currentAt}. לאיזו שעה או לאיזה יום להזיז אותו?`,
+      actionTaken: "none",
+      draft: waitFor(onDay),
+    };
+  }
+
   const day = date ?? formatInTimeZone(row.startsAt, ctx.timezone, "yyyy-MM-dd");
   const target = toInstant(day, time, ctx.timezone);
 
   if (!target) {
     return {
-      spoken: "לא הצלחתי להבין את המועד החדש. אפשר לחזור על זה?",
+      spoken: "לא הצלחתי להבין את המועד החדש. לאיזו שעה ולאיזה יום להזיז?",
       actionTaken: "none",
+      draft: waitFor(),
     };
   }
 
@@ -700,6 +1130,7 @@ async function proposeReschedule(
     return {
       spoken: "המועד הזה כבר עבר. לאיזו שעה להזיז?",
       actionTaken: "none",
+      draft: waitFor(),
     };
   }
 
@@ -730,15 +1161,10 @@ async function proposeReschedule(
   }
 
   const when = spokenTime(row.startsAt, ctx.timezone);
-  const fromDay = spokenDay(row.startsAt, ctx.now, ctx.timezone);
   const toWhen = spokenTime(target, ctx.timezone);
-  const toDay = spokenDay(target, ctx.now, ctx.timezone);
-
-  const fromAt = fromDay ? `${fromDay} ב-${when}` : `היום ב-${when}`;
-  const toAt = toDay ? `${toDay} ב-${toWhen}` : `היום ב-${toWhen}`;
 
   return {
-    spoken: `מצאתי תור של ${row.clientName} ${fromAt}. להזיז אותו ל${toAt}?`,
+    spoken: `מצאתי תור של ${row.clientName} ${currentAt}. להזיז אותו ${toward(atPhrase(target, ctx))}?`,
     actionTaken: "propose_reschedule_appointment",
     pending: {
       kind: "reschedule",
@@ -810,6 +1236,229 @@ const takenSentence = (clientName: string) =>
   `יש כבר תור בטווח הזמנים הזה ל${clientName}. תרצה לבחור שעה אחרת?`;
 
 /**
+ * Why a swap does not fit, in the terms the owner can act on: whose
+ * appointment, how long it needs, and who is already there.
+ *
+ * The one case with nobody else in the way — two bookings far enough apart to
+ * exchange start times, where the longer runs into the other's new place — is
+ * said as exactly that, rather than as a clash with a stranger.
+ */
+function swapRefusal(
+  clash: SwapClash,
+  names: { first: string; second: string },
+  timezone: string,
+): string {
+  const who = clash.leg === "first" ? names.first : names.second;
+  const other = clash.leg === "first" ? names.second : names.first;
+  const at = spokenTime(clash.startsAt, timezone);
+  const needs = spokenDuration(clash.needsMinutes);
+
+  return clash.clientName === other
+    ? `אי אפשר להחליף: לתור של ${who} צריך ${needs}, והוא ייגמר אחרי ${at}, כשהתור של ${other} כבר מתחיל. לא שיניתי כלום.`
+    : `אי אפשר להחליף: לתור של ${who} צריך ${needs}, וב-${at} כבר יש תור ל${clash.clientName}. לא שיניתי כלום.`;
+}
+
+/**
+ * Describes a swap between two clients' appointments, and does not perform it.
+ *
+ * ---------------------------------------------------------------------------
+ * **A swap is two moves that only make sense together**, so it is one
+ * proposal and one confirmation — never two `propose_reschedule` calls, where
+ * the first would be refused by the booking it is about to make room for, or
+ * would succeed and leave the second hanging on a "כן" that never comes.
+ *
+ * **The fit is decided before the question is asked**, by `planSwapFor`: a
+ * 60-minute colour does not fit a 30-minute haircut's slot just because the
+ * owner wants the two to trade places. Back to back, the two swap order inside
+ * the block they already share and the sentence says the new times; anywhere
+ * else they exchange start times if that fits, and the refusal names whoever
+ * is in the way if it does not. See `appointment-swap`.
+ *
+ * **Whoever the provider becomes is said out loud.** The slot carries its
+ * provider with it, so in a team shop a swap can hand a client to somebody
+ * else — which the owner hears before agreeing, not after.
+ * ---------------------------------------------------------------------------
+ */
+async function proposeSwap(
+  input: {
+    first: string;
+    second: string;
+    firstHint: WhichHint;
+    secondHint: WhichHint;
+  },
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const [a, b] = await Promise.all([
+    resolveOne(input.first, ctx, "להחליף", input.firstHint),
+    resolveOne(input.second, ctx, "להחליף", input.secondHint),
+  ]);
+  if (!a.ok) return a.outcome;
+  if (!b.ok) return b.outcome;
+
+  if (a.row.id === b.row.id) {
+    return {
+      spoken: `שני השמות הובילו לאותו תור של ${a.row.clientName}. בין אילו שני תורים להחליף?`,
+      actionTaken: "none",
+    };
+  }
+
+  const [first, second] = await Promise.all([
+    getAppointment(ctx.db, ctx.businessId, a.row.id),
+    getAppointment(ctx.db, ctx.businessId, b.row.id),
+  ]);
+  if (!first || !second) {
+    return {
+      spoken: "אחד התורים השתנה בדיוק עכשיו. אפשר לבקש שוב?",
+      actionTaken: "none",
+    };
+  }
+
+  const result = await planSwapFor(ctx.db, ctx.businessId, first, second);
+  if (!result.ok) {
+    return {
+      spoken: swapRefusal(
+        result.clash,
+        { first: first.clientName, second: second.clientName },
+        ctx.timezone,
+      ),
+      actionTaken: "none",
+    };
+  }
+
+  const { plan } = result;
+
+  /**
+   * Days are said only when they are needed. Two bookings on the same day
+   * trading places is the common case, and "ביום ראשון" four times over is
+   * noise between the owner and the two times they are listening for — so a
+   * shared day is said once, up front, and not at all when it is today.
+   */
+  const dayOf = (at: Date) => formatInTimeZone(at, ctx.timezone, "yyyy-MM-dd");
+  const oneDay = new Set(
+    [first.startsAt, second.startsAt, plan.first.startsAt, plan.second.startsAt].map(dayOf),
+  ).size === 1;
+  const said = (at: Date) =>
+    oneDay ? spokenTime(at, ctx.timezone) : atPhrase(at, ctx);
+  const sharedDay = dayOf(first.startsAt);
+  const dayLead =
+    oneDay && sharedDay !== todayInTimezone(ctx.timezone, ctx.now)
+      ? `${dayPhrase(sharedDay, ctx)} `
+      : "";
+
+  const providersChange = plan.first.staffId !== first.staffId;
+  const staffNames = providersChange
+    ? new Map(
+        (await listAllStaff(ctx.db, ctx.businessId)).map((row) => [row.id, row.name]),
+      )
+    : new Map<string, string>();
+  const withWhom = (leg: SwapLeg) => {
+    const name = staffNames.get(leg.staffId);
+    return providersChange && name ? ` אצל ${name}` : "";
+  };
+
+  // Read in the order the day will run in.
+  const legs = [
+    { leg: plan.first, name: first.clientName },
+    { leg: plan.second, name: second.clientName },
+  ].sort((x, y) => x.leg.startsAt.getTime() - y.leg.startsAt.getTime());
+
+  const lead = plan.repacked ? "השירותים באורך שונה, אז " : "";
+  const [early, late] = legs;
+
+  return {
+    spoken: `${lead}${dayLead}התור של ${early.name} יעבור ${toward(said(early.leg.startsAt))}${withWhom(early.leg)}, והתור של ${late.name} ${toward(said(late.leg.startsAt))}${withWhom(late.leg)}. להחליף?`,
+    actionTaken: "propose_swap_appointments",
+    pending: {
+      kind: "swap",
+      first: {
+        appointmentId: first.id,
+        clientName: first.clientName,
+        when: spokenTime(first.startsAt, ctx.timezone),
+        toWhen: spokenTime(plan.first.startsAt, ctx.timezone),
+        startsAtIso: first.startsAt.toISOString(),
+        targetStartsAtIso: plan.first.startsAt.toISOString(),
+      },
+      second: {
+        appointmentId: second.id,
+        clientName: second.clientName,
+        when: spokenTime(second.startsAt, ctx.timezone),
+        toWhen: spokenTime(plan.second.startsAt, ctx.timezone),
+        startsAtIso: second.startsAt.toISOString(),
+        targetStartsAtIso: plan.second.startsAt.toISOString(),
+      },
+    },
+  };
+}
+
+/** A week's worth of rows is a few hundred at most; this only stops a runaway. */
+const WEEK_LIMIT = 1000;
+
+/**
+ * This week or next, as a count, the days it falls on, and the busiest one.
+ *
+ * ---------------------------------------------------------------------------
+ * **A tool rather than the diary in the prompt**, for the same reason
+ * `get_today_summary` is one: "מה יש לי בשבוע הבא?" asks for a sum over days,
+ * and a model adding up seven summary lines is a model that can be off by one
+ * out loud. The count here is a query; the sentence is `spokenWeek`, which is
+ * pure and tested.
+ *
+ * **This week is what is left of it** — from now, not from Sunday — since the
+ * question is about what is coming. **Next week is the whole of it**, Sunday to
+ * Saturday: the Israeli week, the one the calendar draws.
+ *
+ * **It also opens the calendar on that week when asked to show it**, with a
+ * path built here from the week's own first day, as `show_appointment_in_calendar`
+ * does for one booking.
+ * ---------------------------------------------------------------------------
+ */
+async function weekSummary(
+  week: "this" | "next",
+  show: boolean,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const today = todayInTimezone(ctx.timezone, ctx.now);
+  const days =
+    week === "next"
+      ? weekOf(shiftDays(today, 7))
+      : weekOf(today).filter((day) => day >= today);
+
+  const from =
+    week === "next"
+      ? fromZonedTime(`${days[0]}T00:00:00`, ctx.timezone)
+      : ctx.now;
+  const to = fromZonedTime(
+    `${shiftDays(days[days.length - 1], 1)}T00:00:00`,
+    ctx.timezone,
+  );
+
+  const rows = await ctx.db
+    .select(SPOKEN_COLUMNS)
+    .from(appointments)
+    .where(
+      and(
+        live(ctx.businessId),
+        gte(appointments.startsAt, from),
+        lt(appointments.startsAt, to),
+      ),
+    )
+    .orderBy(asc(appointments.startsAt))
+    .limit(WEEK_LIMIT);
+
+  return {
+    spoken: spokenWeek(week, rows, ctx.now, ctx.timezone),
+    actionTaken: "get_week_summary",
+    ...(show
+      ? {
+          navigate: {
+            href: `/dashboard/agenda/full?week=${weekOf(days[0])[0]}&view=week`,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * Wall-clock in the shop's zone to an instant, or null if it is not a date.
  *
  * Validated by round-tripping rather than by a regex: `fromZonedTime` will
@@ -836,6 +1485,24 @@ function toInstant(
   return formatInTimeZone(at, timezone, "yyyy-MM-dd") === day ? at : null;
 }
 
+/** "היום ב-14:00", "מחר ב-14:00", "ביום שלישי ב-14:00" — in the shop's zone. */
+function atPhrase(at: Date, ctx: ToolContext): string {
+  const when = spokenTime(at, ctx.timezone);
+  const day = spokenDay(at, ctx.now, ctx.timezone);
+  return day ? `${day} ב-${when}` : `היום ב-${when}`;
+}
+
+/**
+ * A shop-local date as a day is said — "היום", "מחר", "ביום שלישי".
+ *
+ * Through `spokenDay` at the day's noon, so a date and an instant are named by
+ * one rule and cannot drift into two ways of saying the same Wednesday.
+ */
+function dayPhrase(date: string, ctx: ToolContext): string {
+  const noon = fromZonedTime(`${date}T12:00:00`, ctx.timezone);
+  return spokenDay(noon, ctx.now, ctx.timezone) || "היום";
+}
+
 /**
  * Books the slot.
  *
@@ -851,30 +1518,72 @@ function toInstant(
  * including being reachable for a reminder — so the flag is only set when the
  * number is genuinely absent.
  *
- * **The service and the provider are the shop's defaults when unnamed.** A
- * placeholder is a block of time with a name on it; making the owner say which
- * of four haircuts it is, out loud, to hold a slot they are about to look at
- * anyway, is the kind of thoroughness that gets a feature switched off.
+ * **Every detail the booking depends on is either said or asked for.** The
+ * hour, always. The service, whenever the shop sells more than one — it sets
+ * how long the slot is held, so a default is a guess at the length of the
+ * owner's afternoon, and an earlier version of this comment called asking
+ * "thoroughness that gets a feature switched off". Owners asked for the
+ * opposite: a booking under the wrong service is a wrong booking. The
+ * provider, whenever the shop is a team and more than one person is free at
+ * that hour; one free person is simply booked, and named out loud.
+ *
+ * Asked **one at a time, in the order the next answer depends on**: the hour
+ * decides who is free, the service decides for how long, and only then is
+ * "אצל מי?" a question with a correct set of answers. Each question returns a
+ * {@link DraftAction} holding everything said so far, so a one-word answer
+ * completes the booking — see {@link answerDraft}.
  * ---------------------------------------------------------------------------
  */
+type BookingInput = {
+  name?: string;
+  date?: string;
+  time?: string;
+  phone?: string;
+  /** As spoken — matched against the shop's list. */
+  service?: string;
+  staff?: string;
+  /** Already chosen, from a draft — re-resolved against the shop's list. */
+  serviceId?: string;
+  staffId?: string;
+};
+
 async function createVoiceAppointment(
-  input: {
-    name?: string;
-    date?: string;
-    time?: string;
-    phone?: string;
-    service?: string;
-  },
+  input: BookingInput,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  if (!input.time || !/^\d{1,2}:\d{2}$/.test(input.time)) {
+  const day = input.date ?? todayInTimezone(ctx.timezone, ctx.now);
+  const who = input.name?.trim() || undefined;
+
+  if (!DATE.test(day)) {
     return {
-      spoken: "לא שמעתי לאיזו שעה לקבוע. אפשר לחזור על זה?",
+      spoken: "לא הבנתי לאיזה יום לקבוע. אפשר לחזור על זה?",
       actionTaken: "none",
     };
   }
 
-  const day = input.date ?? todayInTimezone(ctx.timezone, ctx.now);
+  /** Everything said so far, for whichever question comes next. */
+  const draft = (
+    awaiting: "time" | "service" | "staff",
+    chosen: Partial<Extract<DraftAction, { kind: "book" }>> = {},
+  ): DraftAction => ({
+    kind: "book",
+    awaiting,
+    ...(who ? { name: who } : {}),
+    date: day,
+    ...(input.time && TIME.test(input.time) ? { time: input.time } : {}),
+    ...(input.phone ? { phone: input.phone } : {}),
+    ...chosen,
+  });
+  const forWhom = who ? ` ל${who}` : "";
+
+  if (!input.time || !TIME.test(input.time)) {
+    return {
+      spoken: `לאיזו שעה לקבוע את התור${forWhom}?`,
+      actionTaken: "none",
+      draft: draft("time"),
+    };
+  }
+
   const startsAt = toInstant(day, input.time, ctx.timezone);
 
   if (!startsAt) {
@@ -884,12 +1593,16 @@ async function createVoiceAppointment(
     };
   }
 
-  const [services, staff] = await Promise.all([
+  const [services, team] = await Promise.all([
     listServices(ctx.db, ctx.businessId),
-    getDefaultStaff(ctx.db, ctx.businessId),
+    // A single-staff shop books its primary provider and nobody else — the
+    // same rule the booking page follows, whoever else is on the roster.
+    ctx.hasMultipleStaff
+      ? listActiveStaff(ctx.db, ctx.businessId)
+      : getDefaultStaff(ctx.db, ctx.businessId).then((one) => (one ? [one] : [])),
   ]);
 
-  if (!staff || services.length === 0) {
+  if (team.length === 0 || services.length === 0) {
     // A shop with no active service or provider cannot be booked into by any
     // route, and saying so beats a foreign-key error read out loud.
     return {
@@ -899,17 +1612,87 @@ async function createVoiceAppointment(
   }
 
   /**
-   * Named service if one was heard and matches, otherwise the shop's first.
-   * `listServices` orders by `sortOrder` then name, which is the order the
-   * owner arranged them in — so "the first one" is their own answer to "what
-   * do you mostly do", not ours.
+   * The service: chosen a turn ago, named now, or the only one there is.
+   * Anything else is a question — naming the candidates when what was said
+   * fits several, and the shop's own list (in the owner's order) when nothing
+   * was said at all.
    */
+  const named = input.service ? serviceNamed(input.service, services) : null;
   const service =
-    (input.service && serviceNamed(input.service, services)) || services[0];
+    (input.serviceId && services.find((row) => row.id === input.serviceId)) ||
+    named?.match ||
+    (!input.service && services.length === 1 ? services[0] : undefined);
+
+  if (!service) {
+    const options = named?.candidates.length ? named.candidates : services;
+    const lead =
+      input.service && !named?.candidates.length
+        ? `לא מצאתי שירות בשם ${input.service}. `
+        : "";
+    return {
+      spoken: `${lead}איזה שירות${forWhom} — ${spokenChoice(options.map((row) => row.name))}?`,
+      actionTaken: "none",
+      draft: draft("service"),
+    };
+  }
+
+  const chosenService = { serviceId: service.id, service: service.name };
+  const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
+
+  /**
+   * The provider. A single-staff shop has exactly one. A team is asked
+   * "אצל מי?" — but only among the people actually free for the whole of
+   * this service at this hour, since offering somebody who is busy is
+   * offering a refusal. One free person is booked without asking; nobody
+   * free is said plainly.
+   */
+  let staff: (typeof team)[number] | undefined;
+  let placed = false;
+
+  if (team.length === 1) {
+    staff = team[0];
+  } else if (input.staffId || input.staff) {
+    staff =
+      (input.staffId && team.find((row) => row.id === input.staffId)) ||
+      (input.staff ? staffNamed(input.staff, team).match : undefined);
+
+    if (!staff) {
+      const nearly = input.staff ? staffNamed(input.staff, team).candidates : [];
+      const options = nearly.length > 0 ? nearly : team;
+      const lead =
+        input.staff && nearly.length === 0
+          ? `לא מצאתי נותן שירות בשם ${input.staff}. `
+          : "";
+      return {
+        spoken: `${lead}אצל מי — ${spokenChoice(options.map((row) => row.name))}?`,
+        actionTaken: "none",
+        draft: draft("staff", chosenService),
+      };
+    }
+  } else {
+    const busy = await busyStaffBetween(ctx, startsAt, endsAt);
+    const free = team.filter((row) => !busy.has(row.id));
+
+    if (free.length === 0) {
+      return {
+        spoken: `כל נותני השירות תפוסים ${atPhrase(startsAt, ctx)}. תרצה לבחור שעה אחרת?`,
+        actionTaken: "none",
+      };
+    }
+    if (free.length > 1) {
+      return {
+        spoken: `אצל מי${forWhom} — ${spokenChoice(free.map((row) => row.name))}?`,
+        actionTaken: "none",
+        draft: draft("staff", chosenService),
+      };
+    }
+    staff = free[0];
+    placed = true;
+  }
 
   const phone = input.phone ? normalizePhone(input.phone) : "";
-  const clientName = input.name?.trim() || PLACEHOLDER_NAME;
-  const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
+  const clientName = who ?? PLACEHOLDER_NAME;
+  const isTeam = team.length > 1;
 
   /**
    * Checked before the insert so the refusal can name who is in the way.
@@ -917,15 +1700,24 @@ async function createVoiceAppointment(
    * The whole range is checked, not the start: a 45-minute cut booked at 14:30
    * runs into a 15:00 appointment even though nothing starts at 14:30, and an
    * owner told "that time is free" who then finds it is not has been told
-   * something worse than nothing.
+   * something worse than nothing. Skipped when the provider was just chosen
+   * *because* they were free — the read that found them is this read.
    */
-  const clash = await conflictFor(ctx, staff.id, startsAt, endsAt);
-  if (clash) {
-    return { spoken: takenSentence(clash.clientName), actionTaken: "none" };
+  if (!placed) {
+    const clash = await conflictFor(ctx, staff.id, startsAt, endsAt);
+    if (clash) {
+      return {
+        spoken: isTeam
+          ? `ל${staff.name} יש כבר תור בטווח הזמנים הזה, של ${clash.clientName}. תרצה שעה אחרת או מישהו אחר?`
+          : takenSentence(clash.clientName),
+        actionTaken: "none",
+      };
+    }
   }
 
+  let created;
   try {
-    await createAppointment(ctx.db, {
+    created = await createAppointment(ctx.db, {
       businessId: ctx.businessId,
       serviceId: service.id,
       staffId: staff.id,
@@ -958,9 +1750,18 @@ async function createVoiceAppointment(
     throw error;
   }
 
-  const when = spokenTime(startsAt, ctx.timezone);
-  const spokenOn = spokenDay(startsAt, ctx.now, ctx.timezone);
-  const at = spokenOn ? `${spokenOn} ב-${when}` : `היום ב-${when}`;
+  /**
+   * What was booked, said back: the service whenever there was a choice of
+   * one, and the provider whenever there was a choice of those — the two
+   * things the owner could otherwise only find out by looking.
+   */
+  const at = atPhrase(startsAt, ctx);
+  const what = services.length > 1 ? `, ${service.name}` : "";
+  const where = isTeam ? ` אצל ${staff.name}` : "";
+  const changed: DiaryChange = {
+    kind: "created",
+    appointmentIds: [created.id],
+  };
 
   /**
    * The tip is said **only for a placeholder**, and only once per booking. It
@@ -970,50 +1771,153 @@ async function createVoiceAppointment(
    */
   if (phone === "") {
     return {
-      spoken: `רשמתי תור קולי ל${clientName} ${at}. במידה ותרצה לשלוח תזכורת בוואטסאפ, תוכל להוסיף את הטלפון שלו ידנית ביומן.`,
+      spoken: `רשמתי תור קולי ל${clientName} ${at}${what}${where}. במידה ותרצה לשלוח תזכורת בוואטסאפ, תוכל להוסיף את הטלפון שלו ידנית ביומן.`,
       actionTaken: "create_appointment",
+      changed,
     };
   }
 
   return {
-    spoken: `קבעתי תור ל${clientName} ${at}.`,
+    spoken: `קבעתי תור ל${clientName} ${at}${what}${where}.`,
     actionTaken: "create_appointment",
+    changed,
   };
 }
 
+/** What a spoken name matched: one row, or the rows it could equally mean. */
+type Named<T> = { match?: T; candidates: T[] };
+
 /**
- * The service a spoken name means, or `undefined` for the shop's default.
+ * The service a spoken name means — or, when it could mean several, which.
  *
- * Three tries, most literal first. A service containing what was said —
- * "תספורת" is the first haircut on the owner's list. Then what was said
- * containing a service — "תספורת גברים" is "תספורת גבר", the longest one wins.
- * Then a near match, but only an unambiguous one: a near match to two services
- * is a guess, and the default is the honest answer to a guess.
+ * Four tries, most literal first. The name exactly. A service containing what
+ * was said — one is an answer, several are the candidates ("תספורת" in a shop
+ * with תספורת גבר and תספורת ילד). What was said containing a service —
+ * "תספורת גברים" is "תספורת גבר", the longest one wins. Then a near match,
+ * where a tie is candidates too.
+ *
+ * **A guess between two used to fall back to the shop's first service.** That
+ * was a booking at a length nobody chose, and it is now a question naming the
+ * two. The fallback was also hiding a miss: "עיצוב זקנים" never contained
+ * "עיצוב זקן", because the plural's נ is not the singular's final ן, and the
+ * test that said it did passed only because עיצוב זקן sorted first. Names are
+ * now compared through `nameKey`, which folds final letters, as the client
+ * lookup always did — and without the definite article, which the same test
+ * was hiding: a price list says "עיצוב זקן" and a person says "עיצוב הזקן".
+ * Stripped from both sides, so a service whose name really begins with ה still
+ * meets itself.
  */
 function serviceNamed<T extends { name: string }>(
   spoken: string,
   services: readonly T[],
-): T | undefined {
-  const wanted = spoken.trim().toLowerCase();
-  if (!wanted) return undefined;
+): Named<T> {
+  const bare = (value: string) =>
+    nameKey(value)
+      .split(" ")
+      .map((token) => (token.length >= 3 && token.startsWith("ה") ? token.slice(1) : token))
+      .join(" ");
 
-  const contained = services.find((row) =>
-    row.name.toLowerCase().includes(wanted),
-  );
-  if (contained) return contained;
+  const wanted = bare(spoken.replace(/[!?]/g, ""));
+  if (!wanted) return { candidates: [] };
 
-  const containing = services
-    .filter((row) => wanted.includes(row.name.toLowerCase()))
-    .sort((a, b) => b.name.length - a.name.length)[0];
-  if (containing) return containing;
+  const keyed = services.map((row) => ({ row, key: bare(row.name) }));
+
+  const exact = keyed.find(({ key }) => key === wanted);
+  if (exact) return { match: exact.row, candidates: [] };
+
+  const contained = keyed.filter(({ key }) => key.includes(wanted));
+  if (contained.length === 1) return { match: contained[0].row, candidates: [] };
+  if (contained.length > 1) {
+    return { candidates: contained.map(({ row }) => row) };
+  }
+
+  const containing = keyed
+    .filter(({ key }) => wanted.includes(key))
+    .sort((a, b) => b.key.length - a.key.length)[0];
+  if (containing) return { match: containing.row, candidates: [] };
 
   const near = matchNames(
-    spoken,
+    wanted,
     services.map((row) => row.name),
   );
-  return near.length === 1
-    ? services.find((row) => row.name === near[0])
-    : undefined;
+  const nearRows = services.filter((row) => near.includes(row.name));
+  return nearRows.length === 1
+    ? { match: nearRows[0], candidates: [] }
+    : { candidates: nearRows };
+}
+
+/** Anything in the Hebrew block — for boundaries `\b` cannot express. */
+const HEBREW_LETTER = "[\\u0590-\\u05FF]";
+
+/**
+ * The provider a spoken name means.
+ *
+ * **Whole words, because names nest.** "דני" is inside "דנית", and a plain
+ * substring test would hand a booking for דנית to דני. The name has to stand
+ * on its own — allowing only the one-letter prefixes Hebrew glues on ("לשירן",
+ * "ושירן") — and a near match picks up what the transcriber spelled its own
+ * way. A tie is candidates, never a pick.
+ */
+function staffNamed<T extends { name: string }>(
+  spoken: string,
+  team: readonly T[],
+): Named<T> {
+  const heard = spoken.trim();
+  if (!heard) return { candidates: [] };
+
+  const standalone = team.filter((row) => {
+    const escaped = row.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(
+      `(?<!${HEBREW_LETTER})[ולבהמש]?${escaped}(?!${HEBREW_LETTER})`,
+      "i",
+    ).test(heard);
+  });
+  if (standalone.length === 1) return { match: standalone[0], candidates: [] };
+  if (standalone.length > 1) {
+    // "דני כהן" said in a shop with דני and דני כהן: the longer name is the one
+    // that was said.
+    const longest = [...standalone].sort((a, b) => b.name.length - a.name.length);
+    return longest[0].name.length > longest[1].name.length
+      ? { match: longest[0], candidates: [] }
+      : { candidates: standalone };
+  }
+
+  const names = team.map((row) => row.name);
+  const near = new Set(
+    heard
+      .split(/\s+/)
+      .filter((token) => token.length >= 2)
+      .flatMap((token) => matchNames(token, names)),
+  );
+  const nearRows = team.filter((row) => near.has(row.name));
+  return nearRows.length === 1
+    ? { match: nearRows[0], candidates: [] }
+    : { candidates: nearRows };
+}
+
+/**
+ * The providers already holding part of a range, keyed by id.
+ *
+ * One query for the whole team rather than `conflictFor` per person: "אצל
+ * מי?" needs to know who is free before it can be asked, and a round trip per
+ * provider is a second per turn in a shop with a few of them.
+ */
+async function busyStaffBetween(
+  ctx: ToolContext,
+  startsAt: Date,
+  endsAt: Date,
+): Promise<Set<string>> {
+  const rows = await ctx.db
+    .select({ staffId: appointments.staffId })
+    .from(appointments)
+    .where(
+      and(
+        live(ctx.businessId),
+        lt(appointments.startsAt, endsAt),
+        gt(appointments.endsAt, startsAt),
+      ),
+    );
+  return new Set(rows.map((row) => row.staffId));
 }
 
 /**
@@ -1158,12 +2062,19 @@ export const PLACEHOLDER_NAME = "תור קולי";
  * The gap between "להזיז אותו לחמש?" and "כן" is a few seconds, but the client
  * has a cancel link, the owner has other tabs, and a slot that moved in between
  * must not be moved again on the strength of an answer to a different question.
+ *
+ * **What the write owes afterwards travels back with it** as `aftermath`: the
+ * moved appointment's reminder, the cancelled client's notice, the freed slot's
+ * waitlist offer — exactly what the dashboard's own buttons do, and what this
+ * path used to skip. The route settles it after the answer is sent.
  * ---------------------------------------------------------------------------
  */
 export async function executePending(
   pending: PendingAction,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
+  if (pending.kind === "swap") return executeSwap(pending, ctx);
+
   const row = await getAppointment(ctx.db, ctx.businessId, pending.appointmentId);
 
   const stale =
@@ -1179,7 +2090,7 @@ export async function executePending(
   }
 
   if (pending.kind === "cancel") {
-    await updateAppointmentStatus(
+    const cancelled = await updateAppointmentStatus(
       ctx.db,
       ctx.businessId,
       pending.appointmentId,
@@ -1188,6 +2099,19 @@ export async function executePending(
     return {
       spoken: `ביטלתי את התור של ${pending.clientName} ב-${pending.when}.`,
       actionTaken: "confirmed",
+      changed: { kind: "cancelled", appointmentIds: [pending.appointmentId] },
+      ...(cancelled
+        ? {
+            aftermath: [
+              {
+                kind: "cancelled" as const,
+                appointment: cancelled,
+                // A request turned down is told so, not told it was cancelled.
+                wasRequest: row.status === "pending",
+              },
+            ],
+          }
+        : {}),
     };
   }
 
@@ -1212,11 +2136,17 @@ export async function executePending(
     return { spoken: takenSentence(clash.clientName), actionTaken: "none" };
   }
 
+  let moved;
   try {
-    await rescheduleAppointment(ctx.db, ctx.businessId, pending.appointmentId, {
-      startsAt: target,
-      endsAt: new Date(target.getTime() + duration),
-    });
+    moved = await rescheduleAppointment(
+      ctx.db,
+      ctx.businessId,
+      pending.appointmentId,
+      {
+        startsAt: target,
+        endsAt: new Date(target.getTime() + duration),
+      },
+    );
   } catch (error) {
     if (error instanceof SlotTakenError) {
       // The constraint, catching a slot taken between the check above and this
@@ -1232,7 +2162,130 @@ export async function executePending(
   return {
     spoken: `הזזתי את התור של ${pending.clientName} ל-${pending.toWhen}.`,
     actionTaken: "confirmed",
+    changed: { kind: "moved", appointmentIds: [pending.appointmentId] },
+    ...(moved ? { aftermath: [{ kind: "moved" as const, appointment: moved }] } : {}),
   };
+}
+
+/**
+ * Applies a swap the owner has agreed to — re-planned, compared, and written
+ * in one transaction by `confirmSwap`, which refuses rather than applying a
+ * different swap from the one she described.
+ */
+async function executeSwap(
+  pending: Extract<PendingAction, { kind: "swap" }>,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  const { first, second } = pending;
+
+  let result;
+  try {
+    result = await confirmSwap(ctx.db, ctx.businessId, { first, second });
+  } catch (error) {
+    if (error instanceof SlotTakenError) {
+      // A third booking landed in one of the two places while she asked.
+      return {
+        spoken: "יש כבר תור באחד המועדים, אז השארתי את שניהם במקום.",
+        actionTaken: "none",
+      };
+    }
+    throw error;
+  }
+
+  if (!result.ok) {
+    return {
+      spoken:
+        result.reason === "stale"
+          ? "התורים השתנו מאז ששאלתי, אז לא נגעתי בהם. אפשר לבדוק ביומן."
+          : swapRefusal(
+              result.clash,
+              { first: result.firstName, second: result.secondName },
+              ctx.timezone,
+            ),
+      actionTaken: "none",
+    };
+  }
+
+  const [early, late] = [first, second].sort(
+    (x, y) => Date.parse(x.targetStartsAtIso) - Date.parse(y.targetStartsAtIso),
+  );
+
+  return {
+    spoken: `החלפתי: ${early.clientName} ב-${early.toWhen} ו${late.clientName} ב-${late.toWhen}.`,
+    actionTaken: "confirmed",
+    changed: {
+      kind: "swapped",
+      appointmentIds: [first.appointmentId, second.appointmentId],
+    },
+    aftermath: result.rows.map((appointment) => ({
+      kind: "moved" as const,
+      appointment,
+    })),
+  };
+}
+
+/**
+ * How many words an answer to "איזה שירות?" or "אצל מי?" may run to and still
+ * be an answer — the bar `libi-confirm` sets for a yes. Past it the owner is
+ * saying something new, and the model hears it.
+ */
+const MAX_ANSWER_WORDS = 6;
+
+/**
+ * Completes a booking draft from a bare answer, without the model.
+ *
+ * ---------------------------------------------------------------------------
+ * **The answer to a question she asked is matched against the shop's own
+ * list**, the way "כן" is matched against a word list: "זקן" after "איזה
+ * שירות?" is the service called זקן, and "אצל שירן" after "אצל מי?" is שירן.
+ * That is exact, it skips a model call on a turn that is one word long, and it
+ * cannot re-derive tomorrow's date as today's — the draft already holds it.
+ *
+ * **Anything it cannot place goes to the model**, with the draft stated in the
+ * prompt: "זה של הצבע" or "לא משנה, תעשי תספורת" are answers, just not ones a
+ * list can read. `null` means exactly that.
+ *
+ * The hour is never answered here. "בשלוש", "רבע לחמש" and "אחרי הצהריים" are
+ * the model's to turn into HH:MM; a second parser for spoken time would be a
+ * second place to get "שלוש וחמישה" wrong.
+ * ---------------------------------------------------------------------------
+ */
+export async function answerDraft(
+  draft: DraftAction,
+  transcript: string,
+  ctx: ToolContext,
+): Promise<ToolOutcome | null> {
+  if (draft.kind !== "book" || draft.awaiting === "time") return null;
+
+  const answer = transcript
+    .replace(/[.,!?״"׳']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = answer ? answer.split(" ") : [];
+  if (words.length === 0 || words.length > MAX_ANSWER_WORDS) return null;
+
+  const input: BookingInput = {
+    name: draft.name,
+    date: draft.date,
+    time: draft.time,
+    phone: draft.phone,
+    serviceId: draft.serviceId,
+    staffId: draft.staffId,
+  };
+
+  if (draft.awaiting === "service") {
+    const services = await listServices(ctx.db, ctx.businessId);
+    const { match } = serviceNamed(answer, services);
+    return match
+      ? createVoiceAppointment({ ...input, serviceId: match.id }, ctx)
+      : null;
+  }
+
+  const team = await listActiveStaff(ctx.db, ctx.businessId);
+  const { match } = staffNamed(answer, team);
+  return match
+    ? createVoiceAppointment({ ...input, staffId: match.id }, ctx)
+    : null;
 }
 
 /**
@@ -1261,27 +2314,37 @@ export type RosterRow = {
 };
 
 /**
- * How far ahead the prompt looks, and how much of the diary is read for it.
+ * How much of the diary is read for the prompt.
+ *
+ * **The window runs to the end of next week**, not seven days: "מה יש לי
+ * ביום שלישי הבא?" asked on a Thursday is nine days out, and a seven-day
+ * window answered it with an empty day. See `rosterDays`, which the prompt's
+ * own header is built from too, so the two cannot disagree about where the
+ * diary stops.
  *
  * The read is generous and the prompt is not: `buildPromptContext` lists today
  * and tomorrow in full and turns every other day into one line, so the cap
- * here only has to hold a busy week — the load-tested `demo-barber` fortnight
- * put 81 live bookings in one — and the prompt says so if it is ever reached.
+ * here only has to hold a busy fortnight — the load-tested `demo-barber` put
+ * 81 live bookings in one week — and the prompt says so if it is ever reached.
  * The old cap was 25 rows, introduced to the model as the complete week.
  */
-export const ROSTER_DAYS = 7;
-export const ROSTER_LIMIT = 300;
+export const ROSTER_LIMIT = 600;
 
 export async function upcomingRoster(
   ctx: ToolContext,
-  days = ROSTER_DAYS,
+  days?: number,
   limit = ROSTER_LIMIT,
 ): Promise<RosterRow[]> {
   // From the start of the shop's today, not from `now`: an owner asking at
   // 16:00 what their day looked like should see the morning too.
   const day = todayInTimezone(ctx.timezone, ctx.now);
   const from = fromZonedTime(`${day}T00:00:00`, ctx.timezone);
-  const to = new Date(from.getTime() + days * 86_400_000);
+  // Midnight to midnight in the shop's zone, so a DST night cannot move the
+  // edge of the window by an hour.
+  const to = fromZonedTime(
+    `${shiftDays(day, days ?? rosterDays(day))}T00:00:00`,
+    ctx.timezone,
+  );
 
   return ctx.db
     .select({

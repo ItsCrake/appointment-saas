@@ -258,6 +258,42 @@ describe("the auto-listen loop", () => {
     );
   });
 
+  it("refreshes the calendar the moment a turn changed the diary", () => {
+    /**
+     * The calendar is rendered on the server and cannot see a write it did
+     * not make, so a booking she took used to appear only when the owner
+     * reloaded the page. The refresh rides on the *text* line — the card and
+     * the calendar change together — and only when the server said the diary
+     * changed, so a question does not cost a round trip.
+     */
+    const text = SOURCE.slice(
+      SOURCE.indexOf('if (message.type === "text") {'),
+      SOURCE.indexOf("One clip of the reply"),
+    );
+    expect(text).toContain("if (message.changed) router.refresh();");
+    // Two callers: a spoken change, and a tapped one.
+    expect(SOURCE.match(/router\.refresh\(\);/g) ?? []).toHaveLength(2);
+  });
+
+  it("carries a draft the way it carries a pending action, and keeps its card", () => {
+    /**
+     * "איזה שירות?" is a question the owner may answer after the microphone
+     * has closed, by pressing it again. The draft has to ride with that
+     * recording, be written by the one function that writes the card, and
+     * keep the card from fading while it waits.
+     */
+    expect(SOURCE).toContain('form.append("draft", JSON.stringify(unfinished));');
+
+    const show = SOURCE.slice(SOURCE.indexOf("const showResult = useCallback"));
+    expect(show.slice(0, 300)).toContain("draftRef.current = next?.draft ?? null;");
+    expect(SOURCE.match(/draftRef\.current = (?!=)/g) ?? []).toHaveLength(2);
+
+    const end = SOURCE.slice(SOURCE.indexOf("const endConversation"));
+    expect(end.slice(0, end.indexOf("}, ["))).toContain(
+      "if (pendingRef.current || draftRef.current) return;",
+    );
+  });
+
   it("arms the discard only when something is recording", () => {
     /**
      * Closing the card while ליבי was speaking used to set the flag with

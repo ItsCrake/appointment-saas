@@ -1,11 +1,17 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { listServices } from "@/db/queries/services";
 import { listActiveStaff } from "@/db/queries/staff";
+import { settleAftermath } from "@/lib/appointment-aftermath";
 import { requireBusiness } from "@/lib/dashboard-session";
 import { reportError } from "@/lib/observability";
 import { addressGender } from "@/lib/voice/libi-address";
+import {
+  carriedQuestion,
+  parseDraft,
+  parsePending,
+} from "@/lib/voice/libi-carry";
 import {
   audioExtension,
   isAcceptedAudioType,
@@ -16,6 +22,8 @@ import { parseHistory } from "@/lib/voice/libi-history";
 import {
   upcomingClientNames,
   upcomingRoster,
+  type DiaryChange,
+  type DraftAction,
   type PendingAction,
   type VoiceNavigation,
 } from "@/lib/voice/libi-tools";
@@ -84,62 +92,24 @@ export type VoiceProcessResponse = {
    */
   pending?: PendingAction;
   /**
+   * A change she began and asked one more detail about. Carried by the
+   * client and sent back with the next recording, exactly as `pending` is —
+   * see `DraftAction`.
+   */
+  draft?: DraftAction;
+  /**
    * Somewhere the dashboard should go, when she was asked to *show* rather
    * than to tell. Built server-side from ids this tenant owns — see
    * `VoiceNavigation`.
    */
   navigate?: VoiceNavigation;
+  /**
+   * The diary changed this turn, so whatever is on screen is out of date. The
+   * client re-renders the route — see `DiaryChange`.
+   */
+  changed?: DiaryChange;
   error?: string;
 };
-
-/**
- * The pending action the previous turn returned, as the client sent it back.
- *
- * Shape-checked rather than trusted: this is a form field, so it can be
- * anything. The check here is only enough to hand `decide` something of the
- * right type — the *authority* check is `executePending` re-reading the row
- * under this request's own tenant.
- */
-function parsePending(raw: unknown): PendingAction | undefined {
-  if (typeof raw !== "string" || !raw) return undefined;
-
-  let value: Record<string, unknown>;
-  try {
-    value = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-
-  const str = (key: string) => typeof value[key] === "string";
-  const shared =
-    str("appointmentId") &&
-    str("clientName") &&
-    str("when") &&
-    str("startsAtIso");
-
-  if (!shared) return undefined;
-  if (value.kind === "cancel") return value as unknown as PendingAction;
-
-  return value.kind === "reschedule" &&
-    str("toWhen") &&
-    str("targetStartsAtIso")
-    ? (value as unknown as PendingAction)
-    : undefined;
-}
-
-/**
- * The question a pending action was asked with, for a turn that has no
- * history to read it from.
- *
- * The history's last reply is the exact sentence ליבי spoke and is preferred;
- * this is the fallback, rebuilt from the same fields the card shows.
- */
-function pendingQuestion(pending: PendingAction | undefined): string | null {
-  if (!pending) return null;
-  return pending.kind === "cancel"
-    ? `לבטל את התור של ${pending.clientName} ב-${pending.when}?`
-    : `להזיז את ${pending.clientName} מ-${pending.when} ל-${pending.toWhen}?`;
-}
 
 /**
  * How long one shop's vocabulary is reused.
@@ -296,12 +266,13 @@ export async function POST(request: Request) {
     const filename = `speech.${audioExtension(audio.type)}`;
 
     const pending = parsePending(form.get("pending"));
+    const draft = parseDraft(form.get("draft"));
 
     /**
-     * A frozen tenant may ask but not change, so the pending action is dropped
-     * before it can be confirmed and the writing tools are withheld from the
-     * model entirely — a refusal it can phrase is better than a tool that
-     * exists and then declines.
+     * A frozen tenant may ask but not change, so the pending action and any
+     * half-finished draft are dropped before they can be completed, and the
+     * writing tools are withheld from the model entirely — a refusal it can
+     * phrase is better than a tool that exists and then declines.
      */
     const writable = access === "full";
 
@@ -322,6 +293,7 @@ export async function POST(request: Request) {
       businessId: business.id,
       timezone: business.timezone,
       now: new Date(),
+      hasMultipleStaff: business.hasMultipleStaff,
     };
 
     /**
@@ -349,7 +321,7 @@ export async function POST(request: Request) {
 
     transcribedText = await transcribe(audio, filename, {
       context: transcriptionContext({
-        question: history.at(-1)?.replied ?? pendingQuestion(pending),
+        question: history.at(-1)?.replied ?? carriedQuestion(pending, draft),
         gender,
       }),
       keywords: transcriptionKeywords(vocabulary),
@@ -362,12 +334,16 @@ export async function POST(request: Request) {
        * transcriber returns an empty string for a word it could not hear over
        * the clippers, and dropping the pending action here would make the
        * owner's repeated "כן" a yes to nothing. So it is handed back unchanged
-       * and the question stays open for one more try.
+       * — and a draft with it — and the question stays open for one more try.
        */
       return fail(
         200,
         "לא שמעתי. אפשר לחזור על זה?",
-        { error: "empty_transcript", ...(pending ? { pending } : {}) },
+        {
+          error: "empty_transcript",
+          ...(pending ? { pending } : {}),
+          ...(draft ? { draft } : {}),
+        },
         timing.header(),
       );
     }
@@ -381,9 +357,27 @@ export async function POST(request: Request) {
         history,
         gender,
         roster,
+        draft: writable ? draft : undefined,
         onStage: (stage) => timing.mark(stage),
       },
     );
+
+    /**
+     * **What the write still owes, once the owner has their answer.** A moved
+     * appointment's reminder is re-planned, a cancelled client is told, a
+     * freed slot is offered to the waitlist — several round trips to a
+     * database a continent away, none of which changes what ליבי says. So it
+     * runs after the response rather than in front of her voice. `after` is
+     * the platform's promise that it still runs; `settleAftermath` swallows
+     * and reports its own failures, since the change it follows has already
+     * been written.
+     */
+    if (outcome.aftermath?.length) {
+      const owed = outcome.aftermath;
+      after(() =>
+        settleAftermath({ db, business, source: "voice", owed }),
+      );
+    }
 
     const spoken = outcome.spoken;
     const encoder = new TextEncoder();
@@ -410,14 +404,21 @@ export async function POST(request: Request) {
           }
         };
 
-        // Line one, immediately: everything the card needs.
+        /**
+         * Line one, immediately: everything the card needs — and `changed`,
+         * which is what puts a booking she just took on the calendar behind
+         * the card before she has finished saying so. Named fields only:
+         * `aftermath` holds whole appointment rows and stays on this side.
+         */
         write({
           type: "text",
           transcribedText,
           textResult: spoken,
           actionTaken: outcome.actionTaken,
           ...(outcome.pending ? { pending: outcome.pending } : {}),
+          ...(outcome.draft ? { draft: outcome.draft } : {}),
           ...(outcome.navigate ? { navigate: outcome.navigate } : {}),
+          ...(outcome.changed ? { changed: outcome.changed } : {}),
         });
 
         /**

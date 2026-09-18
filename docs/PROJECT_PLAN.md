@@ -1746,6 +1746,125 @@ by a model that never called the tool.
   The Vercel variable, if it is set the same way, keeps the slow model until it
   is changed or deleted — see *Blocked on a decision or an account*.
 
+### ליבי asks, swaps, and sees next week ✅
+
+Five gaps in what she did once she had understood: the calendar behind her
+card never changed, a move with no destination and a booking with no service
+were filled in or answered generically, a swap had no tool at all, "next week"
+fell off the end of her diary, and "את אלופה" came back as a word Hebrew does
+not have. The map of the pipeline as it now stands is in
+[ARCHITECTURE.md](ARCHITECTURE.md#ליבי--the-voice-assistant).
+
+- **The calendar changes when she does.** Every write now reports a
+  `DiaryChange` — `created`, `moved`, `cancelled` or `swapped`, with the ids —
+  on the NDJSON text line, and the client calls `router.refresh()` when it sees
+  one. The calendar is server-rendered and cannot see a write it did not make,
+  and a route handler cannot refresh the client the way a server action does
+  (Next 16's `refresh()` is Server-Action-only), so the browser has to. State
+  survives the refresh: the conversation, the microphone and the clip in the
+  air carry on. Nothing is revalidated server-side because there is nothing
+  cached — the dashboard layout and the booking page are `force-dynamic`.
+- **What a write owes afterwards is now the same on every path**
+  (`lib/appointment-aftermath.ts`). The dashboard's buttons re-planned a moved
+  appointment's reminder and told a cancelled client; ליבי's spoken "כן" made
+  the same change and did neither — a moved booking kept a reminder timed for
+  the hour it had left, and a cancelled client was never told. Her *tap* button
+  already went through the dashboard actions, so the same card behaved
+  differently for a finger and a word. Both actions and the voice path now call
+  one module; the voice route runs it in `after()`, once the answer has been
+  sent. **A spoken cancellation now notifies the client exactly as the
+  dashboard's does**, and offers the freed slot to the waitlist. A voice
+  placeholder has nobody to tell and queues nothing.
+- **A missing detail is the tool's question, never its default.** "תזיזי את
+  התור של X" with no destination finds the booking and asks "לאיזו שעה או
+  לאיזה יום להזיז אותו?"; a booking with no hour asks for it; a shop selling
+  more than one service is asked which (four options read out, "למשל" past
+  that), and a team shop is asked "אצל מי?" — among the people *free for the
+  whole service at that hour*, so the question has no wrong answers; one free
+  person is booked and named, nobody free is said. Order follows dependency:
+  hour, then service (it sets the length), then provider. A single-chair shop
+  (`has_multiple_staff` off) is never asked who — the booking page's own rule.
+  This reverses the §5 decision that defaulted to the shop's first service:
+  a default is a booking at a length nobody chose.
+- **The half-finished request rides back as a `DraftAction`**, beside the
+  pending action and trusted no more. It is kept apart from `pending` on
+  purpose: a pending action is complete and waits for a yes, a draft waits for
+  a *detail*, and a yes means nothing to it. A bare answer — "זקן", "אצל
+  שירן" — is matched against the shop's own list without a model call, the way
+  "כן" is matched against a word list; anything else (every hour included)
+  goes to the model with the draft stated in the prompt as data, day and all,
+  so the call it makes is a copy rather than a reconstruction on a write that
+  does not ask for confirmation. The card stays up while a draft waits.
+- **The verb decides a move, whatever the model made of it.** Found in the
+  browser: "תזיזי את התור של רפאל שטרן", transcribed perfectly, went to
+  `find_client_appointments` and was read back instead of asked about. The
+  prompt now says so plainly, and `routeByVerb` sends a lookup whose
+  transcript carries a move verb to the move proposal — the one direction that
+  cannot write, never for a frozen tenant.
+- **"איזה מהם?" can finally be answered.** She read the times back when a name
+  fitted several bookings, but the tools took a name and nothing else, so "של
+  שתיים" resolved to the same bookings and she asked again, for ever. The
+  proposals take the booking's current date and time as a hint, and the
+  question names the days when the choices fall on different ones — two
+  bookings at ten were read back as "ב-10:00 ו-10:00".
+- **Swapping is one proposal and one transaction**
+  (`propose_swap_appointments`, `lib/appointment-swap.ts`). Each client takes
+  the other's slot — time and provider together, the calendar's two cards
+  changing places, with the new provider *said* when it changes. The length
+  stays with the appointment, so there are exactly two answers: **back to back
+  on one provider** (a gap of up to 15 minutes, nothing between) they swap
+  order inside the block they share, which fills it exactly with no overlap
+  and no hole; **anywhere else** they exchange start times if that fits, and
+  the refusal names whoever is in the way — "לתור של דנה כהן צריך שעה, וב-14:30
+  כבר יש תור לעומר" — before anybody is asked to confirm. Confirmed by "כן" or
+  by the card's button (`swapAppointmentsAction`), both through `confirmSwap`,
+  which re-plans from the rows as they are now and refuses unless the plan
+  lands where the question said.
+- **The constraint forced the transaction's shape.**
+  `appointments_no_overlap_staff` is not deferrable, so two moves fail halfway
+  whenever the two share a provider. `swapAppointments` parks the first on an
+  empty range (`ends_at = starts_at` — the empty `tstzrange` overlaps nothing),
+  moves the second, then the first; every write is a compare-and-swap on the
+  start it was planned against, and anything that fails rolls all three back.
+  A test shows the naive sequence being refused before the swap succeeds.
+- **Next week is in her diary.** The window ran seven days, so asked on a
+  Thursday about next Tuesday she read a diary that stopped on Wednesday and a
+  line calling absent days empty. It now runs to the Saturday that ends next
+  week (`rosterDays`), the header names this week's and next week's dates, the
+  "days not shown are empty" claim stops at the last day actually read, and
+  the cap is 600. `get_week_summary` answers "מה יש לי בשבוע הבא?" from a
+  query and `spokenWeek` — a count, the days, the busiest — rather than a model
+  adding seven lines, and opens the calendar on that week when asked to show it.
+- **"את אלופה" is expected, not forced into a word.** Said quickly, its two
+  words run together, and a transcriber primed only for names and verbs wrote
+  "תלופה". Courtesy phrases are keywords now (not a bare "תודה", the word the
+  old model invented out of silence), the context sentence says she is
+  sometimes thanked, `correctHearing` maps "תלופה" back, and the prompt answers
+  thanks with "תודה!" and no tool.
+- **Two tests had been passing by accident.** "עיצוב זקנים" never matched
+  "עיצוב זקן" — the plural's נ is not the singular's final ן — and "עיצוב
+  הזקן" never matched either; both fell back to the shop's first service,
+  which happened to be the expected one. Asking instead of falling back
+  exposed them. Services are now compared through `nameKey` with the definite
+  article stripped from both sides.
+- **Verified in a browser against production data**, the microphone replaced
+  by a stream the test spoke generated Hebrew into, everything after it real.
+  Read-only: "מה יש לי בשבוע הבא?" → "בשבוע הבא יש לך 83 תורים ב-6 ימים. הכי
+  עמוס ביום שני, עם 17 תורים." (the database's own count); a move with no
+  destination → the question and a draft; a booking with no service → "איזה
+  שירות — למשל…"; a swap of two back-to-back bookings of 15 and 45 minutes →
+  the re-ordered times; "מעולה, את אלופה" → transcribed exactly, answered
+  "תודה!". **With the owner's approval, one conversation wrote:** two voice
+  placeholders booked (on the calendar 2.5s and 2.8s after the text line, no
+  reload), swapped by a spoken "כן, בבקשה", and cancelled the same way (each
+  card changed ~2.7s after its line); no console errors, no notification and
+  no waitlist invite created. The two rows were then deleted by id, so
+  `demo-barber` is as it was. A synthetic 0.3-second "כן" was too short for
+  the detector to count as speech; a natural "כן, בבקשה" was heard every time.
+- **Not verified in a browser:** the team questions ("אצל מי?") — the E2E
+  account owns the single-chair `demo-barber` only. Unit-tested.
+- `npm run verify` green at **1841 across 112 files**.
+
 ---
 
 ## 5. Where things stand
@@ -1754,7 +1873,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1737 tests across 109 files**; Playwright
+**Green:** `npm run verify` at **1841 tests across 112 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 36 migrations
 (0000–0035) are applied to production** — 0035 (`bookings_paused`) on
 2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -1900,11 +2019,13 @@ below before running it.
 > server's would differ with its region, but the round-trip *count* is the same
 > wherever it runs, which is what makes the booking flow latency-bound on
 > database proximity.
->> Undo is `delete from appointments where client_phone like '056%' and
+>
+> Undo is `delete from appointments where client_phone like '056%' and
 > client_phone not like '0560%'` — every number this script creates, and not the
 > load-test batch, which has its own purge. The bare `'056%'` this line used to
 > give now takes both.
->> **`npm run db:seed:appointments` is the other one, and it is not that one.**
+>
+> **`npm run db:seed:appointments` is the other one, and it is not that one.**
 > `db:seed` *rebuilds* a demo tenant — it deletes every appointment, waitlist
 > entry, client note and outbox row before it writes. That is right when the
 > demos have drifted and wrong when the ask is "put some bookings in so I can
@@ -1980,6 +2101,7 @@ the served tier plus the reason.
 | **A `Date` in a raw `sql` template throws — after everything before it committed** | Through Drizzle's postgres-js driver a `Date` parameter inside `` sql`…` `` reaches postgres.js unserialised and fails with `ERR_INVALID_ARG_TYPE` at runtime; typecheck is happy. The load-test runner's read-back hit it *after* its insert had committed, so the error read like a failed run. Query-builder comparisons (`lt(column, date)`) encode fine. In raw SQL pass `date.toISOString()` with `::timestamptz`. | `seed-load-test.ts` |
 | **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
+| **Two moves cannot swap two bookings** | `appointments_no_overlap_staff` is not deferrable, so it is checked per statement: whichever booking moves first lands on the other while that one is still there, and a swap that is valid as a whole fails halfway every time the two share a provider. `swapAppointments` parks the first on an empty range (`ends_at = starts_at` — the empty `tstzrange` overlaps nothing), moves the second, then the first, in one transaction, each write a compare-and-swap on the start it was planned against. Making the constraint deferrable would need a migration and buys nothing this does not. | `db/queries/appointments.ts` `swapAppointments` |
 
 ### The guarantee everything else leans on
 
@@ -2106,7 +2228,9 @@ optional. What follows from that:
   and is excluded from `listClients`, where every placeholder in the shop would
   otherwise fold into one phantom client whose visit count climbed each time the
   owner spoke. Service and provider fall back to the shop's own first-by-sort
-  entries. Availability is **not** consulted, matching
+  entries. *(Superseded: she now asks — which service when the shop sells more
+  than one, and "אצל מי?" in a team shop. See* ליבי asks, swaps, and sees next
+  week*.)* Availability is **not** consulted, matching
   `createManualBookingAction`: squeezing somebody in outside posted hours is
   most of what a shop's day is, and the guard that matters is the database
   constraint, surfaced as a sentence rather than a stack trace.

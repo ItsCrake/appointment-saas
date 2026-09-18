@@ -14,6 +14,7 @@ import { AlertCircle, Check, Loader2, Mic, Square, X } from "lucide-react";
 import {
   rescheduleAppointmentAction,
   setAppointmentStatusAction,
+  swapAppointmentsAction,
 } from "@/app/dashboard/actions";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -131,7 +132,31 @@ type Pending =
       targetStartsAtIso: string;
       targetDate: string;
       targetTime: string;
+    }
+  | {
+      kind: "swap";
+      first: SwapLeg;
+      second: SwapLeg;
     };
+
+type SwapLeg = {
+  appointmentId: string;
+  clientName: string;
+  when: string;
+  toWhen: string;
+  startsAtIso: string;
+  targetStartsAtIso: string;
+};
+
+/**
+ * A change she began and asked one more detail about — "איזה שירות?", "אצל
+ * מי?", "לאיזו שעה להזיז?".
+ *
+ * Opaque here on purpose. The card has nothing to confirm — the answer is
+ * spoken — so this side only holds it and sends it back with the next
+ * recording, the way it holds a pending action. See `DraftAction`.
+ */
+type Draft = { kind: "book" | "move" } & Record<string, unknown>;
 
 type Result = {
   transcribedText: string;
@@ -139,8 +164,11 @@ type Result = {
   audioBase64: string | null;
   actionTaken: string;
   pending?: Pending;
+  draft?: Draft;
   /** A same-origin path she was asked to open — see `VoiceNavigation`. */
   navigate?: { href: string };
+  /** The diary changed this turn — see `DiaryChange`. */
+  changed?: { kind: string; appointmentIds: string[] };
   error?: string;
 };
 
@@ -308,6 +336,11 @@ export function LibiAssistant() {
    */
   const pendingRef = useRef<Pending | null>(null);
   /**
+   * The half-finished change awaiting a detail, for the same reason and by the
+   * same route as `pendingRef` — and written by the same one function.
+   */
+  const draftRef = useRef<Draft | null>(null);
+  /**
    * The conversation so far, for the same reason and by the same route as
    * `pendingRef`: `send` is memoised for the life of the recorder and cannot
    * read state that changed after it was built.
@@ -363,6 +396,7 @@ export function LibiAssistant() {
 
   const showResult = useCallback((next: Result | null) => {
     pendingRef.current = next?.pending ?? null;
+    draftRef.current = next?.draft ?? null;
     // A card being written now is not a card being taken away.
     cancelDismiss();
     setResult(next);
@@ -412,10 +446,12 @@ export function LibiAssistant() {
      *
      * **A pending change is exempt.** That card is a *question* with a button
      * on it, and a question that vanishes while somebody is deciding is worse
-     * than one that lingers. Read from the ref rather than from `result`,
-     * which this callback cannot see.
+     * than one that lingers. So is a draft: "איזה שירות?" is a question the
+     * owner answers by pressing the microphone again, and it has to still be
+     * there — card and draft both — when they do. Read from the refs rather
+     * than from `result`, which this callback cannot see.
      */
-    if (pendingRef.current) return;
+    if (pendingRef.current || draftRef.current) return;
 
     cancelDismiss();
     setDismissing(true);
@@ -424,6 +460,7 @@ export function LibiAssistant() {
       setDismissing(false);
       setResult(null);
       pendingRef.current = null;
+      draftRef.current = null;
     }, DISMISS_AFTER_MS);
   }, [cancelDismiss, releaseStream, setConversing]);
 
@@ -689,6 +726,8 @@ export function LibiAssistant() {
        */
       const carried = pendingRef.current;
       if (carried) form.append("pending", JSON.stringify(carried));
+      const unfinished = draftRef.current;
+      if (unfinished) form.append("draft", JSON.stringify(unfinished));
 
       // The exchange so far, for the same reason and by the same route.
       if (historyRef.current.length > 0) {
@@ -787,6 +826,22 @@ export function LibiAssistant() {
               if (message.navigate?.href?.startsWith("/")) {
                 router.push(message.navigate.href);
               }
+
+              /**
+               * **She wrote to the diary, so the calendar behind the card is
+               * out of date.** It is rendered on the server and cannot see a
+               * write it did not make, so a booking she took used to appear
+               * only when the owner reloaded — at the one moment they were
+               * looking to see whether she had understood. Refreshed now, on
+               * the text line, so the card lands on the calendar as it is.
+               *
+               * `router.refresh()` re-renders the route's server components
+               * and keeps every client component's state, this one included —
+               * the conversation, the microphone and the clip in the air carry
+               * on through it. A route handler cannot refresh the client the
+               * way a server action does, so this side has to.
+               */
+              if (message.changed) router.refresh();
 
               if (message.transcribedText && message.textResult) {
                 historyRef.current = [
@@ -1052,6 +1107,7 @@ export function LibiAssistant() {
           expectsAnswer:
             continued &&
             (Boolean(pendingRef.current) ||
+              Boolean(draftRef.current) ||
               /\?\s*$/.test(historyRef.current.at(-1)?.replied ?? "")),
         });
       }
@@ -1122,7 +1178,17 @@ export function LibiAssistant() {
   function confirmPending(pending: Pending) {
     startConfirm(async () => {
       const outcome =
-        pending.kind === "cancel"
+        pending.kind === "swap"
+          ? /**
+             * The same re-check the spoken "כן" gets: the action re-reads
+             * both bookings, re-plans the swap and refuses unless it lands
+             * exactly where this button says. See `confirmSwap`.
+             */
+            await swapAppointmentsAction({
+              first: pending.first,
+              second: pending.second,
+            })
+          : pending.kind === "cancel"
           ? await setAppointmentStatusAction(pending.appointmentId, "cancelled")
           : await rescheduleAppointmentAction({
               appointmentId: pending.appointmentId,
@@ -1149,9 +1215,11 @@ export function LibiAssistant() {
 
       if (outcome.ok) {
         toast(
-          pending.kind === "cancel"
-            ? `${pending.clientName}: התור בוטל`
-            : `${pending.clientName}: התור הוזז ל-${pending.toWhen}`,
+          pending.kind === "swap"
+            ? `${pending.first.clientName} ו${pending.second.clientName}: התורים הוחלפו`
+            : pending.kind === "cancel"
+              ? `${pending.clientName}: התור בוטל`
+              : `${pending.clientName}: התור הוזז ל-${pending.toWhen}`,
         );
         showResult(null);
         router.refresh();
@@ -1298,9 +1366,11 @@ export function LibiAssistant() {
                   ) : (
                     <Check className="size-3.5" aria-hidden />
                   )}
-                  {result.pending.kind === "cancel"
-                    ? `ביטול התור של ${result.pending.clientName} ב-${result.pending.when}`
-                    : `הזזת ${result.pending.clientName} מ-${result.pending.when} ל-${result.pending.toWhen}`}
+                  {result.pending.kind === "swap"
+                    ? `החלפה: ${result.pending.first.clientName} ל-${result.pending.first.toWhen}, ${result.pending.second.clientName} ל-${result.pending.second.toWhen}`
+                    : result.pending.kind === "cancel"
+                      ? `ביטול התור של ${result.pending.clientName} ב-${result.pending.when}`
+                      : `הזזת ${result.pending.clientName} מ-${result.pending.when} ל-${result.pending.toWhen}`}
                 </button>
                 <button
                   type="button"
@@ -1314,6 +1384,14 @@ export function LibiAssistant() {
                 אפשר גם פשוט לענות לה &quot;כן&quot;.
               </p>
             </div>
+          ) : null}
+
+          {/* A detail she is waiting for. Nothing to tap — the answer is a
+              word, and the card only says where it goes. */}
+          {result.draft && !conversing ? (
+            <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+              אפשר ללחוץ על המיקרופון ולענות לה.
+            </p>
           ) : null}
 
           {result.error && result.error !== "empty_transcript" ? (

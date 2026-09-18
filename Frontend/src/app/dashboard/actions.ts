@@ -9,7 +9,6 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   BLOCKING_STATUSES,
-  cancelPendingNotificationsForAppointment,
   createAppointment,
   deletePendingNotificationsForAppointment,
   getAppointment,
@@ -22,6 +21,11 @@ import {
 } from "@/db/queries";
 import { getDefaultStaff, getStaff } from "@/db/queries/staff";
 import {
+  afterAppointmentCancelled,
+  afterAppointmentMoved,
+} from "@/lib/appointment-aftermath";
+import { confirmSwap } from "@/lib/appointment-swap";
+import {
   getAvailableSlotsWithStaff,
   staffAvailableAt,
 } from "@/lib/availability";
@@ -31,12 +35,9 @@ import { dispatchDueNotifications } from "@/lib/notifications/dispatch";
 import {
   enqueueApprovalNotifications,
   enqueueBookingNotifications,
-  enqueueCancellationNotifications,
-  enqueueRejectionNotifications,
   enqueueReminder,
 } from "@/lib/notifications/enqueue";
 import { normalizePhone } from "@/lib/validation";
-import { offerFreedSlotToWaitlist } from "@/lib/waitlist-offer";
 
 export type ActionResult =
   { ok: true; warning?: string } | { ok: false; error: string };
@@ -411,24 +412,16 @@ export async function rescheduleAppointmentAction(
    * `startsAt`, so the *wording* of a moved reminder was always going to be
    * right — what was wrong was **when it fires**. An appointment pushed from
    * Friday to next Tuesday would otherwise have reminded the client on
-   * Thursday. See `deletePendingNotificationsForAppointment` for why these are
-   * deleted rather than skipped.
-   *
-   * The client is **not** told the appointment moved. That needs a template
-   * kind this system does not have — see PROJECT_PLAN §5 on the five
-   * unsubmitted Meta templates — and inventing one here would queue messages
-   * the official path refuses to send.
+   * Thursday. Shared with every other path that moves an appointment — see
+   * `appointment-aftermath`, which also never turns a completed move into an
+   * error.
    */
-  try {
-    await deletePendingNotificationsForAppointment(db, updated.id);
-    await enqueueReminder({ db, business, appointment: updated });
-  } catch (error) {
-    // Never turn a completed move into an error: the appointment has already
-    // moved, and an owner told it failed would move it again.
-    reportError("dashboard.reschedule.notify", error, {
-      appointmentId: updated.id,
-    });
-  }
+  await afterAppointmentMoved({
+    db,
+    business,
+    appointment: updated,
+    source: "dashboard.reschedule",
+  });
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/agenda/full");
@@ -457,6 +450,75 @@ async function overlappingAppointment(
   const rows = await listAppointmentsInRange(db, businessId, startsAt, endsAt);
 
   return rows.find((row) => row.staffId === staffId && row.id !== excludeId);
+}
+
+const swapLegSchema = z.object({
+  appointmentId: z.uuid("בקשה לא תקינה"),
+  startsAtIso: z.iso.datetime({ offset: true }),
+  targetStartsAtIso: z.iso.datetime({ offset: true }),
+});
+
+const swapSchema = z.object({
+  first: swapLegSchema,
+  second: swapLegSchema,
+});
+
+/**
+ * Swaps two appointments, as ליבי described the swap — the tap half of her
+ * card, beside the spoken "כן".
+ *
+ * Everything is re-derived: `confirmSwap` re-reads both rows under this
+ * session's business, re-plans the swap from them as they are *now*, and
+ * refuses unless that plan lands exactly where the card said. So a button
+ * pressed after the diary changed underneath it does nothing, rather than
+ * applying a different swap from the one on the button.
+ */
+export async function swapAppointmentsAction(
+  input: unknown,
+): Promise<ActionResult> {
+  const parsed = swapSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "בקשה לא תקינה" };
+
+  const { business } = await requireWritable();
+
+  let result;
+  try {
+    result = await confirmSwap(db, business.id, parsed.data);
+  } catch (error) {
+    if (error instanceof SlotTakenError) {
+      return { ok: false, error: "יש כבר תור שחופף לאחד המועדים" };
+    }
+    reportError("dashboard.swap", error, { businessId: business.id });
+    return { ok: false, error: "אירעה שגיאה בהחלפת התורים" };
+  }
+
+  if (!result.ok) {
+    if (result.reason === "stale") {
+      return { ok: false, error: "התורים השתנו מאז — כדאי לבדוק ביומן" };
+    }
+    const { clash } = result;
+    const when = formatInTimeZone(clash.startsAt, business.timezone, "HH:mm");
+    const who = clash.leg === "first" ? result.firstName : result.secondName;
+    return {
+      ok: false,
+      error: `ל${who} צריך ${clash.needsMinutes} דקות, וב-${when} כבר משובץ ${clash.clientName}.`,
+    };
+  }
+
+  for (const appointment of result.rows) {
+    await afterAppointmentMoved({
+      db,
+      business,
+      appointment,
+      source: "dashboard.swap",
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/agenda/full");
+  revalidatePath(`/${business.slug}`);
+
+  return { ok: true };
 }
 
 const detailsSchema = z.object({
@@ -575,29 +637,26 @@ export async function setAppointmentStatusAction(
 
   if (!updated) return { ok: false, error: "התור לא נמצא" };
 
+  if (parsedStatus.data === "cancelled") {
+    /**
+     * Cancelling from the dashboard notifies the client exactly as the
+     * self-service link does, and the slot goes to whoever has waited longest.
+     * Shared with ליבי's spoken "כן" — see `appointment-aftermath`, which also
+     * swallows its own failures.
+     */
+    await afterAppointmentCancelled({
+      db,
+      business,
+      appointment: updated,
+      wasRequest,
+      source: "dashboard.status",
+    });
+    revalidatePath("/dashboard");
+    return { ok: true };
+  }
+
   try {
-    if (parsedStatus.data === "cancelled") {
-      await cancelPendingNotificationsForAppointment(db, updated.id);
-
-      // "התור שלך בוטל" is wrong for something that was never confirmed.
-      await (wasRequest
-        ? enqueueRejectionNotifications({ db, business, appointment: updated })
-        : // Cancelling from the dashboard notifies the client exactly as the
-          // self-service link does.
-          enqueueCancellationNotifications({
-            db,
-            business,
-            appointment: updated,
-          }));
-
-      /**
-       * And the slot goes to whoever has waited longest, with nothing asked of
-       * the owner — see `offerFreedSlotToWaitlist`. Swallows its own failures,
-       * so a queue that cannot be reached never turns a completed cancellation
-       * into an error.
-       */
-      await offerFreedSlotToWaitlist({ db, business, appointment: updated });
-    } else if (parsedStatus.data === "confirmed" && wasRequest) {
+    if (parsedStatus.data === "confirmed" && wasRequest) {
       // Approval is also when the reminder finally gets scheduled — it was
       // deliberately withheld while the answer was still unknown.
       await enqueueApprovalNotifications({

@@ -98,6 +98,133 @@ function sentence(...parts: string[]): string {
 }
 
 /**
+ * How many options a question reads out before it stops listing them.
+ *
+ * Four names is a question somebody can hold in their head while answering;
+ * a shop's whole price list is a menu read aloud. Past four she offers the
+ * first few "למשל" and the owner says what they want.
+ */
+export const MAX_SPOKEN_CHOICES = 4;
+
+/**
+ * "תספורת גבר, זקן או צבע" — the options of a question, as said.
+ *
+ * Hebrew puts "או" before the last one only. Past {@link MAX_SPOKEN_CHOICES}
+ * the list is cut and introduced as examples, so it is still true.
+ */
+export function spokenChoice(options: readonly string[]): string {
+  const shown = options.slice(0, MAX_SPOKEN_CHOICES);
+  const list =
+    shown.length <= 1
+      ? (shown[0] ?? "")
+      : `${shown.slice(0, -1).join(", ")} או ${shown[shown.length - 1]}`;
+  return options.length > MAX_SPOKEN_CHOICES ? `למשל ${list}` : list;
+}
+
+/**
+ * "חצי שעה", "שעה", "שעה וחצי", "45 דקות" — a length as a person says it.
+ *
+ * A swap is refused by how long something takes, and "90 דקות" is how a form
+ * says it rather than how a barber does. Quarter and half hours get their own
+ * words; anything else is left in minutes for `libi-hebrew` to spell.
+ */
+export function spokenDuration(minutes: number): string {
+  if (minutes < 60) return minutes === 30 ? "חצי שעה" : `${minutes} דקות`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const whole = hours === 1 ? "שעה" : hours === 2 ? "שעתיים" : `${hours} שעות`;
+
+  if (rest === 0) return whole;
+  if (rest === 15) return `${whole} ורבע`;
+  if (rest === 30) return `${whole} וחצי`;
+  return `${whole} ו-${rest} דקות`;
+}
+
+/**
+ * The destination of a move, with the "to" Hebrew fuses onto it.
+ *
+ * "ל" joins the word it governs, and the phrases here start three ways: a
+ * clock ("ל-15:00"), a day word ("למחר", "להיום"), and "ביום שלישי", where
+ * the "ב" gives way — "ליום שלישי", never "לביום שלישי", which is what gluing
+ * the letter on produced.
+ */
+export function toward(at: string): string {
+  if (/^\d/.test(at)) return `ל-${at}`;
+  if (at.startsWith("ביום ")) return `ל${at.slice(1)}`;
+  return `ל${at}`;
+}
+
+/** "היום", "מחר", "ביום שלישי" for a shop-local date — the week's own days. */
+function weekDayPhrase(day: string, today: string): string {
+  if (day === today) return "היום";
+  const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return day === tomorrow ? "מחר" : `ביום ${weekdayLabel(day)}`;
+}
+
+/**
+ * `get_week_summary` — what is left of this week, or all of next.
+ *
+ * ---------------------------------------------------------------------------
+ * **The same shape as every other count she says.** One or two bookings are
+ * named with their day and time, since that is still an answer somebody can
+ * hold; more than two are a count, how many days they fall on, and the busiest
+ * day — the question behind "מה יש לי בשבוע הבא?" is how full it is, not a
+ * list, which the prompt already forbids reading out.
+ *
+ * **Days are weekday names, not dates.** Every day in either week is inside
+ * the next fortnight, so "ביום שלישי" is unambiguous once "בשבוע הבא" has been
+ * said, and a date on top would be four syllables of nothing.
+ *
+ * Ties for busiest go to the earlier day, so the sentence is the same every
+ * time it is asked.
+ * ---------------------------------------------------------------------------
+ */
+export function spokenWeek(
+  which: "this" | "next",
+  rows: readonly SpokenAppointment[],
+  now: Date,
+  timezone: string,
+): string {
+  if (rows.length === 0) {
+    return which === "next"
+      ? "אין לך תורים בשבוע הבא."
+      : "לא נשארו לך תורים השבוע.";
+  }
+
+  const label = which === "next" ? "בשבוע הבא יש לך" : "השבוע נשארו לך";
+  const today = todayInTimezone(timezone, now);
+  const dayOf = (row: SpokenAppointment) =>
+    formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd");
+  const at = (row: SpokenAppointment) =>
+    `${weekDayPhrase(dayOf(row), today)} ב-${spokenTime(row.startsAt, timezone)}`;
+
+  if (rows.length === 1) {
+    return `${label} תור אחד: ${rows[0].clientName} ${at(rows[0])}.`;
+  }
+  if (rows.length === 2) {
+    return `${label} ${spokenCount(2)}: ${rows[0].clientName} ${at(rows[0])}, ו${rows[1].clientName} ${at(rows[1])}.`;
+  }
+
+  const perDay = new Map<string, number>();
+  for (const row of rows) {
+    perDay.set(dayOf(row), (perDay.get(dayOf(row)) ?? 0) + 1);
+  }
+
+  if (perDay.size === 1) {
+    return `${label} ${spokenCount(rows.length)}, כולם ${weekDayPhrase(dayOf(rows[0]), today)}.`;
+  }
+
+  const [busiest, most] = [...perDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .reduce((best, entry) => (entry[1] > best[1] ? entry : best));
+
+  return `${label} ${spokenCount(rows.length)} ב-${perDay.size} ימים. הכי עמוס ${weekDayPhrase(busiest, today)}, עם ${spokenCount(most)}.`;
+}
+
+/**
  * `action=next` — the very next appointment, whenever it is.
  *
  * The brief's fallback line says "today", and the query behind it is

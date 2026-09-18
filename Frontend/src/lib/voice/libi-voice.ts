@@ -18,9 +18,12 @@ import {
   READ_ONLY_TOOLS,
   ROSTER_LIMIT,
   VOICE_TOOLS,
+  answerDraft,
   executePending,
+  routeByVerb,
   runVoiceTool,
   upcomingRoster,
+  type DraftAction,
   type PendingAction,
   type RosterRow,
   type ToolContext,
@@ -31,7 +34,7 @@ import { normalizeForSpeech } from "./libi-hebrew";
 import { correctHearing, whisperPrompt } from "./libi-vocabulary";
 import { splitForSpeech } from "./libi-chunks";
 import { historyMessages, type Turn } from "./libi-history";
-import { buildPromptContext } from "./libi-context";
+import { buildPromptContext, draftContext } from "./libi-context";
 
 /**
  * The three steps: hear, decide, speak.
@@ -273,6 +276,22 @@ async function transcribeWith(
  * with calendar access; she is the calendar, spoken. Naming the words she has
  * — תור, פנוי, מוזמן, מבוטל, הוזז — is what stops the model editorialising
  * about a day that looks busy.
+ *
+ * **A missing detail is the tool's question, and the model is told not to
+ * answer it itself.** "תזיזי את התור של דני" used to reach
+ * `propose_reschedule_appointment` with an hour the model made up to fill a
+ * required field, and "תקבעי לדני" booked the shop's first service with its
+ * primary provider. The tools now ask — see `DraftAction` — and the prompt
+ * forbids choosing an hour, a service or a provider nobody said; the tool is
+ * what makes that true, the rule is what stops the model pre-empting it.
+ *
+ * **A swap is one tool, and the prompt says it is never two moves.** Two
+ * `propose_reschedule` calls cannot express it: the first would be refused by
+ * the booking it is making room for.
+ *
+ * **Thanks gets "תודה!", and nothing else.** "את אלופה" at the end of a
+ * conversation is not a request, and the one thing worse than ignoring it is
+ * looking a client called "אלופה" up in the diary.
  * ---------------------------------------------------------------------------
  */
 const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בזמן. בעל העסק מדבר אלייך בעברית על היומן שלו.
@@ -280,7 +299,11 @@ const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בז�
 כללים:
 - יש כלי שמתאים? קראי לו מיד, בתור הראשון. אל תשאלי שאלות הבהרה שהכלי עצמו שואל.
 - get_today_summary הוא **להיום בלבד**. נשאלת על מחר, על אתמול או על יום נקוב? אל תקראי לו — עני מהיומן שלמעלה. תשובה על היום לשאלה על מחר היא הטעות הגרועה ביותר שלך.
-- אין כלי מתאים? עני מהיומן שלמעלה בלבד ואל תמציאי דבר. היום ומחר מפורטים בו; לשאר הימים יש רק סיכום, בלי שמות.
+- שאלה על השבוע כולו או על השבוע הבא ("מה יש לי בשבוע הבא?") — get_week_summary. על יום אחד בשבוע הבא — עני מהיומן שלמעלה.
+- אין כלי מתאים? עני מהיומן שלמעלה בלבד ואל תמציאי דבר. היום ומחר מפורטים בו; לשאר הימים עד סוף השבוע הבא יש רק סיכום, בלי שמות.
+- **חסר פרט? הכלי שואל, לא את, ולעולם לא ממציאה.** "תזיזי את התור של X" בלי לאן — propose_reschedule_appointment עם name בלבד, לא find_client_appointments. קביעה בלי שעה, בלי שירות או בלי נותן שירות — create_appointment עם מה שנאמר בלבד. לעולם אל תבחרי בעצמך שעה, שירות או נותן שירות שלא נאמרו.
+- שאלת שאלה (לאיזו שעה, איזה שירות, אצל מי, איזה מהם) והתשובה עונה עליה — קראי שוב לאותו כלי עם כל פרטי הבקשה המקורית ועם התשובה.
+- להחליף בין התורים של שני לקוחות — propose_swap_appointments. לעולם לא כשתי הזזות.
 - כל בקשה על לקוח מסוים — מתי מגיע, ביטול, הזזה, הצגה — עוברת בכלי, גם כשהשם לא מופיע למעלה. לעולם אל תאמרי שאין תור ללקוח בלי לקרוא לכלי.
 - הבקשה הגיעה מזיהוי דיבור ועלולה לשבש שמות ומילים. שם שדומה לשם ביומן — שלחי לכלי את השם כפי שהוא כתוב ביומן. מילה משובשת שדומה לפועל (תבטלי, תזיזי, תקבעי) — פעלי לפי הפועל.
 - **לעולם אל תקריאי רשימה, וזה כולל שלושה תורים.** את נשמעת בקול: בלי מקפים, בלי נקודתיים, בלי "confirmed", בלי שורות.
@@ -301,6 +324,7 @@ const BASE_INSTRUCTIONS = `את "ליבי", העוזרת הקולית של בז�
 - יש שיחה קודמת למעלה? "אותו", "אותה", "זה", "התור הזה", "ואז" ו"גם" מתייחסים לתור שדיברתן עליו בתור הקודם. פתרי את ההתייחסות בעצמך והעבירי לכלי את שם הלקוח שנאמר שם — אל תשאלי "לאיזה תור התכוונת" אם זה ברור מהשיחה.
 - המשך של בקשה קודמת הוא בקשה מלאה. "תזיזי אותו שעה קדימה" = הזזה לשעה שהיא שעה אחרי השעה שנאמרה למעלה; חשבי אותה בעצמך ושלחי HH:MM.
 - לא הבנת? בקשי שיחזור. אל תנחשי.
+- מחמאה או תודה ("את אלופה", "מעולה", "תודה רבה") — עני "תודה!" ותו לא, בלי כלי.
 - שואלים מי את: "היי, אני ליבי — העוזרת של בזמן."`;
 
 /**
@@ -359,6 +383,7 @@ export async function decide(
     history = [],
     gender,
     roster: rosterInFlight,
+    draft,
     onStage,
   }: {
     /**
@@ -376,6 +401,12 @@ export async function decide(
      * depended on what was said.
      */
     roster?: Promise<RosterRow[]>;
+    /**
+     * A change she began and asked one more detail about — see `DraftAction`.
+     * Only ever produced by the writing tools, so a frozen tenant's turn is
+     * handed none.
+     */
+    draft?: DraftAction;
   } = {},
 ): Promise<ToolOutcome> {
   /**
@@ -401,6 +432,32 @@ export async function decide(
   }
 
   /**
+   * **An answer to "איזה שירות?" is matched against the shop's own list
+   * first**, the way an answer to "לבטל אותו?" is matched against a word
+   * list. A refusal ends the draft; a bare service or provider completes the
+   * booking without a model call; anything else — including every hour, which
+   * only the model turns into HH:MM — goes on to the model with the draft
+   * stated in the prompt. A yes means nothing here, and is not treated as one.
+   */
+  if (draft && writable) {
+    if (classifyConfirmation(transcript) === "deny") {
+      return {
+        spoken:
+          draft.kind === "book"
+            ? "בסדר, לא קבעתי כלום."
+            : "בסדר, לא שיניתי כלום.",
+        actionTaken: "declined",
+      };
+    }
+    const answered = await answerDraft(draft, transcript, ctx);
+    if (answered) {
+      onStage?.("tool");
+      return answered;
+    }
+  }
+  const openDraft = writable ? draft : undefined;
+
+  /**
    * Fetched before the model call rather than offered as another tool.
    *
    * A tool would cost a second round trip through the model to answer half the
@@ -418,7 +475,7 @@ export async function decide(
     {
       role: "system",
       content: `${context}
-
+${openDraft ? `\n${draftContext(openDraft)}\n` : ""}
 ${instructionsFor(addressGender(gender))}`,
     },
     /**
@@ -497,7 +554,15 @@ ${instructionsFor(addressGender(gender))}`,
     return { spoken: "לא הבנתי. אפשר לנסות שוב?", actionTaken: "none" };
   }
 
-  const outcome = await runVoiceTool(call.function.name, args, ctx);
+  // A move the model read as a lookup goes where its verb says — see
+  // `routeByVerb`. Never for a frozen tenant, who has no proposals to make.
+  const routed = writable
+    ? routeByVerb(call.function.name, args, transcript)
+    : { tool: call.function.name, args };
+
+  const outcome = await runVoiceTool(routed.tool, routed.args, ctx, {
+    draft: openDraft,
+  });
   onStage?.("tool");
   return outcome;
 }

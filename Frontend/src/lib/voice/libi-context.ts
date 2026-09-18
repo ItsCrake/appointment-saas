@@ -1,9 +1,9 @@
 import { formatInTimeZone } from "date-fns-tz";
 
-import { shiftDays } from "@/lib/calendar-week";
+import { shiftDays, weekOf } from "@/lib/calendar-week";
 import { todayInTimezone, weekdayLabel } from "@/lib/format";
 
-import type { RosterRow } from "./libi-tools";
+import type { DraftAction, RosterRow } from "./libi-tools";
 
 /**
  * What ליבי knows before she is asked anything.
@@ -53,6 +53,43 @@ import type { RosterRow } from "./libi-tools";
 export const DETAIL_DAYS = 2;
 export const DETAIL_LIMIT = 40;
 
+/**
+ * This week, next week, and the last day the diary in the prompt covers.
+ *
+ * ---------------------------------------------------------------------------
+ * **The window used to be seven days, and "next week" fell off the end of
+ * it.** Asked on a Thursday what was on next Tuesday — nine days out — the
+ * model read a diary that stopped on Wednesday and a line saying days it did
+ * not show were empty, and answered accordingly. The window now runs to the
+ * Saturday that ends next week, wherever in this week today falls, and the
+ * header says which dates "השבוע" and "השבוע הבא" are: a model that has to
+ * work out which Sunday starts next week is a model that can pick the wrong
+ * one.
+ *
+ * Sunday-first, the Israeli week — the same `weekOf` the calendar draws with.
+ * ---------------------------------------------------------------------------
+ */
+export function rosterWindow(today: string) {
+  const thisWeek = weekOf(today);
+  const nextWeek = weekOf(shiftDays(today, 7));
+  return {
+    thisWeek: { from: thisWeek[0], to: thisWeek[6] },
+    nextWeek: { from: nextWeek[0], to: nextWeek[6] },
+    lastDay: nextWeek[6],
+  };
+}
+
+/** Days from today to the end of next week, both included. */
+export function rosterDays(today: string): number {
+  const { lastDay } = rosterWindow(today);
+  return (
+    Math.round(
+      (Date.parse(`${lastDay}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) /
+        86_400_000,
+    ) + 1
+  );
+}
+
 /** Times in the shop's zone; the model must never do timezone arithmetic. */
 function line(row: RosterRow, timezone: string): string {
   const day = formatInTimeZone(row.startsAt, timezone, "yyyy-MM-dd");
@@ -96,16 +133,18 @@ export function buildPromptContext(
 ): string {
   const today = todayInTimezone(timezone, now);
   const clock = formatInTimeZone(now, timezone, "HH:mm");
+  const { thisWeek, nextWeek, lastDay } = rosterWindow(today);
 
   const header = [
     `התאריך היום: ${today} (יום ${weekdayLabel(today)}).`,
     `השעה עכשיו: ${clock} (${timezone}).`,
+    `השבוע: ${thisWeek.from} עד ${thisWeek.to}. השבוע הבא: ${nextWeek.from} עד ${nextWeek.to}.`,
   ].join("\n");
 
   if (roster.length === 0) {
     // Said explicitly rather than left as an empty list. "No appointments" is
     // an answer; an absent section invites the model to fill the gap.
-    return `${header}\nאין תורים ביומן בשבוע הקרוב.`;
+    return `${header}\nאין תורים ביומן עד ${lastDay}.`;
   }
 
   const byDay = new Map<string, RosterRow[]>();
@@ -145,16 +184,78 @@ export function buildPromptContext(
 
   if (later.length > 0) {
     lines.push(
-      "שאר השבוע — סיכום בלבד, בלי שמות:",
+      "שאר הימים עד סוף השבוע הבא — סיכום בלבד, בלי שמות:",
       ...later.map(([day, rows]) => summaryLine(day, rows, timezone)),
     );
   }
 
+  /**
+   * **Where the diary ends is said, not implied.** "Days not shown are empty"
+   * was true inside the window and false past it — a question about the week
+   * after next read an absent day as a free one. Now the claim stops at the
+   * last day that was actually read.
+   */
   lines.push(
     truncated
       ? "היומן עמוס: ייתכן שיש תורים שאינם מופיעים כאן."
-      : "ימים שאינם מופיעים — אין בהם תורים.",
+      : `ימים עד ${lastDay} שאינם מופיעים — אין בהם תורים.`,
+    `אחרי ${lastDay} היומן לא מוצג כאן — אל תאמרי שיום כזה ריק.`,
   );
 
   return lines.join("\n");
+}
+
+/** One line of what the browser sent, safe to set inside a prompt. */
+function flat(value: string | undefined, max = 80): string {
+  return (value ?? "")
+    .replace(/["״”“\n\r\t]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+/**
+ * The change she is waiting to complete, stated where the model will read it.
+ *
+ * ---------------------------------------------------------------------------
+ * **The conversation already contains it; this makes it unmissable.** The
+ * question she asked is the last assistant message, and "לחמש" after it is a
+ * continuation any reader would follow — but the model has to rebuild the
+ * whole booking from it, day included, on a write that does not ask for
+ * confirmation. Stated as data, with the day as a date, the call it makes is a
+ * copy rather than a reconstruction.
+ *
+ * Only reached when `answerDraft` could not place the answer itself: an hour,
+ * or a service or provider said in words a list cannot read. The values come
+ * from the browser, so they are flattened to one line and bounded; the tool
+ * the model then calls re-resolves every one of them.
+ * ---------------------------------------------------------------------------
+ */
+export function draftContext(draft: DraftAction): string {
+  if (draft.kind === "move") {
+    const name = flat(draft.clientName);
+    const day = draft.date && /^\d{4}-\d{2}-\d{2}$/.test(draft.date) ? draft.date : "";
+    return [
+      "בקשה פתוחה — שאלת לאן להזיז ואת מחכה לתשובה:",
+      `הזזת התור של ${name}, שנמצא ${flat(draft.when)}${day ? `, ליום ${day}` : ""}. חסר: ${day ? "שעה" : "שעה או יום"}.`,
+      `התשובה נותנת שעה או יום → propose_reschedule_appointment עם name="${name}" והמועד החדש${day ? ` (date="${day}" אם לא נאמר יום אחר)` : ""}. אל תבחרי שעה בעצמך.`,
+    ].join("\n");
+  }
+
+  const missing = { time: "שעה", service: "שירות", staff: "נותן שירות" }[
+    draft.awaiting
+  ];
+  const known = [
+    draft.name ? `ל${flat(draft.name)}` : "בלי שם לקוח",
+    `date=${flat(draft.date, 10)}`,
+    draft.time ? `time=${flat(draft.time, 5)}` : "",
+    draft.service ? `service="${flat(draft.service)}"` : "",
+    draft.staff ? `staff="${flat(draft.staff)}"` : "",
+  ].filter(Boolean);
+
+  return [
+    "בקשה פתוחה — שאלת שאלה ואת מחכה לתשובה:",
+    `קביעת תור ${known.join(", ")}. חסר: ${missing}.`,
+    "התשובה משלימה את הבקשה → create_appointment עם כל הפרטים האלה ועם התשובה. אל תבחרי בעצמך מה שלא נאמר.",
+  ].join("\n");
 }

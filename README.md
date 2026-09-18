@@ -398,13 +398,16 @@ full week calendar, an installable app with push, and a WhatsApp backend.
   `b/`, so it sends a bare cancel token and the proxy redirects `/{token}` to
   `/b/{token}` rather than 404ing a link a client was just sent. See
   [ARCHITECTURE.md](docs/ARCHITECTURE.md#whatsapp-has-three-backends-and-they-are-not-interchangeable).
-- **"ליבי" — booking by Hebrew voice command.** A microphone beside "תור ידני"
-  on `/dashboard`: the owner speaks, Libi extracts the fields, asks in Hebrew
-  for whatever is missing, and books through the *existing* manual path. The
-  browser does the speech-to-text (`he-IL`, no audio leaves the device); Claude
-  turns the transcript into structured fields. Pro-gated, and hidden entirely
-  without an `ANTHROPIC_API_KEY`. See
-  [ARCHITECTURE.md](docs/ARCHITECTURE.md#ליבי--booking-by-hebrew-voice-command).
+- **"ליבי" — the diary, spoken.** A microphone on every dashboard page: the
+  owner talks in Hebrew and she answers out loud — what is next, today, this
+  week or next — books, and proposes moves, swaps and cancellations that land
+  only after a spoken or tapped "כן". A missing detail (an hour, a service, a
+  provider) is a question, never a default, and the calendar behind her card
+  updates the moment she writes. Transcription is OpenAI `gpt-transcribe`
+  primed with the shop's own names, intent is `gpt-4o-mini` choosing one tool,
+  and the voice is ElevenLabs with OpenAI as the fallback. Pro-gated, and hidden
+  entirely without an `OPENAI_API_KEY`. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#ליבי--the-voice-assistant).
 - **The agenda answers "who is next" first.** Six equal-weight metric cards
   above the appointments — three rows of them on a phone, two of which were
   30-day rates that read `—` for any new shop — became one sentence with the
