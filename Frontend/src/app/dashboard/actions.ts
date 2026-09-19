@@ -10,6 +10,7 @@ import { db } from "@/db";
 import {
   BLOCKING_STATUSES,
   createAppointment,
+  deleteCancelledAppointment,
   deletePendingNotificationsForAppointment,
   getAppointment,
   getService,
@@ -705,5 +706,52 @@ export async function setAppointmentStatusAction(
   }
 
   revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/**
+ * Removes a cancelled appointment from the calendar for good.
+ *
+ * ---------------------------------------------------------------------------
+ * The only destructive action in the dashboard, and the only one that cannot
+ * be undone — so it is offered on nothing but a booking that has already been
+ * cancelled, and the sheet asks before it is sent. A live booking deleted by a
+ * mistyped id would free its slot silently and leave a client expecting to be
+ * seen; the status is checked here for the message and again inside
+ * `deleteCancelledAppointment`'s own WHERE clause, which is what actually
+ * guarantees it.
+ *
+ * Nothing is announced to the client: they were told when it was cancelled,
+ * and the cancellation is the event. This only clears the record of it.
+ * ---------------------------------------------------------------------------
+ */
+export async function deleteAppointmentAction(
+  appointmentId: string,
+): Promise<ActionResult> {
+  const parsedId = z.uuid().safeParse(appointmentId);
+  if (!parsedId.success) return { ok: false, error: "בקשה לא תקינה" };
+
+  const { business } = await requireWritable();
+
+  const existing = await getAppointment(db, business.id, parsedId.data);
+  if (!existing) return { ok: false, error: "התור לא נמצא" };
+  if (existing.status !== "cancelled") {
+    return {
+      ok: false,
+      error: "אפשר למחוק רק תור שבוטל. בטלו אותו קודם.",
+    };
+  }
+
+  const deleted = await deleteCancelledAppointment(
+    db,
+    business.id,
+    parsedId.data,
+  );
+  // Restored in another tab between the read above and this delete.
+  if (!deleted) return { ok: false, error: "התור כבר אינו מבוטל ולא נמחק." };
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/agenda/full");
+  revalidatePath("/dashboard/clients");
   return { ok: true };
 }

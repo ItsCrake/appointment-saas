@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Scissors,
   Tag,
+  Trash2,
   TriangleAlert,
   UserRound,
   UserX,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 
 import {
+  deleteAppointmentAction,
   rescheduleAppointmentAction,
   setAppointmentStatusAction,
   updateAppointmentDetailsAction,
@@ -103,12 +105,16 @@ export function AppointmentDialog({
   const [tab, setTab] = useState<Tab>("appointment");
   const [mode, setMode] = useState<"view" | "edit" | "move">("view");
   const [status, setStatus] = useState(entry.status ?? "confirmed");
+  /** The delete has been asked for and is waiting on the owner's answer. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string>();
   /**
    * Held here rather than in the panel so the tab's marker updates the moment
    * a note is saved, and survives switching back and forth.
    */
-  const [clientNotes, setClientNotes] = useState(entry.clientProfileNotes ?? "");
+  const [clientNotes, setClientNotes] = useState(
+    entry.clientProfileNotes ?? "",
+  );
 
   const appointmentId = entry.appointmentId ?? "";
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -126,6 +132,8 @@ export function AppointmentDialog({
   }, [onClose]);
 
   const open = status === "confirmed" || status === "pending";
+  /** Cancelled is the one state a booking can be removed from — see the action. */
+  const removable = status === "cancelled";
   /** A request the owner has not answered yet — see `requires_approval`. */
   const awaitingApproval = status === "pending";
 
@@ -137,6 +145,8 @@ export function AppointmentDialog({
   function changeStatus(next: AppointmentStatusName) {
     const previous = status as AppointmentStatusName;
     setStatus(next); // optimistic
+    // A booking on its way back to active is no longer one to delete.
+    setConfirmingDelete(false);
     setError(undefined);
 
     startTransition(async () => {
@@ -147,12 +157,38 @@ export function AppointmentDialog({
         toast(
           `${entry.title}: ${STATUS_LABEL[next]}`,
           next === "cancelled"
-            ? { action: { label: "בטל פעולה", onAct: () => changeStatus(previous) } }
+            ? {
+                action: {
+                  label: "בטל פעולה",
+                  onAct: () => changeStatus(previous),
+                },
+              }
             : undefined,
         );
         onChanged();
       } else {
         setStatus(previous); // roll back
+        setError(result.error);
+        toast(result.error, "error");
+      }
+    });
+  }
+
+  /**
+   * Removes the booking for good. There is no optimistic state and no undo:
+   * the row is gone, so the honest thing to show is the sheet closing over a
+   * calendar that no longer has it.
+   */
+  function remove() {
+    setError(undefined);
+    startTransition(async () => {
+      const result = await deleteAppointmentAction(appointmentId);
+      if (result.ok) {
+        toast(`התור של ${entry.title} נמחק`);
+        onChanged();
+        onClose();
+      } else {
+        setConfirmingDelete(false);
         setError(result.error);
         toast(result.error, "error");
       }
@@ -255,7 +291,52 @@ export function AppointmentDialog({
        * the one thing being *asked* of the owner, so it is the only solid fill
        * on the sheet. Hidden while a form is open, which has its own way back.
        */}
-      {mode === "view" ? (
+      {mode === "view" && confirmingDelete ? (
+        /**
+         * **The one question in this product that cannot be answered with an
+         * undo**, so it is asked before anything happens rather than offered
+         * back afterwards: the row goes, and with it the messages it queued.
+         * Red, because something *is* being destroyed — the move's amber says
+         * "this steps outside your rules", and this is not that.
+         *
+         * The confirming button carries the consequence in its label, and the
+         * way out is first in the DOM order a keyboard walks.
+         */
+        <div
+          role="alert"
+          className="mt-5 rounded-2xl border border-red-300 bg-red-50 p-3.5 dark:border-red-900 dark:bg-red-950/40"
+        >
+          <p className="text-sm font-bold text-red-900 dark:text-red-100">
+            למחוק תור זה?
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-red-800 dark:text-red-200">
+            {`התור של ${entry.title} ב-${entry.startTime} יימחק מהיומן לצמיתות, יחד עם ההודעות ששוייכו אליו. אי אפשר לבטל את הפעולה.`}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={remove}
+              disabled={pending}
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-red-600 px-3 text-xs font-bold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+            >
+              {pending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Trash2 className="size-3.5" aria-hidden />
+              )}
+              מחיקה לצמיתות
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              disabled={pending}
+              className="h-10 rounded-xl border border-red-300 px-3.5 text-xs font-semibold text-red-900 transition-colors hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-900/40"
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      ) : mode === "view" ? (
         <div className="mt-5 space-y-3">
           {awaitingApproval ? (
             <div className="grid grid-cols-2 gap-2">
@@ -309,7 +390,7 @@ export function AppointmentDialog({
             />
           </div>
 
-          {phone || (open && !awaitingApproval) ? (
+          {phone || (open && !awaitingApproval) || removable ? (
             <div className="flex items-start justify-center gap-5 pt-1">
               {phone ? (
                 <Bubble icon={Phone} label="חיוג" href={`tel:${phone}`} />
@@ -339,6 +420,19 @@ export function AppointmentDialog({
                   label="ביטול התור"
                   disabled={pending}
                   onClick={() => changeStatus("cancelled")}
+                />
+              ) : null}
+              {/* A cancelled booking is still a card on the calendar, and a
+                  morning with three of them is three cards to read past. This
+                  is where they go — last, furthest from the thumb, and behind
+                  a question. */}
+              {removable ? (
+                <Bubble
+                  tone="danger"
+                  icon={Trash2}
+                  label="מחיקה"
+                  disabled={pending}
+                  onClick={() => setConfirmingDelete(true)}
                 />
               ) : null}
             </div>
@@ -642,7 +736,10 @@ function ClientCardPanel({
           value={notes}
           onChange={(event) => onNotesChange(event.target.value)}
           placeholder="מעדיף כיסא ליד החלון, רגיש לצבע, תמיד מאחר…"
-          className={cn(inputClass, "mt-1.5 h-auto resize-y py-2 leading-relaxed")}
+          className={cn(
+            inputClass,
+            "mt-1.5 h-auto resize-y py-2 leading-relaxed",
+          )}
         />
       ) : (
         /* The read view is itself the way in, which is the convention on a
@@ -791,7 +888,11 @@ function EditPanel({
         />
       </Field>
 
-      <PanelActions pending={pending} label="שמירת הפרטים" onCancel={onCancel} />
+      <PanelActions
+        pending={pending}
+        label="שמירת הפרטים"
+        onCancel={onCancel}
+      />
     </form>
   );
 }
@@ -992,12 +1093,16 @@ function MovePanel({
       ) : null}
 
       <p className="text-[11px] leading-relaxed text-zinc-500">
-        המועד נבדק מול הזמינות ושעות הפעילות ({timezone}). הלקוח לא מקבל הודעה על
-        השינוי — כדאי לעדכן אותו.
+        המועד נבדק מול הזמינות ושעות הפעילות ({timezone}). הלקוח לא מקבל הודעה
+        על השינוי — כדאי לעדכן אותו.
       </p>
 
       {confirm ? null : (
-        <PanelActions pending={pending} label="העברת התור" onCancel={onCancel} />
+        <PanelActions
+          pending={pending}
+          label="העברת התור"
+          onCancel={onCancel}
+        />
       )}
     </form>
   );

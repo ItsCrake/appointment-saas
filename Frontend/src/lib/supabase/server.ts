@@ -5,14 +5,71 @@ import { createServerClient } from "@supabase/ssr";
 import { getSupabaseConfig } from "./config";
 import { hardenCookieOptions } from "./cookies";
 
+/** A 5xx from Supabase Auth, with the body the client does not keep. */
+export type AuthServerFailure = {
+  status: number;
+  /** `/auth/v1/signup`, `/auth/v1/token` — which call failed. */
+  path: string;
+  /** The first 500 characters of whatever GoTrue answered with. */
+  body: string;
+};
+
+/**
+ * A `fetch` that keeps what a failing auth call said.
+ *
+ * ---------------------------------------------------------------------------
+ * auth-js throws away the body of every 5xx — see `usableMessage` — so a
+ * project whose SMTP is misconfigured reports sign-up failures as `{}` on the
+ * form *and* `{}` in the log, which is how this went a month without anybody
+ * being able to name the cause. The response is cloned before the client reads
+ * it, so the failure the caller gets back is untouched.
+ *
+ * Exported for `auth-failure.test.ts`, which holds a real client to a stand-in
+ * auth server and pins both halves: that a 500 arrives as `{}`, and that this
+ * keeps the sentence behind it.
+ * ---------------------------------------------------------------------------
+ */
+export function keepingAuthFailures(
+  onFailure: (failure: AuthServerFailure) => void,
+): typeof fetch {
+  return async (input, init) => {
+    const response = await fetch(input, init);
+    if (response.status < 500) return response;
+
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (!url.includes("/auth/v1/")) return response;
+
+    const body = await response
+      .clone()
+      .text()
+      .catch(() => "");
+    onFailure({
+      status: response.status,
+      path: new URL(url).pathname,
+      body: body.slice(0, 500),
+    });
+    return response;
+  };
+}
+
 /** Returns null when auth is not configured yet, rather than throwing. */
-export async function createSupabaseServerClient() {
+export async function createSupabaseServerClient(options?: {
+  /** Called with the body of any 5xx the auth server answers with. */
+  onAuthServerFailure?: (failure: AuthServerFailure) => void;
+}) {
   const config = getSupabaseConfig();
   if (!config) return null;
 
   const cookieStore = await cookies();
+  const watch = options?.onAuthServerFailure;
 
   return createServerClient(config.url, config.anonKey, {
+    ...(watch ? { global: { fetch: keepingAuthFailures(watch) } } : {}),
     cookies: {
       getAll() {
         return cookieStore.getAll();

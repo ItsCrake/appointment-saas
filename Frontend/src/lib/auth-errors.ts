@@ -37,6 +37,92 @@ export function isRateLimited(error: SupabaseAuthError): boolean {
 }
 
 /**
+ * A message worth showing somebody, or null.
+ *
+ * ---------------------------------------------------------------------------
+ * **`{}` is a real message Supabase's client produces**, and it is what an
+ * owner photographed and sent us from the sign-up form. From auth-js 2.108 the
+ * client treats *every* 5xx — 500 included — as a transport failure: it throws
+ * `AuthRetryableFetchError` built from `JSON.stringify(response)` without
+ * reading the body, and a `Response` has no enumerable own properties, so the
+ * message is the two characters `{}`. The server's actual sentence, "Error
+ * sending confirmation email", never reaches the client at all.
+ *
+ * So a message is only useful once these are ruled out. What the server really
+ * said is recovered separately — see `readGotrueBody`.
+ * ---------------------------------------------------------------------------
+ */
+export function usableMessage(message?: string | null): string | null {
+  const text = message?.trim();
+  if (!text) return null;
+  return text === "{}" || text === "[object Object]" ? null : text;
+}
+
+/**
+ * Whether **Supabase's server** failed, rather than rejecting the request.
+ *
+ * A 5xx says nothing about the address or the password: the account was not
+ * created, and trying the same details again in a minute is the right advice.
+ * Status is the whole signal — the message at this point is `{}`.
+ */
+export function isServerFailure(error: SupabaseAuthError): boolean {
+  return typeof error.status === "number" && error.status >= 500;
+}
+
+/** What GoTrue put in the body its client threw away. */
+export type GotrueFailure = { message: string | null; code: string | null };
+
+/**
+ * Reads that body back.
+ *
+ * GoTrue answers a failure with `{"code":"unexpected_failure","msg":"Error
+ * sending confirmation email"}` or the older `error`/`error_description` pair.
+ * Anything that is not JSON — a gateway's HTML page, an empty 502 — leaves
+ * both fields null, which is honest: there was nothing to read.
+ */
+export function readGotrueBody(body?: string | null): GotrueFailure {
+  if (!body?.trim()) return { message: null, code: null };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return { message: null, code: null };
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return { message: null, code: null };
+  }
+
+  const fields = parsed as Record<string, unknown>;
+  const pick = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = fields[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  };
+
+  return {
+    message: pick("msg", "message", "error_description", "error"),
+    code: pick("code", "error_code"),
+  };
+}
+
+/**
+ * Whether the thing that failed was **sending the email**.
+ *
+ * Worth telling apart from every other 500 because it is the one an owner can
+ * be told something true about — the account was not created, nothing they
+ * typed is at fault, and it will keep failing until the project's SMTP is
+ * fixed. GoTrue creates the user and sends the confirmation inside one
+ * transaction, so a failed send rolls the account back.
+ */
+export function isEmailSendFailure(failure: GotrueFailure): boolean {
+  if (failure.code === "email_provider_disabled") return true;
+  return /sending .*(?:email|mail)|smtp|mailer/i.test(failure.message ?? "");
+}
+
+/**
  * Whether the address is already registered.
  *
  * Supabase answers this two ways depending on whether the project has

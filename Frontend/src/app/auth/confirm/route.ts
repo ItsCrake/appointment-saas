@@ -52,6 +52,19 @@ function isAllowedType(value: string | null): value is EmailOtpType {
   return value !== null && ALLOWED_TYPES.has(value as EmailOtpType);
 }
 
+/**
+ * Where a link of this type goes when it carries no `next` of its own.
+ *
+ * **A confirmed sign-up belongs in the dashboard**, which sends an owner with
+ * no business yet to the setup wizard. It used to land on the password-reset
+ * form along with everything else, because recovery was the only link this
+ * handler was built for — so the one flow that ends in a new shop ended on a
+ * page asking for a new password instead.
+ */
+function landingFor(type: string | null): string {
+  return type === "signup" || type === "email" ? "/dashboard" : "/login/reset";
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
 
@@ -66,7 +79,15 @@ export async function GET(request: NextRequest) {
   // The default matters as much as the guard: if Supabase drops the `next`
   // parameter (it rewrites `redirect_to` on its way through), the owner still
   // arrives at the reset form rather than somewhere arbitrary.
-  const next = safeRedirectPath(params.get("next"), "/login/reset");
+  const next = safeRedirectPath(params.get("next"), landingFor(type));
+
+  /**
+   * Which flow this link belongs to, for the page a failure lands on. The
+   * `next` is read too, because Supabase's own templates carry the type in the
+   * link we built rather than in a parameter of their own.
+   */
+  const confirming =
+    type === "signup" || type === "email" || next.startsWith("/dashboard");
 
   /** Route handlers must return an absolute `Location`. */
   const redirectTo = (path: string) =>
@@ -117,10 +138,21 @@ export async function GET(request: NextRequest) {
       reason: failure,
       linkShape: tokenHash ? "token_hash" : code ? "code" : "none",
     });
-    // A fresh response, deliberately: whatever partial cookie state the failed
-    // exchange wrote onto `success` is dropped rather than carried to a page
-    // that would then look half-signed-in.
-    return redirectTo("/login/forgot?error=link");
+    /**
+     * A fresh response, deliberately: whatever partial cookie state the failed
+     * exchange wrote onto `success` is dropped rather than carried to a page
+     * that would then look half-signed-in.
+     *
+     * **A sign-up link goes to the sign-in page**, not to the reset form. The
+     * address is confirmed by Supabase *before* it redirects here, so the
+     * commonest way to reach this — opening the mail on a second device, where
+     * the PKCE verifier for the code does not exist — leaves an account that
+     * is ready to be signed into. The reset form would be the wrong advice
+     * for it.
+     */
+    return redirectTo(
+      confirming ? "/login?error=confirm" : "/login/forgot?error=link",
+    );
   }
 
   return success;

@@ -103,6 +103,48 @@ export async function updateAppointmentStatus(
   return row ?? null;
 }
 
+/**
+ * Removes a **cancelled** appointment for good, tenant-scoped.
+ *
+ * ---------------------------------------------------------------------------
+ * Everywhere else in this product a booking is only ever given a status: the
+ * row is the record of what happened, and an owner who cancels still wants to
+ * see that somebody cancelled. This is the one exception, and it exists for
+ * what cancelled rows do to a *calendar* — a morning with three of them is
+ * three cards the owner has to read past, every time they look at that day.
+ *
+ * **Only `cancelled`, and it is the WHERE clause that says so** rather than a
+ * check in the caller: a live booking removed here would free its slot with
+ * nobody told, and the client would arrive to a shop that has forgotten them.
+ * The status is re-read inside the same statement the delete runs in, so a
+ * booking restored in another tab between the owner's click and this query is
+ * simply not deleted.
+ *
+ * `notifications.appointment_id` is `ON DELETE CASCADE`, so the messages this
+ * booking queued or sent go with it. That is the honest meaning of "delete it
+ * permanently", and the dispatcher's own guard — a pending row for a cancelled
+ * appointment is never sent — means nothing is lost by it.
+ * ---------------------------------------------------------------------------
+ */
+export async function deleteCancelledAppointment(
+  db: Database,
+  businessId: string,
+  appointmentId: string,
+) {
+  const [row] = await db
+    .delete(appointments)
+    .where(
+      and(
+        eq(appointments.businessId, businessId),
+        eq(appointments.id, appointmentId),
+        eq(appointments.status, "cancelled"),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
+}
+
 /** Raised when the DB exclusion constraint rejects an overlapping insert. */
 export class SlotTakenError extends Error {
   constructor() {

@@ -343,56 +343,49 @@ describe("lineBudget", () => {
     minutesToNext: number | null = null,
   ) => lineBudget(cardHeightPx(minutes, view, minutesToNext), view);
 
-  it("gives a half-hour booking all three lines in both views", () => {
-    // The case the stacked layout exists for: half an hour is the commonest
-    // appointment in the product and it should read as name, time and service
-    // rather than as one truncated row.
-    expect(budgetFor(30, "week")).toBe(MAX_CARD_LINES);
+  it("shows every field of a half-hour booking in both views", () => {
+    // Half an hour is the commonest appointment in the product. In the week it
+    // is two lines at the base hour — the name, then the span and the service
+    // — because three stacked lines cost 52px and it is drawn at 46. The day
+    // view has the height for all three on lines of their own.
+    expect(budgetFor(30, "week")).toBe(2);
     expect(budgetFor(30, "day")).toBe(MAX_CARD_LINES);
   });
 
-  it("gets all three lines onto a quarter-hour booking, via the floor", () => {
+  it("lifts a lone quarter hour to the two-line card, via the floor", () => {
     /**
-     * The shortest booking the product sells is the one that decides the floor.
-     * On its own height it now manages a single line — the week row was
-     * compressed to `h-24`, so a quarter hour is 24px rather than 32 — and
-     * lifted to the floor it still clears all three.
-     *
-     * **That gap is the floor's whole job**, and it got wider rather than
-     * appearing: this card always depended on being lifted. The pair is kept as
-     * two assertions precisely so the dependency stays visible, and so raising
-     * the row height back does not quietly make the floor look unnecessary.
+     * On its own height at the base hour a quarter hour manages a single line;
+     * lifted to the floor it carries all three fields on two. The pair is kept
+     * as two assertions so the dependency on the floor stays visible.
      */
     expect(lineBudget(slotHeightPx(15, "week"), "week")).toBe(1);
-    expect(budgetFor(15, "week")).toBe(MAX_CARD_LINES);
+    expect(budgetFor(15, "week")).toBe(2);
   });
 
-  it("clears three lines at every length the product sells", () => {
-    // The floor makes this true from the shortest booking upwards, which is the
-    // whole point of raising it: no card has to be opened to be read.
+  it("carries all three fields at every length the product sells", () => {
+    // Two lines in the week carry all three; one line in the day view does,
+    // because the day's single column sets them side by side.
     for (const minutes of [15, 20, 30, 45, 60, 90]) {
-      expect(budgetFor(minutes, "week")).toBe(MAX_CARD_LINES);
-      expect(budgetFor(minutes, "day")).toBe(MAX_CARD_LINES);
+      expect(budgetFor(minutes, "week")).toBeGreaterThanOrEqual(2);
+      expect(budgetFor(minutes, "day")).toBeGreaterThanOrEqual(1);
     }
+    // And long enough, both views stack them.
+    expect(budgetFor(45, "week")).toBe(MAX_CARD_LINES);
+    expect(budgetFor(30, "day")).toBe(MAX_CARD_LINES);
   });
 
   it("gives up lines only where a neighbour caps the floor", () => {
     /**
-     * Back to back with another quarter-hour booking, the floor is capped so
-     * the card cannot draw over its neighbour — 22px once the gap is taken off,
-     * and one whole line is what fits.
-     *
-     * **This used to claim a half hour cleared three lines on its own 48px.**
-     * It never did: three lines cost 52px once the border is counted and the
-     * lines are the 14px the browser draws, and the test passed only because
-     * the arithmetic under it believed in 12px lines that `tailwind-merge` had
-     * quietly deleted. What the half hour really gets back to back is two —
-     * the time and the service share a row, so nothing is hidden. With the
-     * shop's usual buffer after it, the floor lifts it to all three.
+     * Back to back with another quarter-hour booking at the base hour, the
+     * floor is capped so the card cannot draw over its neighbour — 22px once
+     * the gap is taken off, and one line is what fits. (With a quarter hour on
+     * screen the hour grows so this does not happen — see `hourRowPx`.) A half
+     * hour back to back keeps its two lines, and room after it does not buy a
+     * third: the floor is two lines, not three.
      */
     expect(budgetFor(15, "week", 15)).toBe(1);
     expect(budgetFor(30, "week", 30)).toBe(2);
-    expect(budgetFor(30, "week", 35)).toBe(MAX_CARD_LINES);
+    expect(budgetFor(30, "week", 35)).toBe(2);
     expect(lineBudget(slotHeightPx(30, "week") - CARD_GAP_PX, "week")).toBe(2);
   });
 
@@ -512,39 +505,45 @@ describe("lineBudget", () => {
 });
 
 describe("hourRowPx", () => {
-  it("grows the hour until the shortest booking holds all three lines", () => {
+  it("grows the week's hour only as far as the two-line card", () => {
     /**
-     * A quarter hour back to back used to keep one line of its three, because
-     * the floor that lifted it could not reach past the next booking's start.
-     * The hour now grows instead: 52px of card and the 2px gap in fifteen
-     * minutes is 216px an hour in the week, 304 in the day view.
+     * A quarter hour needs 34px of card and the 2px gap: 144px an hour. It used
+     * to grow until the quarter hour held all three lines *stacked* — 216px —
+     * which put three hours of a working day on a laptop screen.
      */
-    expect(hourRowPx("week", "full", 15)).toBe(216);
-    expect(hourRowPx("day", "full", 15)).toBe(304);
-    expect(hourRowPx("week", "full", 20)).toBe(162);
+    expect(hourRowPx("week", "full", 15)).toBe(144);
+    expect(hourRowPx("week", "full", 20)).toBe(108);
+    expect(hourRowPx("week", "full", 30)).toBe(HOUR_ROW_PX.week);
   });
 
-  it("grows the compact hour only as far as its two lines", () => {
-    // A first name and a start time: 34px of card and the gap in fifteen
-    // minutes is 144px an hour, not the 216 a full card needs.
-    expect(hourRowPx("week", "chip", 15)).toBe(144);
+  it("keeps the day view and the compact density at their base hour", () => {
+    // The day view's one line holds all three fields in a quarter hour at its
+    // base, and the compact chip never grows: its promise is one line.
+    expect(hourRowPx("day", "full", 15)).toBe(HOUR_ROW_PX.day);
+    expect(hourRowPx("day", "full", 5)).toBe(HOUR_ROW_PX.day);
+    expect(hourRowPx("week", "chip", 15)).toBe(HOUR_ROW_PX.chip);
+    expect(hourRowPx("week", "chip", 5)).toBe(HOUR_ROW_PX.chip);
+  });
+
+  it("fits a ten-hour day on one laptop screen in the compact density", () => {
+    expect(10 * hourRowPx("week", "chip", 15)).toBeLessThanOrEqual(720);
   });
 
   it("never shrinks below the base hour", () => {
     // A shop selling only hour-long appointments keeps the grid it had.
     expect(hourRowPx("week", "full", 60)).toBe(HOUR_ROW_PX.week);
-    expect(hourRowPx("week", "chip", 60)).toBe(HOUR_ROW_PX.week);
+    expect(hourRowPx("week", "chip", 60)).toBe(HOUR_ROW_PX.chip);
     expect(hourRowPx("day", "full", 60)).toBe(HOUR_ROW_PX.day);
     expect(hourRowPx("week", "full", null)).toBe(HOUR_ROW_PX.week);
   });
 
   it("stops growing at the shortest booking it promises a whole card to", () => {
-    // Five minutes would need 648px an hour. Below the promise the scale holds
-    // at ten minutes' worth and the floor and its cap take over.
+    // Five minutes would need 432px an hour. Below the promise the scale holds
+    // at a quarter hour's worth and the floor and its cap take over.
     expect(hourRowPx("week", "full", 5)).toBe(
       hourRowPx("week", "full", FULL_CONTENT_MIN_MINUTES),
     );
-    expect(hourRowPx("week", "full", FULL_CONTENT_MIN_MINUTES)).toBe(324);
+    expect(hourRowPx("week", "full", FULL_CONTENT_MIN_MINUTES)).toBe(144);
   });
 
   it("leaves the overview's hour to the stylesheet", () => {
@@ -553,24 +552,29 @@ describe("hourRowPx", () => {
     expect(hourRowPx("week", "block", 15)).toBe(HOUR_ROW_PX.summary);
   });
 
-  it("gives every booking from ten minutes up its whole card, back to back", () => {
+  it("keeps each mode's promise from a quarter hour up, back to back", () => {
     /**
-     * The promise itself, over every length and both views: the shortest
-     * booking of the week sets the hour, and a run of them back to back — the
-     * case that used to lose two lines of three — keeps all of them.
+     * The promise itself, over every length: the shortest booking of the week
+     * sets the hour, and a run of them back to back — the case the floor
+     * cannot help — still shows what its mode promises. Full cards in the week
+     * need two lines for all three fields; the day view one; the compact chip
+     * one line always, and both of its own from a half hour.
      */
-    for (const minutes of [10, 12, 15, 20, 25, 30, 45, 60, 90]) {
-      for (const [view, card, most] of [
-        ["week", "full", MAX_CARD_LINES],
-        ["day", "full", MAX_CARD_LINES],
-        ["week", "chip", MAX_CHIP_LINES],
+    for (const minutes of [15, 20, 25, 30, 45, 60, 90]) {
+      for (const [view, card, least] of [
+        ["week", "full", 2],
+        ["day", "full", 1],
+        ["week", "chip", minutes >= 30 ? MAX_CHIP_LINES : 1],
       ] as const) {
         const hour = hourRowPx(view, card, minutes);
         const height = cardHeightPx(minutes, view, minutes, card, hour);
         expect(
           lineBudget(height, view, card),
           `${view}/${card} ${minutes}m`,
-        ).toBe(most);
+        ).toBeGreaterThanOrEqual(least);
+        // And whatever the budget, the lines it promises genuinely fit.
+        const lines = lineBudget(height, view, card);
+        expect(cardPxForLines(lines, view, card)).toBeLessThanOrEqual(height);
       }
     }
   });
@@ -703,7 +707,9 @@ describe("gridMinWidthPx", () => {
      * day, and at the sharing width seven columns overflow a laptop and the
      * owner scrolls sideways through their own week.
      */
-    expect(gridMinWidthPx([1, 1, 1, 1, 1, 1, 1])).toBe(RAIL_PX + 7 * SOLO_LANE_PX);
+    expect(gridMinWidthPx([1, 1, 1, 1, 1, 1, 1])).toBe(
+      RAIL_PX + 7 * SOLO_LANE_PX,
+    );
     expect(SOLO_LANE_PX).toBeLessThan(MIN_LANE_PX);
   });
 
@@ -874,7 +880,7 @@ describe("a card never touches the card below it", () => {
 
   function denseDay(seed: number): CalendarItem[] {
     const next = random(seed);
-    const pick = <T,>(list: readonly T[]) =>
+    const pick = <T>(list: readonly T[]) =>
       list[Math.floor(next() * list.length)];
     const items: CalendarItem[] = [];
 
@@ -888,7 +894,9 @@ describe("a card never touches the card below it", () => {
         items.push(item(`c${chain}-${i}`, cursor, cursor + minutes));
         // Now and then the same slot twice: a cancellation and its replacement.
         if (next() < 0.1) {
-          items.push(item(`c${chain}-${i}-dup`, cursor, cursor + pick(DURATIONS)));
+          items.push(
+            item(`c${chain}-${i}-dup`, cursor, cursor + pick(DURATIONS)),
+          );
         }
         cursor += minutes + pick(BUFFERS);
       }
@@ -961,7 +969,10 @@ describe("a card never touches the card below it", () => {
     return placed.map((entry) => {
       const toNext = gaps.get(entry.id) ?? null;
       const box = placeItem(entry, bounds, undefined, toNext);
-      const fromPercent = Math.max(0, (box.height / 100) * gridPx - CARD_GAP_PX);
+      const fromPercent = Math.max(
+        0,
+        (box.height / 100) * gridPx - CARD_GAP_PX,
+      );
       const minHeight = minHeightPx(
         overview
           ? blockMinHeight(toNext, bounds)
@@ -1009,7 +1020,9 @@ describe("a card never touches the card below it", () => {
             if (upper === lower) continue;
             if (lower.entry.startMinutes < upper.entry.startMinutes) continue;
             const sharesSpace =
-              Math.min(upper.right, lower.right) - Math.max(upper.left, lower.left) > 0;
+              Math.min(upper.right, lower.right) -
+                Math.max(upper.left, lower.left) >
+              0;
             if (!sharesSpace) continue;
 
             const clearance = lower.top - upper.bottom;
@@ -1067,18 +1080,22 @@ describe("the line budget only promises whole lines", () => {
   it("sizes each floor to exactly the lines its mode draws", () => {
     // Explicit numbers as well as the derivation, so retuning a metric is a
     // decision somebody makes in this file rather than a side effect.
-    expect(MIN_CARD_PX.week).toBe(52);
-    expect(MIN_CARD_PX.day).toBe(74);
-    expect(MIN_CHIP_PX).toBe(34);
+    expect(MIN_CARD_PX.week).toBe(34);
+    expect(MIN_CARD_PX.day).toBe(30);
+    expect(MIN_CHIP_PX).toBe(16);
     expect(MIN_BLOCK_PX).toBe(8);
 
-    expect(lineBudget(MIN_CARD_PX.week, "week")).toBe(MAX_CARD_LINES);
-    expect(lineBudget(MIN_CARD_PX.day, "day")).toBe(MAX_CARD_LINES);
-    expect(lineBudget(MIN_CHIP_PX, "week", "chip")).toBe(MAX_CHIP_LINES);
+    // Two lines in the week and one in the day view — each carries all three
+    // fields — and the compact chip's one line.
+    expect(lineBudget(MIN_CARD_PX.week, "week")).toBe(2);
+    expect(lineBudget(MIN_CARD_PX.day, "day")).toBe(1);
+    expect(lineBudget(MIN_CHIP_PX, "week", "chip")).toBe(1);
   });
 
   it("takes the gap off every card it draws, and never goes negative", () => {
-    expect(cardBox({ top: 12.5, height: 4, inlineStart: 50, width: 48 })).toEqual({
+    expect(
+      cardBox({ top: 12.5, height: 4, inlineStart: 50, width: 48 }),
+    ).toEqual({
       top: "12.5%",
       height: `max(0px, calc(4% - ${CARD_GAP_PX}px))`,
       insetInlineStart: "50%",
@@ -1117,22 +1134,34 @@ describe("the card's classes say what its metrics say", () => {
     const weekLine = constant("CARD_TYPE_WEEK").match(/\/\[(\d+)px\]$/);
     expect(Number(weekLine?.[1])).toBe(CARD_LINE_PX.week);
 
-    const dayLines = [...constant("CARD_TYPE_DAY").matchAll(/text-\w+\/(\d+(?:\.\d+)?)/g)];
+    const dayLines = [
+      ...constant("CARD_TYPE_DAY").matchAll(/text-\w+\/(\d+(?:\.\d+)?)/g),
+    ];
     expect(dayLines.length).toBeGreaterThan(0);
-    for (const match of dayLines) expect(steps(match[1])).toBe(CARD_LINE_PX.day);
+    for (const match of dayLines)
+      expect(steps(match[1])).toBe(CARD_LINE_PX.day);
 
-    expect(steps(constant("CARD_ROW_WEEK").replace("h-", ""))).toBe(CARD_LINE_PX.week);
-    expect(steps(constant("CARD_ROW_DAY").replace("h-", ""))).toBe(CARD_LINE_PX.day);
+    expect(steps(constant("CARD_ROW_WEEK").replace("h-", ""))).toBe(
+      CARD_LINE_PX.week,
+    );
+    expect(steps(constant("CARD_ROW_DAY").replace("h-", ""))).toBe(
+      CARD_LINE_PX.day,
+    );
 
     const pad = source.match(
-      /const CARD_PAD = \{\s*week: \{ roomy: "py-([\d.]+)", tight: "py-([\d.]+)" \},\s*day: \{ roomy: "py-([\d.]+)", tight: "py-([\d.]+)" \},\s*\}/,
+      /const CARD_PAD = \{\s*week: \{ roomy: "py-([\d.]+)", tight: "py-([\d.]+)", flush: "py-([\d.]+)" \},\s*day: \{ roomy: "py-([\d.]+)", tight: "py-([\d.]+)", flush: "py-([\d.]+)" \},\s*\}/,
     );
-    if (!pad) throw new Error("CARD_PAD is no longer the shape this test reads");
+    if (!pad)
+      throw new Error("CARD_PAD is no longer the shape this test reads");
     // `py-*` pads top and bottom, so each value counts twice.
     expect(steps(pad[1]) * 2).toBe(CARD_PADDING_PX.week.roomy);
     expect(steps(pad[2]) * 2).toBe(CARD_PADDING_PX.week.tight);
-    expect(steps(pad[3]) * 2).toBe(CARD_PADDING_PX.day.roomy);
-    expect(steps(pad[4]) * 2).toBe(CARD_PADDING_PX.day.tight);
+    expect(steps(pad[3]) * 2).toBe(CARD_PADDING_PX.week.flush);
+    expect(steps(pad[4]) * 2).toBe(CARD_PADDING_PX.day.roomy);
+    expect(steps(pad[5]) * 2).toBe(CARD_PADDING_PX.day.tight);
+    expect(steps(pad[6]) * 2).toBe(CARD_PADDING_PX.day.flush);
+    // And the component picks among them with the arithmetic's own rule.
+    expect(source).toMatch(/CARD_PAD\[[^\]]+\]\[cardPadding\(lines, card\)\]/);
 
     const card = source.slice(
       source.indexOf("function EntryCard("),

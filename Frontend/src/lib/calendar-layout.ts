@@ -284,13 +284,25 @@ export function hourRows(bounds: GridBounds): number[] {
  * Pixel height of one hour of grid, per scale — **the least it is ever drawn
  * at**, not the height it always is.
  *
- * `week` and `day` grow past these in `hourRowPx` until the shortest booking on
- * screen can hold every line its card promises. `summary` is the overview's
- * *nominal* hour: the component sizes that row in CSS so the whole day fits the
- * frame (`.cal-summary-row`), which is why its cards take their floor from
- * `blockMinHeight` — a percentage of the grid — rather than from pixels.
+ * - `week` grows past this in `hourRowPx`, but only as far as the shortest
+ *   booking's **two-line** card: the name, then the time span and the service.
+ * - `chip` is the compact density's hour, and it never grows: 72px is where a
+ *   quarter hour holds one line (a first name and a start time) and a half
+ *   hour holds both on lines of their own, so a ten-hour day is 720px — one
+ *   laptop screen.
+ * - `day` is one wide column, where a single line holds all three fields, so
+ *   a quarter hour fits at the base and the hour does not grow either.
+ * - `summary` is the overview's *nominal* hour: the component sizes that row
+ *   in CSS so the whole day fits the frame (`.cal-summary-row`), which is why
+ *   its cards take their floor from `blockMinHeight` — a percentage of the
+ *   grid — rather than from pixels.
  */
-export const HOUR_ROW_PX = { week: 96, day: 160, summary: 48 } as const;
+export const HOUR_ROW_PX = {
+  week: 96,
+  chip: 72,
+  day: 160,
+  summary: 48,
+} as const;
 
 export type RowScale = keyof typeof HOUR_ROW_PX;
 
@@ -337,17 +349,32 @@ export const CARD_LINE_PX = { week: 14, day: 20 } as const;
 export const CARD_BORDER_PX = 2;
 
 /**
- * Vertical padding of the text column, top and bottom together.
+ * Vertical padding of the text column, top and bottom together — which of
+ * the three a card wears is `cardPadding`.
  *
- * `roomy` when the card carries several lines; `tight` when it carries one,
- * because a single centred line needs no breathing room above and below it —
- * and the difference is what lets a back-to-back quarter hour, 22px drawn,
- * show a whole name instead of most of one. `chip` is always tight.
+ * `roomy` for the three stacked lines, `tight` for one or two: a short card's
+ * lines are what the owner came for, and the padding is what the density
+ * request asked to give back. `flush` is the compact one-line chip, where the
+ * 14px line box already clears the glyphs and a quarter hour is 16px drawn.
  */
 export const CARD_PADDING_PX = {
-  week: { roomy: 8, tight: 4 },
-  day: { roomy: 12, tight: 8 },
+  week: { roomy: 8, tight: 4, flush: 0 },
+  day: { roomy: 12, tight: 8, flush: 0 },
 } as const;
+
+export type CardPadding = keyof (typeof CARD_PADDING_PX)["week"];
+
+/**
+ * Which padding a card of `lines` wears. Shared by the arithmetic below and
+ * the component's classes, so the two cannot disagree about a card's height.
+ */
+export function cardPadding(
+  lines: number,
+  card: Exclude<CardMode, "block"> = "full",
+): CardPadding {
+  if (card === "chip") return lines <= 1 ? "flush" : "tight";
+  return lines <= 2 ? "tight" : "roomy";
+}
 
 /** The card's three stacked lines, in the order they are given up. */
 export const MAX_CARD_LINES = 3;
@@ -366,41 +393,38 @@ export function cardPxForLines(
   view: CalendarView = "week",
   card: Exclude<CardMode, "block"> = "full",
 ): number {
-  const padding =
-    card === "chip" || lines <= 1
-      ? CARD_PADDING_PX[view].tight
-      : CARD_PADDING_PX[view].roomy;
-  return CARD_BORDER_PX + padding + Math.max(0, lines) * CARD_LINE_PX[view];
+  const count = Math.max(0, lines);
+  const padding = CARD_PADDING_PX[view][cardPadding(count, card)];
+  return CARD_BORDER_PX + padding + count * CARD_LINE_PX[view];
 }
 
 /**
  * A card is never drawn shorter than this, per view.
  *
  * ---------------------------------------------------------------------------
- * **Sized to hold all three lines** — client name, time span, service — which
- * is what `cardPxForLines` says three lines cost: 52px in the week, 74 in the
- * day. That is the target: the three things an owner needs from a card without
- * opening it. It was 46 and 58 while the metrics were wrong, which is to say
- * the floor was sized for lines the card could not fit.
+ * **Sized to hold all three fields in as few lines as they fit** — client
+ * name, time span, service. In the week that is two lines, the name above
+ * "10:00–10:30 · תספורת": 34px. In the day view it is one, the three side by
+ * side across a column that has the width for them: 30px. It used to be the
+ * three *stacked* lines (52 and 74), and the hour grew until the shortest
+ * booking could hold them — 216px an hour for a quarter-hour beard trim, which
+ * put three hours of a working day on a laptop screen.
  *
  * The floor is a **minimum, not a height**: it only ever grows a card that is
  * smaller, and `cardHeightPx` caps it at the room actually available before
- * the next card below. Two back-to-back fifteen-minute appointments therefore
- * keep their true heights and stay honest about when they happen rather than
- * one drawing over the other — a floor that ignored its neighbours would make
- * the grid lie about *when*, which is a worse failure than a compressed card.
- * That case is handled by the layout instead: at two lines the card sets the
- * time and the service on one row, so nothing is hidden, only tightened. See
- * `lineBudget`.
+ * the next card below. Two back-to-back short appointments therefore keep
+ * their true heights and stay honest about when they happen rather than one
+ * drawing over the other — a floor that ignored its neighbours would make the
+ * grid lie about *when*, which is a worse failure than a compressed card.
  * ---------------------------------------------------------------------------
  */
 export const MIN_CARD_PX = {
-  week: cardPxForLines(MAX_CARD_LINES, "week"),
-  day: cardPxForLines(MAX_CARD_LINES, "day"),
+  week: cardPxForLines(2, "week"),
+  day: cardPxForLines(1, "day"),
 } as const;
 
-/** `compact`'s floor: what its two lines cost, and not a pixel of the third. */
-export const MIN_CHIP_PX = cardPxForLines(MAX_CHIP_LINES, "week", "chip");
+/** The compact floor: one line — the first name, and the time where it fits. */
+export const MIN_CHIP_PX = cardPxForLines(1, "week", "chip");
 
 /**
  * `summary`'s floor, on its own half-height grid.
@@ -523,35 +547,42 @@ export function slotHeightPx(
 /**
  * The shortest booking a card promises its whole content to.
  *
- * Ten minutes, because that is below anything the demo shops or the product's
- * presets sell, and because the hour it takes to fit three lines into one — 324px
- * in the week — is already most of a laptop screen. Anything shorter is drawn at
- * that scale and falls back to the floor and its cap, which gives up the service
- * line before it gives up the time.
+ * A quarter hour — the beard trim, the shortest thing the demo shops and the
+ * presets sell. It sets the week's hour at 144px when one is on screen.
+ * Anything shorter is drawn at that scale and falls back to the floor and its
+ * cap: one line, the name and then the time, with the service in the card's
+ * title.
  */
-export const FULL_CONTENT_MIN_MINUTES = 10;
+export const FULL_CONTENT_MIN_MINUTES = 15;
 
 /**
- * How tall an hour of grid is drawn, grown until the shortest booking fits.
+ * How tall an hour of grid is drawn.
  *
  * ---------------------------------------------------------------------------
- * **The row answers to the cards, rather than the cards to the row.** A fixed
- * 96px hour made a quarter hour 24px, and the floor that lifted it to three
- * lines had to be capped at the next booking's start, so two back-to-back
- * quarter hours kept one line each: the service and the time went exactly when
- * the day was busy enough for them to matter. Growing the hour instead gives
- * every booking its own full card with nothing drawn over anything.
+ * **As short as the cards allow, and no shorter.** Each mode promises its
+ * cards a set of fields, and the hour is the least that keeps the promise for
+ * the shortest booking back to back — never more, because every pixel an hour
+ * gains is a slice of the working day pushed off the screen.
+ *
+ * - `full` in the week promises **name, time span and service**, and two lines
+ *   carry all three: the name, then "10:00–10:30 · תספורת". A quarter hour
+ *   needs 34px of card and the 2px gap, so the hour grows to 144px when one is
+ *   on screen and stays at 96 when nothing is shorter than 23 minutes. Taller
+ *   cards stack the three on lines of their own. This used to grow until the
+ *   shortest booking held all three *stacked* — 216px an hour, 324 for ten
+ *   minutes — which is the density the owner asked to have back.
+ * - The day view has the width to set all three on **one** line, so a quarter
+ *   hour fits its base hour and it does not grow.
+ * - `chip` promises a first name and a start time, and does not grow either:
+ *   a quarter hour at 72px holds them on one line where the lane has the
+ *   width, and a half hour holds them on two.
+ * - `block` is the overview. Its row is sized in CSS to fit the frame, so this
+ *   returns the nominal hour its fallbacks are measured against.
  *
  * **One scale for the whole week, never one per day.** Seven columns share an
  * hour rail; a Tuesday drawn taller than its Monday would put 10:00 at two
  * heights on one screen. The caller passes the shortest booking across the
  * loaded week, so stepping between days in the day view keeps its scale too.
- *
- * - `full` — and the day view, which only draws full cards — fits all three
- *   lines: name, time span, service.
- * - `chip` fits its two: first name, start time.
- * - `block` is the overview. Its row is sized in CSS to fit the frame, so this
- *   returns the nominal hour its fallbacks are measured against.
  * ---------------------------------------------------------------------------
  */
 export function hourRowPx(
@@ -561,14 +592,13 @@ export function hourRowPx(
   shortestMinutes: number | null,
 ): number {
   if (view === "week" && card === "block") return HOUR_ROW_PX.summary;
+  if (view === "week" && card === "chip") return HOUR_ROW_PX.chip;
 
   const base = HOUR_ROW_PX[view];
   if (shortestMinutes === null || shortestMinutes <= 0) return base;
 
   const content =
-    view === "week" && card === "chip"
-      ? cardPxForLines(MAX_CHIP_LINES, "week", "chip")
-      : cardPxForLines(MAX_CARD_LINES, view);
+    view === "week" ? cardPxForLines(2, "week") : cardPxForLines(1, "day");
   const minutes = Math.max(FULL_CONTENT_MIN_MINUTES, shortestMinutes);
 
   return Math.max(base, Math.ceil(((content + CARD_GAP_PX) * 60) / minutes));
@@ -582,7 +612,7 @@ function cardFrame(
   // The day view has one column and density does not reach it.
   if (view === "day") return { scale: "day", floorPx: MIN_CARD_PX.day };
   if (card === "block") return { scale: "summary", floorPx: MIN_BLOCK_PX };
-  if (card === "chip") return { scale: "week", floorPx: MIN_CHIP_PX };
+  if (card === "chip") return { scale: "chip", floorPx: MIN_CHIP_PX };
   return { scale: "week", floorPx: MIN_CARD_PX.week };
 }
 

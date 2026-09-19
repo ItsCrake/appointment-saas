@@ -9,7 +9,14 @@ import {
   configuredAppUrl,
   originFromHeaders,
 } from "@/lib/app-url";
-import { isAlreadyRegistered, isRateLimited } from "@/lib/auth-errors";
+import {
+  isAlreadyRegistered,
+  isEmailSendFailure,
+  isRateLimited,
+  isServerFailure,
+  readGotrueBody,
+  usableMessage,
+} from "@/lib/auth-errors";
 import {
   authIdentifier,
   newPasswordSchema,
@@ -22,7 +29,10 @@ import { AUTH_RULES, rateLimitMessage } from "@/lib/rate-limit";
 import { enforceRateLimits } from "@/lib/rate-limit-guard";
 import { getClientIp } from "@/lib/request-context";
 import { safeRedirectPath } from "@/lib/safe-redirect";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  type AuthServerFailure,
+} from "@/lib/supabase/server";
 
 /**
  * Supabase errors are not guaranteed to carry a usable `message` — a transport
@@ -31,7 +41,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * reader can search for.
  */
 function describeAuthError(error: { message?: string; status?: number }) {
-  const message = error.message?.trim();
+  const message = usableMessage(error.message);
   if (message) return message;
   return error.status
     ? `שגיאת אימות (HTTP ${error.status}). בדקו את יומן Supabase Auth.`
@@ -46,18 +56,40 @@ function describeAuthError(error: { message?: string; status?: number }) {
  * credentials one. Logged as `errorClass` rather than `name`, because
  * observability redacts any context key matching /name/.
  */
-function reportAuthFailure(scope: string, thrown: unknown) {
+function reportAuthFailure(
+  scope: string,
+  thrown: unknown,
+  /** Anything else known about the call — what the server said, for a 5xx. */
+  extra: Record<string, unknown> = {},
+) {
   const error = thrown as { name?: string; status?: number; code?: string };
   reportError(scope, thrown, {
     errorClass: error?.name ?? null,
     status: error?.status ?? null,
     code: error?.code ?? null,
+    ...extra,
   });
 }
 
 /** A transport failure is worth retrying; a rejected credential is not. */
 const TRANSPORT_FAILURE =
   "לא הצלחנו להגיע לשרת ההזדהות של Supabase. נסו שוב בעוד רגע.";
+
+/**
+ * The two things a 5xx on sign-up can honestly be told to an owner.
+ *
+ * Neither blames them, because neither is theirs: the account was not created
+ * either way. The first names the cause, because it is the one worth naming —
+ * it keeps failing until the project's SMTP is fixed, and an owner who reports
+ * *that* sentence gets it fixed in minutes rather than a screenshot of `{}`.
+ */
+const EMAIL_SEND_FAILED =
+  "החשבון לא נוצר: לא הצלחנו לשלוח את אימייל האישור. " +
+  "זו תקלה אצלנו ולא אצלכם — נסו שוב בעוד כמה דקות, ואם זה חוזר כתבו לנו.";
+
+const SIGNUP_SERVER_FAILURE =
+  "שרת ההרשמה החזיר שגיאה והחשבון לא נוצר. נסו שוב בעוד רגע, " +
+  "ואם זה חוזר — כתבו לנו.";
 
 export type AuthResult =
   | { ok: false; error: string; rateLimited?: true }
@@ -209,13 +241,43 @@ async function signUp(email: string, password: string): Promise<AuthResult> {
   );
   if (limited) return limited;
 
-  const supabase = await createSupabaseServerClient();
+  /**
+   * What the auth server said if it failed — held in an object rather than a
+   * `let`, so the value written inside the callback is the one read after it.
+   */
+  const said: { failure: AuthServerFailure | null } = { failure: null };
+
+  const supabase = await createSupabaseServerClient({
+    onAuthServerFailure: (failure) => {
+      said.failure = failure;
+    },
+  });
   if (!supabase) {
     return { ok: false, error: "הרשמה אינה מוגדרת. חסרים מפתחות Supabase." };
   }
 
+  /**
+   * **Where the confirmation link lands.** Without this Supabase falls back to
+   * the project's Site URL, so an owner who confirmed their address arrived on
+   * the marketing page with a `code` in the address bar and no session — the
+   * end of a sign-up flow that had worked, looking exactly like one that had
+   * not. `/auth/confirm` exchanges the link for a session and forwards; the
+   * setup wizard is what `/dashboard` shows an owner with no business yet.
+   *
+   * Same rule as the reset link: pinned to `NEXT_PUBLIC_APP_URL` and never
+   * built from a request header — see `authRedirectOrigin`.
+   */
+  const requestHeaders = await headers();
+  const { origin } = authRedirectOrigin(
+    configuredAppUrl(),
+    originFromHeaders((name) => requestHeaders.get(name)),
+  );
+
   const result = await supabase.auth
-    .signUp(parsed.data)
+    .signUp({
+      ...parsed.data,
+      options: { emailRedirectTo: `${origin}/auth/confirm?next=/dashboard` },
+    })
     .catch((thrown: unknown) => {
       reportAuthFailure("auth.signUp", thrown);
       return null;
@@ -226,7 +288,28 @@ async function signUp(email: string, password: string): Promise<AuthResult> {
   }
 
   if (result.error) {
-    reportAuthFailure("auth.signUp", result.error);
+    const server = readGotrueBody(said.failure?.body);
+    reportAuthFailure("auth.signUp", result.error, {
+      serverStatus: said.failure?.status ?? null,
+      serverPath: said.failure?.path ?? null,
+      serverCode: server.code,
+      serverSaid: server.message,
+    });
+
+    /**
+     * **Supabase's own server failed**, so nothing the reader typed is at
+     * fault and no account exists. The client's message here is the literal
+     * `{}` — the body it discards is what says which 500 this is, and the
+     * commonest by far is the confirmation email failing to send.
+     */
+    if (isServerFailure(result.error)) {
+      return {
+        ok: false,
+        error: isEmailSendFailure(server)
+          ? EMAIL_SEND_FAILED
+          : SIGNUP_SERVER_FAILURE,
+      };
+    }
 
     // The duplicate-email case, second of the two shapes Supabase uses for it
     // (the other is below). Which one arrives depends on a project setting, so
@@ -263,7 +346,9 @@ async function signUp(email: string, password: string): Promise<AuthResult> {
   if (data.user && !data.session) {
     return {
       ok: true,
-      message: "נשלח אליכם אימייל לאישור החשבון. אשרו אותו ואז התחברו.",
+      message:
+        "שלחנו אליכם אימייל לאישור החשבון. " +
+        "הקישור שבו יכניס אתכם ישר להקמת העסק — כדאי לבדוק גם בספאם.",
     };
   }
 

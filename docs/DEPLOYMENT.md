@@ -334,6 +334,29 @@ directly — so point Supabase's SMTP at the same Resend account:
 Without this, an owner who forgets their password on a busy morning gets
 nothing, and the app cannot tell — the send succeeded as far as it knows.
 
+> **Sign-up does not survive this at all.** GoTrue creates the user and sends
+> the confirmation inside one transaction, so a send that fails rolls the
+> account back and answers 500 — which the Supabase client reports as the
+> literal `{}` (see ARCHITECTURE, *A 500 from Supabase Auth arrives as `{}`*).
+> A project whose SMTP cannot deliver therefore has **no working sign-up**, and
+> the only signal is that sentence on the form. The app names the cause now;
+> nothing in the app can fix it.
+
+**c. Point the confirmation template at `{{ .TokenHash }}` as well.**
+**Authentication → Emails → Confirm signup**, for the reason §a gives — a link
+opened on a different device than the one that signed up cannot redeem a PKCE
+code:
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next=/dashboard">
+  אישור החשבון
+</a>
+```
+
+`signUp` already asks Supabase to come back to `/auth/confirm?next=/dashboard`,
+so the default template works on the device that signed up; the owner who opens
+the mail on their phone is the one this is for.
+
 Reset links expire after one hour and are single-use. Both facts are stated on
 screen, because "I clicked it twice" is otherwise indistinguishable from a
 broken link.

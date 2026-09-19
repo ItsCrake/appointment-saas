@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { isAlreadyRegistered, isRateLimited } from "@/lib/auth-errors";
+import {
+  isAlreadyRegistered,
+  isEmailSendFailure,
+  isRateLimited,
+  isServerFailure,
+  readGotrueBody,
+  usableMessage,
+} from "@/lib/auth-errors";
 
 describe("isRateLimited", () => {
   it("recognises the status, which is the stable signal", () => {
@@ -72,5 +79,116 @@ describe("isAlreadyRegistered", () => {
     for (const error of cases) {
       expect(isRateLimited(error) && isAlreadyRegistered(error)).toBe(false);
     }
+  });
+});
+
+describe("usableMessage", () => {
+  it("rejects the `{}` the client builds from a 5xx", () => {
+    /**
+     * The exact string an owner photographed on the sign-up form. auth-js
+     * stringifies the `Response` without reading it, and a `Response` has no
+     * enumerable own properties — see the note on the function.
+     */
+    expect(usableMessage("{}")).toBeNull();
+    expect(usableMessage(" {} ")).toBeNull();
+    expect(usableMessage("[object Object]")).toBeNull();
+  });
+
+  it("treats nothing at all as nothing", () => {
+    expect(usableMessage("")).toBeNull();
+    expect(usableMessage("   ")).toBeNull();
+    expect(usableMessage(undefined)).toBeNull();
+    expect(usableMessage(null)).toBeNull();
+  });
+
+  it("keeps a message a reader could act on, trimmed", () => {
+    expect(usableMessage("  Invalid login credentials ")).toBe(
+      "Invalid login credentials",
+    );
+    // A body that happens to be JSON is still words on a screen.
+    expect(usableMessage('{"msg":"nope"}')).toBe('{"msg":"nope"}');
+  });
+});
+
+describe("isServerFailure", () => {
+  it("claims every 5xx, which is what auth-js hides behind `{}`", () => {
+    for (const status of [500, 502, 503, 504, 520]) {
+      expect(isServerFailure({ status })).toBe(true);
+    }
+  });
+
+  it("leaves a rejection of the request alone", () => {
+    for (const status of [400, 401, 422, 429]) {
+      expect(isServerFailure({ status })).toBe(false);
+    }
+    // A transport failure that never reached the server answers status 0.
+    expect(isServerFailure({ status: 0 })).toBe(false);
+    expect(isServerFailure({})).toBe(false);
+  });
+});
+
+describe("readGotrueBody", () => {
+  it("reads the shape GoTrue answers a failure with", () => {
+    expect(
+      readGotrueBody(
+        '{"code":"unexpected_failure","msg":"Error sending confirmation email"}',
+      ),
+    ).toEqual({
+      message: "Error sending confirmation email",
+      code: "unexpected_failure",
+    });
+  });
+
+  it("reads the older pair too", () => {
+    expect(
+      readGotrueBody(
+        '{"error":"server_error","error_description":"Error sending confirmation email","error_code":"unexpected_failure"}',
+      ),
+    ).toEqual({
+      message: "Error sending confirmation email",
+      code: "unexpected_failure",
+    });
+  });
+
+  it("answers nothing where there was nothing to read", () => {
+    const nothing = { message: null, code: null };
+    // A gateway's HTML page, an empty 502, and the empty object itself.
+    expect(readGotrueBody("<html>504 Gateway Time-out</html>")).toEqual(
+      nothing,
+    );
+    expect(readGotrueBody("{}")).toEqual(nothing);
+    expect(readGotrueBody("")).toEqual(nothing);
+    expect(readGotrueBody(undefined)).toEqual(nothing);
+    expect(readGotrueBody("null")).toEqual(nothing);
+  });
+});
+
+describe("isEmailSendFailure", () => {
+  it("recognises the send that failed, whichever mail it was", () => {
+    for (const message of [
+      "Error sending confirmation email",
+      "Error sending magic link email",
+      "Error sending recovery email",
+      "500: failed to make smtp connection",
+    ]) {
+      expect(isEmailSendFailure({ message, code: "unexpected_failure" })).toBe(
+        true,
+      );
+    }
+    expect(
+      isEmailSendFailure({ message: null, code: "email_provider_disabled" }),
+    ).toBe(true);
+  });
+
+  it("does not claim the other 500s", () => {
+    // This one is a trigger on `auth.users`, and telling an owner to wait for
+    // an email that was never the problem would send them nowhere.
+    expect(
+      isEmailSendFailure({
+        message: "Database error saving new user",
+        code: "unexpected_failure",
+      }),
+    ).toBe(false);
+    expect(isEmailSendFailure({ message: null, code: null })).toBe(false);
   });
 });

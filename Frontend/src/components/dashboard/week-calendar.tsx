@@ -22,7 +22,6 @@ import {
   ChevronRight,
   Columns3,
   FileText,
-  FoldVertical,
   Grid2x2,
   Hourglass,
   Loader2,
@@ -56,6 +55,7 @@ import {
   blockMinHeight,
   cardBox,
   cardHeightPx,
+  cardPadding,
   cardPxForLines,
   gapsToNext,
   gridBounds,
@@ -74,15 +74,11 @@ import {
   FOCUS_RING_MS,
   CALENDAR_DENSITIES,
   chooseDensity,
-  chooseFitHours,
   DAY_HEADER_ROW,
   densityServerSnapshot,
   densitySnapshot,
   DENSITY,
-  fitHoursServerSnapshot,
-  fitHoursSnapshot,
   subscribeDensity,
-  subscribeFitHours,
   SUMMARY_HOUR_ROW,
   type CalendarDensity,
 } from "@/lib/calendar-density";
@@ -111,10 +107,7 @@ import {
   staffVariantClass,
   staffVariants,
 } from "@/lib/staff-variants";
-import {
-  marksTheCard,
-  type AppointmentOrigin,
-} from "@/lib/appointment-origin";
+import { marksTheCard, type AppointmentOrigin } from "@/lib/appointment-origin";
 import { cn } from "@/lib/utils";
 import { whatsappHref } from "@/lib/whatsapp-link";
 
@@ -144,9 +137,6 @@ const DENSITY_ICON: Record<CalendarDensity, typeof Rows3> = {
   compact: Columns3,
   summary: Grid2x2,
 };
-
-/** The crop toggle's name — its accessible label and its tooltip. */
-const FIT_HOURS_LABEL = "הצגת השעות עם תורים בלבד";
 
 export type CalendarEntry = CalendarItem & {
   /**
@@ -238,13 +228,13 @@ const CARD_ROW_WEEK = "h-3.5";
 const CARD_ROW_DAY = "h-5";
 
 /**
- * Vertical padding of the text column — `CARD_PADDING_PX`. Tight when the card
- * carries a single line, which is what lets a back-to-back quarter hour show a
- * whole name.
+ * Vertical padding of the text column — `CARD_PADDING_PX`, chosen by
+ * `cardPadding`. Tight for one or two lines, roomy for three, and flush for
+ * the compact density's one-line chip.
  */
 const CARD_PAD = {
-  week: { roomy: "py-1", tight: "py-0.5" },
-  day: { roomy: "py-1.5", tight: "py-1" },
+  week: { roomy: "py-1", tight: "py-0.5", flush: "py-0" },
+  day: { roomy: "py-1.5", tight: "py-1", flush: "py-0" },
 } as const;
 
 export type CalendarDay = {
@@ -400,8 +390,14 @@ type DragSession = {
 
 /** What a card calls in edit mode. One stable object, or null outside it. */
 type EditHandlers = {
-  pointerDown: (entry: CalendarEntry, event: React.PointerEvent<HTMLElement>) => void;
-  keyDown: (entry: CalendarEntry, event: React.KeyboardEvent<HTMLElement>) => void;
+  pointerDown: (
+    entry: CalendarEntry,
+    event: React.PointerEvent<HTMLElement>,
+  ) => void;
+  keyDown: (
+    entry: CalendarEntry,
+    event: React.KeyboardEvent<HTMLElement>,
+  ) => void;
   blur: (entry: CalendarEntry) => void;
 };
 
@@ -430,7 +426,9 @@ function noHover() {}
 function columnAt(grid: HTMLElement, x: number, y: number) {
   let best: HTMLElement | null = null;
   let bestDistance = Infinity;
-  for (const column of grid.querySelectorAll<HTMLElement>("[data-day-column]")) {
+  for (const column of grid.querySelectorAll<HTMLElement>(
+    "[data-day-column]",
+  )) {
     const rect = column.getBoundingClientRect();
     const distance =
       x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
@@ -451,16 +449,18 @@ function columnAt(grid: HTMLElement, x: number, y: number) {
 /** A short shake on a card whose move was refused. Still for reduced motion. */
 function refuse(appointmentId: string) {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  document.getElementById(`entry-${appointmentId}`)?.animate(
-    [
-      { transform: "translateX(0)" },
-      { transform: "translateX(-4px)" },
-      { transform: "translateX(4px)" },
-      { transform: "translateX(-2px)" },
-      { transform: "translateX(0)" },
-    ],
-    { duration: 320, easing: "ease-out" },
-  );
+  document
+    .getElementById(`entry-${appointmentId}`)
+    ?.animate(
+      [
+        { transform: "translateX(0)" },
+        { transform: "translateX(-4px)" },
+        { transform: "translateX(4px)" },
+        { transform: "translateX(-2px)" },
+        { transform: "translateX(0)" },
+      ],
+      { duration: 320, easing: "ease-out" },
+    );
 }
 
 /** "ליום שלישי, 10:35" or "ל-10:35" — the day only when it changed. */
@@ -812,16 +812,6 @@ export function WeekCalendar({
   }, [router]);
 
   /**
-   * Hides cropped hours — see `fitHoursSnapshot`. Read like the density, as an
-   * external store, so the server renders the default and hydration matches.
-   */
-  const fitHours = useSyncExternalStore(
-    subscribeFitHours,
-    fitHoursSnapshot,
-    fitHoursServerSnapshot,
-  );
-
-  /**
    * How much of the week to fit on screen — see `lib/calendar-density.ts`.
    *
    * Subscribed to rather than held here: the preference lives in
@@ -934,12 +924,19 @@ export function WeekCalendar({
         // The overview fits the working day to the screen, so it spends no row
         // on the empty hour either side.
         summaryCards ? 0 : 1,
-        // The owner's "crop empty hours" — see `gridBounds`. Not while
-        // editing: an hour cropped away is an hour a booking cannot be
-        // dragged into.
-        { fitToItems: fitHours && !editing },
+        /**
+         * **Only the hours that hold something, always** — from the first
+         * booking's hour to the last one's, with no padding, and the opening
+         * hours on a range with nothing in it. See `gridBounds`. This was a
+         * toggle; the owner asked for it to simply be how the calendar looks.
+         *
+         * **Except while editing**, when the grid spans the opening hours and
+         * an hour either side: an hour cropped away is an hour a booking
+         * cannot be dragged into.
+         */
+        { fitToItems: !editing },
       ),
-    [visibleEntries, days, summaryCards, fitHours, editing],
+    [visibleEntries, days, summaryCards, editing],
   );
   const rows = useMemo(() => hourRows(bounds), [bounds]);
 
@@ -1175,7 +1172,9 @@ export function WeekCalendar({
 
     const rect = frame.getBoundingClientRect();
     const speed = (distance: number) =>
-      Math.round(EDGE_SPEED_PX * Math.min(1, Math.max(0, 1 - distance / EDGE_PX)));
+      Math.round(
+        EDGE_SPEED_PX * Math.min(1, Math.max(0, 1 - distance / EDGE_PX)),
+      );
     const top = rect.top + DAY_HEADER_PX;
     const dy =
       drag.lastY < top + EDGE_PX
@@ -1277,13 +1276,18 @@ export function WeekCalendar({
    */
   const sendEdit = (
     moves: OptimisticMove[],
-    write: () => Promise<{ ok: true } | { ok: false; error?: string; message?: string }>,
+    write: () => Promise<
+      { ok: true } | { ok: false; error?: string; message?: string }
+    >,
     ids: readonly string[],
     /** Says it is done — at once, with the edit — and returns the toast's id. */
     announce: () => number,
   ) => {
     const key = ++editKey.current;
-    setPendingEdits((current) => [...current, { key, moves, confirmed: false }]);
+    setPendingEdits((current) => [
+      ...current,
+      { key, moves, confirmed: false },
+    ]);
     const said = announce();
 
     const takeBack = (message: string, resync: boolean) => {
@@ -1301,7 +1305,9 @@ export function WeekCalendar({
       (result) => {
         if (!result.ok) {
           takeBack(
-            result.error ?? result.message ?? "השינוי לא נשמר. התור חזר למקומו.",
+            result.error ??
+              result.message ??
+              "השינוי לא נשמר. התור חזר למקומו.",
             false,
           );
           return;
@@ -1319,11 +1325,7 @@ export function WeekCalendar({
           );
         }, SETTLE_FALLBACK_MS);
       },
-      () =>
-        takeBack(
-          "לא הצלחתי לשמור את השינוי — היומן חזר למה שנשמר.",
-          true,
-        ),
+      () => takeBack("לא הצלחתי לשמור את השינוי — היומן חזר למה שנשמר.", true),
     );
   };
 
@@ -1460,26 +1462,29 @@ export function WeekCalendar({
       () =>
         isUndo
           ? toast("ההחלפה בוטלה", "success")
-          : toast(`התורים של ${first.clientName} ו${second.clientName} הוחלפו`, {
-              tone: "success",
-              action: {
-                label: "ביטול",
-                onAct: () => {
-                  const back = planCalendarSwap(
-                    live.current.entries,
-                    first.appointmentId,
-                    second.appointmentId,
-                    timezone,
-                  );
-                  if (back?.ok) applySwap(back, true);
-                  else
-                    toast(
-                      "לא הצלחתי לבטל את ההחלפה — כדאי לבדוק ביומן.",
-                      "error",
+          : toast(
+              `התורים של ${first.clientName} ו${second.clientName} הוחלפו`,
+              {
+                tone: "success",
+                action: {
+                  label: "ביטול",
+                  onAct: () => {
+                    const back = planCalendarSwap(
+                      live.current.entries,
+                      first.appointmentId,
+                      second.appointmentId,
+                      timezone,
                     );
+                    if (back?.ok) applySwap(back, true);
+                    else
+                      toast(
+                        "לא הצלחתי לבטל את ההחלפה — כדאי לבדוק ביומן.",
+                        "error",
+                      );
+                  },
                 },
               },
-            }),
+            ),
     );
   };
 
@@ -1496,7 +1501,12 @@ export function WeekCalendar({
     if (next.length < 2) return;
 
     // Planned here and now, from the week on screen — see `planCalendarSwap`.
-    const plan = planCalendarSwap(live.current.entries, next[0], next[1], timezone);
+    const plan = planCalendarSwap(
+      live.current.entries,
+      next[0],
+      next[1],
+      timezone,
+    );
     if (plan?.ok) {
       setSwap(plan);
       return;
@@ -1718,7 +1728,10 @@ export function WeekCalendar({
         syncUrl("day", next.date);
         return;
       }
-      const date = shiftDays(weekDays[focusedIndex]?.date ?? focusedDate, delta);
+      const date = shiftDays(
+        weekDays[focusedIndex]?.date ?? focusedDate,
+        delta,
+      );
       goToWeek(date, date);
     },
     [weekDays, focusedIndex, focusedDate, syncUrl, goToWeek],
@@ -1784,7 +1797,6 @@ export function WeekCalendar({
           >
             <ChevronLeft className="size-4" aria-hidden />
           </ArrowButton>
-
         </div>
 
         {/**
@@ -1800,35 +1812,6 @@ export function WeekCalendar({
          * three. The pressed state is the same white-on-zinc pill the toggle
          * beside it uses, so the two read as one family of controls.
          */}
-        {/**
-         * **Only the hours that hold something.** The grid normally spans the
-         * opening hours and an hour either side; cropped, it runs from the
-         * first booking to the last — see `gridBounds`. Offered in both views,
-         * because an empty morning is scrolled past in a day as much as in a
-         * week, and kept as a preference beside the density.
-         *
-         * A pressed toggle rather than two options: the label says what it
-         * does, `aria-pressed` says whether it is doing it.
-         */}
-        <div className="glass-inset flex items-center rounded-full p-1">
-          <button
-            type="button"
-            onClick={() => chooseFitHours(!fitHours)}
-            aria-pressed={fitHours}
-            aria-label={FIT_HOURS_LABEL}
-            title={FIT_HOURS_LABEL}
-            className={cn(
-              "flex size-9 items-center justify-center rounded-full transition-colors",
-              focusRing,
-              fitHours
-                ? "glass-control text-zinc-950 dark:text-zinc-50"
-                : "text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100",
-            )}
-          >
-            <FoldVertical className="size-4" aria-hidden />
-          </button>
-        </div>
-
         {dayView ? null : (
           <div
             role="group"
@@ -2490,6 +2473,13 @@ const EntryCard = memo(function EntryCard({
   const muted = cancelled || status === "no_show";
 
   const start = minutesToLabel(entry.startMinutes);
+  /**
+   * Every element that draws this carries `dir="ltr"`. Two numbers either
+   * side of a dash are two LTR runs inside an RTL line, and the bidi algorithm
+   * lays them out right to left: the logical "09:00–09:15" was drawn as
+   * "09:15–09:00", the end time first. The dialog has always marked its own
+   * span this way — see `appointment-dialog`.
+   */
   const span = `${start}–${minutesToLabel(entry.endMinutes)}`;
   const statusLabel =
     status && status !== "confirmed" && status in STATUS_LABEL
@@ -2508,10 +2498,10 @@ const EntryCard = memo(function EntryCard({
   const hasClientNote = Boolean(entry.clientProfileNotes?.trim());
 
   /**
-   * How many of name / time / service this booking has room for — see
-   * `lineBudget`, which owns the arithmetic and is tested on its own. The hour
-   * has already grown so every booking of ten minutes or more gets them all;
-   * the budget is what keeps a shorter one honest.
+   * How many lines this booking has room for — see `lineBudget`, which owns
+   * the arithmetic and is tested on its own. The hour has already grown so a
+   * quarter hour back to back gets two in the week, which carry all three
+   * fields; the budget is what keeps a shorter one honest.
    */
   const lines =
     card === "block" || typeof minHeight !== "number"
@@ -2658,6 +2648,56 @@ const EntryCard = memo(function EntryCard({
     </>
   );
 
+  /**
+   * **One line, fields in order of what the owner is scanning for.**
+   *
+   * The name first, then the time, then the service — each whole or not there
+   * at all. The row wraps and is one line tall with its overflow hidden, so a
+   * field that does not fit drops to a second line nobody sees rather than
+   * squeezing the name into an ellipsis: on a 42px compact lane that leaves the
+   * first name, and a wider lane gets the time beside it. The service alone
+   * may shorten (`basis-0` with a small minimum), since part of a service name
+   * still says which service. The card's title carries all of it either way.
+   */
+  const oneLine = (
+    <div
+      className={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-1 overflow-hidden",
+        row,
+      )}
+    >
+      {card === "full" && entry.staffName && entry.staffColor ? (
+        <span
+          aria-hidden
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            staffSwatch(entry.staffColor).dot,
+            staffVariantClass(variant),
+          )}
+        />
+      ) : null}
+      <span
+        className={cn(
+          "max-w-full min-w-0 truncate font-bold",
+          cancelled && "line-through",
+        )}
+      >
+        {card === "chip" ? firstName(entry.title) : entry.title}
+      </span>
+      {card === "full" ? (
+        <StatusMark status={status} size={dayView ? "md" : "sm"} />
+      ) : null}
+      <span dir="ltr" className={cn("shrink-0 tabular-nums", quiet)}>
+        {card === "chip" ? start : span}
+      </span>
+      {card === "full" && entry.subtitle ? (
+        <span className={cn("min-w-[4ch] shrink grow basis-0 truncate", quiet)}>
+          {entry.subtitle}
+        </span>
+      ) : null}
+    </div>
+  );
+
   const body =
     card === "block" ? (
       /**
@@ -2686,13 +2726,13 @@ const EntryCard = memo(function EntryCard({
       </span>
     ) : (
       /**
-       * **A column, one field per line.**
+       * **As many lines as the card has room for, and every field on them.**
        *
-       * Name, then time, then service — each on its own row, each either shown
-       * whole or not shown at all. `lineBudget` decides how many the booking's
-       * height carries, and the hour has grown so that is all of them from ten
-       * minutes up; below that, what is dropped is the least important field
-       * rather than the end of every field.
+       * Three lines stack name, time span and service. Two — the short
+       * booking's card, which the week's hour is sized for — keep the name on
+       * its own line and set "10:00–10:30 · תספורת" beneath it. One line (the
+       * day view's quarter hour, or anything shorter than the hour promises)
+       * sets them side by side — see `oneLine` below.
        *
        * `justify-center` so a one-line card sits in the middle of its block
        * instead of clinging to the top edge.
@@ -2701,42 +2741,41 @@ const EntryCard = memo(function EntryCard({
         className={cn(
           "flex min-w-0 flex-1 flex-col justify-center overflow-hidden",
           dayView ? "px-3" : card === "chip" ? "px-1" : "px-2",
-          CARD_PAD[dayView ? "day" : "week"][
-            card === "chip" || lines <= 1 ? "tight" : "roomy"
-          ],
+          CARD_PAD[dayView ? "day" : "week"][cardPadding(lines, card)],
         )}
       >
-        <div className={cn("flex shrink-0 items-center gap-1", row)}>
-          {/* Whose booking, on a team: the legend's own dot, texture and all,
+        {lines <= 1 ? (
+          oneLine
+        ) : (
+          <div className={cn("flex shrink-0 items-center gap-1", row)}>
+            {/* Whose booking, on a team: the legend's own dot, texture and all,
               where the side bar used to carry it. Keyed on `staffName`, which
               the page sets only for a team — `staffColor` is set for a one-chair
               shop too, and a dot on every card of a shop with one provider says
               nothing. */}
-          {card === "full" && entry.staffName && entry.staffColor ? (
+            {card === "full" && entry.staffName && entry.staffColor ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "size-2 shrink-0 rounded-full",
+                  staffSwatch(entry.staffColor).dot,
+                  staffVariantClass(variant),
+                )}
+              />
+            ) : null}
             <span
-              aria-hidden
               className={cn(
-                "size-2 shrink-0 rounded-full",
-                staffSwatch(entry.staffColor).dot,
-                staffVariantClass(variant),
+                "min-w-0 flex-1 truncate font-bold",
+                cancelled && "line-through",
               )}
-            />
-          ) : null}
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate font-bold",
-              cancelled && "line-through",
-            )}
-          >
-            {card === "chip" ? firstName(entry.title) : entry.title}
-          </span>
-          {card === "chip" && lines <= 1 ? (
-            <span className={cn("shrink-0 tabular-nums", quiet)}>{start}</span>
-          ) : null}
-          {card === "full" ? (
-            <StatusMark status={status} size={dayView ? "md" : "sm"} />
-          ) : null}
-        </div>
+            >
+              {card === "chip" ? firstName(entry.title) : entry.title}
+            </span>
+            {card === "full" ? (
+              <StatusMark status={status} size={dayView ? "md" : "sm"} />
+            ) : null}
+          </div>
+        )}
 
         {/**
          * **`chip` is a first name and a start time, on every booking.** The
@@ -2744,19 +2783,18 @@ const EntryCard = memo(function EntryCard({
          * reads as damage rather than as information; the time survives because
          * it is the one field the card's position only approximates.
          */}
-        {card === "chip" ? (
-          lines >= 2 ? (
-            <div className={cn("flex shrink-0 items-center gap-0.5", row)}>
-              <span className={cn("min-w-0 truncate tabular-nums", quiet)}>
-                {start}
-              </span>
-              {footnotes}
-            </div>
-          ) : null
+        {lines <= 1 ? null : card === "chip" ? (
+          <div className={cn("flex shrink-0 items-center gap-0.5", row)}>
+            <span className={cn("min-w-0 truncate tabular-nums", quiet)}>
+              {start}
+            </span>
+            {footnotes}
+          </div>
         ) : lines >= 3 ? (
           <>
             <div className={cn("flex shrink-0 items-center gap-1", row)}>
               <span
+                dir="ltr"
                 className={cn("min-w-0 flex-1 truncate tabular-nums", quiet)}
               >
                 {span}
@@ -2769,17 +2807,24 @@ const EntryCard = memo(function EntryCard({
               </span>
             ) : null}
           </>
-        ) : lines === 2 ? (
-          // Shorter than the hour was grown for: the service joins the time
-          // rather than being dropped.
+        ) : (
+          // The short booking's card: the whole span, then the service, on
+          // the line under the name. The span never gives way — the service
+          // is what an ellipsis may shorten.
           <div className={cn("flex shrink-0 items-center gap-1", row)}>
-            <span className={cn("min-w-0 flex-1 truncate", quiet)}>
-              <span className="tabular-nums">{start}</span>
-              {entry.subtitle ? ` · ${entry.subtitle}` : ""}
+            <span dir="ltr" className={cn("shrink-0 tabular-nums", quiet)}>
+              {span}
             </span>
+            {entry.subtitle ? (
+              <span className={cn("min-w-0 flex-1 truncate", quiet)}>
+                · {entry.subtitle}
+              </span>
+            ) : (
+              <span className="flex-1" />
+            )}
             {footnotes}
           </div>
-        ) : null}
+        )}
 
         {/* The note itself, where there is genuinely room for it: one wide
             column and a booking long enough that a fourth line does not crowd
@@ -2837,7 +2882,9 @@ const EntryCard = memo(function EntryCard({
             ? `${description} — גררו להזזה, הקישו לבחירה להחלפה`
             : description
         }
-        onPointerDown={movable ? (event) => edit.pointerDown(entry, event) : undefined}
+        onPointerDown={
+          movable ? (event) => edit.pointerDown(entry, event) : undefined
+        }
         onKeyDown={movable ? (event) => edit.keyDown(entry, event) : undefined}
         onBlur={() => edit.blur(entry)}
         className={className}
@@ -2965,7 +3012,7 @@ function DragGhost({
       )}
       style={cardBox(box)}
     >
-      <span className="truncate text-[11px]/4 font-bold tabular-nums">
+      <span dir="ltr" className="truncate text-[11px]/4 font-bold tabular-nums">
         {minutesToLabel(ghost.startMinutes)}–{minutesToLabel(ghost.endMinutes)}
       </span>
       <span className="truncate text-[10px]/4 font-medium opacity-90">
@@ -2976,8 +3023,8 @@ function DragGhost({
             : ghost.conflict?.kind === "past"
               ? "כבר עבר"
               : ghost.conflict?.kind === "closed"
-              ? "מחוץ לשעות"
-              : title}
+                ? "מחוץ לשעות"
+                : title}
       </span>
     </div>
   );
@@ -3044,8 +3091,8 @@ function EditTray({
           </ul>
           {repacked ? (
             <p className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
-              התורים צמודים ובאורך שונה, אז הם מחליפים סדר בתוך אותו רצף — כל אחד
-              שומר על האורך שלו.
+              התורים צמודים ובאורך שונה, אז הם מחליפים סדר בתוך אותו רצף — כל
+              אחד שומר על האורך שלו.
             </p>
           ) : null}
           <div className="flex gap-2">

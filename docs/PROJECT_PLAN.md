@@ -2036,6 +2036,85 @@ calendar edit instant, separate the dock from what scrolls under it, and put
 - `npm run verify` green at **1898 across 114 files** (`screenshots.test.ts`
   went with the images).
 
+### A calendar that fits the day, a delete for what was cancelled, and the sign-up that answered `{}` ✅
+
+Four reports in one, opened with a screenshot of the sign-up form showing an
+error message two characters long. The maps are in
+[ARCHITECTURE.md](ARCHITECTURE.md#a-500-from-supabase-auth-arrives-as-),
+[the hour](ARCHITECTURE.md#how-tall-an-hour-is-and-which-hours-are-drawn-at-all)
+and [the delete](ARCHITECTURE.md#deleting-a-cancelled-booking).
+
+- **Sign-up answered `{}`, and now it answers in Hebrew — but the cause is a
+  setting, not code.** From auth-js 2.108 every 5xx is treated as a transport
+  failure: the client builds its message with `JSON.stringify(response)`
+  without reading the body, and a `Response` has no enumerable own properties,
+  so both the form and the log got `{}` and the server's own sentence was
+  never read. What the database says: **no row for that address in
+  `auth.users`, no trigger on it, three users in total and the newest from
+  18.8** — so the account was rolled back inside GoTrue, which is what a failed
+  confirmation send does, and no sign-up has succeeded in a month.
+  - The server client now installs a `fetch` that clones a 5xx from
+    `/auth/v1/` and keeps its body; the action logs it (`serverStatus`,
+    `serverPath`, `serverCode`, `serverSaid`) and tells the reader which
+    failure it was — the mail one by name, because that is the one no account
+    was created for and nothing they typed caused. `usableMessage` stops `{}`
+    and `[object Object]` being treated as messages anywhere.
+  - `signUp` now passes `emailRedirectTo` → `/auth/confirm?next=/dashboard`,
+    and `/auth/confirm` defaults by link type instead of sending every link to
+    the password-reset form. A link that cannot be exchanged (the mail opened
+    on a second device, where the PKCE verifier does not exist) lands on
+    `/login?error=confirm`, which says the address *is* confirmed and to sign
+    in — true, because Supabase confirms before it redirects.
+  - **What is still broken is the project's mail**: Supabase Auth sends its own
+    mail, and this account's Resend domain is unverified — the same cause as
+    "client email reaches nobody" in §5, reaching a second surface. Verify the
+    domain (or point Supabase's SMTP somewhere that delivers) and sign-up works;
+    until then it fails with a sentence that says so.
+  - Pinned by `auth-failure.test.ts`, which holds a **real** client to a
+    stand-in auth server: a 500 arrives as `{}`, the wrapper keeps "Error
+    sending confirmation email", and the sign-up's `redirect_to` carries our
+    own confirm route. Plus 13 tests on the readers themselves.
+- **The calendar fits the day again.** The hour had been growing until the
+  shortest booking could hold all three lines *stacked* — 216px for a
+  quarter-hour beard trim, 324 for ten minutes. It now grows only as far as the
+  **two-line** card, which carries the same three fields (the name, then
+  `10:00–10:30 · תספורת`): **144px** with a quarter hour on screen, 96 without
+  one. The day view sets all three side by side on its one wide line and is
+  flat at **160** (was 304). `compact` is a fixed **72px** hour with a one-line
+  chip — first name and start time — so a ten-hour day is 720px, one screen.
+  The floors follow the same arithmetic (34 / 30 / 16), so a lone short booking
+  is lifted to exactly the card its mode promises and no further.
+- **Dead hours are cropped by default.** The toggle and the preference behind it
+  are gone: every view now runs from the first booking's hour to the last one's,
+  and edit mode expands to the working day and an hour either side, because an
+  hour cropped away is an hour nothing can be dragged into.
+- **A cancelled booking can be deleted.** Its sheet offers מחיקה — only there —
+  behind "למחוק תור זה?", naming the client and the time, with the consequence
+  on the button and no undo pretended afterwards. `deleteCancelledAppointment`
+  scopes by tenant *and* status inside one `WHERE`, so a booking restored in
+  another tab is simply not deleted and a live one cannot be removed by a
+  crafted id; `notifications` cascade with it. Three query tests.
+- **Found while verifying:** a card's time span rendered **mirrored** —
+  `09:15–09:00`, the end time first — because two numeric runs either side of a
+  dash reorder inside an RTL line. Every span the calendar draws now carries
+  `dir="ltr"`, as the dialog's always had.
+- **Verified in a browser, read-only** (every Server Action POST aborted, so
+  nothing could write), at 1280 and 390px:
+  - The hour measured **144** detailed and **72** compact, the grid 1440px and
+    720px over the same ten hours; a quarter-hour card is 34px and reads
+    `שי גולדשטיין` / `09:00–09:15 · עיצוב זקן`, and a compact one is 16px and
+    reads `שי 09:00`. The day view: 160px an hour, a quarter hour 38px with all
+    three fields on one line.
+  - The crop: **09:00–18:00** on the week as drawn, **08:00–19:00** the moment
+    edit mode opens.
+  - The delete: the sheet on a cancelled booking offers החזרה לתור פעיל,
+    עריכה and מחיקה; מחיקה opens "למחוק תור זה?" with the client, the time and
+    the two buttons; backing out restores the sheet. **Nothing was deleted** —
+    no Server Action left the browser in the whole run.
+  - `/login?error=confirm` renders its sentence, and a magnified card shows the
+    span reading start to end after the `dir` fix.
+- `npm run verify` green at **1913 across 115 files**.
+
 ---
 
 ## 5. Where things stand
@@ -2044,7 +2123,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1898 tests across 114 files**; Playwright
+**Green:** `npm run verify` at **1913 tests across 115 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 36 migrations
 (0000–0035) are applied to production** — 0035 (`bookings_paused`) on
 2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -2276,6 +2355,7 @@ the served tier plus the reason.
 | **A navigation can arrive with the same props** | The router may answer a navigation back to the range a page first rendered from its cache, with the very same prop objects — so state that follows "the server's range" by comparing props (dates *or* identity) silently misses it. The agenda stayed on Saturday after the dock's "היומן". The calendar and the agenda detect navigations on the URL, which every in-memory step keeps in step through `replaceState`. | `agenda-view.tsx`, `week-calendar.tsx` |
 | **`VoiceBeam`'s root is `position: relative`, and wins** | The package injects its stylesheet into the body, after Tailwind's, and its root rule sets `position: relative` at the same specificity as `.fixed` — so a `fixed inset-0` class on the beam loses and the glow collapses to zero height in normal flow. It sits inside a fixed frame of ours. | `libi-assistant.tsx` |
 | **Repeated Playwright sign-ins trip the login limiter** | Each run of a temporary spec signs in afresh, and the fifth or so in a few minutes answers "נשלחו יותר מדי בקשות" — the spec then times out on `waitForURL`, which reads like a broken login. Wait two minutes. And hide `nextjs-portal` in a spec that presses ליבי's docked button: under `next dev` the tools badge sits exactly on it and swallows the click. | `e2e/helpers.ts` `signInAsOwner` |
+| **Supabase Auth's client turns every 5xx into `{}`** | From auth-js 2.108 a 5xx is a transport failure: the message is `JSON.stringify(response)`, which is `{}`, and the body is never read. A project whose mail is broken therefore fails every sign-up with two characters, in the form *and* in the log. `createSupabaseServerClient({ onAuthServerFailure })` keeps the body; `usableMessage` refuses to treat `{}` as a message. Re-check on the next auth-js upgrade — `auth-failure.test.ts` fails when they start reading the body again. | `lib/supabase/server.ts`, `lib/auth-errors.ts` |
 | **`next dev` prints Server Action arguments** | Next 16 logs every server-function call in development *with its arguments* — the sign-in action's included, the E2E password in plain text. Local only, but a dev log pasted anywhere carries it. **Off since 2026-09-19:** `logging.serverFunctions: false` in `next.config.ts`. Turn it back on only for a session that needs to see the calls, and not with a real account signed in. | `next.config.ts` |
 | **Two moves cannot swap two bookings** | `appointments_no_overlap_staff` is not deferrable, so it is checked per statement: whichever booking moves first lands on the other while that one is still there, and a swap that is valid as a whole fails halfway every time the two share a provider. `swapAppointments` parks the first on an empty range (`ends_at = starts_at` — the empty `tstzrange` overlaps nothing), moves the second, then the first, in one transaction, each write a compare-and-swap on the start it was planned against. Making the constraint deferrable would need a migration and buys nothing this does not. | `db/queries/appointments.ts` `swapAppointments` |
 
@@ -3086,6 +3166,17 @@ because the account has no verified domain, so it may only mail its own owner.
 is present and valid — and from the owner's side the booking simply worked.
 Verify a domain at resend.com → Domains and point `NOTIFICATIONS_FROM_EMAIL` at
 it. See [DEPLOYMENT.md](DEPLOYMENT.md#2-environment-variables).
+
+**And with it, sign-up.** Supabase Auth sends the confirmation mail itself
+(DEPLOYMENT §b points its SMTP at the same Resend account), so an unverified
+domain fails the send — and GoTrue rolls the account back, since it creates the
+user and sends inside one transaction. The evidence, read off the database on
+2026-09-20: **no `auth.users` row for the address that was tried, no trigger on
+that table, three users in total and the newest from 18.8**. The form now says
+so in Hebrew and the log carries GoTrue's own sentence; before 2026-09-20 both
+said `{}` — see the trap below. **Nothing in the code fixes this**: verify the
+domain, or point Supabase → Project Settings → Authentication → SMTP at a
+provider that delivers, and try again.
 
 ### Blocked on a decision or an account, not on code
 

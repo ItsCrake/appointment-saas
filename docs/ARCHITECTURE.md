@@ -557,25 +557,81 @@ frame after the release, whatever the round trip costs.
   lands after the first. The spinner in the rail's corner says a save is
   pending.
 
-### Cropping the empty hours
+### How tall an hour is, and which hours are drawn at all
 
-A toggle beside the density, kept the same way (`calendar-density.ts`, a
-`localStorage` external store). Off, the grid spans the opening hours and an
-hour either side; on, it runs from the first booking's hour to the last one's
-with no padding, and a range with nothing booked falls back to the opening
-hours rather than to an empty strip (`gridBounds({ fitToItems })`).
+**The hour answers to what a card promises, and to nothing else**
+(`hourRowPx`). Each density names the fields its cards carry, and the hour is
+the least that keeps that promise for the shortest booking on screen with
+another one straight after it — never more, because every pixel an hour gains
+is a slice of the working day pushed off the screen.
+
+| Mode | What a card says | The hour |
+| --- | --- | --- |
+| `standard` | the name, then `10:00–10:30 · service` | 96px, 144 with a quarter hour on screen |
+| `compact` | a first name and a start time | 72px, fixed |
+| `summary` | a start time on a chip | the frame's own, sized in CSS |
+| the day view | all three, side by side on one line | 160px, fixed |
+
+Two lines carry all three fields in the week — the name, then the span and the
+service — and three stack them once a booking is long enough to hold them. The
+day view has one wide column, so one line carries all three and a quarter hour
+never asks for a second. `lineBudget` decides how many lines a card has room
+for and `cardPadding` how much air goes around them; the floors (`MIN_CARD_PX`,
+`MIN_CHIP_PX`) are the same arithmetic, so a lone short booking is lifted to
+exactly the card its mode promises and not one line further.
+
+> **It used to grow until the shortest booking held all three lines *stacked*.**
+> That is 216px an hour for a quarter-hour beard trim and 324 for a ten-minute
+> one — about three hours of a working day on a laptop screen, which is what
+> the owner reported. No field was given up to fix it; they are set on fewer
+> lines. A ten-hour day is now 720px in `compact`: one screen.
+
+**A time span is `dir="ltr"` wherever it is drawn.** Two numbers either side of
+a dash are two LTR runs inside an RTL line, and the bidi algorithm lays them
+out right to left: the logical `09:00–09:15` was painted `09:15–09:00`, the end
+time first. The dialog had always marked its own span; the cards and the drag
+ghost do now too.
+
+**The grid draws only the hours something is in** — `gridBounds({ fitToItems })`
+runs it from the first booking's hour to the last one's with no padding, and a
+range with nothing booked falls back to the shop's opening hours rather than to
+an empty strip. This was a toggle beside the density, remembered per device.
+It is now simply how the calendar looks: an owner who opens at eight and whose
+first client is at eleven was scrolling past three empty rows every morning to
+reach the first card, and a switch for that is a switch nobody should have to
+find. **Edit mode is the exception**, where the grid spans the opening hours
+and an hour either side — an hour cropped away is an hour a booking cannot be
+dragged into.
 
 `gridBounds`, `hourRows` and lane assignment are memoised. Lane assignment is
 O(n²) within a day, and the hover card sets state at the calendar root — so
 before this it ran for all seven columns every time the pointer crossed a card.
 
-The day view spends its extra room vertically too — 112px an hour against 80 —
-so a 15-minute booking is 28 pixels and never falls back to the compact row.
-Cards there are **solid** rather than translucent, which is the opposite of the
+Cards in the day view are **solid** rather than translucent, which is the opposite of the
 week rule and for the same reason behind it: across seven narrow columns a solid
 fill is a wall of colour, so the card lets the open-hours band read through; one
 wide column has nothing to compete with, and a washed card on a pale band is
 harder to read than a plain white one.
+
+### Deleting a cancelled booking
+
+The one row this product removes rather than restates. Everywhere else a
+booking only ever changes status, because the row is the record of what
+happened — but a cancelled card is still a card on the calendar, and a morning
+with three of them is three things to read past every time that day is opened.
+
+- Offered **only on a cancelled booking**, and only from its sheet.
+- Behind a question — "למחוק תור זה?" — naming the client and the time, with
+  the consequence on the confirming button. There is no undo to offer
+  afterwards, so the asking happens before.
+- `deleteCancelledAppointment` scopes by tenant **and status in the same
+  `WHERE` clause**, so a booking restored in another tab between the question
+  and the answer is simply not deleted, and a live one cannot be removed by a
+  crafted id — that would free its slot with nobody told, and the client would
+  arrive at a shop that had forgotten them.
+- `notifications.appointment_id` is `ON DELETE CASCADE`, so the messages the
+  booking queued go with it. That is what "permanently" means, and the
+  dispatcher never sends for a cancelled appointment anyway.
 
 ### The hover card is positioned `fixed`, and that is not a detail
 
@@ -2946,6 +3002,17 @@ test, where request and click happen in one browser, and fails the extremely
 common phone-request / laptop-click case. See
 [DEPLOYMENT.md](DEPLOYMENT.md#password-reset-needs-two-settings-and-both-bite-silently).
 
+**A confirmed sign-up lands in the dashboard, not on the reset form.**
+`/auth/confirm` was built for recovery links and defaulted every link to
+`/login/reset`; `signUp` now passes `emailRedirectTo` pointing at
+`/auth/confirm?next=/dashboard`, and the handler's own default follows the
+link's `type` (`signup`/`email` → `/dashboard`, which shows an owner with no
+business yet the setup wizard). A sign-up link that cannot be exchanged — the
+PKCE verifier lives in the browser that asked, so opening the mail on a second
+device cannot redeem it — lands on `/login?error=confirm`, which says the
+address is confirmed and they can simply sign in. Supabase marks the address
+confirmed *before* it redirects, so that is true.
+
 **The `next` parameter is validated before it is followed.** `lib/safe-redirect.ts`
 rejects absolute URLs, protocol-relative `//host`, backslashes (some browsers
 normalise them into the authority) and control characters that could forge a
@@ -3085,6 +3152,35 @@ whether the project has enumeration protection on: a 200 with a user whose
 `identities` array is empty, or a 422 saying so. **Both are handled**, because a
 project setting decides which arrives and handling one leaves the other reading
 as an unexplained failure.
+
+### A 500 from Supabase Auth arrives as `{}`
+
+The reported sign-up bug, and it is worth knowing before reading the code that
+handles it: **from auth-js 2.108 every 5xx is treated as a transport failure**.
+The client throws `AuthRetryableFetchError` built from
+`JSON.stringify(response)` without reading the body, and a `Response` has no
+enumerable own properties — so the message that reaches the action, the form
+and the log is the two characters `{}`. The sentence GoTrue actually sent
+("Error sending confirmation email", the commonest of them, since a project
+whose SMTP is misconfigured fails every sign-up) never leaves the library.
+
+- `createSupabaseServerClient({ onAuthServerFailure })` installs a `fetch` that
+  **clones** a 5xx from `/auth/v1/` and keeps its body. The caller's error is
+  untouched; the body goes to the log with the status and the path.
+- `readGotrueBody` reads `msg`/`message`/`error_description`/`error` and
+  `code`/`error_code` back out of it, and `isEmailSendFailure` tells the mail
+  failure from the other 500s — the one an owner can be told something true
+  about, because no account was created and nothing they typed is at fault.
+- `usableMessage` treats `{}` and `[object Object]` as no message at all,
+  everywhere a Supabase error is described.
+- `auth-failure.test.ts` holds a **real** client to a stand-in auth server and
+  pins both halves: that a 500 arrives as `{}`, and that the wrapper keeps the
+  sentence behind it. An upgrade that starts reading the body again turns the
+  first half red, which is the day the wrapper can go.
+
+> **The cause is a project setting, not code.** Supabase Auth sends its own
+> mail (see the note under password reset), so a sign-up fails for as long as
+> that SMTP cannot deliver — with a sentence that says so, rather than `{}`.
 
 ### Reset throttling is ours, not Supabase's
 
@@ -3606,7 +3702,10 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - `db:seed` deletes and recreates the demo business, which resets its owner —
   re-run `db:claim` afterwards.
 - Supabase email confirmation is **on** by default; signup returns a user with
-  no session and the UI says to check the inbox.
+  no session and the UI says to check the inbox. The link in that mail goes to
+  `/auth/confirm?next=/dashboard`. If the project cannot send mail, sign-up
+  fails with a 500 that the client reports as `{}` — see *A 500 from Supabase
+  Auth arrives as `{}`*.
 - Vercel Hobby caps cron at once per day, and **fails the build** rather than
   silently downgrading — `*/15 * * * *` is rejected at deploy time. The
   schedule is daily for that reason; the real cadence has to come from Pro or

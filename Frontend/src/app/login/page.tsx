@@ -12,10 +12,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-type PageProps = { searchParams: Promise<{ next?: string }> };
+type PageProps = { searchParams: Promise<{ next?: string; error?: string }> };
 
 export default async function LoginPage({ searchParams }: PageProps) {
-  const { next } = await searchParams;
+  const { next, error } = await searchParams;
 
   if (!isSupabaseConfigured()) {
     return (
@@ -49,6 +49,19 @@ export default async function LoginPage({ searchParams }: PageProps) {
         </>
       }
     >
+      {/* Where a confirmation link that could not be exchanged lands — see
+          `/auth/confirm`. Supabase confirms the address before it redirects,
+          so the likeliest reader here has a working account and simply needs
+          to sign in; the message says that rather than "invalid link". */}
+      {error === "confirm" ? (
+        <div className="mb-5">
+          <FormAlert tone="error">
+            לא הצלחנו להשלים את האישור מהקישור — ייתכן שהוא נפתח בדפדפן אחר או
+            שכבר נוצל. אם אישרתם את הכתובת, התחברו כאן עם האימייל והסיסמה.
+          </FormAlert>
+        </div>
+      ) : null}
+
       <LoginForm next={next} />
     </AuthShell>
   );

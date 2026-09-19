@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   createService,
+  deleteCancelledAppointment,
+  getAppointment,
   createTimeOff,
   deactivateService,
   deleteService,
@@ -18,6 +21,7 @@ import {
   updateAppointmentStatus,
   updateService,
 } from "@/db/queries";
+import { notifications } from "@/db/schema";
 import type { Database } from "@/db/types";
 import {
   createAppointment,
@@ -231,6 +235,102 @@ describe("time off", () => {
 
     expect(await deleteTimeOff(db, mine.id, entry.id)).toBeNull();
     expect(await deleteTimeOff(db, theirs.id, entry.id)).not.toBeNull();
+  });
+});
+
+describe("deleteCancelledAppointment", () => {
+  it("removes a cancelled booking, and the messages it queued with it", async () => {
+    const business = await createBusiness(db);
+    const service = await makeService(db, business.id);
+    const appointment = await createAppointment(
+      db,
+      business.id,
+      service.id,
+      new Date("2026-08-03T06:00:00Z"),
+      new Date("2026-08-03T06:30:00Z"),
+    );
+    await db.insert(notifications).values({
+      businessId: business.id,
+      appointmentId: appointment.id,
+      channel: "whatsapp",
+      kind: "reminder",
+      recipient: "+972500000000",
+      scheduledFor: new Date("2026-08-02T06:00:00Z"),
+      dedupeKey: `reminder:${appointment.id}:24`,
+    });
+    await updateAppointmentStatus(db, business.id, appointment.id, "cancelled");
+
+    const deleted = await deleteCancelledAppointment(
+      db,
+      business.id,
+      appointment.id,
+    );
+
+    expect(deleted?.id).toBe(appointment.id);
+    expect(await getAppointment(db, business.id, appointment.id)).toBeNull();
+    // `notifications.appointment_id` is ON DELETE CASCADE.
+    expect(
+      await db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.appointmentId, appointment.id)),
+    ).toEqual([]);
+  });
+
+  it("refuses a booking that is still live, whatever else it is", async () => {
+    const business = await createBusiness(db);
+    const service = await makeService(db, business.id);
+
+    for (const status of [
+      "confirmed",
+      "pending",
+      "completed",
+      "no_show",
+    ] as const) {
+      const appointment = await createAppointment(
+        db,
+        business.id,
+        service.id,
+        new Date("2026-08-03T06:00:00Z"),
+        new Date("2026-08-03T06:30:00Z"),
+      );
+      await updateAppointmentStatus(db, business.id, appointment.id, status);
+
+      expect(
+        await deleteCancelledAppointment(db, business.id, appointment.id),
+      ).toBeNull();
+      expect(
+        await getAppointment(db, business.id, appointment.id),
+      ).not.toBeNull();
+
+      // Freed for the next status in the loop.
+      await updateAppointmentStatus(
+        db,
+        business.id,
+        appointment.id,
+        "cancelled",
+      );
+      await deleteCancelledAppointment(db, business.id, appointment.id);
+    }
+  });
+
+  it("refuses another business's cancelled booking", async () => {
+    const mine = await createBusiness(db);
+    const theirs = await createBusiness(db);
+    const service = await makeService(db, theirs.id);
+    const appointment = await createAppointment(
+      db,
+      theirs.id,
+      service.id,
+      new Date("2026-08-03T06:00:00Z"),
+      new Date("2026-08-03T06:30:00Z"),
+    );
+    await updateAppointmentStatus(db, theirs.id, appointment.id, "cancelled");
+
+    expect(
+      await deleteCancelledAppointment(db, mine.id, appointment.id),
+    ).toBeNull();
+    expect(await getAppointment(db, theirs.id, appointment.id)).not.toBeNull();
   });
 });
 
