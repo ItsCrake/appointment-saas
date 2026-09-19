@@ -43,7 +43,13 @@ export type ToastOptions = {
 };
 
 type ToastContextValue = {
-  toast: (message: string, options?: ToastTone | ToastOptions) => void;
+  /** Shows a toast; the id is for taking it down early — see `dismiss`. */
+  toast: (message: string, options?: ToastTone | ToastOptions) => number;
+  /**
+   * Takes a toast down before its time: a message that stopped being true, or
+   * an undo for something that has already been taken back.
+   */
+  dismiss: (id: number) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -99,11 +105,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             (resolved.action ? UNDO_DURATION_MS : DURATION_MS),
         },
       ]);
+      return id;
     },
     [],
   );
 
-  const value = useMemo(() => ({ toast }), [toast]);
+  const value = useMemo(() => ({ toast, dismiss }), [toast, dismiss]);
 
   return (
     <ToastContext.Provider value={value}>

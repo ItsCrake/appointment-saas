@@ -59,6 +59,17 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  /**
+   * **No Server Action arguments in the dev terminal.** Next 16 logs every
+   * server-function call in development *with its arguments* — the sign-in
+   * action's included, password in plain text — and a dev log is exactly the
+   * thing that gets pasted into an issue or a chat. The request lines stay;
+   * only the argument dump goes. Development-only either way: production
+   * never printed them.
+   */
+  logging: {
+    serverFunctions: false,
+  },
   images: {
     /**
      * **Without this, `quality={90}` was silently delivered as 75.**

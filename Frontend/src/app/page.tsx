@@ -6,6 +6,7 @@ import { CtaBanner } from "@/components/marketing/cta-banner";
 import { DemoLinks } from "@/components/marketing/demo-links";
 import { FeatureCards } from "@/components/marketing/feature-cards";
 import { InstallGuide } from "@/components/marketing/install-guide";
+import { LibiShowcase } from "@/components/marketing/libi-showcase";
 import { ProofStrip } from "@/components/marketing/proof-strip";
 import { FaqAccordion } from "@/components/marketing/faq-accordion";
 import { MockupShowcase } from "@/components/marketing/mockup-showcase";
@@ -162,9 +163,12 @@ export default function LandingPage() {
                   of forcing white, which is what let it leave the dark panel. */}
               <TypewriterLogo className="text-zinc-950 dark:text-zinc-50" />
 
+              {/* Both halves of the product in two sentences: the page the
+                  clients book on by themselves, and ליבי for everything the
+                  owner would otherwise stop to type. */}
               <p className="mt-5 max-w-md text-base leading-relaxed text-pretty text-zinc-600 sm:text-lg dark:text-zinc-300">
-                עמוד הזמנות אישי לעסק שלכם. הלקוחות קובעים תור בעצמם, והיומן
-                מתמלא בלי חורים ובלי טלפונים.
+                עמוד הזמנות אישי שהלקוחות קובעים בו תור בעצמם, ויומן שמנהלים
+                בקול: אומרים לליבי מה לקבוע, להזיז או לבטל, והיא מטפלת בזה.
               </p>
 
               {/* The one action being asked for, alone on its row.
@@ -227,6 +231,11 @@ export default function LandingPage() {
             colour bleeding out of it reads as the hero continuing. */}
         <ProofStrip />
 
+        {/* ליבי — right under the proof, while the hero's conversation is
+            still in the reader's eye: the one thing this page offers that no
+            other booking tool for a small shop does, given its own room. */}
+        <LibiShowcase />
+
         {/* HOW IT WORKS — hairline-topped columns. No step numerals: the order
             is the order, and "שלב 1" adds a word without adding meaning.
 
@@ -259,14 +268,15 @@ export default function LandingPage() {
           </ol>
         </section>
 
-        {/* PRODUCT TOUR — the real screens.
+        {/* PRODUCT TOUR — the app's own screens.
 
             Placed after "how it works" and before "what you get": the reader
             has just been told the shape of the thing in three sentences, and
-            this is where they find out whether it is real. Three screenshots
-            rather than the eight that exist, because a wall of near-identical
-            Hebrew UI is a gallery and teaches nothing — each of these is the
-            only evidence for one claim.
+            this is where they see it. Three screens rather than every one,
+            because a wall of near-identical Hebrew UI is a gallery and teaches
+            nothing — each is the evidence for one claim. Drawn with the
+            dashboard's own glass (see `mock-kit`), so they move when the
+            product does instead of falling a version behind it.
 
             It is also the section that earns the page its right to be seen by
             a shop owner who arrived from a competitor's booking link, which
@@ -276,7 +286,8 @@ export default function LandingPage() {
             <div className="mx-auto w-full max-w-[1400px] px-5 sm:px-8">
               <h2 className={sectionTitle}>ככה זה נראה מבפנים</h2>
               <p className="mt-3 max-w-md text-base text-zinc-600 dark:text-zinc-400">
-                לא איורים — צילומי מסך מהמערכת עצמה.
+                אותם כרטיסי זכוכית, אותו יומן ואותו סרגל — כך המערכת נראית
+                אצלכם.
               </p>
             </div>
             <div className="mt-14">

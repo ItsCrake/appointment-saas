@@ -1,26 +1,26 @@
+import type { ReactNode } from "react";
 import { CalendarRange, MessageCircle, Users } from "lucide-react";
 
-import { resolveScreenshot, type ScreenshotSlot } from "@/lib/screenshots";
-
-import { DashboardMockup } from "./dashboard-mockup";
-import { PhoneFrame } from "./phone-frame";
+import { MockPhone } from "./mock-kit";
+import { ClientsScreen, RequestsScreen, WeekScreen } from "./mock-screens";
 
 /**
- * Three real screens, each answering a question a shop owner actually asks.
+ * Three screens, each answering a question a shop owner actually asks.
  *
  * ---------------------------------------------------------------------------
- * **Three, not nine.** There are eight screenshots in `public/screenshots` and
- * showing them all would be a gallery — the visitor scrolls past a wall of
- * near-identical Hebrew UI and learns nothing. Each of these three is here
- * because it is the *only* evidence for one of the three claims this page
- * makes, and the caption states the claim rather than narrating the picture.
+ * **Three, not nine.** Showing every screen would be a gallery — the visitor
+ * scrolls past a wall of near-identical Hebrew UI and learns nothing. Each of
+ * these three is here because it is the evidence for one of the claims this
+ * page makes, and the caption states the claim rather than narrating the
+ * picture.
  *
- * **The screens are real, and that is the whole point.** Every competitor's
- * landing page draws its product in CSS. A photograph of the actual calendar —
- * with real overlapping bookings, a real pending-approval banner, real Hebrew
- * names — is the one thing on this page that cannot be faked, and it is aimed
- * at a reader who has already been sent a booking link and is wondering what
- * the other side looks like.
+ * **Drawn with the product's own glass, so they stay the product.** These were
+ * photographs of the real app, and every design pass left them a version
+ * behind — the floating dock, the glass cards and edit mode were all missing
+ * from them. They are drawn now from the dashboard's own classes (see
+ * `mock-kit`): the same cards, chips and dock the app renders, scaled from a
+ * 390px screen into the frame, so the page moves when the product does. Sample
+ * names, and a description on every frame.
  *
  * **Alternating sides, not a three-column grid.** Equal-width cards of
  * icon-plus-heading-plus-picture is the shape every template ships; a wide
@@ -31,15 +31,17 @@ import { PhoneFrame } from "./phone-frame";
 
 const TOUR = [
   {
-    slot: "week-calendar",
-    alt: "יומן שבועי של מספרה, עם תורים חופפים בשלושה ימים ושמות לקוחות",
+    key: "week",
+    Screen: WeekScreen,
+    alt: "היומן השבועי במצב עריכה: תורים כמעט בכל יום, בקשה אחת בכתום, תור אחד שנבחר להחלפה, ותור שנגרר לשעה חדשה עם מסגרת מקווקוות במקום שבו ינחת",
     Icon: CalendarRange,
-    title: "יומן שבועי שלא נשבר",
-    body: "כל התורים, החסימות והצוות במקום אחד. תורים חופפים נערמים זה לצד זה במקום להסתיר אחד את השני, וההעברה בין ימי ושבועי היא לחיצה אחת.",
-    points: ["תצוגה יומית ושבועית", "חסימות וזמני הפסקה", "צבע לכל נותן שירות"],
+    title: "יומן שבועי שמזיזים באצבע",
+    body: "כל התורים, החסימות והצוות במקום אחד. במצב עריכה גוררים תור לשעה או ליום אחר והוא נוחת בקפיצות של חמש דקות, או מקישים על שני תורים, מאשרים — והם מתחלפים. היומן מסמן מראש איפה כבר תפוס — ואם משהו לא נשמר, התור חוזר למקומו.",
+    points: ["גרירה בקפיצות של 5 דקות", "החלפה בין שני תורים", "חסימות וצבע לכל נותן שירות"],
   },
   {
-    slot: "approval-request",
+    key: "requests",
+    Screen: RequestsScreen,
     alt: "מסך היומן עם שתי בקשות תור הממתינות לאישור, וכפתורי אישור ודחייה לכל אחת",
     Icon: MessageCircle,
     title: "אתם מאשרים, הלקוח מקבל הודעה",
@@ -47,27 +49,24 @@ const TOUR = [
     points: ["אישור לפי שירות", "המועד נשמר בינתיים", "וואטסאפ אוטומטי"],
   },
   {
-    slot: "clients",
-    alt: "רשימת לקוחות עם מספר תורים, תאריך ביקור אחרון וכפתורי חיוג ווואטסאפ",
+    key: "clients",
+    Screen: ClientsScreen,
+    alt: "רשימת לקוחות עם מספר תורים, מתי היה הביקור האחרון, סימון הערות וכפתורי חיוג ווואטסאפ",
     Icon: Users,
     title: "הלקוחות נבנים מעצמם",
     body: "כל מי שקבע תור נכנס לרשימה עם היסטוריית הביקורים שלו. בלי הקלדה, בלי ייבוא — חיוג או וואטסאפ במרחק לחיצה, והערות אישיות נשמרות לפעם הבאה.",
     points: ["נבנה מהתורים עצמם", "היסטוריה לכל לקוח", "חיוג ווואטסאפ ישיר"],
   },
-] as const satisfies readonly { slot: ScreenshotSlot; [k: string]: unknown }[];
+] as const satisfies readonly { Screen: () => ReactNode; [k: string]: unknown }[];
 
 export function ProductTour() {
   return (
     <div className="mx-auto w-full max-w-[1400px] px-5 sm:px-8">
       <ul className="space-y-20 sm:space-y-28">
-        {TOUR.map(({ slot, alt, Icon, title, body, points }, i) => {
-          // Resolved on the server: the HD file when one has been supplied,
-          // the original otherwise, with the real pixel size either way.
-          const shot = resolveScreenshot(slot);
-
+        {TOUR.map(({ key, Screen, alt, Icon, title, body, points }, i) => {
           return (
             <li
-              key={slot}
+              key={key}
               className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16"
             >
               {/* The screen alternates sides. `lg:order-last` on the odd rows
@@ -75,19 +74,9 @@ export function ProductTour() {
                 copy-then-picture — which is also the order a screen reader
                 and a narrow viewport both want. */}
               <div className={i % 2 === 1 ? "lg:order-last" : undefined}>
-                <PhoneFrame
-                  src={shot.src}
-                  width={shot.width}
-                  height={shot.height}
-                  alt={alt}
-                  // The drawn agenda, if the file is ever missing. It is the same
-                  // component that carried this page before the screenshots
-                  // existed, so the fallback is a downgrade rather than a hole.
-                  fallback={<DashboardMockup className="relative" />}
-                  // 19rem cap minus the frame's 5px bezel either side.
-                  className="max-w-[19rem]"
-                  sizes="294px"
-                />
+                <MockPhone label={alt} className="max-w-[19rem]">
+                  <Screen />
+                </MockPhone>
               </div>
 
               <div>

@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import { TERMINAL_STATUSES } from "@/db/schema";
 
 import {
+  bookingInstants,
   canMove,
   dropConflict,
   dropStart,
   minutesAt,
   movedEntry,
+  nowInWeek,
   SETTLED_STATUSES,
   snapToGrid,
   timeToMinutes,
@@ -263,5 +265,73 @@ describe("timeToMinutes", () => {
     expect(timeToMinutes("00:00")).toBe(0);
     expect(timeToMinutes("09:05")).toBe(at(9, 5));
     expect(timeToMinutes("23:55")).toBe(at(23, 55));
+  });
+});
+
+describe("the past", () => {
+  const moving = {
+    appointmentId: "m",
+    staffId: "maya",
+    dayIndex: 1,
+    startMinutes: at(10),
+    endMinutes: at(10, 30),
+  };
+
+  it("refuses a drop before now — on today, and on a day already gone", () => {
+    expect(dropConflict([], moving, OPEN, { dayIndex: 1, minutes: at(11) })).toEqual({
+      kind: "past",
+    });
+    expect(dropConflict([], moving, OPEN, { dayIndex: 2, minutes: at(8) })).toEqual({
+      kind: "past",
+    });
+  });
+
+  it("lets a drop later today, or on a day still ahead, through", () => {
+    expect(dropConflict([], moving, OPEN, { dayIndex: 1, minutes: at(9, 59) })).toBeNull();
+    expect(dropConflict([], moving, OPEN, { dayIndex: 0, minutes: at(18) })).toBeNull();
+  });
+
+  it("outranks every other reason — nothing is worth saying about a slot that is gone", () => {
+    const entries = [booking("x", at(10), at(11))];
+    expect(
+      dropConflict(entries, moving, OPEN, { dayIndex: 1, minutes: at(12) })?.kind,
+    ).toBe("past");
+  });
+});
+
+describe("nowInWeek", () => {
+  const days = ["2026-09-13", "2026-09-14", "2026-09-15"];
+
+  it("finds today's column", () => {
+    expect(nowInWeek(days, "2026-09-14", at(9))).toEqual({ dayIndex: 1, minutes: at(9) });
+  });
+
+  it("puts a week still ahead before its first column, and one gone after its last", () => {
+    expect(nowInWeek(days, "2026-09-10", at(9))?.dayIndex).toBe(-1);
+    expect(nowInWeek(days, "2026-09-20", at(9))?.dayIndex).toBe(3);
+  });
+
+  it("has nothing to say about an empty week", () => {
+    expect(nowInWeek([], "2026-09-14", 0)).toBeNull();
+  });
+});
+
+describe("bookingInstants", () => {
+  it("reads the shop's wall clock as the shop's instants", () => {
+    // Jerusalem is +03:00 in September.
+    const { startsAt, endsAt } = bookingInstants(
+      { date: "2026-09-15", startTime: "10:00", endTime: "10:30" },
+      "Asia/Jerusalem",
+    );
+    expect(startsAt.toISOString()).toBe("2026-09-15T07:00:00.000Z");
+    expect(endsAt.toISOString()).toBe("2026-09-15T07:30:00.000Z");
+  });
+
+  it("ends a booking that crosses midnight on the next day", () => {
+    const { endsAt } = bookingInstants(
+      { date: "2026-09-15", startTime: "23:30", endTime: "00:30" },
+      "Asia/Jerusalem",
+    );
+    expect(endsAt.toISOString()).toBe("2026-09-15T21:30:00.000Z");
   });
 });

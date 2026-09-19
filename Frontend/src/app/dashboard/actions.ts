@@ -24,12 +24,7 @@ import {
   afterAppointmentCancelled,
   afterAppointmentMoved,
 } from "@/lib/appointment-aftermath";
-import {
-  confirmSwap,
-  previewSwap,
-  type SwapClash,
-  type SwapPreview,
-} from "@/lib/appointment-swap";
+import { confirmSwap, type SwapClash } from "@/lib/appointment-swap";
 import {
   getAvailableSlotsWithStaff,
   staffAvailableAt,
@@ -538,71 +533,6 @@ function swapClashMessage(
   const when = formatInTimeZone(clash.startsAt, timezone, "HH:mm");
   const who = clash.leg === "first" ? firstName : secondName;
   return `ל${who} צריך ${clash.needsMinutes} דקות, וב-${when} כבר משובץ ${clash.clientName}.`;
-}
-
-const swapPreviewSchema = z.object({
-  firstId: z.uuid("בקשה לא תקינה"),
-  secondId: z.uuid("בקשה לא תקינה"),
-});
-
-export type SwapPreviewResult =
-  | { ok: true; preview: SwapPreview }
-  | { ok: false; error: string };
-
-/**
- * What swapping two bookings on the full calendar would do — asked before
- * anything is written.
- *
- * ---------------------------------------------------------------------------
- * **The calendar's quick swap is ליבי's swap, tapped rather than spoken.** The
- * owner picks two cards in edit mode; this plans the swap from the rows as
- * they are now — the same `planSwapFor` her "תחליפי ביניהם" uses, with the
- * same answer for two bookings of different lengths — and returns the plan for
- * the owner to see. Nothing is written here: the confirmation goes through
- * `swapAppointmentsAction`, which re-plans and refuses if the answer changed.
- *
- * Gated like a write, because it is the first half of one — a frozen tenant is
- * told so here rather than after they have confirmed.
- * ---------------------------------------------------------------------------
- */
-export async function previewSwapAction(
-  input: unknown,
-): Promise<SwapPreviewResult> {
-  const parsed = swapPreviewSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "בקשה לא תקינה" };
-
-  const { business } = await requireWritable();
-
-  const outcome = await previewSwap(
-    db,
-    business,
-    parsed.data.firstId,
-    parsed.data.secondId,
-  );
-  if (outcome.ok) return { ok: true, preview: outcome.preview };
-
-  switch (outcome.reason) {
-    case "same":
-      return { ok: false, error: "צריך לבחור שני תורים שונים" };
-    case "missing":
-      return { ok: false, error: "התור לא נמצא" };
-    case "settled":
-      return {
-        ok: false,
-        error:
-          "אפשר להחליף רק תורים פעילים — לא תור שבוטל, הושלם או סומן כלא הגיע",
-      };
-    case "clash":
-      return {
-        ok: false,
-        error: swapClashMessage(
-          outcome.clash,
-          outcome.firstName,
-          outcome.secondName,
-          business.timezone,
-        ),
-      };
-  }
 }
 
 const detailsSchema = z.object({

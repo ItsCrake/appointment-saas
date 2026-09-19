@@ -1,5 +1,4 @@
 import { and, asc, eq, gt, inArray, lt, notInArray } from "drizzle-orm";
-import { formatInTimeZone } from "date-fns-tz";
 
 import {
   BLOCKING_STATUSES,
@@ -8,6 +7,16 @@ import {
 } from "@/db/queries/appointments";
 import { appointments } from "@/db/schema";
 import type { Database } from "@/db/types";
+
+import {
+  planSwap,
+  type SwapLeg,
+  type SwapPlan,
+  type SwapRequest,
+  type SwapSide,
+} from "./swap-plan";
+
+const minutes = (ms: number) => Math.round(ms / 60_000);
 
 /**
  * Swapping two appointments: what "swap" means when the two are not the same
@@ -47,119 +56,14 @@ import type { Database } from "@/db/types";
  * ---------------------------------------------------------------------------
  */
 
-/** The part of an appointment a swap needs. */
-export type SwapSide = {
-  id: string;
-  staffId: string;
-  startsAt: Date;
-  endsAt: Date;
-};
-
-/** Where one appointment goes. */
-export type SwapLeg = {
-  id: string;
-  staffId: string;
-  startsAt: Date;
-  endsAt: Date;
-};
-
-export type SwapPlan = {
-  /** Where the appointment named first goes. */
-  first: SwapLeg;
-  /** Where the appointment named second goes. */
-  second: SwapLeg;
-  /**
-   * The two were back to back and swapped order inside their block, so at
-   * least one of them does not start where the other one used to. Said out
-   * loud, because it is a time nobody asked for.
-   */
-  repacked: boolean;
-};
-
-/**
- * The widest gap between two bookings that still counts as back to back.
- *
- * A booking-page buffer puts five or ten minutes between clients who are, as
- * far as anybody in the shop is concerned, one after the other. Past a quarter
- * of an hour the gap is somebody's break, and carrying it into the middle of a
- * re-ordered block would move the break rather than keep it.
- */
-export const BACK_TO_BACK_GAP_MIN = 15;
-
-const minutes = (ms: number) => Math.round(ms / 60_000);
-
-/**
- * The plan for two appointments, given whether anything else sits between
- * them on their provider.
- *
- * Pure: `between` is the one fact that needs the database, and the caller
- * supplies it — see {@link planSwapFor}.
- */
-export function planSwap(
-  first: SwapSide,
-  second: SwapSide,
-  { between }: { between: boolean },
-): SwapPlan {
-  const [earlier, later] =
-    first.startsAt.getTime() <= second.startsAt.getTime()
-      ? [first, second]
-      : [second, first];
-
-  const gapMs = later.startsAt.getTime() - earlier.endsAt.getTime();
-  const backToBack =
-    first.staffId === second.staffId &&
-    !between &&
-    gapMs >= 0 &&
-    minutes(gapMs) <= BACK_TO_BACK_GAP_MIN;
-
-  if (backToBack) {
-    const laterLength = later.endsAt.getTime() - later.startsAt.getTime();
-    const earlierLength = earlier.endsAt.getTime() - earlier.startsAt.getTime();
-
-    const movedLater: SwapLeg = {
-      id: later.id,
-      staffId: later.staffId,
-      startsAt: earlier.startsAt,
-      endsAt: new Date(earlier.startsAt.getTime() + laterLength),
-    };
-    const movedEarlier: SwapLeg = {
-      id: earlier.id,
-      staffId: earlier.staffId,
-      startsAt: new Date(movedLater.endsAt.getTime() + gapMs),
-      endsAt: later.endsAt,
-    };
-
-    const [firstLeg, secondLeg] =
-      earlier.id === first.id
-        ? [movedEarlier, movedLater]
-        : [movedLater, movedEarlier];
-
-    return {
-      first: firstLeg,
-      second: secondLeg,
-      repacked: laterLength !== earlierLength,
-    };
-  }
-
-  const length = (side: SwapSide) =>
-    side.endsAt.getTime() - side.startsAt.getTime();
-
-  return {
-    first: {
-      id: first.id,
-      staffId: second.staffId,
-      startsAt: second.startsAt,
-      endsAt: new Date(second.startsAt.getTime() + length(first)),
-    },
-    second: {
-      id: second.id,
-      staffId: first.staffId,
-      startsAt: first.startsAt,
-      endsAt: new Date(first.startsAt.getTime() + length(second)),
-    },
-    repacked: false,
-  };
-}
+export {
+  BACK_TO_BACK_GAP_MIN,
+  planSwap,
+  type SwapLeg,
+  type SwapPlan,
+  type SwapRequest,
+  type SwapSide,
+} from "./swap-plan";
 
 /** Whom a leg would run into, when it does not fit. */
 export type SwapClash = {
@@ -311,12 +215,6 @@ export async function planSwapFor(
   return { ok: true, plan };
 }
 
-/** What a confirmed swap has to be checked against. */
-export type SwapRequest = {
-  first: { appointmentId: string; startsAtIso: string; targetStartsAtIso: string };
-  second: { appointmentId: string; startsAtIso: string; targetStartsAtIso: string };
-};
-
 export type SwapConfirmation =
   | { ok: true; rows: readonly [SwapRow, SwapRow] }
   | { ok: false; reason: "stale" }
@@ -386,112 +284,4 @@ export async function confirmSwap(
   ]);
 
   return rows ? { ok: true, rows } : { ok: false, reason: "stale" };
-}
-
-/** Where one of the two lands, as the owner reads it. */
-export type SwapPreviewLeg = {
-  appointmentId: string;
-  clientName: string;
-  /** Business-local date and time the booking moves to. */
-  date: string;
-  time: string;
-  /** Who holds it afterwards — the provider travels with the slot. */
-  staffId: string;
-};
-
-export type SwapPreview = {
-  /**
-   * Exactly what `confirmSwap` takes, so whatever confirms this preview can
-   * only ever perform this swap — if the diary changes before the tap, the
-   * re-plan differs and the confirmation is refused rather than improvised.
-   */
-  request: SwapRequest;
-  first: SwapPreviewLeg;
-  second: SwapPreviewLeg;
-  /** They were back to back and swapped order inside their block. */
-  repacked: boolean;
-};
-
-export type SwapPreviewOutcome =
-  | { ok: true; preview: SwapPreview }
-  | { ok: false; reason: "same" | "missing" | "settled" }
-  | {
-      ok: false;
-      reason: "clash";
-      clash: SwapClash;
-      firstName: string;
-      secondName: string;
-    };
-
-/**
- * What swapping two bookings would do, planned from the rows as they are now
- * and written nowhere.
- *
- * The calendar's quick swap — two cards picked in edit mode — asks this first
- * and shows the answer; the owner's tap then goes through {@link confirmSwap}
- * with the `request` it returns. The same `planSwapFor` ליבי's spoken swap
- * uses, so the two ways of asking cannot disagree about what a swap of two
- * different lengths means.
- */
-export async function previewSwap(
-  db: Database,
-  business: { id: string; timezone: string },
-  firstId: string,
-  secondId: string,
-): Promise<SwapPreviewOutcome> {
-  if (firstId === secondId) return { ok: false, reason: "same" };
-
-  const [first, second] = await Promise.all([
-    getAppointment(db, business.id, firstId),
-    getAppointment(db, business.id, secondId),
-  ]);
-  if (!first || !second) return { ok: false, reason: "missing" };
-
-  if (
-    !BLOCKING_STATUSES.includes(first.status) ||
-    !BLOCKING_STATUSES.includes(second.status)
-  ) {
-    return { ok: false, reason: "settled" };
-  }
-
-  const result = await planSwapFor(db, business.id, first, second);
-  if (!result.ok) {
-    return {
-      ok: false,
-      reason: "clash",
-      clash: result.clash,
-      firstName: first.clientName,
-      secondName: second.clientName,
-    };
-  }
-
-  const { plan } = result;
-  const leg = (row: SwapRow, to: SwapLeg): SwapPreviewLeg => ({
-    appointmentId: row.id,
-    clientName: row.clientName,
-    date: formatInTimeZone(to.startsAt, business.timezone, "yyyy-MM-dd"),
-    time: formatInTimeZone(to.startsAt, business.timezone, "HH:mm"),
-    staffId: to.staffId,
-  });
-
-  return {
-    ok: true,
-    preview: {
-      request: {
-        first: {
-          appointmentId: first.id,
-          startsAtIso: first.startsAt.toISOString(),
-          targetStartsAtIso: plan.first.startsAt.toISOString(),
-        },
-        second: {
-          appointmentId: second.id,
-          startsAtIso: second.startsAt.toISOString(),
-          targetStartsAtIso: plan.second.startsAt.toISOString(),
-        },
-      },
-      first: leg(first, plan.first),
-      second: leg(second, plan.second),
-      repacked: plan.repacked,
-    },
-  };
 }

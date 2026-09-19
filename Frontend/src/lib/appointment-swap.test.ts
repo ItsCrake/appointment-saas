@@ -21,9 +21,10 @@ import {
   confirmSwap,
   planSwap,
   planSwapFor,
-  previewSwap,
   type SwapSide,
 } from "./appointment-swap";
+import { planCalendarSwap } from "./calendar-edit";
+import { loadCalendarWeek } from "./calendar-week-data";
 
 /**
  * Two appointments trading places.
@@ -378,97 +379,126 @@ describe("confirmSwap", () => {
   });
 });
 
-describe("previewSwap", () => {
+describe("the calendar's swap, planned in the browser", () => {
   /**
-   * The full calendar's quick swap: two cards picked, the plan shown, and only
-   * then a tap. What is shown has to be exactly what the tap performs — so
-   * the preview's `request` is fed straight to `confirmSwap` here.
+   * The full calendar plans a swap from the week on screen, instantly, and
+   * sends that plan's request to `confirmSwap` when the owner taps. The two
+   * planners must never disagree — a plan the server re-makes differently is
+   * refused as stale — so each case here builds the week with the page's own
+   * loader, plans it as the browser does, and hands the result to the server.
    */
-  it("shows a swap without writing it, and confirms to exactly that", async () => {
+  const TZ = "Asia/Jerusalem";
+
+  async function weekOf(s: Awaited<ReturnType<typeof shop>>) {
+    const week = await loadCalendarWeek(
+      db,
+      { id: s.business.id, timezone: TZ },
+      "2026-09-04",
+      "2026-09-01",
+    );
+    return week.entries;
+  }
+
+  it("plans an exchange the server then applies exactly", async () => {
     const s = await shop();
     const a = await s.put("10:00", 30, "דנה");
     const b = await s.put("14:00", 30, "רונית");
 
-    const outcome = await previewSwap(db, s.business, a.id, b.id);
-    if (!outcome.ok) throw new Error(`expected a preview, got ${outcome.reason}`);
+    const plan = planCalendarSwap(await weekOf(s), a.id, b.id, TZ);
+    if (!plan?.ok) throw new Error("expected a plan");
+    expect(plan.legs.map((leg) => leg.time)).toEqual(["14:00", "10:00"]);
 
-    expect(outcome.preview.first).toMatchObject({
-      appointmentId: a.id,
-      clientName: "דנה",
-      date: "2026-09-04",
-      time: "14:00",
-    });
-    expect(outcome.preview.second).toMatchObject({
-      appointmentId: b.id,
-      time: "10:00",
-    });
-    // Nothing moved yet.
-    expect(await startOf(a.id)).toEqual({ from: "10:00", to: "10:30" });
-
-    const confirmed = await confirmSwap(db, s.business.id, outcome.preview.request);
+    const confirmed = await confirmSwap(db, s.business.id, plan.request);
     expect(confirmed.ok).toBe(true);
     expect(await startOf(a.id)).toEqual({ from: "14:00", to: "14:30" });
     expect(await startOf(b.id)).toEqual({ from: "10:00", to: "10:30" });
   });
 
-  it("previews two back-to-back bookings of different lengths as a reorder", async () => {
+  it("plans a back-to-back pair of two lengths as the server's reorder", async () => {
     const s = await shop();
     const colour = await s.put("10:00", 60, "דנה");
     const cut = await s.put("11:00", 30, "רונית");
 
-    const outcome = await previewSwap(db, s.business, colour.id, cut.id);
-    if (!outcome.ok) throw new Error(`expected a preview, got ${outcome.reason}`);
+    const plan = planCalendarSwap(await weekOf(s), colour.id, cut.id, TZ);
+    if (!plan?.ok) throw new Error("expected a plan");
+    expect(plan.repacked).toBe(true);
+    expect(plan.legs.map((leg) => leg.time)).toEqual(["10:30", "10:00"]);
 
-    expect(outcome.preview.repacked).toBe(true);
-    expect(outcome.preview.second.time).toBe("10:00");
-    expect(outcome.preview.first.time).toBe("10:30");
+    const confirmed = await confirmSwap(db, s.business.id, plan.request);
+    expect(confirmed.ok).toBe(true);
+    expect(await startOf(cut.id)).toEqual({ from: "10:00", to: "10:30" });
+    expect(await startOf(colour.id)).toEqual({ from: "10:30", to: "11:30" });
   });
 
-  it("names who is in the way, and writes nothing", async () => {
+  it("sees a booking between them, as the server does, and exchanges instead", async () => {
+    const s = await shop();
+    const a = await s.put("10:00", 60, "דנה");
+    const b = await s.put("11:10", 30, "רונית");
+    await s.put("11:00", 10, "נכנס באמצע");
+
+    const plan = planCalendarSwap(await weekOf(s), a.id, b.id, TZ);
+    const [rowA] = await db.select().from(appointments).where(eq(appointments.id, a.id));
+    const [rowB] = await db.select().from(appointments).where(eq(appointments.id, b.id));
+    const server = await planSwapFor(db, s.business.id, rowA, rowB);
+    if (!plan?.ok || !server.ok) throw new Error("expected both to plan");
+
+    // Not back to back any more, so no reorder: each takes the other's start,
+    // exactly where the server's own planner puts them.
+    expect(plan.repacked).toBe(false);
+    expect(plan.request.first.targetStartsAtIso).toBe(
+      server.plan.first.startsAt.toISOString(),
+    );
+    expect(plan.request.second.targetStartsAtIso).toBe(
+      server.plan.second.startsAt.toISOString(),
+    );
+    expect((await confirmSwap(db, s.business.id, plan.request)).ok).toBe(true);
+    expect(await startOf(a.id)).toEqual({ from: "11:10", to: "12:10" });
+  });
+
+  it("names the booking a longer leg would run into, and writes nothing", async () => {
     const s = await shop();
     const colour = await s.put("10:00", 60, "דנה");
     const cut = await s.put("14:00", 30, "רונית");
     await s.put("14:30", 30, "יוסי");
 
-    const outcome = await previewSwap(db, s.business, colour.id, cut.id);
-    expect(outcome).toMatchObject({
+    const plan = planCalendarSwap(await weekOf(s), colour.id, cut.id, TZ);
+    expect(plan).toMatchObject({
       ok: false,
-      reason: "clash",
-      firstName: "דנה",
-      secondName: "רונית",
-      clash: { leg: "first", needsMinutes: 60, clientName: "יוסי" },
+      clash: { leg: "first", who: "דנה", needsMinutes: 60, clientName: "יוסי", time: "14:30" },
     });
     expect(await startOf(colour.id)).toEqual({ from: "10:00", to: "11:00" });
   });
 
-  it("refuses a booking that no longer holds its slot", async () => {
+  it("moves the provider with the slot, and the server agrees", async () => {
     const s = await shop();
+    const second = await createStaff(db, s.business.id, { name: "מאיה" });
     const a = await s.put("10:00", 30, "דנה");
-    const [cancelled] = await db
-      .update(appointments)
-      .set({ status: "cancelled" })
-      .where(eq(appointments.id, (await s.put("12:00", 30, "רונית")).id))
-      .returning();
+    const b = await s.put("10:00", 30, "רונית", second.id);
 
-    expect(await previewSwap(db, s.business, a.id, cancelled.id)).toEqual({
-      ok: false,
-      reason: "settled",
-    });
+    const plan = planCalendarSwap(await weekOf(s), a.id, b.id, TZ);
+    if (!plan?.ok) throw new Error("expected a plan");
+    expect(plan.legs[0].staffId).toBe(second.id);
+    expect(plan.legs[1].staffId).toBe(a.staffId);
+
+    const confirmed = await confirmSwap(db, s.business.id, plan.request);
+    expect(confirmed.ok).toBe(true);
   });
 
-  it("refuses the same card twice, and another shop's booking", async () => {
+  it("is refused as stale when the week moved underneath it", async () => {
     const s = await shop();
-    const other = await shop();
     const a = await s.put("10:00", 30, "דנה");
-    const theirs = await other.put("11:00", 30, "זרה");
+    const b = await s.put("14:00", 30, "רונית");
+    const plan = planCalendarSwap(await weekOf(s), a.id, b.id, TZ);
+    if (!plan?.ok) throw new Error("expected a plan");
 
-    expect(await previewSwap(db, s.business, a.id, a.id)).toEqual({
-      ok: false,
-      reason: "same",
+    // Somebody else moved one of them after the tray was drawn.
+    await rescheduleAppointment(db, s.business.id, b.id, {
+      startsAt: day("15:00"),
+      endsAt: day("15:30"),
     });
-    expect(await previewSwap(db, s.business, a.id, theirs.id)).toEqual({
+    expect(await confirmSwap(db, s.business.id, plan.request)).toEqual({
       ok: false,
-      reason: "missing",
+      reason: "stale",
     });
   });
 });

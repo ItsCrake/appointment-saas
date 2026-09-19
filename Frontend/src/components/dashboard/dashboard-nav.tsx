@@ -556,6 +556,18 @@ export function DashboardNav({
         aria-label="ניווט ראשי"
         className="@container/dock pointer-events-none fixed inset-x-0 bottom-0 z-20 flex items-center justify-center gap-2.5 px-3 pr-[max(env(safe-area-inset-right),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:hidden"
       >
+        {/* **The page fades out before it passes under the dock.** Cards used
+            to scroll straight into the glass at full contrast, and a busy
+            agenda read as the dock's own clutter. A band behind the dock —
+            below it in the nav's stacking context, above the page — carries
+            the page background up and a light blur that grows toward the
+            bottom, so a card softens and disappears rather than being cut.
+            It reaches 3rem above the dock; the page's own bottom padding
+            already keeps the last card clear of it. See `.dock-fade`. */}
+        <div
+          aria-hidden
+          className="dock-fade pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]"
+        />
         <ul className="glass-dock glass-dock-float pointer-events-auto flex h-15 items-center gap-1 rounded-full px-1.5">
           {MOBILE_LINKS.map(({ href, label, icon }) => (
             <li key={href}>

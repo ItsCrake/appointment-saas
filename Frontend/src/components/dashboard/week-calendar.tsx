@@ -6,7 +6,6 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useOptimistic,
   useRef,
   useState,
   useSyncExternalStore,
@@ -35,7 +34,6 @@ import {
   Scissors,
   Tag,
   Trash2,
-  TriangleAlert,
   UserRound,
   UserX,
   X,
@@ -43,7 +41,6 @@ import {
 } from "lucide-react";
 
 import {
-  previewSwapAction,
   rescheduleAppointmentAction,
   swapAppointmentsAction,
 } from "@/app/dashboard/actions";
@@ -89,15 +86,18 @@ import {
   SUMMARY_HOUR_ROW,
   type CalendarDensity,
 } from "@/lib/calendar-density";
-import type { SwapPreview } from "@/lib/appointment-swap";
+import { formatInTimeZone } from "date-fns-tz";
+
 import {
   canMove,
   dropConflict,
   dropStart,
   minutesAt,
   movedEntry,
+  nowInWeek,
+  planCalendarSwap,
   SNAP_MINUTES,
-  timeToMinutes,
+  type CalendarSwapPlan,
   type DropConflict,
   type EntryMove,
 } from "@/lib/calendar-edit";
@@ -338,8 +338,38 @@ function placeholderWeek(
 type OptimisticMove = EntryMove & {
   staff?: Pick<CalendarEntry, "staffId" | "staffName" | "staffColor">;
 };
-type MoveMap = Readonly<Record<string, OptimisticMove>>;
-const NO_MOVES: MoveMap = {};
+
+/**
+ * One edit on its way to the server — a move, or both legs of a swap — drawn
+ * as done from the moment it was made. See `pendingEdits` in `WeekCalendar`.
+ */
+type PendingEdit = {
+  key: number;
+  moves: OptimisticMove[];
+  /** The server said yes; kept only until the data on screen shows it. */
+  confirmed: boolean;
+};
+
+/** A swap the tray is showing, planned and fitting. */
+type PlannedSwap = Extract<CalendarSwapPlan, { ok: true }>;
+
+/**
+ * How long a confirmed edit may wait for the data on screen to show it before
+ * it steps aside anyway — a week the owner has left, a copy that never
+ * refreshed. Long enough never to fire on a normal save.
+ */
+const SETTLE_FALLBACK_MS = 20_000;
+
+/** Whether the data on screen already shows a move. */
+function landsIn(entries: readonly CalendarEntry[], move: OptimisticMove) {
+  return entries.some(
+    (entry) =>
+      entry.appointmentId === move.appointmentId &&
+      entry.dayIndex === move.dayIndex &&
+      entry.startMinutes === move.startMinutes &&
+      (!move.staff || entry.staffId === move.staff.staffId),
+  );
+}
 
 /** Where a picked-up booking would land, and what is in the way — the ghost. */
 type DragView = {
@@ -653,7 +683,7 @@ export function WeekCalendar({
   const entries = week.entries;
   const weekStart = week.weekStart;
 
-  const { toast } = useToast();
+  const { toast, dismiss: dismissToast } = useToast();
 
   /**
    * **Edit mode — moving bookings by hand.**
@@ -664,60 +694,92 @@ export function WeekCalendar({
    * set off. Inside it:
    *
    * - **drag** a booking to another time or day — snapped to five minutes, the
-   *   ghost red where the same provider is already booked and amber where the
-   *   shop's own rules say closed or blocked (see `calendar-edit`);
-   * - **tap two** bookings to swap them — the plan comes from the server first
-   *   (`previewSwapAction`, the same planner as ליבי's swap) and nothing is
-   *   written until the owner confirms it;
+   *   ghost red where the same provider is already booked or the time has
+   *   passed (refused), amber where the shop's own rules say closed or blocked
+   *   (allowed, and said so; see `calendar-edit`);
+   * - **tap two** bookings to swap them — planned at once from the week on
+   *   screen (`planCalendarSwap`, the server's own planner) and written only
+   *   when the owner taps "החלפה";
    * - or, from the keyboard, Enter to pick a booking up, the arrows to move
    *   it, Enter to put it down — and Space to pick it for a swap.
    *
-   * A move lands on screen the moment it is dropped (`useOptimistic`) and
-   * the server's answer replaces it; a refusal puts the card back.
+   * **A drop is done the moment it lands.** The card stays where it was put
+   * and the toast says so, with an undo, while the write goes out behind it —
+   * see `pendingEdits`. Only an explicit refusal from the server, or no answer
+   * at all, puts it back.
    * ---------------------------------------------------------------------------
    */
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [swap, setSwap] = useState<SwapPreview | null>(null);
+  const [swap, setSwap] = useState<PlannedSwap | null>(null);
   const [drag, setDrag] = useState<DragView | null>(null);
-  /**
-   * A move stepping outside the shop's rules, waiting on the owner's yes. The
-   * card waits *where it was dropped*, ringed in amber — see `shownEntries` —
-   * rather than jumping home and leaving a ghost behind while the question
-   * is open.
-   */
-  const [asking, setAsking] = useState<{
-    entry: CalendarEntry;
-    move: EntryMove;
-    message: string;
-  } | null>(null);
-  const [saving, startSaving] = useTransition();
-  const [planning, startPlanning] = useTransition();
-  const [moves, addMoves] = useOptimistic(
-    NO_MOVES,
-    (current: MoveMap, next: OptimisticMove[]): MoveMap => {
-      const merged = { ...current };
-      for (const move of next) merged[move.appointmentId] = move;
-      return merged;
-    },
-  );
 
   /**
-   * The week as drawn: the held copy, with any move still being saved — and
-   * the one waiting on the owner's yes, which stays where it was dropped.
+   * **Every edit is drawn as done the moment it is made.**
+   *
+   * ---------------------------------------------------------------------------
+   * A save against the database is seconds from here — a forced move measured
+   * ~6s, a swap over 7 — and none of it is the owner's to wait for. Each move
+   * or swap is an entry here from the instant it is made, and `shownEntries`
+   * draws it; the write goes out behind it. Next dispatches Server Actions one
+   * at a time, so a second edit made before the first has landed simply queues
+   * behind it and meets the database the way the owner left it.
+   *
+   * - **Yes** marks the edit confirmed. It steps aside in the very render that
+   *   brings the server's copy of the week (the action's own response carries
+   *   it) — never a frame of the old position in between — or once a later
+   *   edit to the same booking has taken over.
+   * - **An explicit no**, or no answer at all, removes it: the card goes back,
+   *   shakes, and the toast says why.
+   * ---------------------------------------------------------------------------
    */
+  const [pendingEdits, setPendingEdits] = useState<PendingEdit[]>([]);
+  const editKey = useRef(0);
+  /** Whether any edit is still waiting on the server — the rail's spinner. */
+  const saving = pendingEdits.some((edit) => !edit.confirmed);
+
+  // Confirmed edits the data on screen already shows — or that a later edit
+  // to the same booking has overtaken — step aside, in this render.
+  const settledKeys = pendingEdits
+    .filter(
+      (edit, index) =>
+        edit.confirmed &&
+        edit.moves.every(
+          (move) =>
+            landsIn(entries, move) ||
+            pendingEdits
+              .slice(index + 1)
+              .some((later) =>
+                later.moves.some(
+                  (other) => other.appointmentId === move.appointmentId,
+                ),
+              ),
+        ),
+    )
+    .map((edit) => edit.key);
+  if (settledKeys.length > 0) {
+    setPendingEdits((current) =>
+      current.filter((edit) => !settledKeys.includes(edit.key)),
+    );
+  }
+
+  /** The week as drawn: the held copy, with every edit still on its way. */
   const shownEntries = useMemo(() => {
-    const held: MoveMap = asking
-      ? { ...moves, [asking.move.appointmentId]: asking.move }
-      : moves;
-    if (held === NO_MOVES) return entries;
+    if (pendingEdits.length === 0) return entries;
+    // Later edits win: a booking moved twice is drawn where it was put last.
+    const latest = new Map<string, OptimisticMove>();
+    for (const edit of pendingEdits) {
+      for (const move of edit.moves) latest.set(move.appointmentId, move);
+    }
     return entries.map((entry) => {
-      const move = entry.appointmentId ? held[entry.appointmentId] : undefined;
+      const move = entry.appointmentId
+        ? latest.get(entry.appointmentId)
+        : undefined;
       if (!move) return entry;
       const moved = movedEntry(entry, move);
       return move.staff ? { ...moved, ...move.staff } : moved;
     });
-  }, [entries, moves, asking]);
+  }, [entries, pendingEdits]);
 
   /**
    * The week on screen is always on its way to being fresh. A step already
@@ -988,8 +1050,6 @@ export function WeekCalendar({
   const frameRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const session = useRef<DragSession | null>(null);
-  /** Which pair a swap preview is being fetched for — a stale answer is dropped. */
-  const planFor = useRef<string | null>(null);
 
   /** The grid as last drawn, for handlers that outlive the render they came from. */
   const live = useRef({
@@ -1008,6 +1068,19 @@ export function WeekCalendar({
       focusedIndex,
     };
   });
+
+  /** The shop's own "now", and where it falls in the week on screen. */
+  const nowHere = () => {
+    const at = new Date();
+    const [hours, minutes] = formatInTimeZone(at, timezone, "HH:mm")
+      .split(":")
+      .map(Number);
+    return nowInWeek(
+      live.current.weekDays.map((day) => day.date),
+      formatInTimeZone(at, timezone, "yyyy-MM-dd"),
+      hours * 60 + minutes,
+    );
+  };
 
   /** Where `entry` would land at `startMinutes` on `dayIndex`, and what is in the way. */
   const landing = (
@@ -1035,6 +1108,7 @@ export function WeekCalendar({
           endMinutes,
         },
         facts.weekDays[dayIndex]?.open ?? [],
+        nowHere(),
       ),
     };
   };
@@ -1126,10 +1200,7 @@ export function WeekCalendar({
     entry: CalendarEntry,
     event: React.PointerEvent<HTMLElement>,
   ) => {
-    // One decision at a time: a question in the tray is answered first, and
-    // a write in flight lands before the next is planned against it.
     if (event.button !== 0 || session.current || !entry.appointmentId) return;
-    if (asking || saving) return;
     const grid = gridRef.current;
     const spot = grid ? columnAt(grid, event.clientX, event.clientY) : null;
     if (!spot) return;
@@ -1198,63 +1269,112 @@ export function WeekCalendar({
     if (target) commitMove(drag.entry, target);
   };
 
-  const planSwap = (firstId: string, secondId: string) => {
-    const pair = `${firstId}|${secondId}`;
-    planFor.current = pair;
-    startPlanning(async () => {
-      const result = await previewSwapAction({ firstId, secondId });
-      // The owner changed their pick while the plan was on its way.
-      if (planFor.current !== pair) return;
-      if (result.ok) {
-        setSwap(result.preview);
-      } else {
-        toast(result.error, "error");
-        setSelected([firstId]);
-        refuse(secondId);
-      }
-    });
-  };
+  /**
+   * Draws an edit as done and sends it — see `pendingEdits`. An explicit
+   * refusal, or no answer at all, takes it back, says why and shakes the
+   * cards that did not move; a failure to reach the server also re-reads the
+   * week, since nobody knows then what the database holds.
+   */
+  const sendEdit = (
+    moves: OptimisticMove[],
+    write: () => Promise<{ ok: true } | { ok: false; error?: string; message?: string }>,
+    ids: readonly string[],
+    /** Says it is done — at once, with the edit — and returns the toast's id. */
+    announce: () => number,
+  ) => {
+    const key = ++editKey.current;
+    setPendingEdits((current) => [...current, { key, moves, confirmed: false }]);
+    const said = announce();
 
-  const toggleSelect = (entry: CalendarEntry) => {
-    const id = entry.appointmentId;
-    if (!id || asking || saving) return;
-    setSwap(null);
-    planFor.current = null;
-    if (selected.includes(id)) {
-      setSelected(selected.filter((other) => other !== id));
-      return;
-    }
-    const next = selected.length >= 2 ? [id] : [...selected, id];
-    setSelected(next);
-    if (next.length === 2) planSwap(next[0], next[1]);
-  };
+    const takeBack = (message: string, resync: boolean) => {
+      setPendingEdits((current) => current.filter((edit) => edit.key !== key));
+      // The "done" and its undo stopped being true: an undo pressed now would
+      // act on a week where the edit never happened — for a swap, redo it.
+      dismissToast(said);
+      toast(message, "error");
+      // After the card is back where it was, not before it leaves.
+      window.setTimeout(() => ids.forEach(refuse), 60);
+      if (resync) refreshDiary();
+    };
 
-  const saveMove = (entry: CalendarEntry, move: EntryMove, force: boolean) => {
-    setAsking(null);
-    startSaving(async () => {
-      addMoves([move]);
-      const time = minutesToLabel(move.startMinutes);
-      const result = await rescheduleAppointmentAction({
-        appointmentId: move.appointmentId,
-        date: move.date,
-        time,
-        force,
-      });
-      if (result.ok) {
-        toast(
-          `התור של ${entry.title} הועבר ${landingPhrase(entry.date, { date: move.date, time })}`,
-          "success",
+    write().then(
+      (result) => {
+        if (!result.ok) {
+          takeBack(
+            result.error ?? result.message ?? "השינוי לא נשמר. התור חזר למקומו.",
+            false,
+          );
+          return;
+        }
+        // Everything else held may have changed with it.
+        weekCache.invalidate();
+        setPendingEdits((current) =>
+          current.map((edit) =>
+            edit.key === key ? { ...edit, confirmed: true } : edit,
+          ),
         );
-        refreshDiary();
-      } else if ("confirm" in result) {
-        // A rule only the server knows — a notice period, the booking
-        // lattice. Asked, as the dialog asks.
-        setAsking({ entry, move, message: result.message });
-      } else {
-        toast(result.error, "error");
-        refuse(move.appointmentId);
-      }
-    });
+        window.setTimeout(() => {
+          setPendingEdits((current) =>
+            current.filter((edit) => edit.key !== key),
+          );
+        }, SETTLE_FALLBACK_MS);
+      },
+      () =>
+        takeBack(
+          "לא הצלחתי לשמור את השינוי — היומן חזר למה שנשמר.",
+          true,
+        ),
+    );
+  };
+
+  /**
+   * Moves a booking — at once, on screen — and sends it with `force`: the
+   * ghost already showed the owner what the slot was, so the shop's own rules
+   * are not asked about again. The clash, the one rule no owner can waive, is
+   * still the database's to refuse. `undoTo` is where the toast's undo puts it.
+   */
+  const moveBooking = (
+    entry: CalendarEntry,
+    move: EntryMove,
+    conflict: DropConflict | null,
+    undoTo: EntryMove | null,
+  ) => {
+    const time = minutesToLabel(move.startMinutes);
+    const note =
+      conflict?.kind === "blocked"
+        ? ` — על חסימה (${conflict.title})`
+        : conflict?.kind === "closed"
+          ? " — מחוץ לשעות הפעילות"
+          : "";
+    const said = undoTo
+      ? `התור של ${entry.title} הועבר ${landingPhrase(entry.date, { date: move.date, time })}${note}`
+      : `התור של ${entry.title} הוחזר ${landingPhrase(entry.date, { date: move.date, time })}`;
+
+    sendEdit(
+      [move],
+      () =>
+        rescheduleAppointmentAction({
+          appointmentId: move.appointmentId,
+          date: move.date,
+          time,
+          force: true,
+        }),
+      [move.appointmentId],
+      () =>
+        toast(
+          said,
+          undoTo
+            ? {
+                tone: "success",
+                action: {
+                  label: "ביטול",
+                  onAct: () =>
+                    moveBooking(movedEntry(entry, move), undoTo, null, null),
+                },
+              }
+            : "success",
+        ),
+    );
   };
 
   const commitMove = (entry: CalendarEntry, target: DragView) => {
@@ -1267,60 +1387,61 @@ export function WeekCalendar({
     const day = live.current.weekDays[target.dayIndex];
     if (!day || !entry.appointmentId) return;
 
-    if (target.conflict?.kind === "clash") {
-      // The database would refuse it anyway — `appointments_no_overlap_staff`.
+    if (target.conflict?.kind === "clash" || target.conflict?.kind === "past") {
+      // The database would refuse a clash anyway — `appointments_no_overlap_staff`.
       toast(
-        `ב-${minutesToLabel(target.conflict.startMinutes)} כבר משובץ ${target.conflict.title} אצל אותו נותן שירות. התור נשאר במקומו.`,
+        target.conflict.kind === "clash"
+          ? `ב-${minutesToLabel(target.conflict.startMinutes)} כבר משובץ ${target.conflict.title} אצל אותו נותן שירות. התור נשאר במקומו.`
+          : "אי אפשר להזיז תור לשעה שכבר עברה. התור נשאר במקומו.",
         "error",
       );
       refuse(entry.appointmentId);
       return;
     }
 
-    const move: EntryMove = {
-      appointmentId: entry.appointmentId,
-      dayIndex: target.dayIndex,
-      date: day.date,
-      startMinutes: target.startMinutes,
-    };
-
-    if (target.conflict) {
-      // The shop's own rules: asked before anything moves.
-      setAsking({
-        entry,
-        move,
-        message:
-          target.conflict.kind === "blocked"
-            ? `המועד חסום ביומן (${target.conflict.title}). לשבץ בכל זאת?`
-            : "המועד מחוץ לשעות הפעילות. לשבץ בכל זאת?",
-      });
-      return;
-    }
-
-    saveMove(entry, move, false);
+    moveBooking(
+      entry,
+      {
+        appointmentId: entry.appointmentId,
+        dayIndex: target.dayIndex,
+        date: day.date,
+        startMinutes: target.startMinutes,
+      },
+      target.conflict,
+      {
+        appointmentId: entry.appointmentId,
+        dayIndex: entry.dayIndex,
+        date: entry.date,
+        startMinutes: entry.startMinutes,
+      },
+    );
   };
 
-  const confirmSwap = () => {
-    const preview = swap;
-    if (!preview) return;
+  /**
+   * Swaps two bookings — at once, on screen — through `swapAppointmentsAction`
+   * with the plan's own request, which the server refuses unless its re-plan
+   * lands on the same two times. Undo is the same swap again, planned from the
+   * week as it now stands.
+   */
+  const applySwap = (plan: PlannedSwap, isUndo: boolean) => {
     const facts = live.current;
     const find = (id: string) =>
       facts.entries.find((entry) => entry.appointmentId === id);
-    const first = find(preview.first.appointmentId);
-    const second = find(preview.second.appointmentId);
+    const [first, second] = plan.legs;
 
-    const optimistic: OptimisticMove[] = [];
+    const moves: OptimisticMove[] = [];
     for (const [leg, other] of [
-      [preview.first, second],
-      [preview.second, first],
+      [first, find(second.appointmentId)],
+      [second, find(first.appointmentId)],
     ] as const) {
       const dayIndex = facts.weekDays.findIndex((day) => day.date === leg.date);
       if (dayIndex < 0) continue;
-      optimistic.push({
+      moves.push({
         appointmentId: leg.appointmentId,
         dayIndex,
         date: leg.date,
-        startMinutes: timeToMinutes(leg.time),
+        startMinutes: leg.startMinutes,
+        // The provider travels with the slot.
         staff:
           other && other.staffId === leg.staffId
             ? {
@@ -1332,29 +1453,74 @@ export function WeekCalendar({
       });
     }
 
+    sendEdit(
+      moves,
+      () => swapAppointmentsAction(plan.request),
+      [first.appointmentId, second.appointmentId],
+      () =>
+        isUndo
+          ? toast("ההחלפה בוטלה", "success")
+          : toast(`התורים של ${first.clientName} ו${second.clientName} הוחלפו`, {
+              tone: "success",
+              action: {
+                label: "ביטול",
+                onAct: () => {
+                  const back = planCalendarSwap(
+                    live.current.entries,
+                    first.appointmentId,
+                    second.appointmentId,
+                    timezone,
+                  );
+                  if (back?.ok) applySwap(back, true);
+                  else
+                    toast(
+                      "לא הצלחתי לבטל את ההחלפה — כדאי לבדוק ביומן.",
+                      "error",
+                    );
+                },
+              },
+            }),
+    );
+  };
+
+  const toggleSelect = (entry: CalendarEntry) => {
+    const id = entry.appointmentId;
+    if (!id) return;
+    setSwap(null);
+    if (selected.includes(id)) {
+      setSelected(selected.filter((other) => other !== id));
+      return;
+    }
+    const next = selected.length >= 2 ? [id] : [...selected, id];
+    setSelected(next);
+    if (next.length < 2) return;
+
+    // Planned here and now, from the week on screen — see `planCalendarSwap`.
+    const plan = planCalendarSwap(live.current.entries, next[0], next[1], timezone);
+    if (plan?.ok) {
+      setSwap(plan);
+      return;
+    }
+    toast(
+      plan
+        ? `ל${plan.clash.who} צריך ${plan.clash.needsMinutes} דקות, וב-${plan.clash.time} כבר משובץ ${plan.clash.clientName}.`
+        : "אי אפשר להחליף בין שני התורים האלה.",
+      "error",
+    );
+    setSelected([next[0]]);
+    refuse(next[1]);
+  };
+
+  const confirmSwap = () => {
+    if (!swap) return;
     setSwap(null);
     setSelected([]);
-    planFor.current = null;
-    startSaving(async () => {
-      addMoves(optimistic);
-      const result = await swapAppointmentsAction(preview.request);
-      if (result.ok) {
-        toast(
-          `התורים של ${preview.first.clientName} ו${preview.second.clientName} הוחלפו`,
-          "success",
-        );
-        refreshDiary();
-      } else {
-        toast(result.error, "error");
-      }
-    });
+    applySwap(swap, false);
   };
 
   const cancelEdit = () => {
     setSelected([]);
     setSwap(null);
-    setAsking(null);
-    planFor.current = null;
   };
 
   /** Enter picks up and puts down, the arrows carry it, Space picks it for a swap. */
@@ -1364,7 +1530,7 @@ export function WeekCalendar({
   ) => {
     const facts = live.current;
     const own = facts.entries.find((each) => each.id === entry.id) ?? entry;
-    if (!canMove(own) || asking || saving) return;
+    if (!canMove(own)) return;
     const lifted =
       drag?.via === "keyboard" && drag.entryId === own.id ? drag : null;
 
@@ -1888,10 +2054,12 @@ export function WeekCalendar({
                 a phone that room is a whole row. */}
             <div className="flex items-center justify-center text-zinc-500 dark:text-zinc-400">
               <span role="status">
-                {fetchingWeek ? (
+                {fetchingWeek || saving ? (
                   <>
                     <Loader2 className="size-4 animate-spin" aria-hidden />
-                    <span className="sr-only">טוען את השבוע…</span>
+                    <span className="sr-only">
+                      {saving ? "שומר את השינויים…" : "טוען את השבוע…"}
+                    </span>
                   </>
                 ) : null}
               </span>
@@ -2014,14 +2182,6 @@ export function WeekCalendar({
                       selected.includes(entry.appointmentId)
                     }
                     lifted={ghost?.entryId === entry.id}
-                    awaiting={
-                      asking !== null &&
-                      entry.appointmentId === asking.move.appointmentId
-                    }
-                    saving={
-                      entry.appointmentId !== null &&
-                      moves[entry.appointmentId] !== undefined
-                    }
                     style={style}
                   />
                 ))}
@@ -2053,23 +2213,24 @@ export function WeekCalendar({
           ? `${ghostEntry.title}: יום ${weekdayLabel(weekDays[drag.dayIndex]?.date ?? weekStart)}, ${minutesToLabel(drag.startMinutes)}${
               drag.conflict?.kind === "clash"
                 ? ` — חופף ל${drag.conflict.title}`
-                : drag.conflict
-                  ? " — מחוץ לשעות או חסום"
-                  : ""
+                : drag.conflict?.kind === "past"
+                  ? " — השעה כבר עברה"
+                  : drag.conflict
+                    ? " — מחוץ לשעות או חסום"
+                    : ""
             }`
           : ""}
       </p>
 
-      {editing && (selected.length > 0 || asking) ? (
+      {editing && selected.length > 0 ? (
         <EditTray
-          asking={asking?.message ?? null}
           firstName={
             shownEntries.find((entry) => entry.appointmentId === selected[0])
               ?.title ?? null
           }
           swapLines={
             swap
-              ? [swap.first, swap.second].map((leg) => ({
+              ? swap.legs.map((leg) => ({
                   id: leg.appointmentId,
                   name: leg.clientName,
                   // Each against its own day: the day is named only for the
@@ -2084,11 +2245,6 @@ export function WeekCalendar({
               : null
           }
           repacked={swap?.repacked ?? false}
-          planning={planning}
-          saving={saving}
-          onConfirmMove={() =>
-            asking ? saveMove(asking.entry, asking.move, true) : undefined
-          }
           onConfirmSwap={confirmSwap}
           onCancel={cancelEdit}
         />
@@ -2279,8 +2435,6 @@ const EntryCard = memo(function EntryCard({
   edit,
   selected,
   lifted,
-  awaiting,
-  saving,
 }: {
   entry: CalendarEntry;
   style: CSSProperties;
@@ -2316,10 +2470,6 @@ const EntryCard = memo(function EntryCard({
   selected: boolean;
   /** Being carried — the ghost shows where it would land. */
   lifted: boolean;
-  /** Dropped outside the shop's rules, waiting on the owner's yes. */
-  awaiting: boolean;
-  /** Moved on screen, waiting on the server. */
-  saving: boolean;
 }) {
   const status = entry.kind === "appointment" ? entry.status : null;
   /** Can be picked up in edit mode — see `canMove`. */
@@ -2480,10 +2630,6 @@ const EntryCard = memo(function EntryCard({
     selected &&
       "z-20 ring-2 ring-zinc-900 ring-offset-1 ring-offset-white shadow-lg dark:ring-zinc-100 dark:ring-offset-zinc-950",
     lifted && "opacity-35",
-    // Amber, the colour of a rule being asked about — as in the tray below.
-    awaiting &&
-      "z-20 ring-2 ring-amber-500 ring-offset-1 ring-offset-white shadow-lg dark:ring-amber-400 dark:ring-offset-zinc-950",
-    saving && "animate-pulse",
   );
 
   /**
@@ -2800,7 +2946,9 @@ function DragGhost({
     },
     bounds,
   );
-  const clash = ghost.conflict?.kind === "clash";
+  // Red for what a drop cannot do, amber for what it may but should know.
+  const clash =
+    ghost.conflict?.kind === "clash" || ghost.conflict?.kind === "past";
   const rule = ghost.conflict !== null && !clash;
 
   return (
@@ -2825,7 +2973,9 @@ function DragGhost({
           ? `תפוס · ${ghost.conflict.title}`
           : ghost.conflict?.kind === "blocked"
             ? `חסום · ${ghost.conflict.title}`
-            : ghost.conflict?.kind === "closed"
+            : ghost.conflict?.kind === "past"
+              ? "כבר עבר"
+              : ghost.conflict?.kind === "closed"
               ? "מחוץ לשעות"
               : title}
       </span>
@@ -2834,35 +2984,27 @@ function DragGhost({
 }
 
 /**
- * The decision edit mode is waiting on, above the dock: a swap to confirm, a
- * rule to step outside of, or the second card still to pick.
+ * The swap edit mode is waiting on, above the dock: the second card still to
+ * pick, or the planned swap to confirm.
  *
  * One tray rather than a modal, because edit mode is a sequence of small
  * decisions made while looking at the calendar — covering it to ask would hide
  * the very thing being decided about. Fixed above the phone's dock and the
- * safe area, like the ליבי card, and centred on a wide screen.
+ * safe area, like the ליבי card, and centred on a wide screen. A move has no
+ * question here: it is done when it is dropped, with an undo on its toast.
  */
 function EditTray({
-  asking,
   firstName,
   swapLines,
   repacked,
-  planning,
-  saving,
-  onConfirmMove,
   onConfirmSwap,
   onCancel,
 }: {
-  /** The rule a move steps outside of, waiting on a yes. */
-  asking: string | null;
   /** The first card picked for a swap. */
   firstName: string | null;
-  /** The planned swap, one line a booking — null until it is planned. */
+  /** The planned swap, one line a booking — null until two are picked. */
   swapLines: { id: string; name: string; where: string }[] | null;
   repacked: boolean;
-  planning: boolean;
-  saving: boolean;
-  onConfirmMove: () => void;
   onConfirmSwap: () => void;
   onCancel: () => void;
 }) {
@@ -2881,33 +3023,7 @@ function EditTray({
         "bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_5.25rem)] md:bottom-8",
       )}
     >
-      {asking ? (
-        <div className="flex flex-col gap-2.5">
-          <p className="flex items-start gap-2 text-xs leading-relaxed font-medium text-amber-900 dark:text-amber-100">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-            {asking}
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onConfirmMove}
-              disabled={saving}
-              className={cn(
-                "inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-amber-600 px-3 text-xs font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-60",
-                focusRing,
-              )}
-            >
-              {saving ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              ) : null}
-              לשבץ בכל זאת
-            </button>
-            <button type="button" onClick={onCancel} className={quietButton}>
-              ביטול
-            </button>
-          </div>
-        </div>
-      ) : swapLines ? (
+      {swapLines ? (
         <div className="flex flex-col gap-2.5">
           <p className="flex items-center gap-2 text-sm font-bold text-zinc-950 dark:text-zinc-50">
             <ArrowLeftRight className="size-4 shrink-0" aria-hidden />
@@ -2936,7 +3052,6 @@ function EditTray({
             <button
               type="button"
               onClick={onConfirmSwap}
-              disabled={saving}
               className={cn(btnPrimary, "h-9 flex-1 text-xs")}
             >
               <ArrowLeftRight className="size-3.5" aria-hidden />
@@ -2949,23 +3064,14 @@ function EditTray({
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          {planning ? (
-            <Loader2
-              className="size-4 shrink-0 animate-spin text-zinc-500"
-              aria-hidden
-            />
-          ) : (
-            <ArrowLeftRight
-              className="size-4 shrink-0 text-zinc-500"
-              aria-hidden
-            />
-          )}
+          <ArrowLeftRight
+            className="size-4 shrink-0 text-zinc-500"
+            aria-hidden
+          />
           <p className="min-w-0 flex-1 text-xs text-zinc-700 dark:text-zinc-300">
-            {planning
-              ? "בודקים את ההחלפה…"
-              : firstName
-                ? `נבחר התור של ${firstName} — הקישו על תור נוסף כדי להחליף ביניהם.`
-                : "הקישו על תור נוסף כדי להחליף ביניהם."}
+            {firstName
+              ? `נבחר התור של ${firstName} — הקישו על תור נוסף כדי להחליף ביניהם.`
+              : "הקישו על תור נוסף כדי להחליף ביניהם."}
           </p>
           <button type="button" onClick={onCancel} className={quietButton}>
             ביטול

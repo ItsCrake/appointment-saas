@@ -31,6 +31,7 @@ export type Feature = {
  */
 export const HERO_FACTS: readonly string[] = [
   "בלי הרשמה ללקוח",
+  "עוזרת קולית ליומן",
   "בעברית, מותאם לישראל",
   "הודעות אוטומטיות בוואטסאפ",
 ] as const;

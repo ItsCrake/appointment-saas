@@ -1961,6 +1961,81 @@ for ליבי, and the lag stepping between days and weeks. The maps are in
   **With the owner's approval, one test wrote**, on a production build: two no-contact placeholders (`is_voice_placeholder`, empty phone) on Tue 29.9 at 10:00 and 11:00. A dragged to 12:00 was drawn there 8ms after release; the server answered 5.5s later with its question (12:00 is not a slot the booking page offers), the card waiting in place ringed amber meanwhile; confirmed, it held 12:00 in every sampled frame through the ~6s forced save. The swap preview read 11:00 ↔ 12:00, both cards moved 74ms after the tap and never jumped back, and a reload read the same from the server. Four actions, zero console errors, zero notifications queued. Both rows were then deleted by id, so `demo-barber` is as it was.
 - `npm run verify` green at **1897 across 115 files**.
 
+### Edits that never wait, a dock the page fades under, ליבי on the landing page ✅
+
+Four requests in one: tidy the repo root and the dev terminal, make every
+calendar edit instant, separate the dock from what scrolls under it, and put
+ליבי and the current design on the landing page. The maps are in
+[ARCHITECTURE.md](ARCHITECTURE.md#every-edit-is-drawn-before-it-is-sent) and
+[there for the landing page](ARCHITECTURE.md#the-landing-pages-phones-are-drawn-not-photographed).
+
+- **The repo root is clean, and the dev terminal quiet.** The stray
+  `package.json`, `package-lock.json` and `node_modules/` at the root went to
+  the Recycle Bin; `turbopack.root` stays as the guard.
+  `logging.serverFunctions: false` — `next dev` no longer prints every Server
+  Action's arguments, the sign-in password among them.
+- **Every calendar edit is drawn before it is sent, and nothing waits on the
+  answer.** `useOptimistic` gave way to a `pendingEdits` list drawn over the
+  data: confirmed on the server's yes and settled during render once the data
+  shows it; taken back — an error toast, the card shaking in its old place —
+  only on an explicit refusal or a failed request, which also re-reads the
+  week in case it saved after all.
+  - **A drop is final.** The server's question and its round trip (5.5s last
+    time, the card ringed amber meanwhile) are gone: the ghost already showed
+    the owner the slot, so a move is sent with `force`, and the toast names a
+    block or closed hours and carries undo. **The past is refused** in the
+    browser (`nowInWeek`; the ghost reads "כבר עבר" in red), as a clash was.
+  - **Swaps are planned in the browser.** `planSwap` moved to the pure
+    `lib/swap-plan.ts`; `planCalendarSwap` runs it on the week on screen, with
+    "booked between" answered from the same rows, so the tray is up at the
+    second tap and `previewSwapAction` is gone. `confirmSwap` still re-plans on
+    the server and refuses a stale plan. Six tests hold the browser's plan to
+    `planSwapFor`'s over one PGlite week; three pin the past.
+  - Picks and drags no longer wait for a write in flight — Next dispatches a
+    client's actions one at a time, so they land in order. A spinner in the
+    rail's corner says a save is pending.
+  - **Found in the browser:** a rollback left the "done" toast and its undo on
+    screen, and an undo pressed after a failed swap would have planned from
+    the untouched week — and performed the swap. `toast()` now returns an id,
+    the context has `dismiss`, and a rollback takes the "done" down with it.
+- **The dock stands off the page.** `.glass-dock-float` is a 64px blur (from
+  40) at saturation 1.9 over a 0.76 fill (0.74 dark). Under it, inside the
+  phone's `<nav>`, `.dock-fade`: the page's own paper rising from transparent
+  through a mask, with a 6px blur of its own, 3rem taller than the dock's row —
+  so cards fade out before they reach the glass. `pointer-events: none`, and
+  no blur under reduced transparency.
+- **ליבי on the landing page.** The hero's lede now says the diary is run by
+  voice, a fourth fact reads "עוזרת קולית ליומן", the first feature card is
+  hers, and she has a section straight after the proof strip — "מדברים עם
+  היומן": five things an owner says, what she does with each and which she
+  asks about first, and one exchange played through, every line verbatim from
+  `libi-tools` and `libi-status`, her orb and glow in CSS.
+- **Every phone on the page is drawn.** The hero (the agenda, ליבי
+  mid-question, the dock) and the tour's three (the week in edit mode with a
+  card lifted and a swap picked; the amber requests panel; clients) are React
+  built from the dashboard's own classes, scaled through Tailwind's variables.
+  The 15 screenshots (3.2MB), `phone-frame`, `dashboard-mockup`,
+  `lib/screenshots` and its test are deleted. **No static asset is required.**
+- **Verified in a browser, read-only** — every Server Action POST held 1.5s,
+  then aborted, so nothing reached the database:
+  - The dock at 390px, light and dark, on the agenda and the week:
+    `blur(64px) saturate(1.9)` computed, the fade 120px tall across the
+    screen, no horizontal overflow.
+  - The week at 1280px, **on a production build**: a booking dragged into
+    Sunday — red, "כבר עבר", the refusal toast, zero requests. Next week: the
+    swap tray **7ms** after the second tap, zero requests; confirmed, both
+    cards swapped and the spinner up **33ms** after the tap, the "done" toast
+    with its undo beside them; at the abort both returned and the error
+    replaced the "done". A drop onto closed Saturday was drawn **18ms** after
+    release with "מחוץ לשעות הפעילות", and rolled back the same way. (The grid
+    narrowed while that card was away — its day was the week's only two-lane
+    one, beside a cancelled booking — and widened back: lanes set the width.)
+    No reload, and no console error but the two aborted requests.
+  - The landing page at 1440 and 390px, light and dark: no horizontal
+    overflow; the phones 352×750 in the hero and 304×646 in the tour.
+- `npm run verify` green at **1898 across 114 files** (`screenshots.test.ts`
+  went with the images).
+
 ---
 
 ## 5. Where things stand
@@ -1969,7 +2044,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1897 tests across 115 files**; Playwright
+**Green:** `npm run verify` at **1898 tests across 114 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 36 migrations
 (0000–0035) are applied to production** — 0035 (`bookings_paused`) on
 2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -2189,7 +2264,7 @@ the served tier plus the reason.
 | **Waitlist expiry cycles only as often as the cron** | `vercel.json` is `0 8 * * *` because Hobby rejects anything more frequent — the real cadence is the GitHub Actions workflow hitting the same URL every 15 min. Offers still *lapse* on time (the clock is read on the page and in the claim action), but nothing is **re-offered** until a sweep runs. If that workflow is disabled, every lapsed slot dies silently. Never set a TTL below the sweep interval. | `.github/workflows/dispatch-notifications.yml` |
 | **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
 | **A hand-rolled upload copied the body and not the headers** | `image-upload.tsx` reproduces `supabase-js`'s multipart upload with `XMLHttpRequest` so it can show progress. `supabase-js` sends `cacheControl` **twice** — a form field *and* a `cache-control: max-age=…` request header — and only the field was copied, so every asset ever uploaded is stored with the API's fallback and served `Cache-Control: no-cache`. Verified on production: every logo, banner, gallery photo and hero video, on every tenant. The paths are UUIDs and a new upload mints a new one, so these are immutable by construction. Pinned by `media-upload.test.ts`. | `image-upload.tsx` |
-| **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. `screenshots.test.ts` compares the two files. | `next.config.ts`, `phone-frame.tsx` |
+| **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. Nothing asks for 90 today — the landing page's phones are drawn in code since 2026-09-19 — and the list keeps it for the next image that does. | `next.config.ts` |
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
 | **An empty inline-flex box grows the line it sits on** | The typewriter's heading got **taller** by 9px (390px) / 18px (1440px) on the frame its text emptied, pushing the paragraph and CTA down. A flex container takes its baseline from its first line box; with no text the browser synthesises one from the bottom margin edge, so the box drops and the parent's line box grows to hold it. `min-h` cannot fix it — the height was never the variable. A zero-width space restores the baseline; a non-breaking space would too, but it shoves the caret sideways by its own width. | `typewriter-logo.tsx` |
 | **A `backdrop-filter` is a containing block for `fixed` children** | Like `transform` and `filter`, an element with a backdrop filter becomes the containing block for every `position: fixed` descendant — so `fixed inset-0` means *that element's box*. The «עוד» sheet rendered inside the frosted phone dock came out 331×48px-anchored: dock-wide, rising from the dock, its scrim covering nothing. Anything `fixed` whose trigger lives in glass goes through `createPortal(…, document.body)`. The calendar's hover card already escapes its cards (`backdrop-blur-sm`) by rendering at the root for the same reason. | `dashboard-nav.tsx` `MoreSheet` |
@@ -2197,11 +2272,11 @@ the served tier plus the reason.
 | **A `Date` in a raw `sql` template throws — after everything before it committed** | Through Drizzle's postgres-js driver a `Date` parameter inside `` sql`…` `` reaches postgres.js unserialised and fails with `ERR_INVALID_ARG_TYPE` at runtime; typecheck is happy. The load-test runner's read-back hit it *after* its insert had committed, so the error read like a failed run. Query-builder comparisons (`lt(column, date)`) encode fine. In raw SQL pass `date.toISOString()` with `::timestamptz`. | `seed-load-test.ts` |
 | **`cn()` deletes a `leading-*` that comes before a text size** | `tailwind-merge` treats Tailwind v4's `text-*` as carrying a line-height, so `cn("leading-tight", "text-[10px]")` silently returns `text-[10px]`. The calendar card rendered 15px lines for months under a line budget that believed 12, and every short card sliced its own text. Nothing warns: the class is in the source, only the runtime output lacks it. Put the line-height inside the size class — `text-[10px]/[14px]`, `text-xs/5` — which merges as one class. `calendar-layout.test.ts` fails on a bare `leading-*` in `EntryCard`. | `week-calendar.tsx`, `calendar-layout.ts` |
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
-| **A lockfile above `Frontend/` breaks the dev server** | Next infers the workspace root from the outermost lockfile. An `npm install` run at the repo root left `package.json`, `package-lock.json` and `node_modules/` there, and `next dev` then 500'd on every page ("Could not find the module … in the React Client Manifest"). `turbopack.root` in `next.config.ts` pins the root now; a stale cache after it needs `.next/dev` deleted once. The root files are untracked and can simply be removed. | `next.config.ts` |
+| **A lockfile above `Frontend/` breaks the dev server** | Next infers the workspace root from the outermost lockfile. An `npm install` run at the repo root left `package.json`, `package-lock.json` and `node_modules/` there, and `next dev` then 500'd on every page ("Could not find the module … in the React Client Manifest"). `turbopack.root` in `next.config.ts` pins the root now; a stale cache after it needs `.next/dev` deleted once. **The root files were removed on 2026-09-19** (to the Recycle Bin); the pin stays as the guard against the next `npm install` run one directory too high. | `next.config.ts` |
 | **A navigation can arrive with the same props** | The router may answer a navigation back to the range a page first rendered from its cache, with the very same prop objects — so state that follows "the server's range" by comparing props (dates *or* identity) silently misses it. The agenda stayed on Saturday after the dock's "היומן". The calendar and the agenda detect navigations on the URL, which every in-memory step keeps in step through `replaceState`. | `agenda-view.tsx`, `week-calendar.tsx` |
 | **`VoiceBeam`'s root is `position: relative`, and wins** | The package injects its stylesheet into the body, after Tailwind's, and its root rule sets `position: relative` at the same specificity as `.fixed` — so a `fixed inset-0` class on the beam loses and the glow collapses to zero height in normal flow. It sits inside a fixed frame of ours. | `libi-assistant.tsx` |
 | **Repeated Playwright sign-ins trip the login limiter** | Each run of a temporary spec signs in afresh, and the fifth or so in a few minutes answers "נשלחו יותר מדי בקשות" — the spec then times out on `waitForURL`, which reads like a broken login. Wait two minutes. And hide `nextjs-portal` in a spec that presses ליבי's docked button: under `next dev` the tools badge sits exactly on it and swallows the click. | `e2e/helpers.ts` `signInAsOwner` |
-| **`next dev` prints Server Action arguments** | Next 16 logs every server-function call in development *with its arguments* — the sign-in action's included, the E2E password in plain text. Local only, but a dev log pasted anywhere carries it. `logging.serverFunctions: false` in `next.config.ts` turns it off; left on for now, pending a decision. | `next.config.ts` |
+| **`next dev` prints Server Action arguments** | Next 16 logs every server-function call in development *with its arguments* — the sign-in action's included, the E2E password in plain text. Local only, but a dev log pasted anywhere carries it. **Off since 2026-09-19:** `logging.serverFunctions: false` in `next.config.ts`. Turn it back on only for a session that needs to see the calls, and not with a real account signed in. | `next.config.ts` |
 | **Two moves cannot swap two bookings** | `appointments_no_overlap_staff` is not deferrable, so it is checked per statement: whichever booking moves first lands on the other while that one is still there, and a swap that is valid as a whole fails halfway every time the two share a provider. `swapAppointments` parks the first on an empty range (`ends_at = starts_at` — the empty `tstzrange` overlaps nothing), moves the second, then the first, in one transaction, each write a compare-and-swap on the start it was planned against. Making the constraint deferrable would need a migration and buys nothing this does not. | `db/queries/appointments.ts` `swapAppointments` |
 
 ### The guarantee everything else leans on
@@ -2922,27 +2997,16 @@ optional. What follows from that:
 - **Landing page** — one canvas, not two panels. The hero's full-bleed violet
   block is gone; it forced everything over it to hardcode `text-white` and
   squeezed the only proof on the page into a column that vanished below `lg`.
-  Now a hairline grid and one glow sit behind a real screenshot.
-  `lib/screenshots.ts` resolves eight slots and **throws at build time** when a
-  file is missing, so a deleted image fails the build rather than the page.
-  The screenshots render at `quality={90}`, which needed `images.qualities` in
-  `next.config.ts` before it did anything at all — see the traps above; measured,
-  the optimizer went from 48.6KB to 70.2KB for the same rung. That stopped the
-  pipeline adding a second lossy generation but could not recover detail, and
-  the sources were the ceiling: 736×1600, so at a 342px slot on a 3× phone the
-  browser asked for the 1080 rung and got 736 — effectively ~2.15× rather than
-  3×, with the fix named here as re-capturing at a higher resolution.
-  **That ceiling is gone.** The screens were re-shot at 2944×6400 — four times
-  each axis, same aspect ratio — and dropped in as `.webp` beside the originals.
-  Measured against the running optimizer at `w=1080`: the `.jpg` source returns
-  736px however large the request, the `.webp` returns a real 1080px. The cost
-  is 66KB → 127KB at that rung, paid only by the devices that asked for it.
-  `resolveScreenshot` prefers `.webp` and **falls back to `.jpg`**, which is
-  load-bearing rather than decorative: `week-calendar-pending` has no re-shoot
-  and would otherwise throw at build time over a slot that is declared but not
-  currently rendered. A test pins the preference, because a resolver that
-  quietly went back to `.jpg` would leave every other assertion in that file
-  green and every image on the page soft.
+  Now a hairline grid and one glow sit behind the product. **Its phones are
+  drawn in code since 2026-09-19** (`mock-kit.tsx`, `mock-screens.tsx`): the
+  screenshots — re-shot once at 2944×6400 to beat a resolution ceiling —
+  showed a dashboard that no longer existed once it moved to liquid glass, a
+  floating dock and ליבי. The drawn ones are built from the dashboard's own
+  glass classes and `StatusChip`, scaled by redefining Tailwind's variables
+  rather than a transform, so they stay sharp at any width and cannot go
+  stale; see ARCHITECTURE, *The landing page's phones are drawn*.
+  `public/screenshots/`, `lib/screenshots.ts` and its build-time check went
+  with them — git history has the images. No static asset is needed.
   The two demo buttons are a **tinted wash with a matching border** — the 500 at
   10% over a 1px border at 45%, in the accent each tenant actually renders —
   with the shop's colour surviving at full strength in an 8px dot. They were
@@ -2994,10 +3058,12 @@ Seoul database: the old full navigation took **2.5–2.9s a day and 2.1–2.2s a
 week**, date and bookings together behind a skeleton. In memory, the date
 changes in **2–14ms**; the bookings arrive in **0.004–0.55s** when the owner
 reads for a second and a half before stepping, and **1.5–1.85s** at worst, a
-step tapped the instant the page loaded. A write from the calendar is drawn in
-8–74ms and confirmed by the server some seconds later — the forced move took
-~6s and the swap over 7s, nearly all of it round trips from here to Seoul. The
-region decision in §5 is what shortens those; nothing in the page would.
+step tapped the instant the page loaded. A write from the calendar is drawn
+before it is sent and nothing waits on its answer — a drop is final (forced,
+with an undo) and a swap is planned in the browser, so the ~6–7s the server
+still takes (nearly all of it round trips from here to Seoul) is felt only as
+a spinner in the rail's corner. The region decision in §5 is what shortens
+that; nothing in the page would.
 
 ### What it deliberately does not do
 

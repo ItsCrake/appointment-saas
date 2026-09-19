@@ -7,6 +7,7 @@ import {
   ChevronDown,
   HeartHandshake,
   Link2,
+  Mic,
   Palette,
   Users,
 } from "lucide-react";
@@ -14,7 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Seven features, one open at a time.
+ * Eight features, one open at a time — ליבי first, because she is the one no
+ * other booking tool for a small shop has.
  *
  * ---------------------------------------------------------------------------
  * An accordion rather than six paragraphs, because the detail is what convinces
@@ -33,6 +35,11 @@ import { cn } from "@/lib/utils";
  */
 
 const FEATURES = [
+  {
+    icon: Mic,
+    title: "ליבי — היומן מנוהל בקול",
+    body: "אומרים לה «תקבעי לדני מחר בשלוש» והיא קובעת; «תזיזי את דנה לארבע» והיא שואלת ומזיזה. היא מכירה את השירותים, הצוות והלקוחות שלכם, עונה בקול, ולא משנה תור שכבר נקבע בלי אישור שלכם.",
+  },
   {
     icon: Link2,
     title: "קישור אחד, בלי אפליקציה",

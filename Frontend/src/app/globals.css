@@ -1487,9 +1487,11 @@ body {
    ring in `--tw-inset-shadow`, never a bare `box-shadow`.
 --------------------------------------------------------------------------- */
 .glass-dock.glass-dock-float {
-  background-color: rgb(255 255 255 / 0.74);
-  -webkit-backdrop-filter: blur(40px) saturate(1.9);
-  backdrop-filter: blur(40px) saturate(1.9);
+  background-color: rgb(255 255 255 / 0.76);
+  /* `backdrop-blur-3xl`: 64px, so a card passing under the dock is colour and
+     not letters. */
+  -webkit-backdrop-filter: blur(64px) saturate(1.9);
+  backdrop-filter: blur(64px) saturate(1.9);
   border-color: rgb(255 255 255 / 0.9);
   --tw-inset-shadow:
     inset 0 1px 0 rgb(255 255 255), inset 0 0 0 1px rgb(9 9 11 / 0.07);
@@ -1499,12 +1501,51 @@ body {
 
 @media (prefers-color-scheme: dark) {
   .glass-dock.glass-dock-float {
-    background-color: rgb(24 24 27 / 0.72);
+    background-color: rgb(24 24 27 / 0.74);
     border-color: rgb(255 255 255 / 0.2);
     --tw-inset-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.14), inset 0 -1px 0 rgb(0 0 0 / 0.35);
     --tw-shadow:
       0 2px 6px -1px rgb(0 0 0 / 0.5), 0 25px 50px -12px rgb(0 0 0 / 0.8);
+  }
+}
+
+/* The page fading out under the dock — see the band in `DashboardNav`.
+
+   Two layers in one element. The gradient carries the page background up from
+   the bottom edge, so a card is washed into `zinc-50`/`zinc-950` rather than
+   cut by the glass. The blur is masked to grow toward the bottom, so the last
+   few pixels of a card soften before they go — a light 6px, over a strip the
+   height of the dock and a little more, which a phone composites cheaply. */
+.dock-fade {
+  background-image: linear-gradient(
+    to top,
+    rgb(250 250 250 / 0.94) 0%,
+    rgb(250 250 250 / 0.7) 45%,
+    rgb(250 250 250 / 0) 100%
+  );
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
+  mask-image: linear-gradient(to top, #000 55%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .dock-fade {
+    background-image: linear-gradient(
+      to top,
+      rgb(9 9 11 / 0.94) 0%,
+      rgb(9 9 11 / 0.7) 45%,
+      rgb(9 9 11 / 0) 100%
+    );
+  }
+}
+
+/* Without translucency the gradient alone does the job. */
+@media (prefers-reduced-transparency: reduce) {
+  .dock-fade {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
@@ -2536,6 +2577,193 @@ body {
    `[data-a11y-still] *` rule already stops the animation for the widget. */
 @media (prefers-reduced-motion: reduce) {
   .hero-ping::after {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   MOCK SCREENS — the product drawn at a phone's own width, scaled into
+   whatever frame holds it. See `mock-kit.tsx`.
+
+   **Why the mockups can use the dashboard's own classes.** Tailwind v4 compiles
+   spacing, type and radius utilities from custom properties — `p-4` is
+   `calc(var(--spacing) * 4)`, `text-sm` is `var(--text-sm)` — so redefining
+   those properties on a subtree re-scales every utility inside it. `.mock-ui`
+   redefines them in container-query units of a 390px screen: a mock written
+   with `glass-row rounded-3xl p-4` renders as the real 390px screen would,
+   shrunk to the frame, at any frame width. The glass itself is the product's
+   own rules, so the drawing cannot drift from the app it depicts.
+
+   The ground is the dashboard's: zinc-50/950 with the same two faint brand
+   tints `.dashboard-ambient` lays behind every page.
+--------------------------------------------------------------------------- */
+.mock-screen {
+  container-type: inline-size;
+  isolation: isolate;
+  background-color: rgb(250 250 250);
+  background-image:
+    radial-gradient(
+      60% 50% at 100% 0%,
+      color-mix(in oklab, var(--brand-from) 9%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      55% 45% at 0% 100%,
+      color-mix(in oklab, var(--brand-to) 8%, transparent),
+      transparent 70%
+    );
+}
+
+@media (prefers-color-scheme: dark) {
+  .mock-screen {
+    background-color: rgb(9 9 11);
+  }
+}
+
+.mock-ui {
+  /* One pixel of the 390px screen being drawn. */
+  --u: calc(100cqw / 390);
+  --spacing: calc(var(--u) * 4);
+  --text-xs: calc(var(--u) * 12);
+  --text-sm: calc(var(--u) * 14);
+  --text-base: calc(var(--u) * 16);
+  --text-lg: calc(var(--u) * 18);
+  --text-xl: calc(var(--u) * 20);
+  --text-2xl: calc(var(--u) * 24);
+  --radius-md: calc(var(--u) * 6);
+  --radius-lg: calc(var(--u) * 8);
+  --radius-xl: calc(var(--u) * 12);
+  --radius-2xl: calc(var(--u) * 16);
+  --radius-3xl: calc(var(--u) * 24);
+  font-size: var(--text-base);
+}
+
+/* The two sizes the dashboard sets in pixels, re-expressed in the mock's own. */
+.mock-text-10 {
+  font-size: calc(var(--u) * 10);
+  line-height: 1.4;
+}
+
+.mock-text-11 {
+  font-size: calc(var(--u) * 11);
+  line-height: 1.35;
+}
+
+/**
+ * ליבי's voice glow, as the page can draw it without her audio.
+ *
+ * The app's glow is `voice-glow`'s beam, answering a live microphone; a
+ * marketing page has no voice to answer, so this is its still life — the same
+ * light along the bottom edge, in the brand's violet and blue with a pink
+ * between them, breathing slowly. Transform and opacity only, so it
+ * composites. No teal: the platform has none.
+ */
+@keyframes mock-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: scaleY(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.06);
+  }
+}
+
+.mock-voice-glow {
+  transform-origin: 50% 100%;
+  background-image:
+    radial-gradient(
+      42% 70% at 22% 100%,
+      rgb(236 72 153 / 0.5),
+      transparent 70%
+    ),
+    radial-gradient(
+      44% 80% at 52% 100%,
+      rgb(124 58 237 / 0.55),
+      transparent 70%
+    ),
+    radial-gradient(
+      42% 70% at 82% 100%,
+      rgb(37 99 235 / 0.5),
+      transparent 70%
+    );
+  filter: blur(calc(var(--u, 1px) * 14));
+  animation: mock-glow-breathe 5.2s ease-in-out infinite;
+}
+
+/* On near-black the pink turns to a muddy red; the violet and blue carry the
+   light, lifted a step, and the pink stays as a trace between them. */
+@media (prefers-color-scheme: dark) {
+  .mock-voice-glow {
+    background-image:
+      radial-gradient(
+        42% 70% at 22% 100%,
+        rgb(217 70 239 / 0.34),
+        transparent 70%
+      ),
+      radial-gradient(
+        44% 80% at 52% 100%,
+        rgb(139 92 246 / 0.62),
+        transparent 70%
+      ),
+      radial-gradient(
+        42% 70% at 82% 100%,
+        rgb(59 130 246 / 0.58),
+        transparent 70%
+      );
+  }
+}
+
+/**
+ * The thinking orb, drawn in CSS.
+ *
+ * The app's orb is a canvas (`thinking-orbs`); here it is a dotted ring turning
+ * around a point that breathes — the same idea at the size of a status line,
+ * with no script on a page that is otherwise static.
+ */
+@keyframes mock-orb-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mock-orb-pulse {
+  0%,
+  100% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.mock-orb {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: calc(var(--u, 1px) * 18);
+  height: calc(var(--u, 1px) * 18);
+  border-radius: 9999px;
+  border: calc(var(--u, 1px) * 2) dotted currentColor;
+  animation: mock-orb-turn 3.2s linear infinite;
+}
+
+.mock-orb::after {
+  content: "";
+  position: absolute;
+  inset: 28%;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: mock-orb-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-voice-glow,
+  .mock-orb,
+  .mock-orb::after {
     animation: none;
   }
 }

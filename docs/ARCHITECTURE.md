@@ -502,31 +502,60 @@ Inside it (`lib/calendar-edit.ts` for every rule, pointer work in
 - **Drag** a live booking to another time or day. The start snaps to five
   minutes, the pointer keeps its grip on the card (`grabOffset`), the frame
   scrolls when a drag is held at its edge, and the ghost says where it would
-  land: **red** where another live booking of the same provider is — refused on
-  drop, because `appointments_no_overlap_staff` would refuse it anyway —
-  **amber** on a block or outside opening hours, which is asked about before
-  anything moves and then sent with `force` (the shop's own rules, as in the
-  dialog). The drop goes through `rescheduleAppointmentAction` and is shown at
-  once with `useOptimistic`; the action's `revalidatePath` returns the redrawn
-  page in the same round trip, so the optimistic card hands straight over to
-  the real one. **The server asks more often than the ghost warns:** the
-  booking page's slots follow the free windows between bookings, so an
-  arbitrary five-minute mark inside open hours is often not one a client
-  would be offered, and the action answers `confirm`. The card then waits
-  where it was dropped, ringed amber, with the question in the tray — it does
-  not jump home and leave a ghost behind — and new picks and drags wait until
-  the question is answered and any write in flight has landed.
-- **Tap two** bookings to swap them. `previewSwapAction` plans it from the rows
-  as they are — `previewSwap`, the same `planSwapFor` as ליבי's spoken swap —
-  and the tray shows where each lands; nothing is written until the tap, which
-  sends the preview's own `SwapRequest` to `swapAppointmentsAction`, so a diary
-  that changed in between is refused rather than improvised.
+  land: **red** where another live booking of the same provider is, or where
+  the time has already passed ("כבר עבר" — `nowInWeek`, in the shop's own
+  timezone) — both refused on drop, in the browser, before anything is sent,
+  the clash because `appointments_no_overlap_staff` would refuse it anyway;
+  **amber** on a block or outside opening hours. **A drop is final.** The ghost
+  has already shown the owner what the slot is, so the move goes to
+  `rescheduleAppointmentAction` with `force` and the shop's own rules are not
+  asked about a second time — the server's old "confirm" was a question about
+  a slot the owner had just looked at, and it cost a round trip before the
+  answer. The toast names a block or closed hours and carries **undo**: the
+  same move, back.
+- **Tap two** bookings to swap them. The plan is made **in the browser**, from
+  the week on screen: `planCalendarSwap` (in `calendar-edit`) turns the two
+  cards into `SwapSide`s and runs `planSwap` from `lib/swap-plan.ts` — the
+  pure planner ליבי's `planSwapFor` runs on the server — with "is anything
+  booked between them" answered from the same rows. The tray is up at the
+  second tap; a clash is a toast naming who is in the way, and the first pick
+  is kept. Confirm sends the plan's own `SwapRequest` to
+  `swapAppointmentsAction`, and `confirmSwap` re-plans on the server and
+  refuses a plan the diary has moved under, so a stale week is refused rather
+  than improvised. Undo is the same swap again, planned from the week as it
+  now stands. A test runs both planners over one PGlite week and holds them to
+  the same answer.
 - **Keyboard:** Enter picks a booking up and puts it down, the arrows carry it
   (Shift for an hour; left is tomorrow, right to left), Escape puts it back,
   Space picks it for a swap. A live region reads where it would land.
 - What cannot move — a block, a settled booking, half of one that crosses
   midnight — steps back visually; the crop is lifted while editing, since an
   hour cropped away is an hour nothing can be dragged into.
+
+### Every edit is drawn before it is sent
+
+A move, a swap and each undo become a `pendingEdits` entry — the moves it
+makes, and whether the server has said yes — and `shownEntries` draws the
+latest move per booking over the data. The card is where it was dropped in the
+frame after the release, whatever the round trip costs.
+
+- **Confirmed** on the action's `{ ok: true }`: the week cache is marked stale,
+  and the entry stays drawn until the data shows it — the action's
+  `revalidatePath` returns the redrawn page in the same response — or a later
+  edit of the same booking supersedes it, and is dropped after 20s regardless.
+  Settling happens during render, so the hand-over from drawn to real is never
+  a frame of the old position.
+- **Taken back** only on an explicit refusal (`{ ok: false }` — the clash
+  constraint, a stale swap) or a failed request: the entry goes, the error is a
+  toast, and the card shakes where it stands again. A failed request also
+  re-reads the week, because it may have been saved before the answer was
+  lost. **The "done" toast and its undo are taken down with it** (`toast()`
+  returns an id, `dismiss` takes it down): an undo pressed after a failed swap
+  would plan from the untouched week and perform the swap.
+- **Nothing waits.** Picks and drags stay live while writes are in flight;
+  Next dispatches a client's Server Actions one at a time, so a second move
+  lands after the first. The spinner in the rail's corner says a save is
+  pending.
 
 ### Cropping the empty hours
 
@@ -2267,6 +2296,42 @@ what makes both ends read as deliberate.
 The **tenant** booking page gets the same treatment in *their* colour rather
 than ours — see below.
 
+### The landing page's phones are drawn, not photographed
+
+The hero's phone and the tour's three are React, not images
+(`components/marketing/mock-kit.tsx`, `mock-screens.tsx`). The screenshots
+they replaced were the product on the day they were taken; the dashboard moved
+to liquid glass, a floating dock and ליבי, and they did not.
+
+- **Built from the product's own parts.** Every surface is the dashboard's
+  glass class — `glass-row`, `glass-inset`, `glass-dock glass-dock-float`,
+  `cal-glass`, `dock-fade` — and every status is the real `StatusChip`, so a
+  change to the glass reaches the landing page with no second edit.
+- **Scaled by variables, not a transform.** Tailwind v4 writes its utilities
+  against CSS variables (`p-4` is `calc(var(--spacing) * 4)`, `text-sm` is
+  `var(--text-sm)`, `rounded-3xl` is `var(--radius-3xl)`), so `.mock-ui`
+  redefines the spacing, the type scale and the radii in units of
+  `--u: calc(100cqw / 390)` under a `container-type: inline-size` screen. The
+  screens are written at the 390px phone's own sizes and draw at whatever
+  width the frame is — 352px in the hero, 304px in the tour — with no
+  `transform: scale` softening the text and nothing measured at runtime.
+  Arbitrary pixel values (`text-[11px]`) do not scale, which is what
+  `.mock-text-10` and `.mock-text-11` are for.
+- **Static.** ליבי's orb, glow and shimmer are CSS keyframes, so `/` stays a
+  prerender with no client island for them, and `prefers-reduced-motion` stops
+  all three. The glow has its own dark-mode stops: the pink that reads as light
+  on paper reads as a muddy red on near-black.
+- **Samples, announced as one.** Each phone is a single `role="img"` with a
+  Hebrew description and an `aria-hidden` interior. The names are samples and
+  there are no phone numbers — a made-up number is somebody's.
+
+`public/screenshots/`, `phone-frame.tsx`, `dashboard-mockup.tsx`,
+`lib/screenshots.ts` and its test went with them; git history has the images.
+ליבי also has a section of her own, "מדברים עם היומן" (`libi-showcase.tsx`):
+the things an owner says, what she does with each and which she asks about
+first, and one exchange played through, every line of it verbatim from
+`libi-tools` and `libi-status`.
+
 ### The booking page is the tenant's, in the tenant's colour
 
 `theme_color` used to reach a handful of controls and stop. The rest of
@@ -3501,8 +3566,9 @@ specs need `E2E_EMAIL` / `E2E_PASSWORD` for a confirmed owner account in
 - **Deposits are still schema-only.** `deposit_*` columns and the two enum
   statuses exist and are configurable in settings, and the section says so on
   screen. No booking has ever been written as `pending_deposit`.
-- **Marketing mockups** are the existing `MockupShowcase`, not phone-framed
-  renders of the booking flow and dashboard. A design-asset job, not a code one.
+- **The booking flow has no mockup on the landing page** — the dashboard's
+  phones are drawn in code (see *The landing page's phones are drawn*), the
+  booking page is shown only through its live demo links.
 - Sentry — `reportError` is the single call site to wire it into
 - E2E coverage of dashboard CRUD; that path is exercised only by the PGlite
   suite, not through a browser
