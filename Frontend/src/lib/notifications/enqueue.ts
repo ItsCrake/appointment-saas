@@ -74,6 +74,9 @@ function clientDelivery(
      */
     if (channel === "whatsapp") {
       if (!entitlements.canSendWhatsapp) continue;
+      // Switched off for this business from `/master` (0036): the walk goes
+      // on to SMS and email exactly as it does for a tenant without WhatsApp.
+      if (!business.whatsappEnabled) continue;
       if (!isChannelLive("whatsapp")) continue;
       const phone = appointment.clientPhone?.trim();
       if (phone) return { channel: "whatsapp", recipient: phone };
@@ -416,6 +419,12 @@ export async function enqueueWinBack({
 }): Promise<boolean> {
   const phone = candidate.phone.trim();
   if (!phone) return false;
+  /**
+   * WhatsApp is off for this business (0036). Not queued rather than queued and
+   * skipped: the dedupe key is the lapsed visit, so a row skipped now would use
+   * up the one win-back this client can ever get.
+   */
+  if (!business.whatsappEnabled) return false;
 
   const row = await enqueueNotification(db, {
     businessId: business.id,

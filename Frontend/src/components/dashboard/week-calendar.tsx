@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeftRight,
+  CalendarOff,
   CalendarPlus,
   Check,
   ChevronLeft,
@@ -33,6 +34,7 @@ import {
   Scissors,
   Tag,
   Trash2,
+  UserPlus,
   UserRound,
   UserX,
   X,
@@ -50,6 +52,7 @@ import {
 } from "@/app/dashboard/staff/actions";
 import { useToast } from "@/components/ui/toast";
 import { AppointmentDialog } from "./appointment-dialog";
+import { ManualBookingDialog } from "./manual-booking-dialog";
 import {
   assignLanes,
   blockMinHeight,
@@ -478,6 +481,7 @@ export function WeekCalendar({
   weekStart: serverWeekStart,
   thisWeek,
   staff,
+  services,
   timezone,
   scope,
   focusAppointmentId,
@@ -496,6 +500,8 @@ export function WeekCalendar({
   /** Today in the shop's zone. */
   thisWeek: string;
   staff: { id: string; name: string; color: string }[];
+  /** What a manual booking can be for — the shop's active services. */
+  services: { id: string; name: string; durationMin: number }[];
   timezone: string;
   /**
    * Whose weeks these are — the tenant's id — so the cache never shows one
@@ -515,6 +521,8 @@ export function WeekCalendar({
   focusAppointmentId?: string;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
+  /** The manual booking being written, on this date — see `NewEventMenu`. */
+  const [booking, setBooking] = useState<string | null>(null);
   // One at a time, held at the root so the card can be positioned `fixed` and
   // escape the grid's scroll clipping. See `EntryPopover`.
   const [hovered, setHovered] = useState<HoveredEntry | null>(null);
@@ -1883,8 +1891,9 @@ export function WeekCalendar({
           ))}
         </div>
 
-        {/* Edit mode: a pressed toggle, ink when on so the mode is never in
-            doubt — the dashboard's own "this is active" colour. */}
+        {/* Edit mode: a pressed toggle in the mode's own violet — the frame,
+            the canvas and the banner below wear it too, so the button and the
+            thing it switched on read as one. See `.cal-editing`. */}
         <button
           type="button"
           onClick={toggleEditing}
@@ -1893,7 +1902,7 @@ export function WeekCalendar({
             "inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-xs font-bold transition-colors",
             focusRing,
             editing
-              ? "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+              ? "bg-violet-600 text-white shadow-[0_6px_18px_-6px_rgb(124_58_237/0.7)] hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400"
               : "glass-control text-zinc-900 dark:text-zinc-100",
           )}
         >
@@ -1901,22 +1910,37 @@ export function WeekCalendar({
           עריכה
         </button>
 
-        <button
-          type="button"
-          onClick={() => setAdding(days[0]?.date ?? weekStart)}
-          className={cn(btnPrimary, "h-9 px-4 text-xs")}
-        >
-          <CalendarPlus className="size-4" aria-hidden />
-          אירוע חדש
-        </button>
+        <NewEventMenu
+          // Today where today is on screen, else the first day shown — the
+          // focused one, in the day view.
+          date={
+            days.find((day) => day.isToday)?.date ?? days[0]?.date ?? weekStart
+          }
+          onBlock={setAdding}
+          onBooking={setBooking}
+        />
       </div>
 
       {editing ? (
-        <div className="glass-inset mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl px-3.5 py-2.5 text-xs text-zinc-700 dark:text-zinc-300">
-          <Move className="size-4 shrink-0 text-zinc-500" aria-hidden />
+        /* The mode, named where the eye is — above the grid, in the frame's
+           violet, with a live dot and the way out on it. */
+        <div
+          role="status"
+          className="animate-fade mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border border-violet-300/70 bg-violet-50/90 px-3.5 py-2.5 text-xs text-violet-950 shadow-[0_10px_30px_-18px_rgb(124_58_237/0.6)] dark:border-violet-400/30 dark:bg-violet-950/45 dark:text-violet-100"
+        >
+          <span
+            aria-hidden
+            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white dark:bg-violet-500"
+          >
+            <Move className="size-3.5" />
+          </span>
           <p className="min-w-0 flex-1 leading-relaxed">
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-              מצב עריכה.
+            <span className="inline-flex items-center gap-1.5 font-bold">
+              <span aria-hidden className="relative flex size-2">
+                <span className="absolute inset-0 rounded-full bg-violet-500 motion-safe:animate-ping" />
+                <span className="relative size-2 rounded-full bg-violet-600 dark:bg-violet-400" />
+              </span>
+              מצב עריכה פעיל.
             </span>{" "}
             גררו תור כדי להזיז אותו — בקפיצות של 5 דקות. הקישו על שני תורים כדי
             להחליף ביניהם. הלקוחות לא מקבלים הודעה על שינוי — כדאי לעדכן אותם.
@@ -1925,7 +1949,7 @@ export function WeekCalendar({
             type="button"
             onClick={toggleEditing}
             className={cn(
-              "h-8 shrink-0 rounded-full bg-zinc-900 px-3.5 text-xs font-bold text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white",
+              "h-8 shrink-0 rounded-full bg-violet-600 px-3.5 text-xs font-bold text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400",
               focusRing,
             )}
           >
@@ -1991,8 +2015,10 @@ export function WeekCalendar({
           cardClass,
           "glass-frame overflow-auto overscroll-x-contain",
           "max-h-[68dvh] sm:max-h-[76dvh]",
-          "transition-opacity duration-200",
+          "transition-[opacity,box-shadow,border-color] duration-200",
           !heldWeek && "opacity-60",
+          // The frame says it is being edited — see `.cal-editing`.
+          editing && "cal-editing",
         )}
       >
         {/**
@@ -2146,6 +2172,16 @@ export function WeekCalendar({
                   );
                 })}
 
+                {/* Edit mode's canvas: a faint dot grid over the whole
+                    column, behind the cards and inert to the pointer — see
+                    `.cal-edit-canvas`. */}
+                {editing ? (
+                  <div
+                    aria-hidden
+                    className="cal-edit-canvas pointer-events-none absolute inset-0"
+                  />
+                ) : null}
+
                 {layoutByDay[dayIndex].map(({ entry, style, minHeight }) => (
                   <EntryCard
                     key={entry.id}
@@ -2177,6 +2213,7 @@ export function WeekCalendar({
                     title={ghostEntry.title}
                     bounds={bounds}
                     dayView={dayView}
+                    card={cardMode}
                   />
                 ) : null}
               </div>
@@ -2243,6 +2280,19 @@ export function WeekCalendar({
         />
       ) : null}
 
+      {booking ? (
+        <ManualBookingDialog
+          date={booking}
+          services={services}
+          staff={staff.map(({ id, name }) => ({ id, name }))}
+          onClose={() => setBooking(null)}
+          onCreated={() => {
+            setBooking(null);
+            refreshDiary();
+          }}
+        />
+      ) : null}
+
       {adding ? (
         <BlockDialog
           days={weekDays}
@@ -2255,6 +2305,148 @@ export function WeekCalendar({
       ) : null}
 
       <BlockList blocks={weekBlocks} onChanged={refreshDiary} />
+    </div>
+  );
+}
+
+/**
+ * **"אירוע חדש", split in two.**
+ *
+ * ---------------------------------------------------------------------------
+ * The button used to open the block dialog and nothing else, so an owner who
+ * wanted to put a client into the week from the week had to leave for the
+ * agenda to do it. Two different things live behind the one word, and the menu
+ * names them: time the shop is *not* available, and a booking *for* somebody.
+ *
+ * A menu rather than a dialog: it is a fork, not a form, and the form each
+ * branch opens is already its own dialog. Keyboard as a menu button should be
+ * — the first item takes focus, the arrows move, Escape returns to the button —
+ * and a press anywhere else closes it.
+ * ---------------------------------------------------------------------------
+ */
+function NewEventMenu({
+  date,
+  onBlock,
+  onBooking,
+}: {
+  /** The day either choice starts on. */
+  date: string;
+  onBlock: (date: string) => void;
+  onBooking: (date: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[0]?.focus();
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  const choose = (pick: (date: string) => void) => {
+    setOpen(false);
+    pick(date);
+  };
+
+  const onMenuKey = (event: React.KeyboardEvent) => {
+    const items = itemRefs.current.filter(
+      (item): item is HTMLButtonElement => item !== null,
+    );
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+    } else if (event.key === "Tab") {
+      setOpen(false);
+    }
+  };
+
+  const options: {
+    label: string;
+    hint: string;
+    icon: LucideIcon;
+    pick: (date: string) => void;
+  }[] = [
+    {
+      label: "חסימת זמן",
+      hint: "הפסקה, זמן אישי או שעות שלא עובדים בהן",
+      icon: CalendarOff,
+      pick: onBlock,
+    },
+    {
+      label: "תור ידני",
+      hint: "לקוח, שירות ושעה — נכנס ליומן כמו כל תור",
+      icon: UserPlus,
+      pick: onBooking,
+    },
+  ];
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+        className={cn(btnPrimary, "h-9 px-4 text-xs")}
+      >
+        <CalendarPlus className="size-4" aria-hidden />
+        אירוע חדש
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          aria-label="אירוע חדש"
+          onKeyDown={onMenuKey}
+          className="glass-float animate-fade absolute end-0 top-full z-40 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl p-1.5"
+        >
+          {options.map(({ label, hint, icon: Icon, pick }, index) => (
+            <button
+              key={label}
+              ref={(node) => {
+                itemRefs.current[index] = node;
+              }}
+              type="button"
+              role="menuitem"
+              onClick={() => choose(pick)}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-start transition-colors",
+                "hover:bg-zinc-950/5 focus-visible:bg-zinc-950/5 dark:hover:bg-white/10 dark:focus-visible:bg-white/10",
+                focusRing,
+              )}
+            >
+              <span className="glass-inset flex size-9 shrink-0 items-center justify-center rounded-full text-zinc-800 dark:text-zinc-200">
+                <Icon className="size-4" aria-hidden />
+              </span>
+              <span className="min-w-0 pt-0.5">
+                <span className="block text-sm font-bold text-zinc-950 dark:text-zinc-50">
+                  {label}
+                </span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {hint}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2976,12 +3168,20 @@ function DragGhost({
   title,
   bounds,
   dayView,
+  card,
 }: {
   ghost: DragView;
   title: string;
   bounds: GridBounds;
   dayView: boolean;
+  /**
+   * The density's card mode. A narrow mode's ghost says what its cards say —
+   * the start time and a first name — because a 42px lane cannot hold
+   * "12:05–12:35", and the time it cut to was "12…", which says nothing.
+   */
+  card: CardMode;
 }) {
+  const narrow = card !== "full";
   const box = placeItem(
     {
       id: ghost.entryId,
@@ -3002,8 +3202,9 @@ function DragGhost({
     <div
       aria-hidden
       className={cn(
-        "pointer-events-none absolute z-30 flex min-h-7 flex-col justify-start overflow-hidden border-2 border-dashed px-1.5 py-0.5 shadow-lg backdrop-blur-sm",
-        dayView ? "rounded-2xl" : "rounded-xl",
+        "pointer-events-none absolute z-30 flex min-h-7 flex-col justify-start overflow-hidden border-2 border-dashed py-0.5 shadow-lg backdrop-blur-sm",
+        narrow ? "px-1" : "px-1.5",
+        dayView ? "rounded-2xl" : narrow ? "rounded-lg" : "rounded-xl",
         clash
           ? "border-rose-600 bg-rose-50/90 text-rose-900 dark:border-rose-400 dark:bg-rose-950/80 dark:text-rose-100"
           : rule
@@ -3012,8 +3213,16 @@ function DragGhost({
       )}
       style={cardBox(box)}
     >
-      <span dir="ltr" className="truncate text-[11px]/4 font-bold tabular-nums">
-        {minutesToLabel(ghost.startMinutes)}–{minutesToLabel(ghost.endMinutes)}
+      <span
+        dir="ltr"
+        className={cn(
+          "truncate font-bold tabular-nums",
+          // The chips' own size in a narrow mode, where 11px clipped "12:05".
+          narrow ? "text-[10px]/[14px]" : "text-[11px]/4",
+        )}
+      >
+        {minutesToLabel(ghost.startMinutes)}
+        {narrow ? null : `–${minutesToLabel(ghost.endMinutes)}`}
       </span>
       <span className="truncate text-[10px]/4 font-medium opacity-90">
         {ghost.conflict?.kind === "clash"
@@ -3024,7 +3233,9 @@ function DragGhost({
               ? "כבר עבר"
               : ghost.conflict?.kind === "closed"
                 ? "מחוץ לשעות"
-                : title}
+                : narrow
+                  ? firstName(title)
+                  : title}
       </span>
     </div>
   );

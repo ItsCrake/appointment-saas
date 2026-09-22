@@ -46,6 +46,8 @@ export type TenantSummary = {
   lastBookingAt: Date | null;
   /** WhatsApp messages actually sent this calendar month. */
   whatsappThisMonth: number;
+  /** Automated WhatsApp allowed for this tenant — the `/master` switch (0036). */
+  whatsappEnabled: boolean;
 };
 
 /**
@@ -67,6 +69,7 @@ export async function listTenants(db: Database): Promise<TenantSummary[]> {
       planType: businesses.planType,
       subscriptionStatus: businesses.subscriptionStatus,
       trialEndsAt: businesses.trialEndsAt,
+      whatsappEnabled: businesses.whatsappEnabled,
       bookings: sql<number>`count(${appointments.id})::int`,
       lastBookingAt: sql<Date | string | null>`max(${appointments.createdAt})`,
       /**
@@ -228,6 +231,7 @@ export async function listChurnRisk(
       planType: businesses.planType,
       subscriptionStatus: businesses.subscriptionStatus,
       trialEndsAt: businesses.trialEndsAt,
+      whatsappEnabled: businesses.whatsappEnabled,
       bookings: sql<number>`count(${appointments.id}) FILTER (WHERE ${appointments.createdAt} >= ${at(since)})::int`,
       lastBookingAt: sql<Date | string | null>`max(${appointments.createdAt})`,
       /**
@@ -291,6 +295,7 @@ export async function listExpiringTrials(
       planType: businesses.planType,
       subscriptionStatus: businesses.subscriptionStatus,
       trialEndsAt: businesses.trialEndsAt,
+      whatsappEnabled: businesses.whatsappEnabled,
       bookings: sql<number>`0::int`,
       lastBookingAt: sql<Date | string | null>`NULL::timestamptz`,
       // This list answers "whose trial ends soon", not "who is using what", so
@@ -378,6 +383,28 @@ export async function extendTrial(
  * deliberate act by a person, and only a `billing` freeze is ever undone
  * without one.
  */
+/**
+ * Turns automated WhatsApp on or off for one tenant (0036).
+ *
+ * Only the flag: nothing already queued is touched here. The dispatcher skips
+ * a queued WhatsApp row for a business that is off when it reaches it, so a
+ * switch flipped back on before then sends the row after all — which is the
+ * behaviour the operator meant by switching it back.
+ */
+export async function setTenantWhatsappEnabled(
+  db: Database,
+  businessId: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const [row] = await db
+    .update(businesses)
+    .set({ whatsappEnabled: enabled })
+    .where(eq(businesses.id, businessId))
+    .returning({ id: businesses.id });
+
+  return Boolean(row);
+}
+
 export async function setTenantActive(
   db: Database,
   businessId: string,

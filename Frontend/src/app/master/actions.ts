@@ -13,6 +13,7 @@ import {
   replaceWorkingHours,
   setTenantActive,
   setTenantPlan,
+  setTenantWhatsappEnabled,
   setWhatsappDispatchDisabled,
 } from "@/db/queries";
 import { ASSIGNABLE_PLANS, planLabel, toPlanType } from "@/lib/plans";
@@ -212,6 +213,54 @@ export async function setTenantActiveAction(
       businessId: parsed.data.businessId,
     });
     return { ok: false, error: "עדכון הסטטוס נכשל" };
+  }
+}
+
+const whatsappSchema = idSchema.extend({ enabled: z.boolean() });
+
+/**
+ * Automated WhatsApp for one tenant, from the tenants table (0036).
+ *
+ * The platform-wide switch below still outranks it: a tenant switched on here
+ * sends nothing while the console or the environment says no. Logged like a
+ * freeze, because it changes whether real clients hear from a shop.
+ */
+export async function setTenantWhatsappAction(
+  input: unknown,
+): Promise<MasterResult> {
+  const parsed = whatsappSchema.safeParse(input);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0].message };
+
+  const admin = await requireSuperAdmin();
+
+  try {
+    const found = await setTenantWhatsappEnabled(
+      db,
+      parsed.data.businessId,
+      parsed.data.enabled,
+    );
+    if (!found) return { ok: false, error: "העסק לא נמצא" };
+
+    reportWarning("master.tenant.whatsapp", "tenant WhatsApp changed", {
+      adminUserId: admin.id,
+      businessId: parsed.data.businessId,
+      enabled: parsed.data.enabled,
+    });
+
+    revalidatePath("/master");
+    revalidatePath("/master/businesses");
+    return {
+      ok: true,
+      message: parsed.data.enabled
+        ? "וואטסאפ אוטומטי הופעל לעסק"
+        : "וואטסאפ אוטומטי כובה לעסק — אישורים ותזכורות יעברו לערוץ אחר אם יש, והודעות שכבר בתור ידולגו",
+    };
+  } catch (error) {
+    reportError("master.tenant.whatsapp", error, {
+      businessId: parsed.data.businessId,
+    });
+    return { ok: false, error: "העדכון נכשל" };
   }
 }
 

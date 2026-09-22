@@ -1326,6 +1326,58 @@ body {
   }
 }
 
+/**
+ * EDIT MODE — the calendar says it is being edited.
+ *
+ * The toolbar's pressed toggle and a grey hint were the only signs, and both
+ * sit above the grid — scrolled a little, the owner was dragging bookings on a
+ * calendar that looked exactly like the one they only read. So the mode now
+ * lives on the calendar itself, in three layers that agree:
+ *
+ * - **The frame** takes a violet ring and a soft glow of the same hue. Violet
+ *   is the product's own colour, not the tenant's: the cards inside are glass
+ *   in the shop's accent, and a frame in that accent would sit among them
+ *   rather than around them. Written into the frame's `--tw-*` variables
+ *   rather than as utilities, because `.glass-frame` is unlayered and would
+ *   win over any `ring-*` or `shadow-*` class.
+ * - **The canvas** — a faint dot grid over the open hours, the texture every
+ *   drawing tool uses to mean "things here can be moved". Behind the cards and
+ *   inert to the pointer.
+ * - **The banner** above it, in the same violet, with the way out on it.
+ */
+.cal-editing {
+  border-color: rgb(139 92 246 / 0.55);
+  --tw-ring-shadow: 0 0 0 2px rgb(139 92 246 / 0.5);
+  --tw-shadow:
+    0 0 0 7px rgb(139 92 246 / 0.1),
+    0 24px 60px -24px rgb(124 58 237 / 0.55);
+}
+
+.cal-edit-canvas {
+  background-image: radial-gradient(
+    rgb(124 58 237 / 0.2) 1px,
+    transparent 1.25px
+  );
+  background-size: 12px 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cal-editing {
+    border-color: rgb(167 139 250 / 0.5);
+    --tw-ring-shadow: 0 0 0 2px rgb(167 139 250 / 0.45);
+    --tw-shadow:
+      0 0 0 7px rgb(139 92 246 / 0.14),
+      0 24px 60px -24px rgb(139 92 246 / 0.6);
+  }
+
+  .cal-edit-canvas {
+    background-image: radial-gradient(
+      rgb(196 181 253 / 0.16) 1px,
+      transparent 1.25px
+    );
+  }
+}
+
 @media (prefers-color-scheme: dark) and (min-width: 40rem) {
   .glass-sheet {
     --tw-shadow:
@@ -1884,9 +1936,7 @@ body {
 /* ---------------------------------------------------------------------------
    ליבי's status words, shimmering while she works — see `LibiStatusLine`.
 
-   The glow that used to live here, a conic ring swept around the viewport, is
-   now `voice-glow`'s `VoiceBeam`, which answers the voice instead of sweeping
-   at one speed whatever was said. What stays in CSS is the text.
+   Her orb and her glow follow below — `.libi-orb` and `.libi-glow`.
 
    The light runs across the words in the direction Hebrew reads, right to
    left, over ink that is the words' own colour — a frame caught mid-sweep is
@@ -1924,6 +1974,169 @@ body {
   .libi-shimmer {
     --libi-ink: oklch(87% 0.006 286);
     --libi-shine: oklch(81% 0.11 294);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   ליבי's orb and glow — the landing page's still life, made live.
+
+   They replaced a canvas orb (`thinking-orbs`) and a full-screen beam that
+   followed every syllable (`voice-glow`). The owner asked for something
+   calmer, and the landing page already drew it: `.mock-orb` and
+   `.mock-voice-glow`. These are the same two things at the app's size and
+   driven by her state. Transform and opacity only, so the browser composites
+   them; no script, no audio sampled to make light.
+--------------------------------------------------------------------------- */
+@keyframes libi-orb-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes libi-orb-pulse {
+  0%,
+  100% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* A dotted ring turning around a point that breathes. Calm while she listens,
+   brisk while she works, nearly still while she speaks. */
+.libi-orb {
+  --libi-orb-turn: 4.5s;
+  --libi-orb-pulse: 1.9s;
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 2px dotted currentColor;
+  animation: libi-orb-turn var(--libi-orb-turn) linear infinite;
+}
+
+.libi-orb::after {
+  content: "";
+  position: absolute;
+  inset: 28%;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: libi-orb-pulse var(--libi-orb-pulse) ease-in-out infinite;
+}
+
+.libi-orb:is(
+    [data-state="searching"],
+    [data-state="working"],
+    [data-state="solving"],
+    [data-state="composing"]
+  ) {
+  --libi-orb-turn: 1.4s;
+  --libi-orb-pulse: 1.1s;
+}
+
+.libi-orb[data-state="breathing"] {
+  --libi-orb-turn: 9s;
+  --libi-orb-pulse: 2.6s;
+}
+
+@keyframes libi-glow-breathe {
+  0%,
+  100% {
+    transform: scaleY(0.84);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scaleY(1.04);
+    opacity: 1;
+  }
+}
+
+/* A soft band of the brand's colours along the bottom of the screen. The
+   element carries the phase and fades between them; its layer breathes at one
+   tempo throughout, so a change of phase never jumps. Idle, it is gone. */
+.libi-glow {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  height: clamp(110px, 18vh, 180px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+
+.libi-glow[data-phase="recording"] {
+  opacity: 0.9;
+}
+
+.libi-glow[data-phase="processing"] {
+  opacity: 0.55;
+}
+
+.libi-glow[data-phase="speaking"] {
+  opacity: 0.8;
+}
+
+.libi-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  background-image:
+    radial-gradient(
+      42% 80% at 20% 100%,
+      rgb(236 72 153 / 0.3),
+      transparent 72%
+    ),
+    radial-gradient(
+      46% 90% at 50% 100%,
+      rgb(124 58 237 / 0.36),
+      transparent 72%
+    ),
+    radial-gradient(
+      42% 80% at 80% 100%,
+      rgb(37 99 235 / 0.32),
+      transparent 72%
+    );
+  animation: libi-glow-breathe 4.2s ease-in-out infinite;
+}
+
+.libi-glow[data-phase="idle"]::before {
+  animation-play-state: paused;
+}
+
+/* As on the landing page: on near-black the pink turns muddy, so the violet
+   and blue carry the light and the pink stays a trace. */
+@media (prefers-color-scheme: dark) {
+  .libi-glow::before {
+    background-image:
+      radial-gradient(
+        42% 80% at 20% 100%,
+        rgb(217 70 239 / 0.22),
+        transparent 72%
+      ),
+      radial-gradient(
+        46% 90% at 50% 100%,
+        rgb(139 92 246 / 0.42),
+        transparent 72%
+      ),
+      radial-gradient(
+        42% 80% at 80% 100%,
+        rgb(59 130 246 / 0.38),
+        transparent 72%
+      );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .libi-orb,
+  .libi-orb::after,
+  .libi-glow::before {
+    animation: none;
   }
 }
 
@@ -2649,13 +2862,24 @@ body {
   line-height: 1.35;
 }
 
+/* A calendar card's type: the app's `text-[10px]/[14px]`, in screen pixels —
+   the line box is what `lineBudget` counts, so it has to scale with the rest. */
+.mock-card-type {
+  font-size: calc(var(--u) * 10);
+  line-height: calc(var(--u) * 14);
+}
+
+/* Edit mode's dot grid, at the screen's scale rather than the page's. */
+.mock-canvas {
+  background-size: calc(var(--u) * 12) calc(var(--u) * 12);
+}
+
 /**
  * ליבי's voice glow, as the page can draw it without her audio.
  *
- * The app's glow is `voice-glow`'s beam, answering a live microphone; a
- * marketing page has no voice to answer, so this is its still life — the same
- * light along the bottom edge, in the brand's violet and blue with a pink
- * between them, breathing slowly. Transform and opacity only, so it
+ * The app draws the same light as `.libi-glow` while a conversation is
+ * open; this is its still life — the light along the bottom edge, in the
+ * brand's violet and blue with a pink between them, breathing slowly. Transform and opacity only, so it
  * composites. No teal: the platform has none.
  */
 @keyframes mock-glow-breathe {
@@ -2718,9 +2942,8 @@ body {
 /**
  * The thinking orb, drawn in CSS.
  *
- * The app's orb is a canvas (`thinking-orbs`); here it is a dotted ring turning
- * around a point that breathes — the same idea at the size of a status line,
- * with no script on a page that is otherwise static.
+ * The app's orb is `.libi-orb`, the same dotted ring turning around a point
+ * that breathes; this one is sized in the mockup's own units.
  */
 @keyframes mock-orb-turn {
   to {

@@ -253,6 +253,13 @@
       "when": 1789496707284,
       "tag": "0035_bookings_paused",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790090161551,
+      "tag": "0036_whatsapp_per_business",
+      "breakpoints": true
     }
   ]
 }

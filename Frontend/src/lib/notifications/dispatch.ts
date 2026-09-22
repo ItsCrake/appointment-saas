@@ -292,7 +292,10 @@ export async function dispatchDueNotifications(
      * not be a hundred queries.
      */
     if (notification.channel === "whatsapp") {
-      const reason = whatsappSuppressionReason(consoleSuppressed);
+      const reason = whatsappSuppressionReason(
+        consoleSuppressed,
+        business.whatsappEnabled,
+      );
       if (reason) {
         await markNotificationSkipped(db, notification.id, reason);
         summary.skipped++;
@@ -349,17 +352,24 @@ export async function dispatchDueNotifications(
  * Why a WhatsApp message is being suppressed, or null when it may send.
  *
  * Returns the *reason string* rather than a boolean so the outbox row records
- * which of the two guards stopped it — "it was skipped" is not a useful thing
- * to read three weeks later when nobody remembers which switch was on.
+ * which of the three guards stopped it — "it was skipped" is not a useful thing
+ * to read three weeks later when nobody remembers which switch was on. The
+ * platform-wide ones are checked first, so a row stopped by both says the
+ * broader reason.
  */
 export function whatsappSuppressionReason(
   consoleSuppressed: boolean,
+  /** The business's own switch (0036); absent means on. */
+  businessEnabled = true,
 ): string | null {
   if (isWhatsappDispatchDisabled()) {
     return "whatsapp dispatch disabled (DISABLE_WHATSAPP_DISPATCH)";
   }
   if (consoleSuppressed) {
     return "whatsapp dispatch disabled (master console toggle)";
+  }
+  if (!businessEnabled) {
+    return "whatsapp disabled for this business (master console)";
   }
   return null;
 }

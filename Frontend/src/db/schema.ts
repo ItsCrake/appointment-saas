@@ -172,6 +172,17 @@ export const businesses = pgTable("businesses", {
    */
   bookingsPaused: boolean("bookings_paused").notNull().default(false),
   /**
+   * Automated WhatsApp for this business, set from `/master` (0036).
+   *
+   * Off, WhatsApp is skipped in the channel walk as if it were not live — a
+   * confirmation or reminder falls through to SMS or email where there is one,
+   * a win-back is not queued — and anything already queued on it is skipped at
+   * dispatch with the reason. It sits beside the platform-wide switches and
+   * outranks neither: any of them saying no is no. A trigger refuses a change
+   * from the tenant's own role — see the migration.
+   */
+  whatsappEnabled: boolean("whatsapp_enabled").notNull().default(true),
+  /**
    * Which starting point the owner picked in the wizard (0026). Nullable
    * because every shop created before it chose nothing, and text rather than
    * an enum because the list is a product decision that will churn — see the

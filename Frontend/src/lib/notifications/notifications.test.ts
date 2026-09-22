@@ -6,8 +6,10 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 
+import { setTenantWhatsappEnabled } from "@/db/queries/admin";
 import {
   cancelPendingNotificationsForAppointment,
   enqueueNotification,
@@ -22,6 +24,7 @@ import {
   enqueueBookingNotifications,
   enqueueCancellationNotifications,
   enqueueRejectionNotifications,
+  enqueueWinBack,
 } from "@/lib/notifications/enqueue";
 import { toE164 } from "@/lib/notifications/providers";
 import { renderNotification } from "@/lib/notifications/templates";
@@ -170,6 +173,121 @@ describe("the master console toggle suppresses WhatsApp", () => {
     expect(stored.status).toBe("skipped");
 
     await harness.pg.exec("INSERT INTO platform_settings (id) VALUES (true)");
+  });
+});
+
+/**
+ * **WhatsApp switched off for one business** (0036) — the `/master` switch.
+ *
+ * With WhatsApp genuinely live (Meta credentials set), so the channel walk
+ * would otherwise choose it: switched off, a confirmation falls through to
+ * email, a win-back is not queued at all, and what was already queued is
+ * skipped with the reason — and nothing reaches the network either way.
+ */
+describe("WhatsApp switched off for one business", () => {
+  const saved = {
+    phone: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    token: process.env.WHATSAPP_ACCESS_TOKEN,
+    disabled: process.env.DISABLE_WHATSAPP_DISPATCH,
+  };
+  const calls: string[] = [];
+
+  beforeEach(async () => {
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "123456789";
+    process.env.WHATSAPP_ACCESS_TOKEN = "EAAG-token";
+    delete process.env.DISABLE_WHATSAPP_DISPATCH;
+    await harness.pg.exec(
+      "UPDATE platform_settings SET whatsapp_dispatch_disabled = false",
+    );
+    calls.length = 0;
+    // Any call to Meta would be a failure of the switch; record it instead.
+    vi.stubGlobal("fetch", async (input: unknown) => {
+      calls.push(String(input));
+      return new Response("{}", { status: 500 });
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const [key, value] of [
+      ["WHATSAPP_PHONE_NUMBER_ID", saved.phone],
+      ["WHATSAPP_ACCESS_TOKEN", saved.token],
+      ["DISABLE_WHATSAPP_DISPATCH", saved.disabled],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const paying = { planType: "pro", subscriptionStatus: "active" } as const;
+  const withPhone = { clientPhone: "0501234567" } as const;
+
+  it("queues on WhatsApp while the business allows it", async () => {
+    const { business, appointment } = await scenario(paying, withPhone);
+
+    await enqueueBookingNotifications({ db, business, appointment, now: NOW });
+
+    const rows = await listRecentNotifications(db, business.id);
+    const confirmation = rows.find(
+      (row) => row.kind === "booking_confirmation",
+    );
+    expect(confirmation?.channel).toBe("whatsapp");
+  });
+
+  it("falls through to email once the business is switched off", async () => {
+    const { business, appointment } = await scenario(
+      { ...paying, whatsappEnabled: false },
+      withPhone,
+    );
+
+    await enqueueBookingNotifications({ db, business, appointment, now: NOW });
+
+    const rows = await listRecentNotifications(db, business.id);
+    const confirmation = rows.find(
+      (row) => row.kind === "booking_confirmation",
+    );
+    expect(confirmation?.channel).toBe("email");
+    expect(confirmation?.recipient).toBe("client@example.test");
+    expect(rows.some((row) => row.channel === "whatsapp")).toBe(false);
+  });
+
+  it("skips what was already queued on WhatsApp, and says why", async () => {
+    const { business, appointment } = await scenario(paying, withPhone);
+    await enqueueNotification(db, {
+      businessId: business.id,
+      appointmentId: appointment.id,
+      channel: "whatsapp",
+      kind: "booking_confirmation",
+      recipient: "0501234567",
+      scheduledFor: NOW,
+      dedupeKey: `wa-business:${appointment.id}`,
+    });
+    await setTenantWhatsappEnabled(db, business.id, false);
+
+    const summary = await dispatchDueNotifications(db, { now: NOW });
+
+    expect(summary.skipped).toBe(1);
+    const [stored] = await listRecentNotifications(db, business.id);
+    expect(stored.status).toBe("skipped");
+    expect(stored.lastError).toContain("disabled for this business");
+    expect(calls).toEqual([]);
+  });
+
+  it("does not queue a win-back, which is WhatsApp or nothing", async () => {
+    const { business, appointment } = await scenario(
+      { ...paying, whatsappEnabled: false },
+      withPhone,
+    );
+
+    const queued = await enqueueWinBack({
+      db,
+      business,
+      candidate: { phone: "0501234567", appointmentId: appointment.id },
+      now: NOW,
+    });
+
+    expect(queued).toBe(false);
+    expect(await listRecentNotifications(db, business.id)).toEqual([]);
   });
 });
 

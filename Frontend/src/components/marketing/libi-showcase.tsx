@@ -1,6 +1,5 @@
 import { AudioLines, Check } from "lucide-react";
 
-import { trialEntitlements } from "@/lib/entitlements";
 import { cn } from "@/lib/utils";
 
 import { MockOrb } from "./mock-kit";
@@ -17,26 +16,24 @@ import { MockOrb } from "./mock-kit";
  * `libi-tools` speaks, the stage is `libi-status`'s, and the button is the one
  * her card draws.
  *
- * **The left-hand side says what else she answers**, as the words an owner
- * would actually use, each with what she does about it — and which ones she
- * asks about first. That promise is the product's (nothing that already exists
- * is changed on one sentence), so it is stated where the reader is deciding
- * whether to trust it.
+ * **The words beside it are a heading and one paragraph.** A list of sample
+ * sentences and a footnote under it used to share that column; the owner
+ * asked for them to go, so the exchange is the section's picture and the
+ * paragraph carries the one promise that matters — nothing already booked is
+ * changed without asking.
  *
  * Static: the orb and the glow are CSS, so the page stays prerendered.
  * ---------------------------------------------------------------------------
  */
 
-const PHRASES = [
-  { said: "תקבעי לדני מחר בשלוש, תספורת", does: "קובעת את התור" },
-  { said: "מה יש לי בשבוע הבא?", does: "עונה מתוך היומן" },
-  { said: "תזיזי את דנה לארבע", does: "מזיזה", asks: true },
-  { said: "תחליפי בין רונית ליוסי", does: "מחליפה ביניהם", asks: true },
-  { said: "תבטלי את התור של אבי", does: "מבטלת", asks: true },
-] as const;
-
 /** Something the owner said out loud. */
-function Spoken({ children, className }: { children: string; className?: string }) {
+function Spoken({
+  children,
+  className,
+}: {
+  children: string;
+  className?: string;
+}) {
   return (
     <p
       className={cn(
@@ -83,7 +80,11 @@ function Answer({
           className="cal-glass mt-3 flex w-fit items-center gap-3 rounded-xl border px-3 py-2 text-zinc-900 dark:text-zinc-50"
         >
           <span className="text-sm font-bold">{booking.name}</span>
-          <span className="text-xs tabular-nums opacity-75">{booking.time}</span>
+          {/* A span of two times: laid out left to right, or the RTL line
+              draws the end time first — see `EntryCard`'s `span`. */}
+          <span dir="ltr" className="text-xs tabular-nums opacity-75">
+            {booking.time}
+          </span>
         </div>
       ) : null}
     </div>
@@ -91,8 +92,6 @@ function Answer({
 }
 
 export function LibiShowcase() {
-  const inTrial = trialEntitlements().canAccessLibi;
-
   return (
     <section className="border-t border-zinc-200 dark:border-zinc-800">
       <div className="mx-auto grid w-full max-w-[1400px] items-center gap-14 px-5 py-20 sm:px-8 sm:py-28 lg:grid-cols-2 lg:gap-16">
@@ -101,42 +100,9 @@ export function LibiShowcase() {
             מדברים עם היומן
           </h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-pretty text-zinc-600 sm:text-lg dark:text-zinc-300">
-            ליבי היא עוזרת קולית שמכירה את היומן שלכם. אומרים לה מה צריך — לקבוע,
-            להזיז, להחליף או לבטל — והיא עושה את זה, בלי להקליד, בין לקוח
+            ליבי היא עוזרת קולית שמכירה את היומן שלכם. אומרים לה מה צריך —
+            לקבוע, להזיז, להחליף או לבטל — והיא עושה את זה, בלי להקליד, בין לקוח
             ללקוח. תור שכבר נקבע היא לא משנה בלי לשאול קודם.
-          </p>
-
-          {/* One panel split by hairlines, as "how it works" is: five things
-              to say are a list, and five cards would make them look like five
-              products. */}
-          <ul className="mt-10 grid gap-px overflow-hidden rounded-3xl bg-zinc-200 dark:bg-zinc-800">
-            {PHRASES.map((phrase) => (
-              <li
-                key={phrase.said}
-                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 bg-white px-5 py-4 dark:bg-zinc-950"
-              >
-                <span className="text-[15px] font-semibold text-zinc-950 dark:text-zinc-50">
-                  «{phrase.said}»
-                </span>
-                <span className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                  {phrase.does}
-                  {"asks" in phrase ? (
-                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-900/5 ring-inset dark:bg-zinc-800 dark:text-zinc-300 dark:ring-white/10">
-                      שואלת קודם
-                    </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          <p className="mt-6 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-            בזמן שהיא עובדת רואים מה היא עושה — שומעת, בודקת ביומן, חושבת — והיומן
-            מתעדכן מאחוריה ברגע שהשינוי נשמר. היא עונה בקול, ואפשר לקטוע אותה
-            באמצע משפט.{" "}
-            {inTrial
-              ? "ליבי כלולה במסלול המקצועי, ופתוחה לכל עסק בתקופת הניסיון."
-              : "ליבי כלולה במסלול המקצועי."}
           </p>
         </div>
 

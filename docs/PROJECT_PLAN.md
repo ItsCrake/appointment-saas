@@ -2115,6 +2115,66 @@ and [the delete](ARCHITECTURE.md#deleting-a-cancelled-booking).
     span reading start to end after the `dir` fix.
 - `npm run verify` green at **1913 across 115 files**.
 
+### WhatsApp per business, a quieter ליבי, and a calendar that says it is being edited ✅
+
+Five requests: a WhatsApp switch per tenant in `/master`, ליבי's visuals in
+the landing page's calmer language, a choice behind "אירוע חדש", an edit mode
+nobody can miss, and the landing page's text and calendar mockup. The maps are
+in ARCHITECTURE — *Three switches can stop WhatsApp*, *Edit mode says so on the
+calendar itself*, *"אירוע חדש" is two things*, *What she shows while she
+works*, and *The landing page's phones are drawn*.
+
+- **WhatsApp, per business (0036).** `businesses.whatsapp_enabled`, default
+  on, set from a switch in the WhatsApp column of `/master/businesses`. Off,
+  WhatsApp leaves that tenant's channel walk — a confirmation or reminder
+  falls through to SMS or email where there is one, a win-back is not queued —
+  and anything already queued on it is skipped at dispatch with the reason. It
+  joins the environment variable and the platform-wide toggle; any one says
+  no. **A trigger refuses a change to the column from the tenant's own role**,
+  because `businesses_owner_all` lets an owner write their own row through
+  PostgREST. **Applied to production 2026-09-22 with the owner's approval**
+  and read back: 37 migrations, the column `boolean NOT NULL DEFAULT true`, all
+  5 businesses on, the trigger enabled.
+- **ליבי, quieter.** The canvas orb (`thinking-orbs`) and the audio-reactive
+  beam (`voice-glow`) are gone — uninstalled, with the level meter that fed the
+  beam — replaced by the landing page's own: `.libi-orb`, a dotted ring whose
+  tempo follows her state, and `.libi-glow`, a soft brand-coloured band that
+  breathes and fades between phases. CSS only; nothing loads when she is used.
+- **"אירוע חדש" is a menu**: חסימת זמן (the block dialog) or תור ידני (the
+  agenda's manual-booking dialog, now reachable from the week — the page loads
+  the active services for it). Keyboard as a menu button; closes on Escape or
+  a press elsewhere.
+- **Edit mode wears violet in four places**: a ring, halo and glow on the
+  calendar's frame, a faint dot canvas over the columns, a banner ("מצב עריכה
+  פעיל." with a live dot and סיום), and the filled toggle. The drag, the swap
+  and the instant saves are untouched. Found on the way: **a narrow density's
+  drag ghost** cut "12:05–12:35" to "12…" in a 42px lane; it now says the start
+  time and a first name, at the chips' own size.
+- **The landing page.** The ליבי section keeps its heading and paragraph
+  beside the conversation; the sample-phrase list and the footnote under it are
+  gone. **The calendar phone is rebuilt on the calendar's own layout
+  functions** — the 72px compact hour, edit mode's full working day, lanes,
+  boxes, floors and line budgets — with seven days (the crop button it still
+  showed is gone), the new violet edit frame, one request in amber and one
+  booking being carried. Its booking chip's span (`16:00–16:30`) and the
+  showcase's are `dir="ltr"`.
+- **Verified in a browser**: the edit frame (the ring and glow read back from
+  computed styles, seven canvases, the banner) and the menu (both items, focus
+  on open, arrows, Escape back to the button, each dialog opening) at 1280 and
+  390, light and dark, **with every Server Action blocked**. ליבי through a
+  whole turn with a stand-in microphone and **her endpoint answered in the
+  page** — never reached: glow `recording` at 0.9 → `processing` at 0.55 with
+  the orb going `listening` → `searching` → `working` → `speaking` at 0.8,
+  `breathing` → faded out; no canvas on the page at any point. The landing page
+  at 1440 and 390 in both schemes, no horizontal overflow, and the calendar
+  phone magnified. **With the owner's approval**, demo-barber's WhatsApp was
+  switched off in `/master`, read back after a reload, and switched on again.
+- **Found, not fixed — needs its own change:** the same PostgREST path lets an
+  owner write *every* column of their own `businesses` row, including
+  `plan_type`, `subscription_status`, `trial_ends_at` and `is_active`. Only
+  `whatsapp_enabled` is guarded. See §5.
+- `npm run verify` green at **1919 across 115 files**.
+
 ---
 
 ## 5. Where things stand
@@ -2123,10 +2183,10 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1913 tests across 115 files**; Playwright
-**11/11** across 3 specs (not run every session). **All 36 migrations
-(0000–0035) are applied to production** — 0035 (`bookings_paused`) on
-2026-09-16, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
+**Green:** `npm run verify` at **1919 tests across 115 files**; Playwright
+**11/11** across 3 specs (not run every session). **All 37 migrations
+(0000–0036) are applied to production** — 0036 (`whatsapp_enabled` and its
+guard trigger) on 2026-09-22, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
 so the orphaned `siri_api_token` columns are gone; the "0031 is pending" this
 line once carried was stale. Fifteen tables, RLS on
 every one, zero reachable by `anon`. **No migration pending.**
@@ -2353,7 +2413,7 @@ the served tier plus the reason.
 | **`position: sticky` does nothing inside `overflow-x-auto`** | CSS computes `overflow-y` to `auto` the moment *either* axis is not `visible` — so a horizontally scrolling wrapper is already a scroll container in **both** directions, and sticky resolves against it rather than against the page. With the wrapper at content height there is nothing to scroll within, and the header simply never sticks. Bounding the wrapper's height is what makes sticky work at all; it is not decoration around it. `overflow-x: clip` does not have this effect, but it does not scroll either. | the calendar's scroll wrapper in `week-calendar.tsx` |
 | **A lockfile above `Frontend/` breaks the dev server** | Next infers the workspace root from the outermost lockfile. An `npm install` run at the repo root left `package.json`, `package-lock.json` and `node_modules/` there, and `next dev` then 500'd on every page ("Could not find the module … in the React Client Manifest"). `turbopack.root` in `next.config.ts` pins the root now; a stale cache after it needs `.next/dev` deleted once. **The root files were removed on 2026-09-19** (to the Recycle Bin); the pin stays as the guard against the next `npm install` run one directory too high. | `next.config.ts` |
 | **A navigation can arrive with the same props** | The router may answer a navigation back to the range a page first rendered from its cache, with the very same prop objects — so state that follows "the server's range" by comparing props (dates *or* identity) silently misses it. The agenda stayed on Saturday after the dock's "היומן". The calendar and the agenda detect navigations on the URL, which every in-memory step keeps in step through `replaceState`. | `agenda-view.tsx`, `week-calendar.tsx` |
-| **`VoiceBeam`'s root is `position: relative`, and wins** | The package injects its stylesheet into the body, after Tailwind's, and its root rule sets `position: relative` at the same specificity as `.fixed` — so a `fixed inset-0` class on the beam loses and the glow collapses to zero height in normal flow. It sits inside a fixed frame of ours. | `libi-assistant.tsx` |
+| **A tenant can write their own `businesses` row through PostgREST** | `businesses_owner_all` is `FOR ALL TO authenticated`, and `authenticated` holds every table privilege — so an owner with a session and the public anon key can `PATCH /rest/v1/businesses` and change any column of their own row, `plan_type`, `subscription_status`, `trial_ends_at` and `is_active` included. The app never writes that way (Drizzle, as the table owner), which is why nothing broke. **Only `whatsapp_enabled` is guarded** (0036's trigger); the rest needs a migration of its own — a trigger over the platform's columns, or column-level `UPDATE` grants — and a decision about which columns an owner may keep writing. | migration 0002, 0036 |
 | **Repeated Playwright sign-ins trip the login limiter** | Each run of a temporary spec signs in afresh, and the fifth or so in a few minutes answers "נשלחו יותר מדי בקשות" — the spec then times out on `waitForURL`, which reads like a broken login. Wait two minutes. And hide `nextjs-portal` in a spec that presses ליבי's docked button: under `next dev` the tools badge sits exactly on it and swallows the click. | `e2e/helpers.ts` `signInAsOwner` |
 | **Supabase Auth's client turns every 5xx into `{}`** | From auth-js 2.108 a 5xx is a transport failure: the message is `JSON.stringify(response)`, which is `{}`, and the body is never read. A project whose mail is broken therefore fails every sign-up with two characters, in the form *and* in the log. `createSupabaseServerClient({ onAuthServerFailure })` keeps the body; `usableMessage` refuses to treat `{}` as a message. Re-check on the next auth-js upgrade — `auth-failure.test.ts` fails when they start reading the body again. | `lib/supabase/server.ts`, `lib/auth-errors.ts` |
 | **`next dev` prints Server Action arguments** | Next 16 logs every server-function call in development *with its arguments* — the sign-in action's included, the E2E password in plain text. Local only, but a dev log pasted anywhere carries it. **Off since 2026-09-19:** `logging.serverFunctions: false` in `next.config.ts`. Turn it back on only for a session that needs to see the calls, and not with a real account signed in. | `next.config.ts` |
@@ -3232,9 +3292,9 @@ cost time here:
 conversation (2026-09-17). Chromium with a WAV file as the microphone
 verified the loop, the noise handling, talking over her and the faster voice;
 whether iOS Safari lowers her volume or routes it to the earpiece while a
-capture is live needs a real device. So does the new glow: `voice-glow` turns
-its distortion off on a phone-sized host in WebKit by design, and the rest of it
-has only been seen in Chromium.
+capture is live needs a real device. Her glow and orb are plain CSS since
+2026-09-22 (transform and opacity only), so they are not the risk on a phone
+they were as a package.
 
 **No longer blocked on data.** The calendar carrying real appointments and the
 appointment dialog as a bottom sheet were parked here because both demo tenants

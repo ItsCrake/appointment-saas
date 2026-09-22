@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
-  FoldVertical,
   Grid2x2,
   Hourglass,
   MessageCircle,
@@ -20,6 +19,18 @@ import {
   Users,
 } from "lucide-react";
 
+import {
+  assignLanes,
+  cardBox,
+  cardHeightPx,
+  gapsToNext,
+  gridBounds,
+  hourRowPx,
+  hourRows,
+  lineBudget,
+  minutesToLabel,
+  placeItem,
+} from "@/lib/calendar-layout";
 import { cn } from "@/lib/utils";
 
 import {
@@ -57,7 +68,9 @@ function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
       <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
         {title}
       </p>
-      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{subtitle}</p>
+      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        {subtitle}
+      </p>
     </div>
   );
 }
@@ -174,69 +187,139 @@ export function AgendaScreen() {
 
 /* -------------------------------------------------------------------------- */
 
-/** The week's columns: weekday letter and date, Sunday to Friday. */
+/**
+ * The week the calendar mockup draws: Sunday to Saturday, "today" the
+ * Wednesday the agenda mockup is on. The shop's hours are 09:00–19:00, Friday
+ * until 14:00, Saturday closed — as `CalendarDay.open` would carry them.
+ */
 const WEEK_DAYS = [
-  { day: "א", date: "13.9" },
-  { day: "ב", date: "14.9" },
-  { day: "ג", date: "15.9" },
-  { day: "ד", date: "16.9", today: true },
-  { day: "ה", date: "17.9" },
-  { day: "ו", date: "18.9" },
+  { day: "א", date: "13.9", open: [540, 1140] },
+  { day: "ב", date: "14.9", open: [540, 1140] },
+  { day: "ג", date: "15.9", open: [540, 1140] },
+  { day: "ד", date: "16.9", open: [540, 1140], today: true },
+  { day: "ה", date: "17.9", open: [540, 1140] },
+  { day: "ו", date: "18.9", open: [540, 840] },
+  { day: "ש", date: "19.9", open: null },
 ] as const;
 
-/** First hour drawn, and how many. */
-const GRID_START = 9;
-const GRID_HOURS = 7;
-
-type Chip = {
+type Sample = {
   day: number;
-  /** Minutes past 09:00. */
-  at: number;
-  /** Minutes long. */
-  length: number;
+  /** "HH:MM". */
+  at: string;
+  minutes: number;
   name: string;
-  time: string;
-  state?: "pending" | "muted" | "selected" | "lifted";
+  state?: "pending" | "lifted";
 };
 
-/** Sample bookings, in compact density — a first name and a start time. */
-const CHIPS: readonly Chip[] = [
-  { day: 0, at: 0, length: 30, name: "דנה", time: "09:00" },
-  { day: 0, at: 60, length: 45, name: "יוסי", time: "10:00" },
-  { day: 0, at: 150, length: 30, name: "אבי", time: "11:30" },
-  { day: 1, at: 30, length: 45, name: "אורי", time: "09:30", state: "pending" },
-  { day: 1, at: 120, length: 30, name: "מיכל", time: "11:00" },
-  { day: 2, at: 0, length: 30, name: "רונית", time: "09:00" },
-  { day: 2, at: 75, length: 30, name: "עומר", time: "10:15" },
-  { day: 2, at: 180, length: 45, name: "נועה", time: "12:00" },
-  { day: 3, at: 60, length: 30, name: "שירה", time: "10:00", state: "lifted" },
-  { day: 3, at: 150, length: 30, name: "טל", time: "11:30", state: "muted" },
-  { day: 4, at: 45, length: 30, name: "גיל", time: "09:45", state: "selected" },
-  { day: 4, at: 135, length: 45, name: "ליאור", time: "11:15" },
-  { day: 5, at: 0, length: 30, name: "עדי", time: "09:00" },
-  { day: 0, at: 270, length: 45, name: "מאיה", time: "13:30" },
-  { day: 1, at: 240, length: 30, name: "אלון", time: "13:00" },
-  { day: 1, at: 330, length: 45, name: "הדס", time: "14:30" },
-  { day: 2, at: 300, length: 30, name: "בן", time: "14:00" },
-  { day: 3, at: 240, length: 45, name: "יעל", time: "13:00" },
-  { day: 4, at: 285, length: 30, name: "רועי", time: "13:45" },
-  { day: 5, at: 90, length: 30, name: "שחר", time: "10:30" },
+/**
+ * A barbershop's week — haircuts, beard trims, colour — with one request
+ * waiting in amber and one booking being carried to a new time.
+ */
+const SAMPLES: readonly Sample[] = [
+  { day: 0, at: "09:00", minutes: 30, name: "דנה לוי" },
+  { day: 0, at: "09:30", minutes: 45, name: "יוסי כהן" },
+  { day: 0, at: "10:30", minutes: 30, name: "אבי שמעוני" },
+  { day: 0, at: "11:15", minutes: 15, name: "מאיה רז" },
+  { day: 0, at: "12:00", minutes: 30, name: "רון אזולאי" },
+  { day: 0, at: "13:30", minutes: 45, name: "גל פרץ" },
+  { day: 1, at: "09:15", minutes: 45, name: "אורי מזרחי", state: "pending" },
+  { day: 1, at: "10:30", minutes: 30, name: "מיכל אברהם" },
+  { day: 1, at: "11:00", minutes: 15, name: "אלון דהן" },
+  { day: 1, at: "12:30", minutes: 30, name: "הדס ביטון" },
+  { day: 1, at: "14:00", minutes: 45, name: "שני גבאי" },
+  { day: 2, at: "09:00", minutes: 30, name: "רונית שפירא" },
+  { day: 2, at: "09:45", minutes: 30, name: "עומר לוי" },
+  { day: 2, at: "10:30", minutes: 45, name: "נועה פרידמן" },
+  { day: 2, at: "12:00", minutes: 30, name: "בן אוחיון" },
+  { day: 2, at: "13:00", minutes: 15, name: "תמר עזרא" },
+  { day: 3, at: "09:30", minutes: 30, name: "שירה נחום", state: "lifted" },
+  { day: 3, at: "10:15", minutes: 30, name: "טל חדד" },
+  { day: 3, at: "11:00", minutes: 45, name: "יעל שטרן" },
+  { day: 3, at: "13:00", minutes: 30, name: "רועי חיים" },
+  { day: 4, at: "09:00", minutes: 30, name: "גיל אלמוג" },
+  { day: 4, at: "09:45", minutes: 45, name: "ליאור טל" },
+  { day: 4, at: "11:00", minutes: 15, name: "עדי ברק" },
+  { day: 4, at: "12:15", minutes: 30, name: "שחר גולן" },
+  { day: 4, at: "13:30", minutes: 30, name: "מור אלון" },
+  { day: 5, at: "09:00", minutes: 30, name: "איתי כץ" },
+  { day: 5, at: "09:30", minutes: 30, name: "אלה נגר" },
+  { day: 5, at: "10:15", minutes: 15, name: "נוי שלום" },
+  { day: 5, at: "11:00", minutes: 45, name: "עמית רביבו" },
 ];
 
-/** Where a chip sits: percentages of the grid, as `placeItem` would put it. */
-function chipBox(at: number, length: number): CSSProperties {
-  const span = GRID_HOURS * 60;
-  return {
-    top: `${(at / span) * 100}%`,
-    height: `${(length / span) * 100}%`,
-  };
+/** Where the carried booking would land: Wednesday, 12:05. */
+const GHOST = { day: 3, startMinutes: 725, endMinutes: 755, name: "שירה נחום" };
+
+function toMinutes(at: string): number {
+  const [hours, minutes] = at.split(":").map(Number);
+  return hours * 60 + minutes;
 }
 
+const ITEMS = SAMPLES.map((sample, index) => ({
+  ...sample,
+  id: String(index),
+  dayIndex: sample.day,
+  startMinutes: toMinutes(sample.at),
+  endMinutes: toMinutes(sample.at) + sample.minutes,
+}));
+
 /**
- * **The full calendar in edit mode.** A week in compact density, one request
- * waiting in amber, one booking picked for a swap, and one being carried to a
- * new time — its ghost dashed where it would land, the card itself faded
- * where it was. The toolbar and the hint are the real ones.
+ * **The grid, laid out by the calendar's own functions.** The compact hour
+ * (`hourRowPx`), edit mode's full working day (`gridBounds` without the
+ * crop), the lanes, each card's box and floor, and how many lines each card
+ * has room for (`lineBudget`) — the same calls `WeekCalendar` makes, in the
+ * 390px screen's own pixels, so this cannot drift from the product the way
+ * a drawing would.
+ */
+const HOUR_PX = hourRowPx("week", "chip", null);
+
+const BOUNDS = gridBounds(
+  ITEMS,
+  WEEK_DAYS.flatMap((column) =>
+    column.open
+      ? [{ startMinutes: column.open[0], endMinutes: column.open[1] }]
+      : [],
+  ),
+  1,
+);
+
+const ROWS = hourRows(BOUNDS);
+
+const LAYOUT = WEEK_DAYS.map((_, dayIndex) => {
+  const placed = assignLanes(
+    ITEMS.filter((item) => item.dayIndex === dayIndex),
+  );
+  const gaps = gapsToNext(placed);
+  return placed.map((item) => {
+    const toNext = gaps.get(item.id) ?? null;
+    const floor = cardHeightPx(item.minutes, "week", toNext, "chip", HOUR_PX);
+    return {
+      item,
+      style: {
+        ...cardBox(placeItem(item, BOUNDS, undefined, toNext)),
+        minHeight: `calc(var(--u) * ${floor})`,
+      } satisfies CSSProperties,
+      lines: lineBudget(floor, "week", "chip"),
+    };
+  });
+});
+
+/** "דנה" from "דנה לוי" — what the compact card has room for. */
+function firstName(name: string): string {
+  return name.split(" ")[0] ?? name;
+}
+
+/** One hour of grid, in the screen's own pixels. */
+const hourStyle = {
+  height: `calc(var(--u) * ${HOUR_PX})`,
+} satisfies CSSProperties;
+
+/**
+ * **The full calendar in edit mode, on a phone.** The compact density — a
+ * first name and a start time, on one line or two as the booking's height
+ * allows — the violet frame and banner edit mode now wears, one request in
+ * amber, and one booking being carried: faded where it was, its dashed ghost
+ * where it would land. The toolbar is the real one.
  */
 export function WeekScreen() {
   return (
@@ -259,22 +342,15 @@ export function WeekScreen() {
               <ChevronLeft className="size-4" />
             </span>
           </span>
-          <span className="flex items-center gap-2">
-            <span className="glass-inset flex items-center rounded-full p-1 text-zinc-600 dark:text-zinc-400">
-              <span className="flex size-9 items-center justify-center rounded-full">
-                <FoldVertical className="size-4" />
-              </span>
+          <span className="glass-inset flex items-center gap-1 rounded-full p-1">
+            <span className="flex size-9 items-center justify-center rounded-full text-zinc-600 dark:text-zinc-400">
+              <Rows3 className="size-4" />
             </span>
-            <span className="glass-inset flex items-center gap-1 rounded-full p-1">
-              <span className="flex size-9 items-center justify-center rounded-full text-zinc-600 dark:text-zinc-400">
-                <Rows3 className="size-4" />
-              </span>
-              <span className="glass-control flex size-9 items-center justify-center rounded-full text-zinc-950 dark:text-zinc-50">
-                <Columns3 className="size-4" />
-              </span>
-              <span className="flex size-9 items-center justify-center rounded-full text-zinc-600 dark:text-zinc-400">
-                <Grid2x2 className="size-4" />
-              </span>
+            <span className="glass-control flex size-9 items-center justify-center rounded-full text-zinc-950 dark:text-zinc-50">
+              <Columns3 className="size-4" />
+            </span>
+            <span className="flex size-9 items-center justify-center rounded-full text-zinc-600 dark:text-zinc-400">
+              <Grid2x2 className="size-4" />
             </span>
           </span>
         </div>
@@ -289,7 +365,7 @@ export function WeekScreen() {
             </span>
           </span>
           <span className="flex items-center gap-2">
-            <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-zinc-900 px-4 text-xs font-bold text-white dark:bg-zinc-100 dark:text-zinc-900">
+            <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-violet-600 px-4 text-xs font-bold text-white shadow-[0_6px_18px_-6px_rgb(124_58_237/0.7)] dark:bg-violet-500">
               <Move className="size-4" />
               עריכה
             </span>
@@ -300,21 +376,24 @@ export function WeekScreen() {
           </span>
         </div>
 
-        <div className="glass-inset mb-3 flex items-center gap-3 rounded-2xl px-3.5 py-2.5">
-          <Move className="size-4 shrink-0 text-zinc-500" />
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-              מצב עריכה.
-            </span>{" "}
-            גררו תור כדי להזיז אותו — בקפיצות של 5 דקות.
+        <div className="mb-3 flex items-center gap-3 rounded-2xl border border-violet-300/70 bg-violet-50/90 px-3.5 py-2.5 text-xs text-violet-950 shadow-[0_10px_30px_-18px_rgb(124_58_237/0.6)] dark:border-violet-400/30 dark:bg-violet-950/45 dark:text-violet-100">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-white dark:bg-violet-500">
+            <Move className="size-3.5" />
+          </span>
+          <p className="min-w-0 flex-1 leading-relaxed">
+            <span className="font-bold">מצב עריכה פעיל.</span> גררו תור כדי
+            להזיז אותו — בקפיצות של 5 דקות.
           </p>
-          <span className="h-8 shrink-0 rounded-full bg-zinc-900 px-3.5 text-xs leading-8 font-bold text-white dark:bg-zinc-100 dark:text-zinc-900">
+          <span className="h-8 shrink-0 rounded-full bg-violet-600 px-3.5 text-xs leading-8 font-bold text-white dark:bg-violet-500">
             סיום
           </span>
         </div>
 
-        <div className="glass-frame overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="glass-header grid grid-cols-[2.5rem_repeat(6,minmax(0,1fr))] border-b border-zinc-200/80 dark:border-zinc-800/80">
+        <div className="glass-frame cal-editing overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div
+            className="glass-header grid border-b border-zinc-200/80 dark:border-zinc-800/80"
+            style={{ gridTemplateColumns: GRID_TEMPLATE }}
+          >
             <span />
             {WEEK_DAYS.map((column) => (
               <span
@@ -341,64 +420,120 @@ export function WeekScreen() {
             ))}
           </div>
 
-          <div className="grid h-[28rem] grid-cols-[2.5rem_repeat(6,minmax(0,1fr))]">
-            <div className="grid grid-rows-7">
-              {Array.from({ length: GRID_HOURS }, (_, hour) => (
-                <span
+          <div className="grid" style={{ gridTemplateColumns: GRID_TEMPLATE }}>
+            <div>
+              {ROWS.map((hour) => (
+                <div
                   key={hour}
-                  className="mock-text-10 relative border-b border-zinc-100 pe-1 text-end text-zinc-400 tabular-nums dark:border-zinc-800/60"
+                  style={hourStyle}
+                  className="relative border-b border-zinc-100 dark:border-zinc-800/60"
                 >
-                  {String(GRID_START + hour).padStart(2, "0")}:00
-                </span>
+                  <span className="mock-text-10 absolute end-1 -top-2 text-zinc-400 tabular-nums">
+                    {String(hour).padStart(2, "0")}:00
+                  </span>
+                </div>
               ))}
             </div>
+
             {WEEK_DAYS.map((column, dayIndex) => (
               <div
                 key={column.date}
                 className={cn(
-                  "relative grid grid-rows-7 border-s border-zinc-100 dark:border-zinc-800/60",
+                  "relative border-s border-zinc-100 dark:border-zinc-800/60",
                   "today" in column && "bg-(--accent-soft)/40",
                 )}
               >
-                {Array.from({ length: GRID_HOURS }, (_, hour) => (
-                  <span
+                {ROWS.map((hour) => (
+                  <div
                     key={hour}
+                    style={hourStyle}
                     className="border-b border-zinc-100 dark:border-zinc-800/60"
                   />
                 ))}
-                {CHIPS.filter((chip) => chip.day === dayIndex).map((chip) => (
+
+                {column.open ? (
+                  <div
+                    className="absolute inset-x-0 bg-zinc-50 dark:bg-zinc-800/30"
+                    style={openBand(column.open)}
+                  />
+                ) : null}
+
+                <div className="cal-edit-canvas mock-canvas absolute inset-0" />
+
+                {LAYOUT[dayIndex].map(({ item, style, lines }) => (
                   <span
-                    key={`${chip.day}-${chip.at}`}
-                    style={chipBox(chip.at, chip.length)}
+                    key={item.id}
+                    style={style}
                     className={cn(
-                      "absolute inset-x-0.5 flex flex-col justify-center overflow-hidden rounded-lg border px-1 backdrop-blur-sm",
-                      "cal-glass text-zinc-900 dark:text-zinc-50",
-                      chip.state === "pending" && "cal-pending",
-                      chip.state === "muted" &&
-                        "cal-muted text-zinc-600 dark:text-zinc-400",
-                      chip.state === "selected" &&
-                        "z-10 ring-2 ring-zinc-900 ring-offset-1 ring-offset-white dark:ring-zinc-100 dark:ring-offset-zinc-950",
-                      chip.state === "lifted" && "opacity-35",
+                      "absolute flex overflow-hidden rounded-lg border text-start backdrop-blur-sm",
+                      "cal-glass mock-card-type text-zinc-900 dark:text-zinc-50",
+                      item.state === "pending" && "cal-pending",
+                      item.state === "lifted" && "opacity-35",
                     )}
                   >
-                    <span className="mock-text-10 truncate font-bold">
-                      {chip.name}
+                    <span
+                      className={cn(
+                        "flex min-w-0 flex-1 flex-col justify-center overflow-hidden px-1",
+                        lines <= 1 ? "py-0" : "py-0.5",
+                      )}
+                    >
+                      {lines <= 1 ? (
+                        <span className="flex h-3.5 shrink-0 flex-wrap items-center gap-x-1 overflow-hidden">
+                          <span className="max-w-full min-w-0 truncate font-bold">
+                            {firstName(item.name)}
+                          </span>
+                          <span className="shrink-0 tabular-nums opacity-75">
+                            {item.at}
+                          </span>
+                        </span>
+                      ) : (
+                        <>
+                          <span className="flex h-3.5 shrink-0 items-center gap-1">
+                            <span className="min-w-0 flex-1 truncate font-bold">
+                              {firstName(item.name)}
+                            </span>
+                          </span>
+                          <span className="flex h-3.5 shrink-0 items-center gap-0.5">
+                            <span className="min-w-0 truncate tabular-nums opacity-75">
+                              {item.at}
+                            </span>
+                          </span>
+                        </>
+                      )}
                     </span>
-                    <span className="mock-text-10 truncate tabular-nums opacity-75">
-                      {chip.time}
-                    </span>
+                    {item.state === "pending" ? (
+                      <span className="absolute end-1 top-1 size-1.5 rounded-full bg-amber-600 ring-1 ring-white/80 dark:ring-zinc-950/70" />
+                    ) : null}
                   </span>
                 ))}
-                {dayIndex === 3 ? (
+
+                {dayIndex === GHOST.day ? (
                   /* The booking being carried: where it would land. */
                   <span
-                    style={chipBox(185, 30)}
-                    className="absolute inset-x-0.5 z-20 flex flex-col justify-center overflow-hidden rounded-lg border-2 border-dashed border-zinc-900/70 bg-white/85 px-1 text-zinc-900 shadow-lg dark:border-zinc-100/70 dark:bg-zinc-900/85 dark:text-zinc-50"
+                    style={cardBox(
+                      placeItem(
+                        {
+                          id: "ghost",
+                          dayIndex,
+                          startMinutes: GHOST.startMinutes,
+                          endMinutes: GHOST.endMinutes,
+                          lane: 0,
+                          lanes: 1,
+                        },
+                        BOUNDS,
+                      ),
+                    )}
+                    className="absolute z-30 flex min-h-7 flex-col justify-start overflow-hidden rounded-lg border-2 border-dashed border-zinc-900/70 bg-white/85 px-1 py-0.5 text-zinc-900 shadow-lg backdrop-blur-sm dark:border-zinc-100/70 dark:bg-zinc-900/85 dark:text-zinc-50"
                   >
-                    <span className="mock-text-10 truncate font-bold tabular-nums">
-                      12:05
+                    <span
+                      dir="ltr"
+                      className="mock-card-type truncate font-bold tabular-nums"
+                    >
+                      {minutesToLabel(GHOST.startMinutes)}
                     </span>
-                    <span className="mock-text-10 truncate opacity-90">שירה</span>
+                    <span className="mock-text-10 truncate font-medium opacity-90">
+                      {firstName(GHOST.name)}
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -409,6 +544,25 @@ export function WeekScreen() {
       <MockDock />
     </>
   );
+}
+
+/** The rail, then seven equal days — the grid template the calendar builds. */
+const GRID_TEMPLATE = `calc(var(--u) * 48) repeat(${WEEK_DAYS.length}, minmax(0, 1fr))`;
+
+/** The open-hours band behind a day's cards, placed as the calendar places it. */
+function openBand(open: readonly [number, number]): CSSProperties {
+  const box = placeItem(
+    {
+      id: "",
+      dayIndex: 0,
+      startMinutes: open[0],
+      endMinutes: open[1],
+      lane: 0,
+      lanes: 1,
+    },
+    BOUNDS,
+  );
+  return { top: `${box.top}%`, height: `${box.height}%` };
 }
 
 /* -------------------------------------------------------------------------- */

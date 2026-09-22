@@ -7,6 +7,7 @@ import {
   createService,
   deleteCancelledAppointment,
   getAppointment,
+  setTenantWhatsappEnabled,
   createTimeOff,
   deactivateService,
   deleteService,
@@ -331,6 +332,69 @@ describe("deleteCancelledAppointment", () => {
       await deleteCancelledAppointment(db, mine.id, appointment.id),
     ).toBeNull();
     expect(await getAppointment(db, theirs.id, appointment.id)).not.toBeNull();
+  });
+});
+
+describe("the per-business WhatsApp switch (0036)", () => {
+  it("is on for every business unless the platform says otherwise", async () => {
+    const business = await createBusiness(db);
+    expect(business.whatsappEnabled).toBe(true);
+
+    expect(await setTenantWhatsappEnabled(db, business.id, false)).toBe(true);
+    expect(await setTenantWhatsappEnabled(db, randomUUID(), false)).toBe(false);
+  });
+
+  /**
+   * The guard. `businesses_owner_all` lets an owner update their own row
+   * through PostgREST, which runs as `authenticated` — so a column there that
+   * the owner could flip back would not be a control. The row is theirs; this
+   * one column is not.
+   */
+  it("refuses the tenant's own role, and only for this column", async () => {
+    const business = await createBusiness(db);
+    await setTenantWhatsappEnabled(db, business.id, false);
+
+    // As an owner reaching the table through PostgREST.
+    await harness.pg.exec(`
+      GRANT USAGE ON SCHEMA auth TO authenticated;
+      GRANT SELECT, UPDATE ON businesses TO authenticated;
+      CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+        LANGUAGE sql STABLE AS $fn$ SELECT '${business.ownerUserId}'::uuid $fn$;
+    `);
+    try {
+      await harness.pg.exec("SET ROLE authenticated");
+
+      // Their own name, as the policy allows.
+      const renamed = await harness.pg.query(
+        "UPDATE businesses SET name = 'שם חדש' WHERE id = $1",
+        [business.id],
+      );
+      expect(renamed.affectedRows).toBe(1);
+
+      // Not this.
+      await expect(
+        harness.pg.query(
+          "UPDATE businesses SET whatsapp_enabled = true WHERE id = $1",
+          [business.id],
+        ),
+      ).rejects.toThrow(/set by the platform/);
+    } finally {
+      await harness.pg.exec("RESET ROLE");
+      await harness.pg.exec(`
+        CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+          LANGUAGE sql STABLE AS $fn$ SELECT NULL::uuid $fn$;
+        REVOKE SELECT, UPDATE ON businesses FROM authenticated;
+        REVOKE USAGE ON SCHEMA auth FROM authenticated;
+      `);
+    }
+
+    const [row] = (
+      await harness.pg.query<{ whatsapp_enabled: boolean; name: string }>(
+        "SELECT whatsapp_enabled, name FROM businesses WHERE id = $1",
+        [business.id],
+      )
+    ).rows;
+    expect(row).toEqual({ whatsapp_enabled: false, name: "שם חדש" });
   });
 });
 

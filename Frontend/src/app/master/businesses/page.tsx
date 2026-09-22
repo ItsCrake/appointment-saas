@@ -65,6 +65,7 @@ export default async function MasterBusinessesPage() {
             trialUrgent: trial.urgent,
             bookings: t.bookings,
             whatsappThisMonth: t.whatsappThisMonth,
+            whatsappEnabled: t.whatsappEnabled,
             // The allowance of the plan they are actually *served*, not the
             // stored one — a trialing tenant is on Pro, and a frozen one sends
             // nothing. What the month has accrued past it is computed from the

@@ -9,7 +9,6 @@ import {
   useTransition,
 } from "react";
 import { createPortal } from "react-dom";
-import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { AlertCircle, Check, Loader2, Mic, Square, X } from "lucide-react";
 
@@ -54,18 +53,17 @@ import {
  * ליבי — the microphone, the glow, the status, and the card.
  *
  * ---------------------------------------------------------------------------
- * **The glow answers the voice.** A colourful light along the bottom of the
- * screen (`voice-glow`'s `VoiceBeam`) that rises with the owner's voice while
- * they speak, gathers into a travelling beam while she thinks, and follows
- * her voice while she answers. It replaced a CSS ring that swept at the same
- * speed whatever was said, which looked busy and meant nothing. What it costs
- * was the ring's whole argument, so it is paid carefully: the package is
- * loaded only once she is used, it drives CSS custom properties from one
- * shared frame loop — the browser does the painting — rasterises its soft
- * layers at half resolution on a phone, and it is fed the level the silence
- * detector already measures rather than opening a second audio graph.
+ * **A quiet light, not a show.** A soft band of the brand's colours along the
+ * bottom of the screen, breathing slowly while a conversation is open —
+ * brightest while she listens, dimmer while she thinks — and a small dotted
+ * orb beside her words. Both are the landing page's own still life
+ * (`.mock-voice-glow`, `.mock-orb`) drawn at the app's size: `.libi-glow` and
+ * `.libi-orb`. They replaced a full-screen beam that followed every syllable
+ * (`voice-glow`) and a canvas orb (`thinking-orbs`), which the owner found
+ * loud; CSS alone now, so nothing is loaded when she is used and nothing
+ * samples audio to make light.
  *
- * **The status says what is happening.** An orb and a few words, driven by
+ * **The status says what is happening.** The orb and a few words, driven by
  * the `stage` lines the route streams as each step of a turn finishes — see
  * `libi-status`. Never a timer cycling through plausible words.
  *
@@ -212,44 +210,8 @@ const DISMISS_AFTER_MS = 4000;
  */
 const MAX_CLIENT_TURNS = 4;
 
-
-
 /** NDJSON's delimiter, named so no template has to escape it. */
 const NEWLINE = String.fromCharCode(10);
-
-/**
- * The glow and the orb, loaded the first time she is needed.
- *
- * Neither belongs in the first paint of a dashboard page that may never hear
- * her, and both are motion that only means something once a conversation has
- * begun — see the preload in `LibiAssistant`. Client-only: one draws through
- * Web Audio and CSS it generates at runtime, the other on a canvas.
- */
-const VoiceBeam = dynamic(
-  () => import("voice-glow").then((module) => module.VoiceBeam),
-  { ssr: false },
-);
-const ThinkingOrb = dynamic(
-  () => import("thinking-orbs").then((module) => module.ThinkingOrb),
-  { ssr: false },
-);
-
-/**
- * How bright the glow is for a loudness.
- *
- * Both sources are an RMS and the glow wants 0–1. A square root lifts the
- * quiet end so an ordinary voice visibly moves it, and the cap keeps a shout
- * from pinning it. The gain differs by source: the microphone's speech band
- * sits around 0.01–0.1 for somebody talking across a counter with the
- * browser's processing off (`AUDIO_CONSTRAINTS`), her own clips play at full
- * digital level and need far less.
- */
-const MIC_GLOW_GAIN = 2.6;
-const VOICE_GLOW_GAIN = 1.6;
-
-function glowOf(level: number, gain: number): number {
-  return Math.min(1, Math.sqrt(Math.max(0, level)) * gain);
-}
 
 /**
  * The orb and the words — see `libiStatus`. The words shimmer while she works
@@ -269,11 +231,11 @@ function LibiStatusLine({
 }) {
   return (
     <span aria-hidden className="flex min-w-0 items-center gap-2">
-      <ThinkingOrb
-        state={status.orb}
-        size={20}
-        theme="auto"
-        className="size-5 shrink-0"
+      {/* The dotted ring and its breathing point — `.libi-orb`, whose tempo
+          follows the state. */}
+      <span
+        data-state={status.orb}
+        className="libi-orb text-violet-600 dark:text-violet-300"
       />
       <span className="libi-shimmer shrink-0 text-xs font-semibold">
         {status.label}
@@ -410,7 +372,7 @@ export function LibiAssistant() {
   /**
    * Whether the glow has been needed yet. Mounted from then on, so a quiet
    * moment fades it out rather than cutting it off — and a page where she is
-   * never used never loads it. Adjusted during render, the documented way of
+   * never used never draws it. Adjusted during render, the documented way of
    * deriving state from a changed input.
    */
   const [glowUsed, setGlowUsed] = useState(false);
@@ -469,11 +431,6 @@ export function LibiAssistant() {
   /** Kept across turns: closing it would need another gesture to unlock. */
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<{ stop: () => void } | null>(null);
-  /** The microphone's loudness, written by the silence detector each frame. */
-  const micLevelRef = useRef(0);
-  /** A tap on her voice as it plays, so the glow can follow it too. */
-  const meterRef = useRef<AnalyserNode | null>(null);
-  const meterSamplesRef = useRef<Float32Array<ArrayBuffer> | null>(null);
   /**
    * The change awaiting an answer, mirrored out of state.
    *
@@ -514,7 +471,9 @@ export function LibiAssistant() {
    * through a ref. `play` is the one that fires from outside React, so it is the
    * one that indirects.
    */
-  const startRef = useRef<((continued?: boolean) => Promise<void>) | null>(null);
+  const startRef = useRef<((continued?: boolean) => Promise<void>) | null>(
+    null,
+  );
 
   /**
    * The only way the card changes, so the ref cannot drift from what is on
@@ -542,13 +501,16 @@ export function LibiAssistant() {
     setDismissing(false);
   }, []);
 
-  const showResult = useCallback((next: Result | null) => {
-    pendingRef.current = next?.pending ?? null;
-    draftRef.current = next?.draft ?? null;
-    // A card being written now is not a card being taken away.
-    cancelDismiss();
-    setResult(next);
-  }, [cancelDismiss]);
+  const showResult = useCallback(
+    (next: Result | null) => {
+      pendingRef.current = next?.pending ?? null;
+      draftRef.current = next?.draft ?? null;
+      // A card being written now is not a card being taken away.
+      cancelDismiss();
+      setResult(next);
+    },
+    [cancelDismiss],
+  );
 
   /** The one writer of both copies of the phase. */
   const setPhase = useCallback((next: Phase) => {
@@ -701,10 +663,6 @@ export function LibiAssistant() {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(ctx.destination);
-        // A tap for the glow, not a link in the chain: the voice still goes
-        // straight out, and the meter only listens.
-        meterRef.current ??= ctx.createAnalyser();
-        source.connect(meterRef.current);
         source.onended = () => {
           if (sourceRef.current === source) sourceRef.current = null;
           resolve();
@@ -792,8 +750,6 @@ export function LibiAssistant() {
         const now = performance.now();
 
         const features = frameFeatures(samples, ctx.sampleRate);
-        // The glow follows the very measurement the detector decides on.
-        micLevelRef.current = features.level;
         const outcome = decideSilence(
           state,
           features,
@@ -834,39 +790,6 @@ export function LibiAssistant() {
     },
     [],
   );
-
-  /**
-   * The glow's brightness, sampled by it once a frame without a render: the
-   * owner's voice while they speak, hers while she answers, and nothing in
-   * between — the glow's own travelling beam carries the thinking.
-   */
-  const glowLevel = useCallback(() => {
-    if (phaseRef.current === "recording") {
-      return glowOf(micLevelRef.current, MIC_GLOW_GAIN);
-    }
-    const meter = meterRef.current;
-    if (phaseRef.current !== "speaking" || !meter) return 0;
-    const samples = (meterSamplesRef.current ??= new Float32Array(
-      meter.fftSize,
-    ));
-    meter.getFloatTimeDomainData(samples);
-    let sum = 0;
-    for (const sample of samples) sum += sample * sample;
-    return glowOf(Math.sqrt(sum / samples.length), VOICE_GLOW_GAIN);
-  }, []);
-
-  /**
-   * The glow and the orb, fetched once the page has settled, so the first
-   * press does not wait on a chunk — a few kilobytes, on the one component
-   * every dashboard page carries.
-   */
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void import("voice-glow").catch(() => {});
-      void import("thinking-orbs").catch(() => {});
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -1205,148 +1128,151 @@ export function LibiAssistant() {
    * the idle window is the short one and may discard, the cap is lower, and a
    * conversation is already in progress so it is not started again.
    */
-  const start = useCallback(async (continued = false) => {
-    // `phaseRef`, never `phase` — see the ref's own note. Reading state
-    // here is what stopped every conversation after one turn.
-    if (phaseRef.current !== "idle") return;
+  const start = useCallback(
+    async (continued = false) => {
+      // `phaseRef`, never `phase` — see the ref's own note. Reading state
+      // here is what stopped every conversation after one turn.
+      if (phaseRef.current !== "idle") return;
 
-    /**
-     * **Before anything async.** `resume()` only counts as user-activated while
-     * the gesture is still live, and `await getUserMedia(...)` is long enough
-     * to lose that. Unlocking first is the whole fix for replies that used to
-     * arrive silently.
-     */
-    const audioCtx = unlockAudio();
+      /**
+       * **Before anything async.** `resume()` only counts as user-activated while
+       * the gesture is still live, and `await getUserMedia(...)` is long enough
+       * to lose that. Unlocking first is the whole fix for replies that used to
+       * arrive silently.
+       */
+      const audioCtx = unlockAudio();
 
-    try {
-      const stream = await acquireStream();
+      try {
+        const stream = await acquireStream();
 
-      // The conversation was closed while the microphone was opening; the
-      // stream that just opened belongs to nobody.
-      if (continued && !conversingRef.current) {
-        releaseStream();
-        return;
-      }
-
-      const mimeType = pickRecorderMimeType(
-        MediaRecorder.isTypeSupported?.bind(MediaRecorder),
-      );
-      const recorder = new MediaRecorder(stream, {
-        ...(mimeType ? { mimeType } : {}),
-        audioBitsPerSecond: RECORDER_BITS_PER_SECOND,
-      });
-      recorderRef.current = recorder;
-      chunksRef.current = [];
-      discardRef.current = false;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || mimeType || "audio/webm",
-        });
-        if (recorderRef.current === recorder) recorderRef.current = null;
-
-        // Abandoned rather than finished: nobody spoke, or the owner closed
-        // the conversation mid-turn. Either way there is nothing to send.
-        if (discardRef.current) {
-          discardRef.current = false;
-          setPhase("idle");
+        // The conversation was closed while the microphone was opening; the
+        // stream that just opened belongs to nobody.
+        if (continued && !conversingRef.current) {
+          releaseStream();
           return;
         }
 
-        // A recording with nothing in it costs a model call to be told
-        // nothing. The half-second tail makes this rare; it ends the
-        // conversation rather than leaving the microphone held and idle.
-        if (blob.size < 1024) {
-          setPhase("idle");
-          endConversation();
-          return;
-        }
-        void send(blob);
-      };
-
-      // Whatever was fading is not fading any more: there is a turn now.
-      cancelDismiss();
-      recorder.start();
-      /**
-       * The card is cleared on a *pressed* turn only.
-       *
-       * Mid-conversation her last answer is the thing the owner is reading
-       * while deciding what to say next — and, when it carries a pending
-       * change, the button they may be about to press instead of speaking.
-       * Wiping it the instant the microphone re-opens takes both away.
-       */
-      if (!continued) showResult(null);
-      setPhase("recording");
-
-      /**
-       * The cap is a backstop rather than the way a turn normally ends: the
-       * silence detector ends it, or the owner does. It catches a pocket, a
-       * radio the detector could not tell from a voice, and a browser with no
-       * AudioContext.
-       */
-      stopTimerRef.current = setTimeout(
-        stop,
-        continued ? MAX_CONTINUED_TURN_MS : MAX_PRESSED_TURN_MS,
-      );
-
-      if (audioCtx) {
-        const room = roomRef.current;
-        analyserRef.current = listenForSilence(audioCtx, stream, {
-          onSilent: stop,
-          /**
-           * **Who asked for the turn decides what silence means.** A pressed
-           * turn waits longer and then *sends*: the owner meant to speak, and
-           * a voice too buried to detect is still worth transcribing. A turn
-           * that opened by itself discards when nothing at all happened — and
-           * sends when something did.
-           */
-          onIdle: continued
-            ? (outcome) => (outcome === "send" ? stop() : closeQuietly())
-            : stop,
-          idleMs: continued ? IDLE_MS : PRESSED_IDLE_MS,
-          seed:
-            room && Date.now() - room.at < ROOM_SEED_MAX_AGE_MS
-              ? room.level
-              : undefined,
-          // A question is pending, or her last line was one: the answer is
-          // likely a word, and a word is finished when it is said.
-          expectsAnswer:
-            continued &&
-            (Boolean(pendingRef.current) ||
-              Boolean(draftRef.current) ||
-              /\?\s*$/.test(historyRef.current.at(-1)?.replied ?? "")),
+        const mimeType = pickRecorderMimeType(
+          MediaRecorder.isTypeSupported?.bind(MediaRecorder),
+        );
+        const recorder = new MediaRecorder(stream, {
+          ...(mimeType ? { mimeType } : {}),
+          audioBitsPerSecond: RECORDER_BITS_PER_SECOND,
         });
-      }
+        recorderRef.current = recorder;
+        chunksRef.current = [];
+        discardRef.current = false;
 
-      // A pressed turn is what opens a conversation; a continued one is
-      // already inside it.
-      if (!continued) setConversing(true);
-    } catch {
-      // Denied, or no device. Both are the owner's to fix and neither is worth
-      // a thrown error in a dashboard.
-      toast("אין גישה למיקרופון. אפשר לאשר בהגדרות הדפדפן.", "error");
-      endConversation();
-      setPhase("idle");
-    }
-  }, [
-    acquireStream,
-    cancelDismiss,
-    closeQuietly,
-    endConversation,
-    listenForSilence,
-    releaseStream,
-    send,
-    setConversing,
-    setPhase,
-    showResult,
-    stop,
-    toast,
-    unlockAudio,
-  ]);
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) chunksRef.current.push(event.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(chunksRef.current, {
+            type: recorder.mimeType || mimeType || "audio/webm",
+          });
+          if (recorderRef.current === recorder) recorderRef.current = null;
+
+          // Abandoned rather than finished: nobody spoke, or the owner closed
+          // the conversation mid-turn. Either way there is nothing to send.
+          if (discardRef.current) {
+            discardRef.current = false;
+            setPhase("idle");
+            return;
+          }
+
+          // A recording with nothing in it costs a model call to be told
+          // nothing. The half-second tail makes this rare; it ends the
+          // conversation rather than leaving the microphone held and idle.
+          if (blob.size < 1024) {
+            setPhase("idle");
+            endConversation();
+            return;
+          }
+          void send(blob);
+        };
+
+        // Whatever was fading is not fading any more: there is a turn now.
+        cancelDismiss();
+        recorder.start();
+        /**
+         * The card is cleared on a *pressed* turn only.
+         *
+         * Mid-conversation her last answer is the thing the owner is reading
+         * while deciding what to say next — and, when it carries a pending
+         * change, the button they may be about to press instead of speaking.
+         * Wiping it the instant the microphone re-opens takes both away.
+         */
+        if (!continued) showResult(null);
+        setPhase("recording");
+
+        /**
+         * The cap is a backstop rather than the way a turn normally ends: the
+         * silence detector ends it, or the owner does. It catches a pocket, a
+         * radio the detector could not tell from a voice, and a browser with no
+         * AudioContext.
+         */
+        stopTimerRef.current = setTimeout(
+          stop,
+          continued ? MAX_CONTINUED_TURN_MS : MAX_PRESSED_TURN_MS,
+        );
+
+        if (audioCtx) {
+          const room = roomRef.current;
+          analyserRef.current = listenForSilence(audioCtx, stream, {
+            onSilent: stop,
+            /**
+             * **Who asked for the turn decides what silence means.** A pressed
+             * turn waits longer and then *sends*: the owner meant to speak, and
+             * a voice too buried to detect is still worth transcribing. A turn
+             * that opened by itself discards when nothing at all happened — and
+             * sends when something did.
+             */
+            onIdle: continued
+              ? (outcome) => (outcome === "send" ? stop() : closeQuietly())
+              : stop,
+            idleMs: continued ? IDLE_MS : PRESSED_IDLE_MS,
+            seed:
+              room && Date.now() - room.at < ROOM_SEED_MAX_AGE_MS
+                ? room.level
+                : undefined,
+            // A question is pending, or her last line was one: the answer is
+            // likely a word, and a word is finished when it is said.
+            expectsAnswer:
+              continued &&
+              (Boolean(pendingRef.current) ||
+                Boolean(draftRef.current) ||
+                /\?\s*$/.test(historyRef.current.at(-1)?.replied ?? "")),
+          });
+        }
+
+        // A pressed turn is what opens a conversation; a continued one is
+        // already inside it.
+        if (!continued) setConversing(true);
+      } catch {
+        // Denied, or no device. Both are the owner's to fix and neither is worth
+        // a thrown error in a dashboard.
+        toast("אין גישה למיקרופון. אפשר לאשר בהגדרות הדפדפן.", "error");
+        endConversation();
+        setPhase("idle");
+      }
+    },
+    [
+      acquireStream,
+      cancelDismiss,
+      closeQuietly,
+      endConversation,
+      listenForSilence,
+      releaseStream,
+      send,
+      setConversing,
+      setPhase,
+      showResult,
+      stop,
+      toast,
+      unlockAudio,
+    ],
+  );
 
   /**
    * A hidden page ends the conversation.
@@ -1399,29 +1325,32 @@ export function LibiAssistant() {
               second: pending.second,
             })
           : pending.kind === "cancel"
-          ? await setAppointmentStatusAction(pending.appointmentId, "cancelled")
-          : await rescheduleAppointmentAction({
-              appointmentId: pending.appointmentId,
-              date: pending.targetDate,
-              time: pending.targetTime,
-              /**
-               * **The button is the confirmation, so it does not ask again.**
-               *
-               * `force` waives posted hours, breaks and notice periods — the
-               * shop's own policy, which an owner squeezing somebody in is
-               * entitled to overrule, and which `createManualBookingAction`
-               * already skips outright. Sending `false` here would put an amber
-               * modal behind a button the owner pressed *because* it named the
-               * move, which is the double-ask that type's own comment calls
-               * worse than a plain no.
-               *
-               * It waives nothing that matters: a same-provider clash is a
-               * database constraint, comes back as an ordinary error, and is
-               * surfaced in the toast below. The spoken path reaches the same
-               * place through `executePending`, so the two agree.
-               */
-              force: true,
-            });
+            ? await setAppointmentStatusAction(
+                pending.appointmentId,
+                "cancelled",
+              )
+            : await rescheduleAppointmentAction({
+                appointmentId: pending.appointmentId,
+                date: pending.targetDate,
+                time: pending.targetTime,
+                /**
+                 * **The button is the confirmation, so it does not ask again.**
+                 *
+                 * `force` waives posted hours, breaks and notice periods — the
+                 * shop's own policy, which an owner squeezing somebody in is
+                 * entitled to overrule, and which `createManualBookingAction`
+                 * already skips outright. Sending `false` here would put an amber
+                 * modal behind a button the owner pressed *because* it named the
+                 * move, which is the double-ask that type's own comment calls
+                 * worse than a plain no.
+                 *
+                 * It waives nothing that matters: a same-provider clash is a
+                 * database constraint, comes back as an ordinary error, and is
+                 * surfaced in the toast below. The spoken path reaches the same
+                 * place through `executePending`, so the two agree.
+                 */
+                force: true,
+              });
 
       if (outcome.ok) {
         toast(
@@ -1455,26 +1384,13 @@ export function LibiAssistant() {
   return (
     <>
       {/**
-       * **The glow along the bottom of the screen** — see the header. Behind
+       * **The light along the bottom of the screen** — see the header. Behind
        * her controls (46) and every sheet (50), above the page and its dock,
        * and never in the way of a tap.
        */}
       {glowUsed ? (
-        /* The frame is ours: the beam's own stylesheet makes its root
-           `position: relative`, and lands after Tailwind's, so a `fixed`
-           class on the beam itself loses and the glow collapses to nothing. */
-        <div aria-hidden className="pointer-events-none fixed inset-0 z-[45]">
-          <VoiceBeam
-            type="mobile"
-            theme="auto"
-            level={glowLevel}
-            processing={phase === "processing"}
-            active={phase !== "idle"}
-            className="h-full"
-          >
-            <div className="h-full" />
-          </VoiceBeam>
-        </div>
+        /* Fades between phases on its own — `.libi-glow` reads the phase. */
+        <div aria-hidden data-phase={phase} className="libi-glow z-[45]" />
       ) : null}
 
       {/**
@@ -1665,104 +1581,108 @@ export function LibiAssistant() {
       ) : null}
 
       {placeMic(
-      <button
-        type="button"
-        /**
-         * **Hold to talk, or tap to toggle — and the two must not fight.**
-         *
-         * The first cut wired `onPointerDown` to start and `onClick` to
-         * toggle, which meant one tap started the recording and the click that
-         * followed a few milliseconds later stopped it. The ring appeared and
-         * vanished, and the only reason it was caught is that a browser check
-         * read `aria-pressed` back.
-         *
-         * Now the pointer owns the gesture: press begins, and release ends it
-         * only if the press was long enough to have been a hold. A quick tap
-         * leaves it recording, and the next press stops it.
-         */
-        onPointerDown={(event) => {
-          // Pressing while she speaks is talking over her: she stops, and the
-          // same press opens the microphone.
-          if (phaseRef.current === "speaking") interrupt();
-          if (phaseRef.current === "recording") {
-            // Stopping by hand sends what was said; it does not close the
-            // conversation, so her answer still hands back to the microphone.
-            finishSoon();
-            return;
-          }
-          pressedAtRef.current = Date.now();
-          holdingRef.current = true;
-          // The release must reach this button even if the finger slides off
-          // it, or a hold would silently become a tap.
-          event.currentTarget.setPointerCapture(event.pointerId);
-          void start();
-        }}
-        onPointerUp={() => {
-          const wasHolding = holdingRef.current;
-          holdingRef.current = false;
-          const held = Date.now() - pressedAtRef.current;
-          if (wasHolding && phaseRef.current === "recording" && held > TAP_MS) {
-            finishSoon();
-          }
-        }}
-        onPointerCancel={() => {
-          // The browser took the gesture (a scroll, a system sheet). The
-          // detector gets the turn back rather than it being held forever.
-          holdingRef.current = false;
-        }}
-        /**
-         * Keyboard only. A pointer-driven click reports `detail >= 1`; Enter
-         * and Space on a focused button report `0`, and that is the one case
-         * the handlers above never see.
-         */
-        onClick={(event) => {
-          if (event.detail !== 0) return;
-          if (phaseRef.current === "speaking") interrupt();
-          if (phaseRef.current === "recording") finishSoon();
-          else void start();
-        }}
-        /**
-         * **Only while she is thinking.** Speaking used to disable the button
-         * too, so a reply the owner had already understood still had to be
-         * sat through before the next question. Now a press stops her.
-         */
-        disabled={phase === "processing"}
-        aria-label={phase === "recording" ? "עצירת ההקלטה" : "דיבור עם ליבי"}
-        aria-pressed={phase === "recording"}
-        className={cn(
+        <button
+          type="button"
           /**
-           * **Beneath modals, not beside them.** At `z-50` — the z-index every
-           * dashboard sheet also uses — the microphone won on DOM order and sat
-           * on top of the appointment sheet on a phone, over its tabs, where a
-           * modal is supposed to have the screen to itself. The stack is: bottom
-           * nav 20, cookie banner 40, her ring 45, her controls 46, modals and
-           * toasts 50.
+           * **Hold to talk, or tap to toggle — and the two must not fight.**
+           *
+           * The first cut wired `onPointerDown` to start and `onClick` to
+           * toggle, which meant one tap started the recording and the click that
+           * followed a few milliseconds later stopped it. The ring appeared and
+           * vanished, and the only reason it was caught is that a browser check
+           * read `aria-pressed` back.
+           *
+           * Now the pointer owns the gesture: press begins, and release ends it
+           * only if the press was long enough to have been a hold. A quick tap
+           * leaves it recording, and the next press stops it.
            */
-          "flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",
+          onPointerDown={(event) => {
+            // Pressing while she speaks is talking over her: she stops, and the
+            // same press opens the microphone.
+            if (phaseRef.current === "speaking") interrupt();
+            if (phaseRef.current === "recording") {
+              // Stopping by hand sends what was said; it does not close the
+              // conversation, so her answer still hands back to the microphone.
+              finishSoon();
+              return;
+            }
+            pressedAtRef.current = Date.now();
+            holdingRef.current = true;
+            // The release must reach this button even if the finger slides off
+            // it, or a hold would silently become a tap.
+            event.currentTarget.setPointerCapture(event.pointerId);
+            void start();
+          }}
+          onPointerUp={() => {
+            const wasHolding = holdingRef.current;
+            holdingRef.current = false;
+            const held = Date.now() - pressedAtRef.current;
+            if (
+              wasHolding &&
+              phaseRef.current === "recording" &&
+              held > TAP_MS
+            ) {
+              finishSoon();
+            }
+          }}
+          onPointerCancel={() => {
+            // The browser took the gesture (a scroll, a system sheet). The
+            // detector gets the turn back rather than it being held forever.
+            holdingRef.current = false;
+          }}
           /**
-           * **Docked on a phone, floating on a desktop.** In the dock's slot
-           * she is an ordinary flex item on the navigation's row. Without one —
-           * a desktop, or a route that draws no dock — she floats: above the
-           * row where the row would be, and in the corner from `md`.
+           * Keyboard only. A pointer-driven click reports `detail >= 1`; Enter
+           * and Space on a focused button report `0`, and that is the one case
+           * the handlers above never see.
            */
-          dockSlot
-            ? "relative"
-            : "fixed end-4 z-[46] bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_4.75rem)] md:bottom-8",
-          "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
-          "disabled:opacity-70 motion-safe:active:scale-95",
-          phase === "recording"
-            ? "bg-red-600"
-            : "bg-[image:var(--brand-gradient)]",
-        )}
-      >
-        {phase === "processing" ? (
-          <Loader2 className="size-6 animate-spin" aria-hidden />
-        ) : phase === "recording" ? (
-          <Square className="size-5 fill-current" aria-hidden />
-        ) : (
-          <Mic className="size-6" aria-hidden />
-        )}
-      </button>,
+          onClick={(event) => {
+            if (event.detail !== 0) return;
+            if (phaseRef.current === "speaking") interrupt();
+            if (phaseRef.current === "recording") finishSoon();
+            else void start();
+          }}
+          /**
+           * **Only while she is thinking.** Speaking used to disable the button
+           * too, so a reply the owner had already understood still had to be
+           * sat through before the next question. Now a press stops her.
+           */
+          disabled={phase === "processing"}
+          aria-label={phase === "recording" ? "עצירת ההקלטה" : "דיבור עם ליבי"}
+          aria-pressed={phase === "recording"}
+          className={cn(
+            /**
+             * **Beneath modals, not beside them.** At `z-50` — the z-index every
+             * dashboard sheet also uses — the microphone won on DOM order and sat
+             * on top of the appointment sheet on a phone, over its tabs, where a
+             * modal is supposed to have the screen to itself. The stack is: bottom
+             * nav 20, cookie banner 40, her ring 45, her controls 46, modals and
+             * toasts 50.
+             */
+            "flex size-14 items-center justify-center rounded-full text-white shadow-lg transition-transform",
+            /**
+             * **Docked on a phone, floating on a desktop.** In the dock's slot
+             * she is an ordinary flex item on the navigation's row. Without one —
+             * a desktop, or a route that draws no dock — she floats: above the
+             * row where the row would be, and in the corner from `md`.
+             */
+            dockSlot
+              ? "relative"
+              : "fixed end-4 bottom-[calc(max(env(safe-area-inset-bottom),0.75rem)_+_4.75rem)] z-[46] md:bottom-8",
+            "focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none dark:focus-visible:ring-zinc-100",
+            "disabled:opacity-70 motion-safe:active:scale-95",
+            phase === "recording"
+              ? "bg-red-600"
+              : "bg-[image:var(--brand-gradient)]",
+          )}
+        >
+          {phase === "processing" ? (
+            <Loader2 className="size-6 animate-spin" aria-hidden />
+          ) : phase === "recording" ? (
+            <Square className="size-5 fill-current" aria-hidden />
+          ) : (
+            <Mic className="size-6" aria-hidden />
+          )}
+        </button>,
       )}
     </>
   );

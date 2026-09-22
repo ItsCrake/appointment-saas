@@ -613,6 +613,39 @@ fill is a wall of colour, so the card lets the open-hours band read through; one
 wide column has nothing to compete with, and a washed card on a pale band is
 harder to read than a plain white one.
 
+### Edit mode says so on the calendar itself
+
+The toolbar's pressed toggle and a grey hint were the only signs, both above
+the grid — scrolled a little, an owner was dragging bookings on a calendar
+that looked exactly like the one they only read. The mode now wears one
+colour in four places, all violet, the product's own colour rather than the
+tenant's (the cards inside are glass in the shop's accent, and a frame in the
+same hue would sit among them rather than around them):
+
+- **The frame** (`.cal-editing`): a 2px ring, a soft halo and a glow, written
+  into the frame's `--tw-*` variables because `.glass-frame` is unlayered and
+  would beat any `ring-*` or `shadow-*` utility.
+- **The canvas** (`.cal-edit-canvas`): a faint dot grid over every column,
+  behind the cards and inert to the pointer — the texture drawing tools use to
+  mean "these move".
+- **The banner**: "מצב עריכה פעיל." with a live dot, the instructions and the
+  way out, as a `role="status"`.
+- **The toggle** itself, filled violet while on.
+
+Nothing about dragging, swapping or saving changed. **A narrow density's drag
+ghost now says what its cards say** — the start time and a first name, at the
+chips' 10px — because a 42px lane cut "12:05–12:35" at 11px down to "12…".
+
+### "אירוע חדש" is two things
+
+The button opens a menu, not a dialog: **חסימת זמן** (the block dialog, as
+before) and **תור ידני** (the agenda's `ManualBookingDialog`, now reachable
+from the week — the page loads the shop's active services for it). A fork
+rather than a form, since each branch opens its own form; keyboard as a menu
+button should be — the first item takes focus, the arrows move between them,
+Escape returns to the button — and a press anywhere else closes it. Both start
+on today when today is on screen, else on the first day shown.
+
 ### Deleting a cancelled booking
 
 The one row this product removes rather than restates. Everywhere else a
@@ -854,19 +887,22 @@ she heard, then one as each step of `decide` finishes (`roster`, `llm`,
 `tool`), then the text, a `timing` line, and the audio. An empty transcript is
 still a one-object refusal *before* the stream — the client's bounded "listen
 again" lives on that path — and a failure inside `decide` is a `text` line
-with `error` and no audio. The client shows the stages as an orb
-(`thinking-orbs`) and a few words (`lib/voice/libi-status.ts`: שומעת → בודקת
-ביומן → חושבת → מטפלת בזה → מנסחת תשובה), each naming the step that is
-actually running, with what she heard beside it — a pill on the first turn,
-the card's status row after.
+with `error` and no audio. The client shows the stages as an orb and a few
+words (`lib/voice/libi-status.ts`: שומעת → בודקת ביומן → חושבת → מטפלת בזה →
+מנסחת תשובה), each naming the step that is actually running, with what she
+heard beside it — a pill on the first turn, the card's status row after.
 
-The glow along the bottom of the screen is `voice-glow`'s `VoiceBeam`, loaded
-only once she is used (and preloaded three seconds after a page settles). It
-follows the level the silence detector already measures while the owner
-speaks, gathers into a travelling beam while she thinks, and follows a meter
-tapped off her playback while she answers — one audio graph, not two. Its
-injected stylesheet makes its root `position: relative`, so it sits inside a
-fixed frame of ours.
+**The orb and the glow are the landing page's own, and CSS only** (since
+2026-09-22). `.libi-orb` is a dotted ring turning around a point that
+breathes: slow while she listens, brisk while she works, nearly still while
+she speaks — its `data-state` is `libi-status`'s orb name. `.libi-glow` is a
+soft band of the brand's pink, violet and blue along the bottom of the screen
+that breathes at one tempo and fades between phases by opacity: brightest
+while she listens, dimmer while she thinks, and gone when the conversation
+ends. They replaced a canvas orb (`thinking-orbs`) and an audio-reactive beam
+(`voice-glow`) that the owner found loud; both packages are uninstalled, and
+the level meter that fed the beam went with them. Nothing loads when she is
+used and nothing samples audio to make light.
 
 ### Where a turn's time goes
 
@@ -1129,6 +1165,35 @@ outright for the template reason above. `isChannelLive` is what makes that safe:
 with no WhatsApp credentials the channel resolves to the console provider and
 the loop falls through to SMS and then email, rather than logging a confirmation
 nobody receives.
+
+### Three switches can stop WhatsApp, and any one is enough
+
+1. **`DISABLE_WHATSAPP_DISPATCH`** — the deploy's own, unreachable from any UI.
+2. **The platform-wide toggle** on `/master` (`platform_settings`).
+3. **One business**, from the tenants table on `/master/businesses`
+   (`businesses.whatsapp_enabled`, 0036).
+
+They combine by OR and none outranks another, so a switch in a web UI can
+never start sending on a deploy whose environment said no. The first two
+suppress at dispatch only; the per-business one acts earlier as well:
+
+- **At enqueue** `clientDelivery` skips WhatsApp for that business as if it
+  were not live, so a confirmation or reminder falls through to SMS or email
+  where there is one — the path a tenant without WhatsApp has always taken. A
+  win-back, which is WhatsApp or nothing, is **not queued**: its dedupe key is
+  the lapsed visit, so a row skipped now would spend the one win-back that
+  client can ever get.
+- **At dispatch** anything already queued on WhatsApp for it is `skipped` with
+  `whatsapp disabled for this business (master console)` — a decision, so
+  never `failed`, and `/master/alerts` stays for faults. A business switched
+  back on before the sweep reaches the row sends it after all.
+
+**The column is the platform's, not the tenant's.** `businesses_owner_all`
+lets an owner write their own row through PostgREST, so a trigger
+(`businesses_guard_whatsapp_enabled`) refuses a change to this column from the
+`authenticated` or `anon` role and leaves the app's own connection alone.
+`dashboard-queries.test.ts` proves it as an owner: renaming the shop succeeds,
+flipping this does not.
 
 ## The three approved WhatsApp templates
 
@@ -2380,6 +2445,14 @@ to liquid glass, a floating dock and ליבי, and they did not.
 - **Samples, announced as one.** Each phone is a single `role="img"` with a
   Hebrew description and an `aria-hidden` interior. The names are samples and
   there are no phone numbers — a made-up number is somebody's.
+
+**The calendar phone is laid out by the calendar's own functions** — the
+compact hour from `hourRowPx`, edit mode's full working day from
+`gridBounds`, lanes, boxes and floors from `assignLanes` / `placeItem` /
+`cardHeightPx`, and each card's one or two lines from `lineBudget` — in the
+390px screen's own pixels. A card there is placed by the same arithmetic as a
+card in the product, so the two cannot drift apart the way a drawing would;
+the violet edit frame, canvas and banner are the product's classes.
 
 `public/screenshots/`, `phone-frame.tsx`, `dashboard-mockup.tsx`,
 `lib/screenshots.ts` and its test went with them; git history has the images.

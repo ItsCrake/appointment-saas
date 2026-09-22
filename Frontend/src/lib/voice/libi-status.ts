@@ -1,5 +1,3 @@
-import type { OrbState } from "thinking-orbs";
-
 /**
  * What ליבי is doing, in an orb and a few words.
  *
@@ -14,8 +12,8 @@ import type { OrbState } from "thinking-orbs";
  * Nothing here waits on a stage. A turn that skips one — a confirmed "כן"
  * goes from `heard` straight to `tool` — simply shows the next thing it does.
  *
- * Pure, so the mapping is pinned without a browser; the orb names are the
- * `thinking-orbs` package's own states.
+ * Pure, so the mapping is pinned without a browser. The orb's states set the
+ * tempo of `.libi-orb` in CSS — see `OrbState`.
  * ---------------------------------------------------------------------------
  */
 
@@ -25,6 +23,15 @@ export const LIBI_STAGES = ["heard", "roster", "llm", "tool"] as const;
 export type LibiStage = (typeof LIBI_STAGES)[number];
 
 export type LibiPhase = "idle" | "recording" | "processing" | "speaking";
+
+/**
+ * How the orb moves. The names are the ones the canvas orb this replaced
+ * used, kept so the mapping below reads the same: `listening` turns slowly,
+ * the four working states turn briskly, `breathing` — while she speaks — is
+ * almost still. See `.libi-orb`.
+ */
+export type OrbState =
+  "listening" | "searching" | "working" | "solving" | "composing" | "breathing";
 
 export type LibiStatus = {
   orb: OrbState;

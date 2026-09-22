@@ -14,6 +14,7 @@ import {
   extendTrialAction,
   impersonateAction,
   setTenantActiveAction,
+  setTenantWhatsappAction,
   updateTenantPlanAction,
 } from "@/app/master/actions";
 import { effectivePlan, isFrozen, isTrialing } from "@/lib/entitlements";
@@ -50,6 +51,8 @@ export type TenantRowView = {
   whatsappIncluded: number | null;
   /** Agorot accrued past the allowance — shown, not collected (no provider yet). */
   whatsappOverageCents: number;
+  /** Automated WhatsApp for this tenant — the switch in the WhatsApp column. */
+  whatsappEnabled: boolean;
 };
 
 export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
@@ -239,6 +242,19 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
                           </span>
                         ) : null}
                       </span>
+                      <WhatsappSwitch
+                        name={t.name}
+                        enabled={t.whatsappEnabled}
+                        busy={busy}
+                        onFlip={() =>
+                          run(t.id, () =>
+                            setTenantWhatsappAction({
+                              businessId: t.id,
+                              enabled: !t.whatsappEnabled,
+                            }),
+                          )
+                        }
+                      />
                     </Td>
                     <Td>
                       <div className="flex items-center gap-1.5">
@@ -339,6 +355,57 @@ export function TenantTable({ tenants }: { tenants: TenantRowView[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * **Automated WhatsApp for one tenant** — a switch under the month's count.
+ *
+ * In the WhatsApp column rather than among the actions, because it answers the
+ * question that column is read for: is this shop messaging its clients. Off is
+ * the state wearing amber, like the platform-wide switch: sending is the
+ * default, and a shop that has gone quiet is what an operator must not miss.
+ * The words say it too — never the colour alone.
+ */
+function WhatsappSwitch({
+  name,
+  enabled,
+  busy,
+  onFlip,
+}: {
+  name: string;
+  enabled: boolean;
+  busy: boolean;
+  onFlip: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={`וואטסאפ אוטומטי עבור ${name}`}
+      disabled={busy}
+      onClick={onFlip}
+      className="mt-2 flex items-center gap-2 rounded-full text-xs font-semibold focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:opacity-60"
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors",
+          enabled ? "justify-end bg-emerald-600" : "justify-start bg-zinc-700",
+        )}
+      >
+        <span className="size-4 rounded-full bg-white shadow" />
+      </span>
+      <span
+        className={cn(
+          "whitespace-nowrap",
+          enabled ? "text-zinc-300" : "text-amber-300",
+        )}
+      >
+        {enabled ? "פעיל" : "כבוי"}
+      </span>
+    </button>
   );
 }
 

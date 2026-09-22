@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { WeekCalendar } from "@/components/dashboard/week-calendar";
 import { PageHeader } from "@/components/dashboard/ui";
 import { db } from "@/db";
+import { listServices } from "@/db/queries";
 import { listActiveStaff } from "@/db/queries/staff";
 import { toThemeColor } from "@/lib/branding";
 import { loadCalendarWeek } from "@/lib/calendar-week-data";
@@ -50,9 +51,12 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
    */
   const view = rawView === "day" ? "day" : "week";
 
-  const [data, team] = await Promise.all([
+  const [data, team, services] = await Promise.all([
     loadCalendarWeek(db, business, anchor, today),
     listActiveStaff(db, business.id),
+    // What "אירוע חדש → תור ידני" can book — active services only, as on
+    // the agenda.
+    listServices(db, business.id),
   ]);
 
   return (
@@ -95,6 +99,11 @@ export default async function FullCalendarPage({ searchParams }: PageProps) {
           id: member.id,
           name: member.name,
           color: member.color,
+        }))}
+        services={services.map((service) => ({
+          id: service.id,
+          name: service.name,
+          durationMin: service.durationMin,
         }))}
         timezone={business.timezone}
         scope={business.id}
