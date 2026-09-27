@@ -16,6 +16,25 @@ const heebo = Heebo({
 /** Absolute base for OG/canonical URLs — relative ones break link previews. */
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
+/**
+ * Meta's proof that this domain is ours — Business Manager → Brand safety →
+ * Domains, "הוספה של מטא תג".
+ *
+ * ---------------------------------------------------------------------------
+ * **Not a secret**: it is served to everyone who loads the page, which is the
+ * entire point of it. It stays in the source rather than in an environment
+ * variable so that verification cannot quietly lapse on a deploy where a
+ * variable was forgotten — Meta re-checks the tag, and a domain that fails
+ * re-verification loses the ad and catalogue permissions attached to it.
+ *
+ * **In the root layout, so every page carries it.** Meta reads the domain's
+ * home page, which is the landing page; putting it here rather than on that
+ * page means a rewrite of the landing page cannot drop it, and the tenant
+ * booking pages — the ones actually linked from ads — carry it too.
+ * ---------------------------------------------------------------------------
+ */
+const FACEBOOK_DOMAIN_VERIFICATION = "8lmvkydhscbq6yrm4lxwsajkwf7u88";
+
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
@@ -31,6 +50,11 @@ export const metadata: Metadata = {
     siteName: BRAND.name,
   },
   twitter: { card: "summary" },
+  // Renders `<meta name="facebook-domain-verification" content="…" />` — see
+  // the constant above.
+  verification: {
+    other: { "facebook-domain-verification": FACEBOOK_DOMAIN_VERIFICATION },
+  },
 };
 
 export const viewport: Viewport = {

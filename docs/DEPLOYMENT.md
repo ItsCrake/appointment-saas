@@ -433,6 +433,29 @@ receiving nothing.
 Vercel's own daily run is also only approximate — it fires within the hour, not
 on the minute.
 
+## 5.1 Meta domain verification
+
+Business Manager → **Brand safety → Domains** → the domain → **הוספה של מטא
+תג**. The tag Meta shows there lives in `src/app/layout.tsx`
+(`FACEBOOK_DOMAIN_VERIFICATION`), so it is rendered into the `<head>` of
+**every** page — the landing page Meta reads, and the tenant booking pages ads
+actually link to. Verified 2026-09-27.
+
+It is not a secret; it is served to everyone. It is kept in the source rather
+than an environment variable on purpose: Meta re-checks the tag, and a domain
+that fails re-verification loses the permissions attached to it — so it must
+not be able to disappear on a deploy where a variable was forgotten.
+
+To check it after a deploy, read the HTML rather than the rendered DOM — Meta's
+crawler does not run JavaScript:
+
+```bash
+curl -s https://bazman.app | grep facebook-domain-verification
+```
+
+Replacing it (a new domain, or Meta reissues the token) is a one-line change in
+that file, followed by a push and **אמת** in Business Manager.
+
 ## 6. Post-deploy checks
 
 ```bash
@@ -457,6 +480,9 @@ Then, against the deployed site:
 - the reset mail actually arrives (this proves custom SMTP, not just the app),
   and its link opens `/login/reset` **in a different browser** from the one that
   requested it — that is the check for §4a
+- `curl -s https://<domain> | grep facebook-domain-verification` returns the
+  tag — see §5.1, and note that a `<head>` written by JavaScript would pass in a
+  browser and fail for Meta
 
 ### The newer surfaces, which have never run on real infrastructure
 

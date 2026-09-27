@@ -2444,20 +2444,32 @@ optional. What follows from that:
   requests possible in a shop that takes none). Cancelled bookings are drawn
   muted while their slot is open (`withoutCoveredCancellations`); finished and
   no-show bookings carry marks. Cards stack three lines (name / time /
-  service), and **the hour grows until the shortest booking holds all three**
-  (`hourRowPx`): 96px an hour in the week and 160 in the day at base, 216 and
-  304 when a quarter hour is on screen. Three lines cost **52px** once the
-  border is counted and the lines are the 14px the browser draws; the earlier
-  fixed `h-24` gave a quarter hour back to back one line, which is what the
-  growing hour replaced — see *Liquid glass, round two*. `lineBudget` and
-  `MIN_CARD_PX` still decide lines below ten minutes, capped so a floor never
-  draws over the next booking. `gridMinWidthPx` sizes the grid from the widest
-  lane count, so overlaps scroll rather than collapse. Compact grows to fit a
-  first name and a start time; the overview fits the day to the frame in CSS.
+  service) when they have the height, and **the hour is the least that keeps
+  each mode's promise** (`hourRowPx`, 2026-09-20): in the week two lines carry
+  all three fields — the name, then `10:00–10:30 · תספורת` — so a quarter hour
+  on screen makes the hour **144px** and nothing shorter than 23 minutes leaves
+  it at **96**; the day view sets the three side by side on one line and stays
+  at **160**; compact is a fixed **72**, so a ten-hour day is one screen. It
+  used to grow until the shortest booking held all three *stacked* — 216px an
+  hour, 304 in the day — which is the density the owner asked back. `lineBudget`
+  and the floors (`MIN_CARD_PX` 34/30, `MIN_CHIP_PX` 16) decide the lines,
+  capped so a floor never draws over the next booking, and a span is always
+  `dir="ltr"` or an RTL line paints the end time first. `gridMinWidthPx` sizes
+  the grid from the widest lane count, so overlaps scroll rather than collapse;
+  the overview fits the day to the frame in CSS. **Dead hours are cropped by
+  default** — the grid runs from the first booking to the last — and edit mode
+  expands to the working day and an hour either side, since an hour cropped
+  away is an hour nothing can be dragged into.
   **The day/date row is pinned** while the hours scroll under it — an owner
   reading an 18:00 booking on a phone had nothing on screen telling them which
   day they were looking at. That needed the scroll wrapper's height bounded;
   see the `overflow-x-auto` trap above for why sticky did nothing without it.
+- **Meta domain verification** — the tag Business Manager asks to be pasted
+  into the home page's `<head>` is `FACEBOOK_DOMAIN_VERIFICATION` in
+  `app/layout.tsx`, rendered through `metadata.verification.other` onto every
+  page (2026-09-27). Kept in the source, not an environment variable: Meta
+  re-checks it, and a domain that fails re-verification loses the permissions
+  attached to it. See [DEPLOYMENT.md](DEPLOYMENT.md#51-meta-domain-verification).
 - **The team switch keeps itself honest** — `has_multiple_staff` decides who is
   *bookable*, not merely what renders, so a roster and a flag that disagree
   produce a provider who is visibly on the rota and can never receive a
