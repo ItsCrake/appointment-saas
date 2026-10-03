@@ -14,7 +14,7 @@ const complete = {
   CRON_SECRET: "a-sufficiently-long-secret",
   RESEND_API_KEY: "re_abc123",
   NOTIFICATIONS_FROM_EMAIL: "noreply@example.com",
-  // Production-required since the Pro tier sells SMS reminders.
+  // Optional since SMS came off the Pro tier; present so "complete" stays complete.
   TWILIO_ACCOUNT_SID: "AC0123456789",
   TWILIO_AUTH_TOKEN: "twilio-auth-token",
   TWILIO_SMS_FROM: "+972500000000",
@@ -67,16 +67,16 @@ describe("checkEnv", () => {
     expect(errorsOf(without("SUPABASE_SERVICE_ROLE_KEY"), false)).toEqual([]);
   });
 
-  it("blocks a production deploy that cannot send the SMS the Pro tier sells", () => {
-    // Twilio is not merely "nice to have" once a tier advertises SMS
-    // reminders: an unconfigured channel falls back to the console provider
-    // and reports success, so this is the check standing between a paying Pro
-    // tenant and reminders that quietly go nowhere.
-    expect(errorsOf(without("TWILIO_SMS_FROM"), true)).toContain(
-      "TWILIO_SMS_FROM: not set",
-    );
-    // Still only a warning locally — the console provider is the point in dev.
-    expect(errorsOf(without("TWILIO_SMS_FROM"), false)).toEqual([]);
+  it("does not block a deploy without Twilio, because no tier sells SMS", () => {
+    // SMS came off the Pro tier on 2026-10-03. Without these keys the channel
+    // is simply not live and reminders go by WhatsApp or email — nothing a
+    // tenant paid for goes missing. If a tier sells SMS again, this flips back.
+    expect(
+      errorsOf(
+        without("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"),
+        true,
+      ),
+    ).toEqual([]);
   });
 
   it("keeps WhatsApp optional — reminders are never auto-routed to it", () => {

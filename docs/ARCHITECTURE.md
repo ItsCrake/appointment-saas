@@ -913,10 +913,10 @@ cannot change once the body has started.
 Measured from this machine against production data: auth ~0.9s, vocabulary
 ~0.6s on a conversation's first turn and ~0 after (cached 30s per shop),
 transcription 0.7–1.5s, the model ~1.0–1.5s, a tool ~0.6s, first audio ~0.85s
-after the text line. **The database round trips are the largest fixed cost
-left**: functions run in `fra1` and the database is in Seoul, so every query
-pays the distance — moving either next to the other is worth more than any
-further change here.
+after the text line. **The database round trips were the largest fixed cost
+left**: functions ran in `fra1` and the database is in Seoul, so every query
+paid the distance. **Since 2026-10-03 the functions run in `icn1`**, next to the
+database — see *Region* under the client profile.
 
 ### Keys and gates
 
@@ -1018,6 +1018,52 @@ without a lookup per booking.
 `getClientStats` counts a past `confirmed` booking as a visit, not just
 `completed`. Same rule as "last visit" below — a busy shop does not tidy
 statuses, and the two figures would read as contradicting each other otherwise.
+
+### The drawer opens on the tap, not on the answer (2026-10-03)
+
+It used to draw nothing until `loadClientProfileAction` returned — a Server
+Action, an auth round trip in the proxy and another in the action, a business
+lookup and three queries — and every row's button was disabled meanwhile. From
+here that was well over two seconds of a tap that looked ignored, which an
+owner reads as "it did not hear me".
+
+- **The drawer opens with what the row already knows.** Name and phone come
+  from the tapped row; the stats, the notes and the history hold quiet
+  skeletons until the profile arrives (`aria-busy` on the body while they do).
+  The notes editor mounts only once the saved text is known, keyed by phone —
+  a textarea that took typing before the real notes landed would have its
+  words replaced underneath the owner.
+- **The load starts on `pointerdown`**, the beat between press and release,
+  and the click picks up the same promise. **Not on hover:** Next runs Server
+  Actions one at a time per client, so a pointer crossing ten rows would queue
+  ten loads ahead of the one actually clicked.
+- **One promise per phone, reused for 60 seconds** (`createProfileLoader` in
+  `clients-directory.tsx`), so scanning back and forth through a few clients
+  costs nothing after the first look. A failed load is forgotten so the next
+  tap retries; a saved note is written into the cached copy so a reopened
+  drawer shows it.
+- **A late answer cannot land on the wrong client.** The open phone lives in a
+  ref; a profile that resolves after the owner moved on or closed is dropped.
+
+Measured with Playwright against the dev server and the production database
+from this machine: the drawer visible **570ms** after the click with skeletons,
+the data at **2.8s** (the round trips to Seoul — see *Region* below), and a
+reopen with data in **372ms** including the close and the second click.
+
+### Region: the functions moved to the database (2026-10-03)
+
+`vercel.json` pins `regions: ["icn1"]` (Seoul), where it pinned `fra1`. The
+database and Supabase Auth are in Seoul, and a dashboard request is a *chain* of
+dependent round trips — the proxy's `getUser`, the page's or action's own
+`getUser`, the business lookup, then the queries — each one ~250–300ms from
+Frankfurt (one `select 1` from Israel measured 296ms). From `icn1` each link is
+a millisecond or two, and the browser pays the long hop **once** per request
+instead of once per link. The client drawer was five links; a calendar write is
+more.
+
+What it costs: one longer hop from Israel per request, and ליבי's calls to
+OpenAI and ElevenLabs leave from Seoul rather than Frankfurt. Both are single
+hops; the database chain it removes is not. Reversible with the same one line.
 
 ## "Last visit" counts only visits
 
@@ -2456,6 +2502,19 @@ the violet edit frame, canvas and banner are the product's classes.
 
 `public/screenshots/`, `phone-frame.tsx`, `dashboard-mockup.tsx`,
 `lib/screenshots.ts` and its test went with them; git history has the images.
+
+**The hero is the week, the tour opens on the day (2026-10-03).** The full
+calendar (`WeekScreen`) is the hero's phone — the outcome a shop owner is
+buying, and the owner asked for the product before the prose. Its leading
+badge is the move the screen is already showing (Shira carried to 12:05 in
+edit mode), so the badge and the dashed ghost agree. The agenda with ליבי
+mid-sentence (`AgendaScreen`) opens the tour instead. **Section order:** hero →
+ליבי ("מדברים עם היומן") → the tour → the proof strip → "איך זה עובד" →
+features → install → pricing → FAQ → closing banner. Pictures come while
+attention is highest; the numbers land harder after the screens they
+describe; the three-sentence explanation is for whoever is still deciding.
+The header's wordmark is Hebrew (`BRAND_MARK.stemHe`); the Latin mark stays in
+the title, the URL and the hero typewriter.
 ליבי also has a section of her own, "מדברים עם היומן" (`libi-showcase.tsx`):
 the things an owner says, what she does with each and which she asks about
 first, and one exchange played through, every line of it verbatim from
@@ -2496,6 +2555,52 @@ tenant's colour can be as vivid as they chose it.
 > `theme-coverage.test.ts` now fails the build if a page rendering a booking
 > component omits the attribute, and `:root` carries a fallback accent so the
 > same slip can never produce an invisible control again.
+
+### A service card is a button, and the stepper is not (2026-10-03)
+
+Clients read the service list as information: a tinted panel with a faint
+chevron does not say "press me", while the stepper above it — three filled
+pills with icons in the tenant's colour — looked exactly like buttons. The two
+traded places.
+
+- **The card** (`.booking-card-action`, both layouts) gains a lit top edge (one
+  white inset hairline, the way light catches a raised key), a deeper resting
+  shadow so it stands off the page before it is touched — a phone has no hover
+  — and an **instant** press (`scale(0.985)`, a tighter shadow). Not
+  transitioned: geometry never animates on a click target, below.
+- **The round action** (`.booking-cta`) at each card's end is the explicit
+  affordance: a tinted disc at rest, filled with `--accent` and
+  `--accent-contrast` on hover, press and selection. Its ring is
+  `color-mix(--accent 26%)` rather than `--accent-soft-border`, which on amber
+  is a loud yellow.
+- **The stepper** is numbered dots and plain labels joined by hairlines. Only
+  the current dot has a fill; done steps tint and take a tick; the current
+  label is the only one in ink. Nothing has a surface, so nothing invites a
+  tap. "שלב 1 מתוך 3" is now screen-reader only — the numbers say it.
+
+> **`var(--shadow-accent)` in a plain CSS rule glows indigo for everyone.** The
+> `@theme inline` trick below works for the `shadow-accent` *utility* only; a
+> hand-written rule reading `var(--shadow-accent)` gets the value substituted
+> at `:root`, before `data-accent` applies. The selected booking card had done
+> exactly that since it was written — every shop's chosen card glowed indigo.
+> `.booking-card[data-selected]` and `.booking-cta` now spell the two
+> `color-mix` shadows out; verified computed: amber glows `oklab(0.666 0.094
+> 0.152)`, black (dark mode) near-white.
+
+### The black swatch, and two options retired (2026-10-03)
+
+**`black`** joins `THEME_COLORS`. Ink is zinc-900, not `#000` (pure black
+flattens against a shadow); white on it is 17.4:1. The soft surfaces and the
+mesh are greys, so a glass card reads as frosted paper. It is the **one swatch
+that inverts in dark mode**: a zinc-900 button on a zinc-950 page is invisible,
+so there the accent becomes zinc-100 and its label ink — the move every primary
+action on the landing page makes.
+
+**`flat` (surface) and `soft` (corners) are gone** — the owner kept the two of
+each that read as finished: `elevated` / `glass` and `rounded` / `round`.
+Retiring them was a code change only, which is why these columns are text: a
+row still holding either name renders the default through `toCardStyle` /
+`toCornerStyle`, and their CSS blocks went with them.
 
 ### The booking page has an elevation system, and geometry never animates
 

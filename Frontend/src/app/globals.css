@@ -193,6 +193,22 @@ body {
   --accent-mesh-b: 14 165 233;
 }
 
+/* Black, for a shop whose identity is monochrome. Ink is zinc-900, never pure
+   #000 — pure black flattens against a shadow, the same reason the landing
+   page's ink is zinc-950. White on zinc-900 measures 17.4:1. The tint and the
+   mesh are greys rather than a hue, so a glass card reads as frosted paper. */
+[data-accent="black"] {
+  --accent: oklch(21% 0.006 285.885);
+  --accent-strong: oklch(14.1% 0.005 285.823);
+  --accent-contrast: #fff;
+  --accent-soft: oklch(96.7% 0.001 286.375);
+  --accent-soft-border: oklch(87.1% 0.006 286.286);
+  --accent-on-soft: oklch(21% 0.006 285.885);
+  --accent-mesh-base: #09090b;
+  --accent-mesh-a: 82 82 91;
+  --accent-mesh-b: 39 39 42;
+}
+
 @media (prefers-color-scheme: dark) {
   /* On a near-black page a 50-level tint glows. Soft surfaces invert to a
      deep tone and the accent text lifts to stay readable against it. */
@@ -231,6 +247,18 @@ body {
     --accent-soft: oklch(30.2% 0.056 229.695);
     --accent-soft-border: oklch(39.8% 0.07 227.392);
     --accent-on-soft: oklch(86.5% 0.087 207.078);
+  }
+
+  /* The one swatch that has to *invert*: a zinc-900 button on a zinc-950 page
+     is invisible, so in the dark the accent becomes paper and its label ink —
+     the same move every primary action on the landing page makes. */
+  [data-accent="black"] {
+    --accent: oklch(96.7% 0.001 286.375);
+    --accent-strong: oklch(92% 0.004 286.32);
+    --accent-contrast: oklch(14.1% 0.005 285.823);
+    --accent-soft: oklch(27.4% 0.006 286.033);
+    --accent-soft-border: oklch(37% 0.013 285.805);
+    --accent-on-soft: oklch(96.7% 0.001 286.375);
   }
 }
 
@@ -2280,18 +2308,6 @@ body {
   --page-wash: color-mix(in oklab, var(--accent) 7%, transparent);
 }
 
-/* Hairline and nothing else. For an owner whose photographs should carry the
-   page and whose chrome should get out of the way. */
-[data-card="flat"] {
-  --card-bg: #fff;
-  --card-ring: rgb(24 24 27 / 0.14);
-  --card-ring-hover: var(--accent);
-  --card-shadow: none;
-  --card-shadow-hover: none;
-  --card-blur: none;
-  --page-wash: transparent;
-}
-
 @media (prefers-color-scheme: dark) {
   [data-card],
   [data-card="elevated"] {
@@ -2305,27 +2321,16 @@ body {
     --card-bg: color-mix(in oklab, var(--accent) 16%, rgb(24 24 27 / 0.72));
     --card-ring: color-mix(in oklab, var(--accent) 34%, transparent);
   }
-
-  [data-card="flat"] {
-    --card-bg: oklch(21% 0.006 285.885);
-    --card-ring: rgb(255 255 255 / 0.16);
-  }
 }
 
 /* ---------------------------------------------------------------------------
    Corner softness.
 
-   Three steps rather than a slider, so the geometry keeps its *relationships*:
+   Two steps rather than a slider, so the geometry keeps its *relationships*:
    a container, a surface nested in it, and the media inside that move together.
    A free number would let an owner set 3px on a card and 40px on the thing
    inside it, and the page's rhythm is a brand commitment rather than taste.
    -------------------------------------------------------------------------- */
-[data-corner="soft"] {
-  --radius-card: 0.875rem;
-  --radius-inner: 0.625rem;
-  --radius-hero: 1.25rem;
-}
-
 [data-corner],
 [data-corner="rounded"] {
   --radius-card: 1rem;
@@ -2362,6 +2367,90 @@ body {
     background-image 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* ---------------------------------------------------------------------------
+   A booking card that is a button, and has to look like one.
+
+   Owners reported clients reading the service list as information rather than
+   as a choice — a tinted panel with a faint chevron does not say "press me".
+   Three things make it say so, none of them loud:
+
+   - **A lit top edge.** One white hairline inside the top of the card, the
+     way light catches a raised key. It is what separates "a surface you can
+     push" from "a panel printed on the page", and it costs no colour.
+   - **A deeper resting shadow**, so the card stands off the page before it is
+     touched rather than only on hover (which a phone never has).
+   - **A pressed state.** The card sinks a hair and its shadow tightens while a
+     finger is on it. Scale, not translate, and **not transitioned** — the
+     booking page's rule that geometry never animates on a click target (see
+     ARCHITECTURE.md) holds: the press is instant and settles in place.
+
+   The round action at the card's end (`.booking-cta`) is the explicit
+   affordance; this is the material it sits on.
+   -------------------------------------------------------------------------- */
+.booking-card-action {
+  box-shadow:
+    var(--card-shadow),
+    0 10px 28px -16px color-mix(in oklab, var(--accent) 40%, rgb(24 24 27 / 0.35)),
+    0 1px 0 rgb(255 255 255 / 0.9) inset,
+    0 0 0 1px var(--card-ring) inset;
+}
+
+.booking-card-action:active {
+  transform: scale(0.985);
+  box-shadow:
+    0 1px 2px rgb(24 24 27 / 0.08),
+    0 1px 0 rgb(255 255 255 / 0.6) inset,
+    0 0 0 1px var(--card-ring-hover) inset;
+}
+
+@media (prefers-color-scheme: dark) {
+  .booking-card-action {
+    box-shadow:
+      var(--card-shadow),
+      0 12px 30px -16px rgb(0 0 0 / 0.7),
+      0 1px 0 rgb(255 255 255 / 0.07) inset,
+      0 0 0 1px var(--card-ring) inset;
+  }
+}
+
+/* The round action at the end of a service card: a tinted disc at rest that
+   fills with the tenant's colour when the card is hovered, pressed or chosen.
+   The arrow points into the next step, which in RTL is the left. */
+.booking-cta {
+  background-color: var(--accent-soft);
+  color: var(--accent-on-soft);
+  /* The ring is the tenant's colour at low strength rather than
+     `--accent-soft-border`, which on amber is a loud yellow. */
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 26%, transparent) inset,
+    0 1px 0 rgb(255 255 255 / 0.7) inset;
+  transition:
+    background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.booking-card-action:active .booking-cta,
+.booking-card-action[data-selected="true"] .booking-cta {
+  background-color: var(--accent);
+  color: var(--accent-contrast);
+  /* Spelled out rather than `var(--shadow-accent)`: in a plain rule that token
+     resolves at `:root`, before `data-accent` applies, and glows indigo. */
+  box-shadow:
+    0 1px 2px -1px color-mix(in oklab, var(--accent) 45%, transparent),
+    0 10px 26px -10px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+@media (hover: hover) {
+  .booking-card-action:hover .booking-cta {
+    background-color: var(--accent);
+    color: var(--accent-contrast);
+    box-shadow:
+      0 1px 2px -1px color-mix(in oklab, var(--accent) 45%, transparent),
+    0 10px 26px -10px color-mix(in oklab, var(--accent) 55%, transparent);
+  }
+}
+
 /* Depth on hover, and the card never moves — a translate makes the element a
    moving target for the ~200ms after a pointer lands on it, and a tap that
    registers as a hover first arrives mid-flight. */
@@ -2373,9 +2462,12 @@ body {
   }
 }
 
+/* The glow is spelled out rather than `var(--shadow-accent)`, which in a plain
+   rule resolves at `:root` and lit every shop's chosen card indigo. */
 .booking-card[data-selected="true"] {
   box-shadow:
-    var(--shadow-accent),
+    0 1px 2px -1px color-mix(in oklab, var(--accent) 45%, transparent),
+    0 10px 26px -10px color-mix(in oklab, var(--accent) 55%, transparent),
     0 0 0 1.5px var(--accent) inset;
 }
 
@@ -2454,20 +2546,17 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   The stepper pills.
+   The stepper's numbered dot.
 
-   Glass here does the one job blur is actually for: these sit over the tenant's
-   hero media, and a solid pill would be a row of stickers on a photograph. The
-   blur is what lets the image stay visible while the label stays readable.
-
-   The active pill is filled with `--accent`, which already carries a measured
-   AA contrast pair in `--accent-contrast`; the rest inherit the hero's own
-   foreground, which the scrim above guarantees.
+   It was a glass pill carrying the label, and three pills in the tenant's
+   colour on a page whose cards are the things to press read as three more
+   buttons. Now only the 20px dot has a fill, and only on the current step —
+   the label beside it is plain text. No blur: there is nothing behind a dot
+   worth reading through. The current dot takes `--accent` and its measured
+   `--accent-contrast`.
    -------------------------------------------------------------------------- */
 .step-pill {
   border-radius: 9999px;
-  backdrop-filter: saturate(1.6) blur(12px);
-  -webkit-backdrop-filter: saturate(1.6) blur(12px);
   transition:
     background-color 300ms cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 300ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -2476,8 +2565,13 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .booking-card,
+  .booking-cta,
   .step-pill {
     transition: none;
+  }
+
+  .booking-card-action:active {
+    transform: none;
   }
 }
 
@@ -2607,13 +2701,6 @@ body {
 [data-card="glass"] {
   --ambient-strength: 20%;
   --ambient-strength-soft: 15%;
-}
-
-/* A flat page is chrome-light on purpose; the photographs are meant to carry
-   it, so the ambient steps back rather than competing. */
-[data-card="flat"] {
-  --ambient-strength: 8%;
-  --ambient-strength-soft: 6%;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -268,33 +268,34 @@ export const ENV_VARS: EnvVar[] = [
       "Set to the platform owner's login email. Anyone listed can read every tenant's client data, so keep the list short.",
   },
   /*
-   * Twilio is `production`, not `optional`, because the Pro tier *sells* SMS
-   * reminders. The same rule that makes Resend a production requirement applies
-   * with more force here: an unconfigured channel falls back to the console
-   * provider and reports success, so a deploy without these keys would take
-   * money for reminders it silently never sends. A green deploy check must not
+   * Optional since 2026-10-03, when SMS came off the Pro tier: no plan sells it,
+   * so a deploy without Twilio withholds nothing anybody paid for. The channel
+   * stays wired — `isChannelLive("sms")` is false without these keys, and the
+   * reminder walk falls through to WhatsApp and email. If a tier ever sells SMS
+   * again, these go back to `production`: an unconfigured channel falls back to
+   * the console provider and reports success, and a green deploy check must not
    * coexist with a paid feature that cannot fire.
    */
   {
     name: "TWILIO_ACCOUNT_SID",
-    requirement: "production",
+    requirement: "optional",
     group: "Notifications (SMS/WhatsApp)",
-    description: "Enables the SMS and WhatsApp channels, sold on the Pro tier.",
+    description: "Enables the SMS channel and the Twilio WhatsApp fallback. No tier sells SMS today.",
     howTo: "twilio.com → Console → Account SID.",
   },
   {
     name: "TWILIO_AUTH_TOKEN",
-    requirement: "production",
+    requirement: "optional",
     group: "Notifications (SMS/WhatsApp)",
     description: "Twilio auth token.",
     howTo: "twilio.com → Console → Auth Token.",
   },
   {
     name: "TWILIO_SMS_FROM",
-    requirement: "production",
+    requirement: "optional",
     group: "Notifications (SMS/WhatsApp)",
     description:
-      "Sending number for SMS, in E.164. Without it Pro reminders fall back to email.",
+      "Sending number for SMS, in E.164. Without it reminders go by WhatsApp or email.",
     howTo: "twilio.com → Phone Numbers.",
   },
   {

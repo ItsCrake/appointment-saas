@@ -2175,6 +2175,56 @@ works*, and *The landing page's phones are drawn*.
   `whatsapp_enabled` is guarded. See §5.
 - `npm run verify` green at **1919 across 115 files**.
 
+### A booking page that says "press", a black swatch, a 30-day trial, and the functions next to the database ✅
+
+Eight requests from the owner's review (2026-10-03). The maps are in
+ARCHITECTURE — *The drawer opens on the tap*, *Region: the functions moved to
+the database*, *A service card is a button, and the stepper is not*, *The black
+swatch, and two options retired*, and the landing-page paragraph under *The
+landing page's phones are drawn*.
+
+- **Landing page.** The header wordmark is Hebrew, **בזמן.** (`stemHe`). The
+  hero's phone is now the **full week calendar**; the agenda with ליבי opens the
+  tour instead. Order: hero → ליבי → the screens → the proof strip → "איך זה
+  עובד" → features → install → pricing → FAQ → banner. ליבי's section is kept
+  as it was.
+- **Booking page.** Service cards gain a round action disc that fills with the
+  tenant's colour, a lit top edge, a deeper resting shadow and an instant press.
+  The stepper is numbered dots and plain labels, nothing with a surface. **Found
+  on the way:** the selected card's glow read `var(--shadow-accent)` in a plain
+  rule, so it had glowed indigo for every shop since it was written — now
+  spelled out, verified amber on amber. Added to the traps table.
+- **Settings.** A **black** swatch (zinc-900 ink; the one swatch that inverts to
+  paper-on-ink in dark mode). Surface and corners down to two each — **מוגבה /
+  זכוכית** and **מעוגל / רך מאוד**; `flat` and `soft` render the default, no
+  migration.
+- **No SMS anywhere it was sold.** Off the Pro feature list, the FAQ answer and
+  the billing footnote. Twilio is now `optional` in `check:env` — nothing a
+  tenant pays for needs it; `isChannelLive("sms")` keeps the channel dormant.
+  The legal terms' "הודעות במייל, SMS ווואטסאפ" heading was left for the lawyer.
+- **The trial is 30 days** (`TRIAL_DAYS`), which every surface derives from —
+  landing, pricing, onboarding, FAQ, terms. **With the owner's approval**, the
+  two live trials were extended to `created_at + 30 days` on production and read
+  back: `danielbarber` 4.10 → **20.10**, `azur` 16.10 → **1.11**; `lacut` was
+  already later (hand-extended) and is untouched. The rule was
+  `greatest(trial_ends_at, created_at + 30 days)`.
+- **The client drawer opens on the tap.** It used to wait for the whole profile
+  with every row disabled. Now it opens with the row's name and phone and
+  skeletons; the load starts on `pointerdown`, one promise per phone reused for
+  60s, late answers dropped. Measured: drawer **570ms**, data **2.8s** from here,
+  reopen **372ms**.
+- **Functions in `icn1` (Seoul), next to the database** — the owner's decision
+  on the open region question. Every dashboard request is a chain of 250–300ms
+  hops from Frankfurt (one `select 1` from Israel: 296ms); from Seoul each link
+  is a millisecond or two. One line in `vercel.json`; reversible the same way.
+- **Verified in a browser:** the landing page at 1440 (order read from the DOM,
+  hero phone and badges looked at), `/demo-barber` at 375 in amber and with
+  black / glass / round swapped in on the page only, light and dark. With
+  Playwright **with every Server Action write aborted** (only the client-profile
+  load let through): settings shows 7 swatches, 2 surfaces, 2 corners and
+  black's preview; billing shows no SMS; a client opens on the tap.
+- `npm run verify` green at **1932 tests across 115 files**.
+
 ---
 
 ## 5. Where things stand
@@ -2183,7 +2233,7 @@ _The handover between sessions. **If it disagrees with the code, the code is
 right.** Read this, then open the file it points at — the reasoning lives in
 comments beside the thing it explains, which is why this stays a map._
 
-**Green:** `npm run verify` at **1919 tests across 115 files**; Playwright
+**Green:** `npm run verify` at **1932 tests across 115 files**; Playwright
 **11/11** across 3 specs (not run every session). **All 37 migrations
 (0000–0036) are applied to production** — 0036 (`whatsapp_enabled` and its
 guard trigger) on 2026-09-22, read back from `drizzle.__drizzle_migrations`. 0031 is among them,
@@ -2358,7 +2408,8 @@ wrong.
 **1. What a tier buys.** `lib/entitlements.ts` is the only place that decides,
 and it is pure. Starter owns the whole design surface **and WhatsApp** — sold by
 allowance (`whatsappIncluded` in `lib/plans.ts`, 100 vs 350 a month) rather
-than by switch. Pro adds `smsReminders`, `canAccessAnalytics`,
+than by switch. Pro adds `smsReminders` (**dormant** — no tier *sells* SMS
+since 2026-10-03, and without Twilio the channel is not live), `canAccessAnalytics`,
 `clientRetention`, `canAccessLibi`, `prioritySupport`. `effectivePlan` resolves
 in order: **frozen → `free`**, trialing → Pro, active → the stored tier, else
 `free`. Frozen outranks a live subscription *and* a running trial. Never read
@@ -2402,6 +2453,7 @@ the served tier plus the reason.
 | **`redirect()` signals success by throwing** | `unstable_rethrow` first, always, or a successful login reports a connection error. | `lib/call-action.ts` |
 | **Waitlist expiry cycles only as often as the cron** | `vercel.json` is `0 8 * * *` because Hobby rejects anything more frequent — the real cadence is the GitHub Actions workflow hitting the same URL every 15 min. Offers still *lapse* on time (the clock is read on the page and in the claim action), but nothing is **re-offered** until a sweep runs. If that workflow is disabled, every lapsed slot dies silently. Never set a TTL below the sweep interval. | `.github/workflows/dispatch-notifications.yml` |
 | **Custom properties compute where they are declared** | A token on `:root` bakes in the fallback and every tenant renders indigo. Accent-derived values must be real declarations on the element. | `.cal-glass`, `.accent-mesh` |
+| **`var(--shadow-accent)` in a hand-written rule is indigo** | `@theme inline` makes the `shadow-accent` *utility* resolve at the element; a plain CSS rule reading the variable gets the `:root` value. The selected booking card glowed indigo on every shop until 2026-10-03. In plain CSS, spell the `color-mix(var(--accent) …)` shadows out. | `.booking-card[data-selected]`, `.booking-cta` |
 | **A hand-rolled upload copied the body and not the headers** | `image-upload.tsx` reproduces `supabase-js`'s multipart upload with `XMLHttpRequest` so it can show progress. `supabase-js` sends `cacheControl` **twice** — a form field *and* a `cache-control: max-age=…` request header — and only the field was copied, so every asset ever uploaded is stored with the API's fallback and served `Cache-Control: no-cache`. Verified on production: every logo, banner, gallery photo and hero video, on every tenant. The paths are UUIDs and a new upload mints a new one, so these are immutable by construction. Pinned by `media-upload.test.ts`. | `image-upload.tsx` |
 | **A `quality` outside `images.qualities` is silently ignored** | Next 16 changed the default from "anything goes" to `[75]`. The optimizer answers `"q" parameter (quality) of 90 is not allowed` with a **400**, and `next/image` clamps the `q` it emits before the request is made — so the prop looks deliberate, the page renders, and every image is served at 75. Add the value to `images.qualities` or it does nothing. Nothing asks for 90 today — the landing page's phones are drawn in code since 2026-09-19 — and the list keeps it for the next image that does. | `next.config.ts` |
 | **`priority` on `next/image` is deprecated in 16** | Replaced by `preload`. A deprecated prop is not a working one: the hero passed `priority` and rendered with `loading="auto"` and **no `fetchpriority`** — the same treatment as every lazy image below it. Check `node_modules/next/dist/docs` before trusting a remembered prop name. | `phone-frame.tsx` |
@@ -3255,7 +3307,7 @@ provider that delivers, and try again.
 | What | Needs |
 | --- | --- |
 | Billing 8d–8e | A payment provider chosen. `getBillingProvider()` is the only function that learns the name. |
-| SMS | A Twilio account, or drop the SMS line from Pro in `lib/plans.ts` — `check:env --production` fails either way until one happens. |
+| ~~SMS~~ | **Decided 2026-10-03: dropped.** Off Pro's feature list, the FAQ and billing; Twilio is `optional` in `check:env`. Selling it again means a Twilio account *and* flipping those three variables back to `production`. |
 | ~~WhatsApp transport~~ | **Done.** Credentials are live and **real messages have been delivered** on Meta Cloud — 2 `booking_confirmation` sends in production as of 2026-08-23. This row was stale for weeks. |
 | WhatsApp, the last two | **Seven of eight kinds now deliver.** All 8 registered templates are wired — see [WHATSAPP_TEMPLATES.md](WHATSAPP_TEMPLATES.md) §2. Outstanding: `client_winback` (**Marketing**, different rules) and `booking_rescheduled`, which needs a migration and a `renderNotification` case before a template is worth submitting. Two traps are pinned by tests: the `_he` suffix (the un-suffixed names hold the **English** originals and would deliver those), and three distinct button-suffix shapes — bare token, `b/<token>`, and the slug. |
 | ~~Voice ("ליבי")~~ | **Done.** `OPENAI_API_KEY` is live and real Hebrew utterances have been transcribed, routed to the right tool and spoken back. Pro-gated. |

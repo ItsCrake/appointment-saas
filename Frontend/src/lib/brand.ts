@@ -36,12 +36,11 @@ export const BRAND_MARK = {
    * The Hebrew stem, for surfaces whose reader is an Israeli business owner
    * rather than a passer-by.
    *
-   * The credential screens use this and the marketing page does not, on purpose:
-   * `/` is also read by people deciding whether this is a real product, and the
-   * Latin mark is what carries in an app store, a search result and a URL. By
-   * the time somebody is typing a password they know the name — showing it to
-   * them in the language the entire rest of the interface is written in is one
-   * less seam.
+   * The credential screens use it, and since 2026-10-03 so does the landing
+   * page's header — the owner's call: a Hebrew page whose corner says "Bazman."
+   * read as a seam. The Latin mark still carries where it travels without the
+   * page around it: the title, the URL, `/master`, the legal pages, and the
+   * hero's typewriter, which alternates both scripts.
    */
   stemHe: "בזמן",
   dot: ".",

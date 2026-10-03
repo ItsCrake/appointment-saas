@@ -32,20 +32,18 @@
  * white. The tint is held low for the same reason `.cal-glass` holds 16% — body
  * text has to keep its margin over AA on all six swatches.
  */
-export const CARD_STYLES = ["elevated", "glass", "flat"] as const;
+export const CARD_STYLES = ["elevated", "glass"] as const;
 export type CardStyle = (typeof CARD_STYLES)[number];
 export const DEFAULT_CARD_STYLE: CardStyle = "elevated";
 
 export const CARD_STYLE_LABELS: Record<CardStyle, string> = {
   elevated: "מוגבה",
   glass: "זכוכית",
-  flat: "שטוח",
 };
 
 export const CARD_STYLE_HINTS: Record<CardStyle, string> = {
   elevated: "כרטיסים לבנים עם צל רך",
   glass: "שקיפות עדינה בגוון שבחרתם",
-  flat: "קו מתאר דק, בלי צל",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -53,18 +51,22 @@ export const CARD_STYLE_HINTS: Record<CardStyle, string> = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Three steps, not a slider. A number here would let an owner set 3px on a card
+ * Two steps, not a slider. `flat` and `soft` were retired on 2026-10-03 — the
+ * owner kept the two that read as finished. A row still holding either name
+ * renders the default (`elevated` / `rounded`) through the coercions below;
+ * nothing needed a migration, which is the point of these being text.
+ *
+ * Steps rather than a slider. A number here would let an owner set 3px on a card
  * and 40px on the button inside it, and the page's geometry is a brand
  * commitment — pill for interactive, a large radius for containers, one step
  * tighter for a surface nested in one. Each option moves that whole scale
  * together so the relationship survives.
  */
-export const CORNER_STYLES = ["soft", "rounded", "round"] as const;
+export const CORNER_STYLES = ["rounded", "round"] as const;
 export type CornerStyle = (typeof CORNER_STYLES)[number];
 export const DEFAULT_CORNER_STYLE: CornerStyle = "rounded";
 
 export const CORNER_STYLE_LABELS: Record<CornerStyle, string> = {
-  soft: "מעודן",
   rounded: "מעוגל",
   round: "רך מאוד",
 };

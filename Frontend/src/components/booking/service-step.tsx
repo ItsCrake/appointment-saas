@@ -107,14 +107,14 @@ type CardProps = {
 };
 
 /**
- * One row: avatar, name, description, duration and price.
+ * One row: avatar, name, description, duration and price — and a round action
+ * at the end that says, without words, that the row is pressed.
  *
  * The surface comes from `.booking-card`, so the owner's card style and corner
- * setting reach it without this component knowing which one is on. The
- * transition list is explicit rather than `transition-all` and nothing
- * translates on hover — a card that moves is a moving target for the ~200ms
- * after a pointer lands on it, and a tap that registers as a hover first
- * arrives mid-flight.
+ * setting reach it without this component knowing which one is on;
+ * `.booking-card-action` adds the raised material and the pressed state (see
+ * globals.css for why). Nothing translates on hover — a card that moves is a
+ * moving target for the ~200ms after a pointer lands on it.
  */
 function CompactCard({ service, selected, onSelect }: CardProps) {
   const content = useShowcaseContent();
@@ -126,8 +126,7 @@ function CompactCard({ service, selected, onSelect }: CardProps) {
       aria-pressed={selected}
       data-selected={selected}
       className={cn(
-        "booking-card group flex w-full items-center gap-4 p-4 text-start",
-        "active:scale-[0.99]",
+        "booking-card booking-card-action group flex w-full items-center gap-4 p-4 text-start sm:p-5",
         "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
       )}
     >
@@ -174,10 +173,15 @@ function CompactCard({ service, selected, onSelect }: CardProps) {
         </span>
       </span>
 
-      <ChevronLeft
-        className="size-5 shrink-0 text-zinc-300 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-translate-x-1 dark:text-zinc-600"
+      <span
         aria-hidden
-      />
+        className="booking-cta flex size-10 shrink-0 items-center justify-center rounded-full"
+      >
+        <ChevronLeft
+          className="size-5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-translate-x-0.5"
+          strokeWidth={2.25}
+        />
+      </span>
     </button>
   );
 }
@@ -207,9 +211,8 @@ function ShowcaseCard({ service, selected, onSelect }: CardProps) {
       aria-pressed={selected}
       data-selected={selected}
       className={cn(
-        "booking-card group relative block w-full overflow-hidden text-start",
+        "booking-card booking-card-action group relative block w-full overflow-hidden text-start",
         "aspect-[4/5] sm:aspect-[3/4]",
-        "active:scale-[0.99]",
         "focus-visible:ring-2 focus-visible:ring-(--accent) focus-visible:ring-offset-2 focus-visible:outline-none",
       )}
     >
@@ -258,6 +261,14 @@ function ShowcaseCard({ service, selected, onSelect }: CardProps) {
           <span className="inline-flex items-center gap-1 rounded-full bg-zinc-950/45 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
             <Clock className="size-3" aria-hidden />
             {formatDuration(service.durationMin, locale)}
+          </span>
+          {/* The same round action the compact rows end in, so both layouts
+              say "press" the same way. */}
+          <span
+            aria-hidden
+            className="booking-cta ms-auto flex size-9 shrink-0 items-center justify-center rounded-full"
+          >
+            <ChevronLeft className="size-[18px]" strokeWidth={2.25} />
           </span>
         </span>
       </span>

@@ -102,11 +102,13 @@ export default function LandingPage() {
           seam bleeding through it. */}
       <header className="sticky top-0 z-20 h-16 border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="mx-auto flex h-full w-full max-w-[1400px] items-center justify-between px-5 sm:px-8">
+          {/* Hebrew, like the rest of the page around it: the Latin form stays
+              in the title, the URL and the typewriter that alternates both. */}
           <Link
             href="/"
-            className="text-lg font-black tracking-tighter text-zinc-950 dark:text-zinc-50"
+            className="text-xl font-black tracking-tight text-zinc-950 dark:text-zinc-50"
           >
-            {BRAND_MARK.stem}
+            {BRAND_MARK.stemHe}
             <span className="text-zinc-400">{BRAND_MARK.dot}</span>
           </Link>
 
@@ -224,17 +226,45 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* PROOF — the first thing under the fold, and the one strip that has
-            to stop a thumb. Three numbers answering three objections. A card
-            inset on the page rather than a full-bleed band: butted against the
-            hero it read as a second section starting, where a card with its
-            colour bleeding out of it reads as the hero continuing. */}
-        <ProofStrip />
-
-        {/* ליבי — right under the proof, while the hero's conversation is
-            still in the reader's eye: the one thing this page offers that no
-            other booking tool for a small shop does, given its own room. */}
+        {/* ליבי — straight under the hero: the one thing this page offers that
+            no other booking tool for a small shop does, given its own room.
+            The owner singled this section out to keep, and it now leads. */}
         <LibiShowcase />
+
+        {/* PRODUCT TOUR — the app's own screens.
+
+            Second after the hero since 2026-10-03, ahead of the proof numbers
+            and "how it works": visitors look at screens before they read about
+            them, so the pictures come while attention is highest and the
+            prose follows for whoever is still deciding. Three screens rather than every one,
+            because a wall of near-identical Hebrew UI is a gallery and teaches
+            nothing — each is the evidence for one claim. Drawn with the
+            dashboard's own glass (see `mock-kit`), so they move when the
+            product does instead of falling a version behind it.
+
+            It is also the section that earns the page its right to be seen by
+            a shop owner who arrived from a competitor's booking link, which
+            PRODUCT.md names as this surface's second job. */}
+        <section className="border-t border-zinc-200 dark:border-zinc-800">
+          <div className="py-20 sm:py-28">
+            <div className="mx-auto w-full max-w-[1400px] px-5 sm:px-8">
+              <h2 className={sectionTitle}>ככה זה נראה מבפנים</h2>
+              <p className="mt-3 max-w-md text-base text-zinc-600 dark:text-zinc-400">
+                אותם כרטיסי זכוכית, אותו יומן ואותו סרגל — כך המערכת נראית
+                אצלכם.
+              </p>
+            </div>
+            <div className="mt-14">
+              <ProductTour />
+            </div>
+          </div>
+        </section>
+
+        {/* PROOF — three numbers answering three objections. After the
+            screens since 2026-10-03: the numbers land harder once the reader
+            has seen what they describe. A card inset on the page rather than a
+            full-bleed band, with its colour bleeding out of it. */}
+        <ProofStrip />
 
         {/* HOW IT WORKS — hairline-topped columns. No step numerals: the order
             is the order, and "שלב 1" adds a word without adding meaning.
@@ -266,34 +296,6 @@ export default function LandingPage() {
               </li>
             ))}
           </ol>
-        </section>
-
-        {/* PRODUCT TOUR — the app's own screens.
-
-            Placed after "how it works" and before "what you get": the reader
-            has just been told the shape of the thing in three sentences, and
-            this is where they see it. Three screens rather than every one,
-            because a wall of near-identical Hebrew UI is a gallery and teaches
-            nothing — each is the evidence for one claim. Drawn with the
-            dashboard's own glass (see `mock-kit`), so they move when the
-            product does instead of falling a version behind it.
-
-            It is also the section that earns the page its right to be seen by
-            a shop owner who arrived from a competitor's booking link, which
-            PRODUCT.md names as this surface's second job. */}
-        <section className="border-t border-zinc-200 dark:border-zinc-800">
-          <div className="py-20 sm:py-28">
-            <div className="mx-auto w-full max-w-[1400px] px-5 sm:px-8">
-              <h2 className={sectionTitle}>ככה זה נראה מבפנים</h2>
-              <p className="mt-3 max-w-md text-base text-zinc-600 dark:text-zinc-400">
-                אותם כרטיסי זכוכית, אותו יומן ואותו סרגל — כך המערכת נראית
-                אצלכם.
-              </p>
-            </div>
-            <div className="mt-14">
-              <ProductTour />
-            </div>
-          </div>
         </section>
 
         {/* FEATURES — one open at a time. The list is what gets skimmed and

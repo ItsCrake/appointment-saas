@@ -238,8 +238,8 @@ export default async function BillingPage() {
 
       {!entitlements.customBranding ? (
         <p className="mt-6 text-xs leading-relaxed text-zinc-500">
-          במסלול המקצועי נכללים עיצוב מותאם לעמוד ההזמנות, גלריה, חוות דעת
-          ותזכורות SMS.
+          במסלול המקצועי נכללים עיצוב מותאם לעמוד ההזמנות, גלריה וחוות
+          דעת.
         </p>
       ) : null}
     </div>

@@ -21,6 +21,8 @@ export const THEME_COLORS = [
   "amber",
   "violet",
   "cyan",
+  // Monochrome: ink buttons on paper, inverted to paper on ink in dark mode.
+  "black",
 ] as const;
 
 export type ThemeColor = (typeof THEME_COLORS)[number];
@@ -35,6 +37,7 @@ export const THEME_LABELS: Record<ThemeColor, string> = {
   amber: "כתום",
   violet: "סגול",
   cyan: "תכלת",
+  black: "שחור",
 };
 
 export function isThemeColor(value: unknown): value is ThemeColor {

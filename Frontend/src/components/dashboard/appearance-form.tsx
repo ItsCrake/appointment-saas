@@ -48,7 +48,6 @@ import { cn } from "@/lib/utils";
  * globals.css; a test asserts the two lists agree.
  */
 const CORNER_PREVIEW_RADIUS: Record<CornerStyle, string> = {
-  soft: "0.5rem",
   rounded: "0.875rem",
   round: "1.5rem",
 };
@@ -197,7 +196,7 @@ export function AppearanceForm({ initial, businessName }: Props) {
     // is visible before it is ever saved.
     <div data-accent={themeColor} className="space-y-6">
       <Section title="צבע העסק" description="הצבע המודגש בעמוד ההזמנות שלכם">
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
           {THEME_COLORS.map((colour) => (
             <button
               key={colour}
@@ -269,7 +268,7 @@ export function AppearanceForm({ initial, businessName }: Props) {
             <legend className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
               משטח
             </legend>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {CARD_STYLES.map((style) => (
                 <button
                   key={style}
@@ -299,7 +298,7 @@ export function AppearanceForm({ initial, businessName }: Props) {
             <legend className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
               עיגול פינות
             </legend>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {CORNER_STYLES.map((corner) => (
                 <button
                   key={corner}

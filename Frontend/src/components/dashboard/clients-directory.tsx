@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   MessageCircle,
   Phone,
@@ -18,6 +18,7 @@ import { whatsappHref } from "@/lib/whatsapp-link";
 import {
   ClientProfileDrawer,
   type ClientProfileData,
+  type ClientSummary,
 } from "./client-profile-drawer";
 import { cardClass, EmptyState, inputClass } from "./ui";
 
@@ -30,6 +31,60 @@ export type DirectoryClient = {
   /** Whether the owner has saved preferences for them — a marker, not the text. */
   hasNotes: boolean;
 };
+
+/** How long an opened profile is reused before it is asked for again. */
+const PROFILE_TTL_MS = 60_000;
+
+type LoadResult = Awaited<ReturnType<typeof loadClientProfileAction>>;
+type CachedLoad = { at: number; promise: Promise<LoadResult> };
+
+/**
+ * Fetched when a row is opened rather than shipped with the list. A shop with
+ * four hundred clients would otherwise pay for four hundred histories to
+ * render a table of names and counts.
+ *
+ * **One request per client, shared.** `load` is started on `pointerdown` (the
+ * beat between pressing and releasing) and the click that follows picks up the
+ * same promise instead of asking again. A profile seen in the last minute is
+ * reused outright, so scanning back and forth through a few clients costs
+ * nothing after the first look. Not on hover: Server Actions run one at a
+ * time, and a pointer crossing ten rows would queue ten loads ahead of the one
+ * actually clicked.
+ */
+function createProfileLoader() {
+  const loads = new Map<string, CachedLoad>();
+
+  function load(clientPhone: string): Promise<LoadResult> {
+    const cached = loads.get(clientPhone);
+    if (cached && Date.now() - cached.at < PROFILE_TTL_MS) return cached.promise;
+
+    const promise: Promise<LoadResult> = loadClientProfileAction(
+      clientPhone,
+    ).catch(() => ({ ok: false, error: "טעינת הלקוח נכשלה" }));
+    loads.set(clientPhone, { at: Date.now(), promise });
+    // A failure is not worth remembering: the next tap should try again.
+    void promise.then((result) => {
+      if (!result.ok) loads.delete(clientPhone);
+    });
+    return promise;
+  }
+
+  /** Keeps a reopened drawer showing the notes that were just saved. */
+  function saved(clientPhone: string, notes: string) {
+    const cached = loads.get(clientPhone);
+    if (!cached) return;
+    loads.set(clientPhone, {
+      at: cached.at,
+      promise: cached.promise.then((result) =>
+        result.ok
+          ? { ...result, profile: { ...result.profile, notes } }
+          : result,
+      ),
+    });
+  }
+
+  return { load, saved };
+}
 
 /** What a client with no completed visit shows instead of a date. */
 const NEVER_VISITED = "טרם הגיע";
@@ -44,20 +99,37 @@ const NEVER_VISITED = "טרם הגיע";
 export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
   const [query, setQuery] = useState("");
   const { toast } = useToast();
-  const [pending, startTransition] = useTransition();
+  const [openClient, setOpenClient] = useState<ClientSummary | null>(null);
   const [profile, setProfile] = useState<ClientProfileData | null>(null);
+  const [profiles] = useState(createProfileLoader);
+  const openPhone = useRef<string | null>(null);
 
-  /**
-   * Fetched when a row is opened rather than shipped with the list. A shop with
-   * four hundred clients would otherwise pay for four hundred histories to
-   * render a table of names and counts.
-   */
-  function open(clientPhone: string) {
-    startTransition(async () => {
-      const result = await loadClientProfileAction(clientPhone);
-      if (result.ok) setProfile(result.profile);
-      else toast(result.error, "error");
+  /** The drawer opens on the tap; the profile fills it when it arrives. */
+  function open(client: DirectoryClient) {
+    openPhone.current = client.clientPhone;
+    setOpenClient({
+      clientPhone: client.clientPhone,
+      clientName: client.clientName,
     });
+    setProfile(null);
+
+    void profiles.load(client.clientPhone).then((result) => {
+      // A slow answer for a client the owner has already moved on from (or
+      // closed) must not overwrite the one they are looking at now.
+      if (openPhone.current !== client.clientPhone) return;
+      if (result.ok) {
+        setProfile(result.profile);
+      } else {
+        toast(result.error, "error");
+        close();
+      }
+    });
+  }
+
+  function close() {
+    openPhone.current = null;
+    setOpenClient(null);
+    setProfile(null);
   }
 
   const filtered = useMemo(() => {
@@ -150,8 +222,8 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                     <Td>
                       <button
                         type="button"
-                        disabled={pending}
-                        onClick={() => open(client.clientPhone)}
+                        onPointerDown={() => void profiles.load(client.clientPhone)}
+                        onClick={() => open(client)}
                         className="flex items-center gap-1.5 rounded font-medium text-zinc-900 underline decoration-transparent underline-offset-4 transition-colors hover:decoration-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:outline-none dark:text-zinc-100 dark:focus-visible:ring-white"
                       >
                         {client.clientName}
@@ -203,8 +275,8 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
                   <div className="min-w-0">
                     <button
                       type="button"
-                      disabled={pending}
-                      onClick={() => open(client.clientPhone)}
+                      onPointerDown={() => void profiles.load(client.clientPhone)}
+                      onClick={() => open(client)}
                       className="flex max-w-full items-center gap-1.5 truncate font-semibold text-zinc-900 dark:text-zinc-100"
                     >
                       <span className="truncate">{client.clientName}</span>
@@ -236,10 +308,12 @@ export function ClientsDirectory({ clients }: { clients: DirectoryClient[] }) {
         </>
       )}
 
-      {profile ? (
+      {openClient ? (
         <ClientProfileDrawer
+          client={openClient}
           profile={profile}
-          onClose={() => setProfile(null)}
+          onClose={close}
+          onSaved={(notes) => profiles.saved(openClient.clientPhone, notes)}
         />
       ) : null}
     </div>

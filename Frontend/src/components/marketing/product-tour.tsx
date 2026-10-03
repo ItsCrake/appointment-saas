@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { CalendarRange, MessageCircle, Users } from "lucide-react";
+import { AudioLines, MessageCircle, Users } from "lucide-react";
 
 import { MockPhone } from "./mock-kit";
-import { ClientsScreen, RequestsScreen, WeekScreen } from "./mock-screens";
+import { AgendaScreen, ClientsScreen, RequestsScreen } from "./mock-screens";
 
 /**
  * Three screens, each answering a question a shop owner actually asks.
@@ -31,17 +31,16 @@ import { ClientsScreen, RequestsScreen, WeekScreen } from "./mock-screens";
 
 const TOUR = [
   {
-    key: "week",
-    Screen: WeekScreen,
-    alt: "היומן השבועי במצב עריכה, במסגרת סגולה: תורים כמעט בכל יום, בקשה אחת בכתום, ותור שנגרר לשעה חדשה עם מסגרת מקווקוות במקום שבו ינחת",
-    Icon: CalendarRange,
-    title: "יומן שבועי שמזיזים באצבע",
-    body: "כל התורים, החסימות והצוות במקום אחד. במצב עריכה גוררים תור לשעה או ליום אחר והוא נוחת בקפיצות של חמש דקות, או מקישים על שני תורים, מאשרים — והם מתחלפים. היומן מסמן מראש איפה כבר תפוס — ואם משהו לא נשמר, התור חוזר למקומו.",
-    points: [
-      "גרירה בקפיצות של 5 דקות",
-      "החלפה בין שני תורים",
-      "חסימות וצבע לכל נותן שירות",
-    ],
+    // The week view used to open this tour; it is the hero now (2026-10-03),
+    // so the tour opens on the day instead — with ליבי mid-sentence, right
+    // after the section that explains her.
+    key: "agenda",
+    Screen: AgendaScreen,
+    alt: "היומן של בעל עסק בטלפון: תורי היום, בקשה אחת שממתינה לאישור, וליבי — העוזרת הקולית — ששואלת אם להזיז את התור של דנה משתיים לארבע, עם כפתור אישור ומיקרופון שממתין לתשובה",
+    Icon: AudioLines,
+    title: "היום שלכם, במסך אחד",
+    body: "התורים של היום לפי הסדר, מה ממתין לאישור ומה הבא בתור. ליבי זמינה מכל מסך: אומרים לה מה להזיז, והיא מוצאת את התור, שואלת לפני שהיא נוגעת בו, ומחכה לאישור שלכם.",
+    points: ["תורי היום לפי הסדר", "בקשות לאישור במקום אחד", "ליבי בלחיצה"],
   },
   {
     key: "requests",

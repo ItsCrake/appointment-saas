@@ -1,4 +1,4 @@
-import { Calendar, CheckCircle2, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -18,38 +18,32 @@ import { useCopy } from "./copy-context";
  */
 const steps = (t: ReturnType<typeof useCopy>) =>
   [
-    { label: t("step.service", "בחרו טיפול"), Icon: Sparkles },
-    { label: t("step.datetime", "מועד"), Icon: Calendar },
-    { label: t("step.confirm", "סיכום ואישור"), Icon: CheckCircle2 },
+    t("step.service", "בחרו טיפול"),
+    t("step.datetime", "מועד"),
+    t("step.confirm", "סיכום ואישור"),
   ] as const;
 
 /**
- * Where the client is, as three pills.
+ * Where the client is, as a quiet line of progress.
  *
  * ---------------------------------------------------------------------------
- * **It sits on the page, not on the hero.** The obvious version of this floats
- * the pills over the tenant's hero photograph, and that is what the reference
- * shots do — but the step lives in `BookingFlow`'s client state while the
- * header is a server component with the gallery between them, so putting it
- * there means lifting state through two components to buy one visual. The pills
- * are built from the same accent tokens the cards use instead, which makes them
- * part of the page rather than a sticker on it.
+ * **It reads as a map, not as controls.** It used to be three filled pills with
+ * icons, and on a page whose cards are the things to press, three more rounded
+ * shapes in the tenant's colour read as three more buttons — owners watched
+ * clients tap "מועד" expecting to jump ahead. Now each step is a small numbered
+ * dot and a plain label, joined by hairlines: nothing here has a surface, so
+ * nothing here invites a tap.
  *
- * **One filled pill, never three.** The active step carries `--accent` and its
- * measured `--accent-contrast` pair; completed steps drop to the tinted
- * `--accent-soft` surface and gain a tick; upcoming ones are plain zinc. Fill,
- * tint and elevation are doing what a second and third colour would otherwise
- * have to — and on a page whose one colour belongs to the tenant, inventing
- * more is not available.
+ * **One filled dot, never three.** The current step's dot carries `--accent`
+ * and its measured `--accent-contrast`; a finished step drops to the tinted
+ * `--accent-soft` and trades its number for a tick; an upcoming one is an
+ * outline. The current label is the only one in ink and semibold.
  *
- * **The tick, not the tint, is what says "done".** State never rides on hue
- * alone here: the icon changes, so the row survives greyscale, a colour-blind
- * reader, and the accessibility widget's contrast mode.
+ * **The tick, not the tint, says "done"**, so the row survives greyscale, a
+ * colour-blind reader and the accessibility widget's contrast mode.
  *
- * **Not a nav.** Nothing is clickable. A pill that looked pressable and refused
- * would be a control that appears to work and does not, which is the one thing
- * this product's principles name outright. `<ol>` plus `aria-current` says the
- * same thing to a screen reader without promising a destination.
+ * **Not a nav.** `<ol>` plus `aria-current` tells a screen reader where it is
+ * without promising a destination.
  * ---------------------------------------------------------------------------
  */
 export function Stepper({ current }: { current: 1 | 2 | 3 }) {
@@ -57,59 +51,71 @@ export function Stepper({ current }: { current: 1 | 2 | 3 }) {
   const STEPS = steps(t);
 
   return (
-    <div className="px-5 pb-6">
-      <p className="mb-2.5 text-center text-[11px] font-medium tracking-wide text-zinc-500">
+    <div className="px-5 pt-3 pb-7">
+      <p className="sr-only">
         {t("step.progress", "שלב")} {current} {t("common.of", "מתוך")}{" "}
         {STEPS.length}
       </p>
 
       <ol
-        className="flex items-center justify-center gap-1"
+        className="flex items-center justify-center gap-2 sm:gap-3"
         aria-label={t("step.aria", "שלבי קביעת התור")}
       >
-        {STEPS.map(({ label, Icon }, i) => {
+        {STEPS.map((label, i) => {
           const step = i + 1;
           const done = step < current;
           const active = step === current;
 
           return (
-            <li key={label} className="flex min-w-0 items-center gap-1">
+            <li key={label} className="flex min-w-0 items-center gap-2 sm:gap-3">
               <span
                 aria-current={active ? "step" : undefined}
-                className={cn(
-                  "step-pill flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap",
-                  active &&
-                    "shadow-accent bg-(--accent) text-(--accent-contrast)",
-                  done && "bg-(--accent-soft) text-(--accent-on-soft)",
-                  // zinc-500 is the floor for text on white (4.6:1); zinc-400
-                  // measures 2.6:1 and fails AA at this size.
-                  !done &&
-                    !active &&
-                    "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
-                )}
+                className="flex items-center gap-1.5"
               >
-                <Icon className="size-3.5 shrink-0" aria-hidden />
-                {/* Inactive labels fold away below 640px rather than wrapping
-                    the row onto two lines. The icons and the "שלב 1 מתוך 3"
-                    line above still carry the position, and the active pill
-                    keeps its words at every width — it is the one that has to
-                    say what the client is doing right now. */}
-                <span className={cn(!active && "hidden sm:inline")}>
+                <span
+                  aria-hidden
+                  className={cn(
+                    "step-pill flex size-5 shrink-0 items-center justify-center text-[10px] font-bold tabular-nums",
+                    active &&
+                      "shadow-accent bg-(--accent) text-(--accent-contrast)",
+                    done && "bg-(--accent-soft) text-(--accent-on-soft)",
+                    !done &&
+                      !active &&
+                      "text-zinc-500 ring-1 ring-zinc-300 ring-inset dark:text-zinc-400 dark:ring-zinc-600",
+                  )}
+                >
+                  {done ? (
+                    <Check className="size-3" strokeWidth={3} />
+                  ) : (
+                    step
+                  )}
+                </span>
+                {/* Other labels fold away below 640px rather than wrapping the
+                    row; the numbered dots still carry the position, and the
+                    current label keeps its words at every width. */}
+                <span
+                  className={cn(
+                    "text-[12px] whitespace-nowrap",
+                    active
+                      ? "font-semibold text-zinc-900 dark:text-zinc-100"
+                      : "font-medium text-zinc-500 dark:text-zinc-400",
+                    !active && "hidden sm:inline",
+                  )}
+                >
                   {label}
                 </span>
-                {active ? <span className="sr-only">
+                {active ? (
+                  <span className="sr-only">
                     {t("step.current", "— השלב הנוכחי")}
-                  </span> : null}
+                  </span>
+                ) : null}
               </span>
 
-              {/* A connector, not a rail. Three pills already read as a
-                  sequence; a full progress bar under the hero would compete
-                  with the one thing the client should be looking at. */}
               {i < STEPS.length - 1 ? (
                 <span
                   aria-hidden
                   className={cn(
-                    "h-px w-2.5 shrink-0 rounded-full transition-colors duration-300 sm:w-4",
+                    "h-px w-5 shrink-0 transition-colors duration-300 sm:w-8",
                     step < current
                       ? "bg-(--accent)"
                       : "bg-zinc-200 dark:bg-zinc-700",

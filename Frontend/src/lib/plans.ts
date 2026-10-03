@@ -74,7 +74,7 @@ export type BillingCycle = (typeof BILLING_CYCLES)[number];
  * in `lib/entitlements.ts` is what decides whether the page may print it, and
  * `entitlements.test.ts` fails if the trial ever stops including her.
  */
-export const TRIAL_DAYS = 14;
+export const TRIAL_DAYS = 30;
 
 /**
  * The tier a trial hands over, regardless of which one the owner picked during
@@ -210,7 +210,6 @@ export const PRICING_TIERS: PricingTier[] = [
       "כל מה שבבסיסי",
       "350 הודעות וואטסאפ בחודש",
       "דוחות וסטטיסטיקות מתקדמים",
-      "תזכורות גם ב-SMS",
       "ליווי אישי בהקמה",
       "תמיכה בעדיפות",
     ],
